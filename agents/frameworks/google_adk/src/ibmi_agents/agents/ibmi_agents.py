@@ -84,6 +84,56 @@ def get_model():
     return LiteLlm(model=model_name)
 
 # ============================================================
+#  HELPER FUNCTIONS
+# ============================================================
+
+def build_toolset_kwargs(debug_filtering: bool = False) -> dict:
+    """
+    Build kwargs for load_toolset_tools based on transport type from environment.
+    
+    Args:
+        debug_filtering: Enable debug output for tool filtering
+        
+    Returns:
+        dict: Kwargs to pass to load_toolset_tools
+        
+    Raises:
+        ValueError: If HTTP transport is selected but token is missing
+    """
+    # Get transport type from environment
+    transport = os.getenv("MCP_TRANSPORT_TYPE", "stdio")
+    
+    # Build base kwargs
+    toolset_kwargs = {
+        "debug": debug_filtering,
+        "transport": transport
+    }
+    
+    if transport == "stdio":
+        env = {
+            "DB2i_HOST": os.getenv("DB2i_HOST", ""),
+            "DB2i_USER": os.getenv("DB2i_USER", ""),
+            "DB2i_PASSWORD": os.getenv("DB2i_PASSWORD", ""),
+            "DB2i_PORT": os.getenv("DB2i_PORT", "8076"),
+            "MCP_TRANSPORT_TYPE": transport,
+            "TOOLS_YAML_PATH": os.getenv("TOOLS_YAML_PATH", "tools"),
+            "NODE_OPTIONS": os.getenv("NODE_OPTIONS", "--no-deprecation"),
+        }
+        toolset_kwargs.update({
+            "command": "npx",
+            "args": ["ibmi-mcp-server"],
+            "env": env
+        })
+    elif transport == "http":
+        token = os.getenv("IBMI_MCP_ACCESS_TOKEN")
+        if not token:
+            raise ValueError("IBMI_MCP_ACCESS_TOKEN is required for HTTP transport")
+        toolset_kwargs["token"] = token
+        toolset_kwargs["transport"] = "streamable_http"
+    
+    return toolset_kwargs
+
+# ============================================================
 #  PERFORMANCE AGENT
 # ============================================================
 
@@ -103,7 +153,9 @@ async def create_performance_agent(debug_filtering: bool = False):
     """
     logger.info("Creating performance agent...")
     try:
-        toolset = await load_toolset_tools("performance", debug=debug_filtering)
+        # Build toolset kwargs based on transport type
+        toolset_kwargs = build_toolset_kwargs(debug_filtering)
+        toolset = await load_toolset_tools("performance", **toolset_kwargs)
 
         performance_instruction = """
             You are an IBM i performance optimization assistant.
@@ -160,7 +212,9 @@ async def create_sysadmin_discovery_agent(debug_filtering: bool = False):
     """
     logger.info("Creating system admin discovery agent...")
     try:
-        toolset = await load_toolset_tools("sysadmin_discovery", debug=debug_filtering)
+        # Build toolset kwargs based on transport type
+        toolset_kwargs = build_toolset_kwargs(debug_filtering)
+        toolset = await load_toolset_tools("sysadmin_discovery", **toolset_kwargs)
 
         discovery_instruction = """
             You are an IBM i system administration discovery assistant.
@@ -214,7 +268,9 @@ async def create_sysadmin_browse_agent(debug_filtering: bool = False):
     """
     logger.info("Creating system admin browse agent...")
     try:
-        toolset = await load_toolset_tools("sysadmin_browse", debug=debug_filtering)
+        # Build toolset kwargs based on transport type
+        toolset_kwargs = build_toolset_kwargs(debug_filtering)
+        toolset = await load_toolset_tools("sysadmin_browse", **toolset_kwargs)
 
         browse_instruction = """
             You are an IBM i browsing assistant.
@@ -268,7 +324,9 @@ async def create_sysadmin_search_agent(debug_filtering: bool = False):
     """
     logger.info("Creating system admin search agent...")
     try:
-        toolset = await load_toolset_tools("sysadmin_search", debug=debug_filtering)
+        # Build toolset kwargs based on transport type
+        toolset_kwargs = build_toolset_kwargs(debug_filtering)
+        toolset = await load_toolset_tools("sysadmin_search", **toolset_kwargs)
 
         search_instruction = """
             You are an IBM i search and lookup assistant.
@@ -374,11 +432,11 @@ async def chat_with_agent(agent: LlmAgent, query: str) -> str:
         content = types.Content(role='user', parts=[types.Part(text=query)])
         
         # Run the agent
-        events = runner.run_async(user_id=user_id, session_id=session_id, new_message=content)
+        event_generator = runner.run_async(user_id=user_id, session_id=session_id, new_message=content)
         
         # Process events and get final response
         final_response = ""
-        async for event in events:
+        async for event in event_generator:
             if event.is_final_response():
                 final_response = event.content.parts[0].text
                 break

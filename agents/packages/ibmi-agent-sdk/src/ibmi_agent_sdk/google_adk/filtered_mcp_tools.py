@@ -319,7 +319,8 @@ async def load_toolset_tools(
     Load MCP tools filtered by toolset annotation.
     
     Args:
-        toolsets: Single toolset string or list of toolsets
+        toolsets: Single toolset string or list of toolsets. If an empty list is provided,
+                  no tools will match the filter (returns empty toolset).
         transport: Connection transport type ("streamable_http" or "stdio")
         url: MCP server URL (for streamable_http)
         token: Bearer token (for streamable_http)
@@ -331,9 +332,15 @@ async def load_toolset_tools(
     Returns:
         Configured McpToolset instance filtered by toolsets
         
+    Raises:
+        ValueError: If an empty list is provided for toolsets parameter
+        
     Examples:
-        # HTTP transport
+        # HTTP transport with single toolset
         toolset = await load_toolset_tools("performance")
+        
+        # HTTP transport with multiple toolsets
+        toolset = await load_toolset_tools(["performance", "sys_admin"])
         
         # Stdio transport
         toolset = await load_toolset_tools(
@@ -342,8 +349,22 @@ async def load_toolset_tools(
             command="npx",
             args=["ibmi-mcp-server"]
         )
+        
+    Note:
+        Passing an empty list for toolsets will raise a ValueError since it would
+        create a filter that matches no tools. If you want to load all tools without
+        filtering, use load_filtered_mcp_tools() with no annotation_filters instead.
     """
+    # Convert single string to list
     toolsets_list = [toolsets] if isinstance(toolsets, str) else list(toolsets)
+    
+    # Explicitly handle empty list edge case
+    if not toolsets_list:
+        raise ValueError(
+            "Empty toolsets list provided. This would create a filter that matches no tools. "
+            "To load all tools without filtering, use load_filtered_mcp_tools() instead."
+        )
+    
     return await load_filtered_mcp_tools(
         annotation_filters={"toolsets": toolsets_list},
         transport=transport,

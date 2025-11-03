@@ -344,6 +344,12 @@ class TestConvenienceFunctions:
         assert call_kwargs['annotation_filters'] == {"toolsets": ["performance", "sys_admin"]}
     
     @pytest.mark.asyncio
+    async def test_load_toolset_tools_empty_list(self):
+        """Test load_toolset_tools with empty list raises ValueError."""
+        with pytest.raises(ValueError, match="Empty toolsets list provided"):
+            await load_toolset_tools([])
+    
+    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
     async def test_load_readonly_tools(self, mock_load):
         """Test load_readonly_tools."""

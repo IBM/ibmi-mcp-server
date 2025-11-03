@@ -155,52 +155,54 @@ async def run_agent(agent_name: str, query: Optional[str], verbose: bool = False
             logger.info(f"Creating {agent_name} agent...")
         agent, toolset = await AVAILABLE_AGENTS[agent_name]["create_fn"](debug_filtering=verbose)
         
-        if not query:
+        try:
+            if not query:
+                if not quiet:
+                    logger.info(f"Agent {agent_name} created successfully. Use --query to interact with it.")
+                return
+            
             if not quiet:
-                logger.info(f"Agent {agent_name} created successfully. Use --query to interact with it.")
-            return
-        
-        if not quiet:
-            logger.info(f"Running query: {query}")
-            logger.debug("Setting up session service...")
-        
-        # Set up session service
-        session_service = InMemorySessionService()
-        await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
-        
-        # Create runner
-        if not quiet:
-            logger.debug("Creating runner...")
-        runner = Runner(app_name=app_name, agent=agent, session_service=session_service)
-        
-        # Format query as Content
-        content = types.Content(role='user', parts=[types.Part(text=query)])
-        
-        # Run the agent
-        if not quiet:
-            logger.debug("Running agent...")
-            print("\nProcessing query, please wait...\n")
-        
-        events = runner.run_async(user_id=user_id, session_id=session_id, new_message=content)
-        
-        # Process events
-        async for event in events:
-            if verbose and not quiet:
-                logger.debug(f"Event: {event}")
-            if event.is_final_response():
-                final_response = event.content.parts[0].text
-                if quiet:
-                    # In quiet mode, only print the final response
-                    print(final_response)
-                else:
-                    print("\nAgent Response:")
-                    print("==============")
-                    print(final_response)
-        
-        await toolset.close()
-        
-        if not quiet:
-            logger.info("Agent run complete.")
+                logger.info(f"Running query: {query}")
+                logger.debug("Setting up session service...")
+            
+            # Set up session service
+            session_service = InMemorySessionService()
+            await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
+            
+            # Create runner
+            if not quiet:
+                logger.debug("Creating runner...")
+            runner = Runner(app_name=app_name, agent=agent, session_service=session_service)
+            
+            # Format query as Content
+            content = types.Content(role='user', parts=[types.Part(text=query)])
+            
+            # Run the agent
+            if not quiet:
+                logger.debug("Running agent...")
+                print("\nProcessing query, please wait...\n")
+            
+            event_generator = runner.run_async(user_id=user_id, session_id=session_id, new_message=content)
+            
+            # Process events
+            async for event in event_generator:
+                if verbose and not quiet:
+                    logger.debug(f"Event: {event}")
+                if event.is_final_response():
+                    final_response = event.content.parts[0].text
+                    if quiet:
+                        # In quiet mode, only print the final response
+                        print(final_response)
+                    else:
+                        print("\nAgent Response:")
+                        print("==============")
+                        print(final_response)
+            
+            if not quiet:
+                logger.info("Agent run complete.")
+        finally:
+            # Always close the toolset connection, even if an exception occurs
+            await toolset.close()
         
     except Exception as e:
         if quiet:
@@ -212,8 +214,8 @@ async def run_agent(agent_name: str, query: Optional[str], verbose: bool = False
                 traceback.print_exc()
 
 # Main function
-async def main() -> None:
-    """Main entry point for the CLI."""
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser."""
     parser = argparse.ArgumentParser(
         description="IBM i Agent CLI - Interact with IBM i systems using specialized AI agents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -226,52 +228,75 @@ Examples:
     )
     parser.add_argument("--agent", help="Agent type to run")
     parser.add_argument("--query", help="Query to send to the agent")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output with detailed logging")
-    parser.add_argument("--quiet", action="store_true", help="Quiet mode - only show final response without logs")
+    
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument("--verbose", action="store_true", help="Enable verbose output with detailed logging")
+    verbosity_group.add_argument("--quiet", action="store_true", help="Quiet mode - only show final response without logs")
+    
     parser.add_argument("--list-agents", action="store_true", help="List available agents")
     parser.add_argument("--model", help="Override the LLM model to use")
     
+    return parser
+
+def apply_model_override(model: str, quiet: bool) -> None:
+    """Apply model override to environment."""
+    os.environ["IBMI_AGENT_MODEL"] = model
+    if not quiet:
+        logger = logging.getLogger("ibmi_agent")
+        logger.info(f"Using model: {model}")
+
+def determine_log_level(verbose: bool, config: Dict[str, Any]) -> str:
+    """Determine the appropriate log level."""
+    return "DEBUG" if verbose else config["log_level"]
+
+def handle_error(error: Exception, verbose: bool, quiet: bool) -> None:
+    """Handle and display errors appropriately."""
+    if quiet:
+        print(f"Error: {str(error)}")
+    else:
+        logging.error(f"Error: {str(error)}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+    sys.exit(1)
+
+async def execute_list_agents_flow() -> None:
+    """Execute the list agents workflow."""
+    list_agents()
+
+async def execute_run_agent_flow(agent: str, query: Optional[str], verbose: bool, quiet: bool) -> None:
+    """Execute the run agent workflow."""
+    await run_agent(agent, query, verbose, quiet)
+
+def display_help(parser: argparse.ArgumentParser) -> None:
+    """Display help information."""
+    parser.print_help()
+
+async def main() -> None:
+    """Main entry point for the CLI."""
+    parser = create_argument_parser()
     args = parser.parse_args()
     
-    # Validate mutually exclusive options
-    if args.verbose and args.quiet:
-        print("Error: --verbose and --quiet cannot be used together")
-        sys.exit(1)
-    
     try:
-        # Load configuration
         config = load_config()
+        log_level = determine_log_level(args.verbose, config)
+        setup_logging(log_level, quiet=args.quiet)
         
-        # Setup logging
-        setup_logging("DEBUG" if args.verbose else config["log_level"], quiet=args.quiet)
-        logger = logging.getLogger("ibmi_agent")
-        
-        # Override model if specified
         if args.model:
-            os.environ["IBMI_AGENT_MODEL"] = args.model
-            if not args.quiet:
-                logger.info(f"Using model: {args.model}")
+            apply_model_override(args.model, args.quiet)
         
-        # List agents if requested
         if args.list_agents:
-            list_agents()
+            await execute_list_agents_flow()
             return
         
-        # Run the specified agent
         if args.agent:
-            await run_agent(args.agent, args.query, args.verbose, args.quiet)
-        else:
-            parser.print_help()
+            await execute_run_agent_flow(args.agent, args.query, args.verbose, args.quiet)
+            return
+        
+        display_help(parser)
             
     except Exception as e:
-        if args.quiet:
-            print(f"Error: {str(e)}")
-        else:
-            logging.error(f"Error: {str(e)}")
-            if args.verbose:
-                import traceback
-                traceback.print_exc()
-        sys.exit(1)
+        handle_error(e, args.verbose, args.quiet)
 
 if __name__ == "__main__":
     asyncio.run(main())
