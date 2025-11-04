@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "ibmi-mcp-server": {
+      "command": "npx",
+      "args": [
+        "ibmi-mcp-server"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "TOOLS_YAML_PATH": ".bob/tools/services-tools.yaml",
+        "NODE_OPTIONS": "--no-deprecation",
+        "DB2i_HOST": "${DB2i_HOST}",
+        "DB2i_USER": "${DB2i_USER}",
+        "DB2i_PASS": "${DB2i_PASS}",
+        "DB2i_PORT": "${DB2i_PORT}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      },
+      "disabled": false,
+      "alwaysAllow": []
+    },
+    "ibmi-mcp-docs": {
+      "type": "streamable-http",
+      "url": "https://ibm-d95bab6e.mintlify.app/mcp"
+    }
+  }
+}

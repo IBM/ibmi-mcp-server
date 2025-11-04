@@ -1,10 +1,10 @@
 [
   {
     "title": "Workspace test",
-    "query": "What is my asana workspace?",             
-    "runs": 1, 
+    "query": "What is my asana workspace?",
+    "runs": 1,
     "model": "anthropic/claude-3.7-sonnet",
-    "provider": "openrouter", 
+    "provider": "openrouter",
     "expectedToolCalls": ["asana_list_workspaces"]
   },
   {

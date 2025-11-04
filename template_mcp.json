@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "default-server": {
+    "ibmi-mcp-server": {
       "command": "npx",
       "args": ["ibmi-mcp-server"],
       "env": {

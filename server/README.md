@@ -24,11 +24,13 @@ npm test
 ## Configuration
 
 Create a `.env` file in the **root of the monorepo** (parent directory):
+
 ```bash
 cp ../.env.example ../.env
 ```
 
 The server will automatically detect configuration in:
+
 1. Current working directory (for production deployments)
 2. Parent directory (for monorepo development)
 3. Server directory (for local overrides)
@@ -36,11 +38,13 @@ The server will automatically detect configuration in:
 ## Tool Configuration
 
 By default, the server loads SQL tools from `../tools/`. Override with:
+
 ```bash
 TOOLS_YAML_PATH=../tools npm run start:http
 ```
 
 Or set in your `.env` file:
+
 ```ini
 TOOLS_YAML_PATH=tools
 ```
@@ -78,6 +82,7 @@ See [CLAUDE.md](../CLAUDE.md) for architectural standards and development guidel
 ## Monorepo Structure
 
 This server is part of a monorepo:
+
 - `../tools/` - SQL tool YAML configurations
 - `../agents/` - Agent implementations and examples
 - `../apps/` - Deployment configurations (Docker, Gateway, n8n)

@@ -5,17 +5,12 @@ import {
   ExecuteSqlResponseSchema,
 } from "../../../../src/ibmi-mcp-server/tools/executeSql/logic.js";
 import { McpError } from "../../../../src/types-global/errors.js";
-import { requestContextService } from "../../../../src/utils/index.js";
 import { IBMiConnectionPool } from "../../../../src/ibmi-mcp-server/services/connectionPool.js";
 
 // Mock the IBMiConnectionPool
 vi.mock("../../../../src/ibmi-mcp-server/services/connectionPool.js");
 
 describe("executeSqlLogic", () => {
-  const context = requestContextService.createRequestContext({
-    toolName: "execute_sql",
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -60,8 +55,8 @@ describe("executeSqlLogic", () => {
 
       for (const sql of restrictedQueries) {
         const input = { sql };
-        await expect(executeSqlLogic(input, context)).rejects.toThrow(McpError);
-        await expect(executeSqlLogic(input, context)).rejects.toThrow(
+        await expect(executeSqlLogic(input)).rejects.toThrow(McpError);
+        await expect(executeSqlLogic(input)).rejects.toThrow(
           "restricted keyword",
         );
       }
@@ -77,8 +72,8 @@ describe("executeSqlLogic", () => {
 
       for (const sql of dangerousQueries) {
         const input = { sql };
-        await expect(executeSqlLogic(input, context)).rejects.toThrow(McpError);
-        await expect(executeSqlLogic(input, context)).rejects.toThrow(
+        await expect(executeSqlLogic(input)).rejects.toThrow(McpError);
+        await expect(executeSqlLogic(input)).rejects.toThrow(
           "dangerous patterns",
         );
       }
@@ -102,7 +97,7 @@ describe("executeSqlLogic", () => {
       vi.mocked(IBMiConnectionPool.executeQuery).mockResolvedValue(mockResult);
 
       const input = { sql: safeQuery };
-      const result = await executeSqlLogic(input, context);
+      const result = await executeSqlLogic(input);
 
       expect(result).toBeDefined();
       expect(result.data).toEqual([{ "00001": 1 }]);
@@ -159,7 +154,7 @@ describe("executeSqlLogic", () => {
       vi.mocked(IBMiConnectionPool.executeQuery).mockResolvedValue(mockResult);
 
       const input = { sql: "SELECT ID, NAME FROM TEST_TABLE" };
-      const result = await executeSqlLogic(input, context);
+      const result = await executeSqlLogic(input);
 
       // Validate response schema
       const validation = ExecuteSqlResponseSchema.safeParse(result);
@@ -189,7 +184,7 @@ describe("executeSqlLogic", () => {
       vi.mocked(IBMiConnectionPool.executeQuery).mockResolvedValue(mockResult);
 
       const input = { sql: "SELECT * FROM EMPTY_TABLE WHERE 1=0" };
-      const result = await executeSqlLogic(input, context);
+      const result = await executeSqlLogic(input);
 
       expect(result.data).toEqual([]);
       expect(result.rowCount).toBe(0);
@@ -214,10 +209,8 @@ describe("executeSqlLogic", () => {
 
       const input = { sql: "SELECT * FROM NONEXISTENT_TABLE" };
 
-      await expect(executeSqlLogic(input, context)).rejects.toThrow(McpError);
-      await expect(executeSqlLogic(input, context)).rejects.toThrow(
-        "execution failed",
-      );
+      await expect(executeSqlLogic(input)).rejects.toThrow(McpError);
+      await expect(executeSqlLogic(input)).rejects.toThrow("execution failed");
     });
 
     it("should handle connection pool errors", async () => {
@@ -229,8 +222,8 @@ describe("executeSqlLogic", () => {
 
       const input = { sql: "SELECT * FROM SYSIBM.SYSDUMMY1" };
 
-      await expect(executeSqlLogic(input, context)).rejects.toThrow(McpError);
-      await expect(executeSqlLogic(input, context)).rejects.toThrow(
+      await expect(executeSqlLogic(input)).rejects.toThrow(McpError);
+      await expect(executeSqlLogic(input)).rejects.toThrow(
         "Connection pool unavailable",
       );
     });
@@ -259,7 +252,7 @@ describe("executeSqlLogic", () => {
       const input = {
         sql: "SELECT 'test_value' AS TEST_COL FROM SYSIBM.SYSDUMMY1",
       };
-      const result = await executeSqlLogic(input, context);
+      const result = await executeSqlLogic(input);
 
       // Validate against Zod schema
       const validation = ExecuteSqlResponseSchema.safeParse(result);
@@ -301,7 +294,7 @@ describe("executeSqlLogic", () => {
       );
 
       const input = { sql: "SELECT COUNT(*) AS COUNT FROM SYSIBM.SYSDUMMY1" };
-      const result = await executeSqlLogic(input, context);
+      const result = await executeSqlLogic(input);
 
       expect(result.executionTimeMs).toBeGreaterThan(90); // Should be around 100ms
       expect(result.executionTimeMs).toBeLessThan(200); // With some tolerance

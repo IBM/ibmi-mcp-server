@@ -7,6 +7,23 @@ There are three main sections in each YAML file:
 - **tools**: Define individual SQL operations
 - **toolsets**: Group related tools together for easier loading
 
+## Tool Categories
+
+This directory contains pre-built tool configurations organized by category:
+
+| Directory | Category | Description | Key Tools |
+|-----------|----------|-------------|-----------|
+| [**sample/**](sample/) | Sample Data | Demonstration tools using IBM i SAMPLE schema (employee, department, project data) | Employee lookup, department analysis, project management |
+| [**sys-admin/**](sys-admin/) | System Administration | High-level system service discovery and metadata exploration | Service catalogs, schema browsing, example queries |
+| [**security/**](security/) | Security Analysis | Library list security assessment and vulnerability detection | Library list configuration, authority checks, security analysis |
+| [**performance/**](performance/) | Performance Monitoring | System performance metrics and resource utilization | System status, active jobs, memory pools, HTTP server stats |
+| [**developer/**](developer/) | Development Tools | Object statistics and dependency analysis for developers | Recently used objects, stale object detection, dependency tracking |
+
+> **💡 Quick Start:** Use `--list-toolsets` to see all available toolsets:
+> ```bash
+> npx ibmi-mcp-server --list-toolsets --tools tools
+> ```
+
 Below is an overview of the structure and purpose of each section.
 
 ## Sources
@@ -34,18 +51,27 @@ sources:
 
 ## Tools
 
-The `tools` section defines the actions that your agent can take. you can configure what system that the tool runs against, the SQL query to execute, parameters, security settings, etc. 
+The `tools` section defines the actions that your agent can take. you can configure what system that the tool runs against, the SQL query to execute, parameters, security settings, etc.
 
 Each tools requires:
 - `name`: Unique tool name
-- `soure`: Source to use for database connection
+- `source`: Source to use for database connection
 - `description`: Description of the tool's purpose
 - `statement`: SQL statement to execute
+
+Optional fields:
+- `enabled`: Whether the tool should be registered (default: `true`)
+- `parameters`: Parameter definitions for dynamic SQL
+- `security`: Security configuration
+- `annotations`: Metadata for MCP clients
+- `domain`: Domain categorization
+- `category`: Category within domain
 
 Example:
 ```yaml
 tools:
   system_status:
+    enabled: true  # Optional: defaults to true
     source: ibmi-system
     description: "Overall system performance statistics with CPU, memory, and I/O metrics"
     parameters: []
@@ -53,6 +79,39 @@ tools:
       SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(RESET_STATISTICS=>'YES',DETAILED_INFO=>'ALL')) X
 
 ```
+
+### Enabling and Disabling Tools
+
+You can enable or disable individual tools using the `enabled` field:
+
+```yaml
+tools:
+  production_tool:
+    enabled: true  # This tool will be registered (default)
+    source: ibmi-system
+    description: "Production-ready tool"
+    statement: "SELECT * FROM production_table"
+
+  experimental_tool:
+    enabled: false  # This tool will be skipped during registration
+    source: ibmi-system
+    description: "Experimental tool - not ready for production"
+    statement: "SELECT * FROM experimental_table"
+
+  debug_tool:
+    # Omitting 'enabled' defaults to true
+    source: ibmi-system
+    description: "Debug tool"
+    statement: "SELECT * FROM debug_table"
+```
+
+**Use Cases:**
+- **Development/Testing**: Temporarily disable production tools while testing
+- **Gradual Rollout**: Enable tools incrementally as they're tested
+- **Feature Flags**: Control tool availability without deleting configurations
+- **Debugging**: Disable problematic tools without removing their definitions
+
+**Note**: Disabled tools are completely skipped during parsing and will not be registered with the MCP server. They won't appear in tool listings or be available for execution.
 
 ### Parameters
 
@@ -263,12 +322,24 @@ parameters:
 
 ### Array Parameters
 
-Array parameters accept lists of values and require an `itemType` to specify the type of elements in the array.
+Array parameters accept lists of values and require an `itemType` to specify the type of elements in the array. They are **designed for SQL IN clauses** and automatically expand to multiple placeholders.
+
+> **⚠️ IMPORTANT - Array Input Format**
+> Array parameters must be passed as **JSON arrays**, not as strings containing SQL syntax.
+>
+> ✅ **Correct:**   `{"project_ids": ["MA2100", "AD3100"]}`
+> 
+> ❌ **Incorrect:** `{"project_ids": "('MA2100', 'AD3100')"}`
+> 
+> ❌ **Incorrect:** `{"project_ids": "MA2100,AD3100"}`
 
 **Available Constraints:**
 - `itemType`: **Required** - Type of array elements (`string`, `integer`, `float`, or `boolean`)
 - `minLength`: Minimum number of items
 - `maxLength`: Maximum number of items
+
+> **💡 TIP - Array Parameters for IN Clauses**
+> Array parameters are the recommended way to handle SQL IN clauses with variable-length lists. The server automatically expands array parameters into the correct number of placeholders, so you don't need to use other workarounds.
 
 **Example 1: String Array**
 ```yaml
@@ -276,7 +347,7 @@ parameters:
   - name: library_list
     type: array
     itemType: string
-    description: "List of library names to search"
+    description: "List of library names to search (e.g., ['MYLIB', 'QGPL', 'QSYS'])"
     required: false
     minLength: 1
     maxLength: 50
@@ -288,18 +359,44 @@ parameters:
   - name: job_numbers
     type: array
     itemType: integer
-    description: "List of job numbers to analyze"
+    description: "List of job numbers to analyze (e.g., [12345, 67890, 11111])"
     required: true
     minLength: 1
     maxLength: 100
 ```
 
 **Using Arrays in SQL:**
+
+Array parameters are automatically expanded to multiple placeholders for SQL `IN` clauses. **Simply use the array parameter name directly in the IN clause** - the server handles the expansion:
+
 ```yaml
 statement: |
-  SELECT * FROM qsys2.object_statistics
-  WHERE objlib IN (SELECT * FROM TABLE(SYSTOOLS.SPLIT(:library_list, ',')))
+  SELECT * FROM SAMPLE.EMPPROJACT
+  WHERE PROJNO IN (:project_ids)
 ```
+
+**What happens internally:**
+1. **Input JSON:** `{"project_ids": ["MA2100", "AD3100", "AD3110"]}`
+2. **SQL with named parameter:** `WHERE PROJNO IN (:project_ids)`
+3. **Automatic expansion:** `WHERE PROJNO IN (?, ?, ?)` (one placeholder per array element)
+4. **Parameter binding:** Each `?` is bound to one array element: `"MA2100"`, `"AD3100"`, `"AD3110"`
+5. **DB2 execution:** Standard prepared statement with bound parameters
+
+**Key Benefits:**
+- ✅ **No SQL injection risk** - Parameters are safely bound
+- ✅ **Variable-length arrays** - Works with any array size (within constraints)
+- ✅ **Simple syntax** - Just use `IN (:array_param)` in your SQL
+- ✅ **Type validation** - Each array element is validated against `itemType`
+- ✅ **No Db2-specific workarounds needed** - Works like standard JDBC parameter binding
+
+> **📝 NOTE - SQL IN Clause Behavior**
+> The `IN` clause uses **OR logic** - it matches records where the column equals **ANY** value in the list, not ALL values.
+>
+> ```sql
+> WHERE PROJNO IN ('MA2100', 'AD3100')  -- Matches records with PROJNO = 'MA2100' OR 'AD3100'
+> ```
+>
+> If you need **AND logic** (matching ALL values), you'll need different SQL patterns like subqueries or aggregation.
 
 ---
 
@@ -488,6 +585,657 @@ All parameters are validated before SQL execution:
 - Pattern mismatch: `Value does not match pattern: ^[A-Z][A-Z0-9]*$`
 - Enum violation: `Value 'INVALID' must be one of: 'INDEX', 'TABLE', 'VIEW'`
 - Missing required: `Required parameter 'library_name' not provided`
+
+---
+
+## Complete Example: Employee Information Tools
+
+The `tools/sample/employee-info.yaml` file demonstrates a comprehensive set of tools using the IBM i SAMPLE schema. This example showcases all parameter types, validation patterns, and best practices for building production-ready MCP tools.
+
+### File Overview
+
+**Purpose:** Provide HR and project management capabilities using the SAMPLE database (EMPLOYEE, DEPARTMENT, PROJECT tables)
+
+**Key Features:**
+- 8 different tools demonstrating various parameter types
+- 3 toolsets organizing tools by functional area
+- Real-world SQL patterns for joins, aggregations, and filtering
+- Complete parameter validation and security configuration
+
+**File Location:** `tools/sample/employee-info.yaml`
+
+---
+
+### Source Configuration
+
+```yaml
+sources:
+  ibmi-sample:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+```
+
+**What it does:** Defines a connection to the IBM i system using environment variables for credentials. This same source is reused by all 8 tools in the file.
+
+---
+
+### Tool 1: Basic String Parameter with Pattern Validation
+
+**Tool:** `get_employee_details`
+
+**Demonstrates:**
+- String parameters with regex pattern validation
+- Table joins (EMPLOYEE → DEPARTMENT → EMPLOYEE for manager)
+- Security annotations and metadata
+
+```yaml
+get_employee_details:
+  source: ibmi-sample
+  description: Retrieve detailed information about an employee including department and manager
+  statement: |
+    SELECT
+      E.EMPNO,
+      E.FIRSTNME,
+      E.MIDINIT,
+      E.LASTNAME,
+      E.JOB,
+      E.HIREDATE,
+      E.SALARY,
+      E.BONUS,
+      E.WORKDEPT,
+      D.DEPTNAME,
+      D.LOCATION,
+      M.FIRSTNME AS MGR_FIRSTNME,
+      M.LASTNAME AS MGR_LASTNAME
+    FROM SAMPLE.EMPLOYEE E
+    LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+    LEFT JOIN SAMPLE.EMPLOYEE M ON D.MGRNO = M.EMPNO
+    WHERE E.EMPNO = :employee_id
+  parameters:
+    - name: employee_id
+      type: string
+      description: "Employee ID (e.g., '000010') - Must be 6 digits"
+      required: true
+      pattern: "^[0-9]{6}$"
+```
+
+**Key Learning Points:**
+- The `pattern` constraint enforces a 6-digit format
+- Description includes an example value to guide the LLM
+- SQL uses LEFT JOINs to handle cases where department or manager might not exist
+- The self-join on EMPLOYEE (aliased as M) retrieves manager information
+
+**MCP Tool Call Example:**
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_employee_details",
+    "arguments": {
+      "employee_id": "000010"
+    }
+  }
+}
+```
+
+---
+
+### Tool 2: String Enum Parameter
+
+**Tool:** `find_employees_by_department`
+
+**Demonstrates:**
+- String enum parameters for controlled value selection
+- Simple filtering with ORDER BY
+
+```yaml
+find_employees_by_department:
+  source: ibmi-sample
+  description: List employees in a specific department
+  statement: |
+    SELECT
+      E.EMPNO,
+      E.FIRSTNME,
+      E.MIDINIT,
+      E.LASTNAME,
+      E.JOB,
+      E.HIREDATE,
+      E.SALARY
+    FROM SAMPLE.EMPLOYEE E
+    WHERE E.WORKDEPT = :department_id
+    ORDER BY E.LASTNAME, E.FIRSTNME
+  parameters:
+    - name: department_id
+      type: string
+      description: "Department ID - Select from predefined departments"
+      required: true
+      enum: ["A00", "B01", "C01", "D01", "E01"]
+```
+
+**Key Learning Points:**
+- `enum` restricts input to valid department codes
+- The description is automatically enhanced: "Must be one of: 'A00', 'B01', 'C01', 'D01', 'E01'"
+- This prevents invalid department queries and provides autocomplete-like guidance to the LLM
+
+**MCP Tool Call Example:**
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "find_employees_by_department",
+    "arguments": {
+      "department_id": "A00"
+    }
+  }
+}
+```
+
+---
+
+### Tool 3: Another String Enum (Job Titles)
+
+**Tool:** `find_employees_by_job`
+
+**Demonstrates:**
+- String enum for job title filtering
+- Multi-table joins for richer output
+
+```yaml
+find_employees_by_job:
+  source: ibmi-sample
+  description: Find employees with a specific job title
+  statement: |
+    SELECT
+      E.EMPNO,
+      E.FIRSTNME,
+      E.MIDINIT,
+      E.LASTNAME,
+      E.WORKDEPT,
+      D.DEPTNAME,
+      E.HIREDATE,
+      E.SALARY
+    FROM SAMPLE.EMPLOYEE E
+    LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+    WHERE E.JOB = :job_title
+    ORDER BY E.LASTNAME, E.FIRSTNME
+  parameters:
+    - name: job_title
+      type: string
+      description: "Job title - Select from common job titles"
+      required: true
+      enum: ["MANAGER", "ANALYST", "DESIGNER", "CLERK", "SALESREP", "PRES"]
+```
+
+**Key Learning Points:**
+- Similar to department filtering but for job titles
+- Demonstrates reusable pattern for categorical data
+- JOIN with DEPARTMENT enriches the result with department names
+
+---
+
+### Tool 4: Boolean Parameter
+
+**Tool:** `get_employee_projects`
+
+**Demonstrates:**
+- Boolean parameters for feature toggles
+- Complex multi-table joins (4 tables)
+- Conditional filtering based on boolean value
+
+```yaml
+get_employee_projects:
+  source: ibmi-sample
+  description: List projects an employee is working on
+  statement: |
+    SELECT
+      P.PROJNO,
+      P.PROJNAME,
+      A.ACTNO,
+      A.ACTDESC,
+      EPA.EMSTDATE AS START_DATE,
+      EPA.EMENDATE AS END_DATE,
+      EPA.EMPTIME
+    FROM SAMPLE.EMPPROJACT EPA
+    JOIN SAMPLE.PROJECT P ON EPA.PROJNO = P.PROJNO
+    JOIN SAMPLE.PROJACT PA ON EPA.PROJNO = PA.PROJNO AND EPA.ACTNO = PA.ACTNO
+    JOIN SAMPLE.ACT A ON EPA.ACTNO = A.ACTNO
+    WHERE EPA.EMPNO = :employee_id
+    AND (:include_completed = 1 OR EPA.EMENDATE IS NULL)
+    ORDER BY EPA.EMSTDATE DESC
+  parameters:
+    - name: employee_id
+      type: string
+      description: "Employee ID (e.g., '000010') - Must be 6 digits"
+      required: true
+      pattern: "^[0-9]{6}$"
+    - name: include_completed
+      type: boolean
+      description: "Include completed projects (true) or only active projects (false)"
+      default: true
+```
+
+**Key Learning Points:**
+- Boolean parameters naturally map to `true`/`false` in SQL (converted to 1/0)
+- The SQL condition `(:include_completed = 1 OR EPA.EMENDATE IS NULL)` filters active projects when false
+- Default value of `true` makes the parameter optional
+- Combines string pattern validation with boolean flag
+
+**Usage Examples:**
+```json
+// Get all projects (completed and active)
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_employee_projects",
+    "arguments": {
+      "employee_id": "000010",
+      "include_completed": true
+    },
+  }
+}
+
+// Get only active projects
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_employee_projects",
+    "arguments": {
+      "employee_id": "000010",
+      "include_completed": false
+    },
+  }
+}
+```
+
+---
+
+### Tool 5: Integer Parameters with Optional Filtering
+
+**Tool:** `get_department_salary_stats`
+
+**Demonstrates:**
+- Multiple optional integer parameters
+- Default values and special values (*ALL pattern)
+- Integer range constraints (min/max)
+- SQL aggregation functions
+
+```yaml
+get_department_salary_stats:
+  source: ibmi-sample
+  description: Salary statistics by department with optional salary range filter
+  statement: |
+    SELECT
+      D.DEPTNO,
+      D.DEPTNAME,
+      COUNT(E.EMPNO) AS EMPLOYEE_COUNT,
+      AVG(E.SALARY) AS AVG_SALARY,
+      MIN(E.SALARY) AS MIN_SALARY,
+      MAX(E.SALARY) AS MAX_SALARY,
+      SUM(E.SALARY) AS TOTAL_SALARY
+    FROM SAMPLE.DEPARTMENT D
+    LEFT JOIN SAMPLE.EMPLOYEE E ON D.DEPTNO = E.WORKDEPT
+    WHERE (D.DEPTNO = :department_id OR :department_id = '*ALL')
+    AND (E.SALARY >= :min_salary OR :min_salary IS NULL)
+    AND (E.SALARY <= :max_salary OR :max_salary IS NULL)
+    GROUP BY D.DEPTNO, D.DEPTNAME
+    ORDER BY D.DEPTNO
+  parameters:
+    - name: department_id
+      type: string
+      description: "Department ID (e.g., 'A00') or '*ALL' for all departments"
+      default: "*ALL"
+    - name: min_salary
+      type: integer
+      description: "Minimum salary filter (required)"
+      min: 0
+      max: 100000
+      default: 0
+    - name: max_salary
+      type: integer
+      description: "Maximum salary filter (required)"
+      min: 0
+      max: 100000
+      default: 100000
+```
+
+**Key Learning Points:**
+- Integer constraints (`min: 0`, `max: 100000`) prevent invalid salary ranges
+- GROUP BY with aggregations provides statistical summaries
+- No `required: false` needed when parameter has a default value (`deptartment_id`)
+
+**Usage Examples:**
+```json
+// All departments, no salary filter
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_department_salary_stats",
+    "arguments": {
+      "department_id": "*ALL",
+      "min_salary": 0,
+      "max_salary": 100000
+    },
+  }
+}
+
+// Specific department with salary range
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_department_salary_stats",
+    "arguments": {
+      "department_id": "A00",
+      "min_salary": 20000,
+      "max_salary": 40000
+    },
+  }
+}
+```
+
+---
+
+### Tool 6: Array Parameter (In Theory)
+
+> ⚠️ This is not directly supported in IBM i SQL but shown here for illustrative purposes, eventually could be implemented with table functions, temporary tables, or other workarounds.
+
+**Tool:** `find_project_team_members`
+
+**Demonstrates:**
+- Array parameters with string items
+- Array length constraints
+- SQL IN clause with array parameter
+
+```yaml
+find_project_team_members:
+  source: ibmi-sample
+  description: Find all employees working on specific projects
+  statement: |
+    SELECT
+      E.EMPNO,
+      E.FIRSTNME,
+      E.MIDINIT,
+      E.LASTNAME,
+      E.JOB,
+      E.WORKDEPT,
+      D.DEPTNAME,
+      EPA.PROJNO,
+      EPA.EMSTDATE AS PROJECT_START_DATE,
+      EPA.EMENDATE AS PROJECT_END_DATE,
+      EPA.EMPTIME AS TIME_ALLOCATION
+    FROM SAMPLE.EMPPROJACT EPA
+    JOIN SAMPLE.EMPLOYEE E ON EPA.EMPNO = E.EMPNO
+    LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+    WHERE EPA.PROJNO IN (:project_ids)
+    ORDER BY EPA.PROJNO, E.LASTNAME, E.FIRSTNME
+  parameters:
+    - name: project_ids
+      type: array
+      itemType: string
+      description: "List of project IDs to search for (e.g., ['MA2100', 'AD3100'])"
+      required: true
+      minLength: 1
+      maxLength: 10
+```
+
+**Key Learning Points:**
+- `itemType: string` specifies that array contains strings
+- `minLength: 1` ensures at least one project ID is provided
+- `maxLength: 10` prevents overly broad queries
+- Array parameters are automatically expanded: `IN (:project_ids)` becomes `IN (?, ?, ?)`
+- Description includes example array format to guide the LLM
+
+**MCP Tool Call Example:**
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "find_project_team_members",
+    "arguments": {
+      "project_ids": ["MA2100", "AD3100", "PL2100"]
+    }
+  }
+}
+```
+
+---
+
+### Tool 7: Float Parameter
+
+**Tool:** `calculate_employee_bonus`
+
+**Demonstrates:**
+- Float parameters for decimal calculations
+- Float range constraints
+- Mathematical operations in SQL
+
+```yaml
+calculate_employee_bonus:
+  source: ibmi-sample
+  description: Calculate potential bonus for an employee based on performance rating and salary
+  statement: |
+    SELECT
+      E.EMPNO,
+      E.FIRSTNME,
+      E.LASTNAME,
+      E.SALARY,
+      E.SALARY * :performance_multiplier AS CALCULATED_BONUS
+    FROM SAMPLE.EMPLOYEE E
+    WHERE E.EMPNO = :employee_id
+  parameters:
+    - name: employee_id
+      type: string
+      description: "Employee ID (e.g., '000010')"
+      required: true
+      pattern: "^[0-9]{6}$"
+    - name: performance_multiplier
+      type: float
+      description: "Performance rating multiplier (0.0-0.3)"
+      required: true
+      min: 0.0
+      max: 0.3
+      default: 0.1
+```
+
+**Key Learning Points:**
+- Float type allows decimal values (0.1, 0.15, 0.25, etc.)
+- Range constraints (`min: 0.0`, `max: 0.3`) limit the multiplier to 0-30%
+- SQL arithmetic: `E.SALARY * :performance_multiplier` calculates the bonus
+- Combining float with string pattern validation for multi-parameter tools
+
+**Usage Examples:**
+```json
+// 10% bonus (default)
+{
+  "method": "tools/call",
+  "params": {
+    "name": "calculate_employee_bonus",
+    "arguments": {
+      "employee_id": "000010",
+      "performance_multiplier": 0.1
+    },
+  }
+}
+
+// 25% bonus
+{
+  "method": "tools/call",
+  "params": {
+    "name": "calculate_employee_bonus",
+    "arguments": {
+      "employee_id": "000010",
+      "performance_multiplier": 0.25
+    },
+    "_meta": {
+      "progressToken": 3
+    }
+  }
+}
+```
+
+---
+
+### Tool 8: Pagination with Multiple Integer Parameters
+
+**Tool:** `search_employees`
+
+**Demonstrates:**
+- Multiple integer parameters for pagination
+- String parameter with minimum length
+- SQL LIMIT/OFFSET for pagination
+- Case-insensitive partial matching
+
+```yaml
+search_employees:
+  source: ibmi-sample
+  description: Search for employees by name with pagination
+  statement: |
+    SELECT
+      E.EMPNO,
+      E.FIRSTNME,
+      E.MIDINIT,
+      E.LASTNAME,
+      E.JOB,
+      E.WORKDEPT,
+      D.DEPTNAME
+    FROM SAMPLE.EMPLOYEE E
+    LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+    WHERE UPPER(E.FIRSTNME) LIKE UPPER('%' || :name_search || '%')
+    OR UPPER(E.LASTNAME) LIKE UPPER('%' || :name_search || '%')
+    ORDER BY E.LASTNAME, E.FIRSTNME
+    LIMIT :page_size OFFSET (:page_number - 1) * :page_size
+  parameters:
+    - name: name_search
+      type: string
+      description: "Name to search for (partial match)"
+      required: true
+      minLength: 2
+    - name: page_size
+      type: integer
+      description: "Number of results per page"
+      default: 10
+      min: 1
+      max: 100
+    - name: page_number
+      type: integer
+      description: "Page number (starting from 1)"
+      default: 1
+      min: 1
+```
+
+**Key Learning Points:**
+- `minLength: 2` prevents single-character searches that return too many results
+- LIMIT/OFFSET pagination pattern: `LIMIT :page_size OFFSET (:page_number - 1) * :page_size`
+- Case-insensitive search: `UPPER(column) LIKE UPPER(pattern)`
+- Partial matching with `'%' || :name_search || '%'`
+- Multiple integer parameters with sensible defaults and constraints
+
+**Usage Examples:**
+```json
+// First page of results
+{
+  "method": "tools/call",
+  "params": {
+    "name": "search_employees",
+    "arguments": {
+      "name_search": "Smith",
+      "page_size": 10,
+      "page_number": 1
+    },
+  }
+}
+
+// Second page with custom page size
+{
+  "method": "tools/call",
+  "params": {
+    "name": "search_employees",
+    "arguments": {
+      "name_search": "JO",
+      "page_size": 25,
+      "page_number": 2
+    },
+  }
+}
+```
+
+---
+
+### Toolset Organization
+
+The file defines 3 toolsets to organize the 8 tools by functional area:
+
+```yaml
+toolsets:
+  employee_information:
+    title: "Employee Information"
+    description: "Tools for retrieving and analyzing employee data"
+    tools:
+      - get_employee_details
+      - find_employees_by_department
+      - find_employees_by_job
+      - search_employees
+
+  project_management:
+    title: "Project Management"
+    description: "Tools for managing project assignments and team members"
+    tools:
+      - get_employee_projects
+      - find_project_team_members
+
+  salary_analysis:
+    title: "Salary Analysis"
+    description: "Tools for analyzing salary data across departments"
+    tools:
+      - get_department_salary_stats
+      - calculate_employee_bonus
+```
+
+**Key Learning Points:**
+- Toolsets group related tools for easier discovery and loading
+- Each toolset has a title and description for human readability
+- Tools can be loaded by toolset: `--toolsets employee_information,project_management`
+- Organizational structure doesn't affect tool functionality, only discoverability
+
+---
+
+### Running the Example
+
+**List available toolsets:**
+```bash
+npx ibmi-mcp-server --list-toolsets --tools tools/sample/employee-info.yaml
+```
+
+**Start server with specific toolsets:**
+```bash
+# Load only employee information tools
+npx ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information
+
+# Load multiple toolsets
+npx ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information,salary_analysis
+
+# Load entire directory (all sample tools)
+npx ibmi-mcp-server --tools tools/sample
+```
+
+---
+
+### Parameter Type Summary from This Example
+
+| Tool | String | Integer | Float | Boolean | Array |
+|------|--------|---------|-------|---------|-------|
+| `get_employee_details` | ✅ (pattern) | | | | |
+| `find_employees_by_department` | ✅ (enum) | | | | |
+| `find_employees_by_job` | ✅ (enum) | | | | |
+| `get_employee_projects` | ✅ (pattern) | | | ✅ | |
+| `get_department_salary_stats` | ✅ (default) | ✅ (optional) | | | |
+| `find_project_team_members` | | | | | ✅ |
+| `calculate_employee_bonus` | ✅ (pattern) | | ✅ | | |
+| `search_employees` | ✅ (minLength) | ✅ (pagination) | | | |
+
+This file serves as a comprehensive reference implementation demonstrating all parameter types, validation patterns, and SQL techniques for building production-ready IBM i MCP tools.
 
 
 

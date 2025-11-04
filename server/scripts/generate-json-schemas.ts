@@ -21,7 +21,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Define output directory
-const OUTPUT_DIR = join(__dirname, "..", "src", "ibmi-mcp-server", "schemas", "json");
+const OUTPUT_DIR = join(
+  __dirname,
+  "..",
+  "src",
+  "ibmi-mcp-server",
+  "schemas",
+  "json",
+);
 
 /**
  * Generates JSON schema from Zod schema and writes to file
@@ -34,7 +41,7 @@ function generateJsonSchema(
   zodSchema: ZodSchema,
   fileName: string,
   title: string,
-  _description: string
+  _description: string,
 ): void {
   console.log(`Generating JSON schema for ${fileName}...`);
 
@@ -79,7 +86,7 @@ function main(): void {
     SqlToolsConfigSchema,
     "sql-tools-config",
     "IBM i MCP Server SQL Tools Configuration",
-    "JSON Schema for IBM i MCP Server YAML configuration files defining SQL tools, sources, and toolsets"
+    "JSON Schema for IBM i MCP Server YAML configuration files defining SQL tools, sources, and toolsets",
   );
 
   console.log("\n✓ All JSON schemas generated successfully!");

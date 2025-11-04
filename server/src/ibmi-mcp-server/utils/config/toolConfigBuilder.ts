@@ -93,15 +93,21 @@ export class ToolConfigBuilder {
 
           // Apply string-specific constraints using native Zod methods
           if (param.minLength !== undefined) {
-            stringType = stringType.min(param.minLength, `Length must be >= ${param.minLength}`);
+            stringType = stringType.min(
+              param.minLength,
+              `Length must be >= ${param.minLength}`,
+            );
           }
           if (param.maxLength !== undefined) {
-            stringType = stringType.max(param.maxLength, `Length must be <= ${param.maxLength}`);
+            stringType = stringType.max(
+              param.maxLength,
+              `Length must be <= ${param.maxLength}`,
+            );
           }
           if (param.pattern) {
             stringType = stringType.regex(
               new RegExp(param.pattern),
-              `Value does not match pattern: ${param.pattern}`
+              `Value does not match pattern: ${param.pattern}`,
             );
           }
 
@@ -127,10 +133,16 @@ export class ToolConfigBuilder {
 
           // Apply numeric constraints using native Zod methods
           if (param.min !== undefined) {
-            floatType = floatType.min(param.min, `Value must be >= ${param.min}`);
+            floatType = floatType.min(
+              param.min,
+              `Value must be >= ${param.min}`,
+            );
           }
           if (param.max !== undefined) {
-            floatType = floatType.max(param.max, `Value must be <= ${param.max}`);
+            floatType = floatType.max(
+              param.max,
+              `Value must be <= ${param.max}`,
+            );
           }
 
           zodType = floatType;
@@ -158,10 +170,16 @@ export class ToolConfigBuilder {
 
           // Apply array length constraints using native Zod methods
           if (param.minLength !== undefined) {
-            arrayType = arrayType.min(param.minLength, `Array length must be >= ${param.minLength}`);
+            arrayType = arrayType.min(
+              param.minLength,
+              `Array length must be >= ${param.minLength}`,
+            );
           }
           if (param.maxLength !== undefined) {
-            arrayType = arrayType.max(param.maxLength, `Array length must be <= ${param.maxLength}`);
+            arrayType = arrayType.max(
+              param.maxLength,
+              `Array length must be <= ${param.maxLength}`,
+            );
           }
 
           zodType = arrayType;
@@ -176,7 +194,12 @@ export class ToolConfigBuilder {
       }
 
       // Handle enum constraints for all types (except boolean which is already constrained)
-      if (param.enum && Array.isArray(param.enum) && param.enum.length > 0 && param.type !== "boolean") {
+      if (
+        param.enum &&
+        Array.isArray(param.enum) &&
+        param.enum.length > 0 &&
+        param.type !== "boolean"
+      ) {
         // For enums, we need to replace the base type with a union of literals
         // This properly translates to JSON Schema with "enum" keyword
         const enumValues = param.enum as Array<string | number>;
@@ -184,7 +207,7 @@ export class ToolConfigBuilder {
         if (enumValues.length === 1) {
           // Single value enum becomes a literal
           zodType = z.literal(enumValues[0] as string | number | boolean);
-        } else if (enumValues.every(v => typeof v === "string")) {
+        } else if (enumValues.every((v) => typeof v === "string")) {
           // All strings: use z.enum for optimal JSON Schema generation
           zodType = z.enum(enumValues as [string, ...string[]]);
         } else {
@@ -194,7 +217,7 @@ export class ToolConfigBuilder {
           zodType = z.union([
             z.literal(first as string | number | boolean),
             z.literal(second as string | number | boolean),
-            ...rest.map(val => z.literal(val as string | number | boolean))
+            ...rest.map((val) => z.literal(val as string | number | boolean)),
           ] as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
         }
       }
@@ -204,16 +227,20 @@ export class ToolConfigBuilder {
 
       // Append enum constraint to description for LLM understanding
       if (param.enum && Array.isArray(param.enum) && param.enum.length > 0) {
-        const formattedValues = param.enum.map(v =>
-          typeof v === "string" ? `'${v}'` : String(v)
-        ).join(", ");
+        const formattedValues = param.enum
+          .map((v) => (typeof v === "string" ? `'${v}'` : String(v)))
+          .join(", ");
 
         const enumClause = `Must be one of: ${formattedValues}`;
 
         if (finalDescription) {
           // Append to existing description with proper punctuation
           finalDescription = finalDescription.trim();
-          if (!finalDescription.endsWith(".") && !finalDescription.endsWith("?") && !finalDescription.endsWith("!")) {
+          if (
+            !finalDescription.endsWith(".") &&
+            !finalDescription.endsWith("?") &&
+            !finalDescription.endsWith("!")
+          ) {
             finalDescription += ".";
           }
           finalDescription += ` ${enumClause}`;
@@ -785,7 +812,12 @@ export class ToolConfigBuilder {
 
     // Merge each configuration
     for (const configToMerge of configs) {
-      await this.mergeIntoTarget(mergedConfig, configToMerge, mergeOptions, context);
+      await this.mergeIntoTarget(
+        mergedConfig,
+        configToMerge,
+        mergeOptions,
+        context,
+      );
     }
 
     // Validate merged configuration if requested

@@ -36,11 +36,7 @@
                 "description": "Whether to ignore unauthorized SSL certificates"
               }
             },
-            "required": [
-              "host",
-              "user",
-              "password"
-            ],
+            "required": ["host", "user", "password"],
             "additionalProperties": false,
             "description": "Database connection configuration"
           },
@@ -54,6 +50,11 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this tool is enabled and should be registered (default: true)"
+              },
               "source": {
                 "type": "string",
                 "minLength": 1,
@@ -121,12 +122,7 @@
                     },
                     "itemType": {
                       "type": "string",
-                      "enum": [
-                        "string",
-                        "boolean",
-                        "integer",
-                        "float"
-                      ],
+                      "enum": ["string", "boolean", "integer", "float"],
                       "description": "Array item type (only for array parameters)"
                     },
                     "min": {
@@ -148,11 +144,7 @@
                     "enum": {
                       "type": "array",
                       "items": {
-                        "type": [
-                          "string",
-                          "number",
-                          "boolean"
-                        ]
+                        "type": ["string", "number", "boolean"]
                       },
                       "description": "Valid values (enum validation)"
                     },
@@ -161,10 +153,7 @@
                       "description": "Custom validation pattern (regex for strings)"
                     }
                   },
-                  "required": [
-                    "name",
-                    "type"
-                  ],
+                  "required": ["name", "type"],
                   "additionalProperties": false,
                   "description": "SQL tool parameter definition with validation constraints"
                 },
@@ -185,10 +174,7 @@
               },
               "responseFormat": {
                 "type": "string",
-                "enum": [
-                  "json",
-                  "markdown"
-                ],
+                "enum": ["json", "markdown"],
                 "description": "Response format (default: json)"
               },
               "annotations": {
@@ -276,10 +262,7 @@
                 "description": "@deprecated Use annotations.openWorldHint instead"
               }
             },
-            "required": [
-              "source",
-              "description"
-            ],
+            "required": ["source", "description"],
             "additionalProperties": false,
             "description": "Individual SQL tool definition in YAML configuration"
           },
@@ -315,9 +298,7 @@
                 "description": "Optional toolset metadata"
               }
             },
-            "required": [
-              "tools"
-            ],
+            "required": ["tools"],
             "additionalProperties": false,
             "description": "Toolset definition for grouping related tools"
           },
@@ -355,10 +336,7 @@
                 "description": "Whether this tool should be added to ALL toolsets"
               }
             },
-            "required": [
-              "domain",
-              "category"
-            ],
+            "required": ["domain", "category"],
             "additionalProperties": false,
             "description": "TypeScript tool configuration for toolset assignment"
           },

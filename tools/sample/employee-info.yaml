@@ -1,0 +1,337 @@
+# Employee Information Tools for SAMPLE schema
+# These tools provide access to employee data, department information, and project assignments
+# This file demonstrates various parameter types and validation constraints
+
+sources:
+  ibmi-sample:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  get_employee_details:
+    source: ibmi-sample
+    description: Retrieve detailed information about an employee including department and manager
+    statement: |
+      SELECT 
+        E.EMPNO, 
+        E.FIRSTNME, 
+        E.MIDINIT, 
+        E.LASTNAME, 
+        E.JOB, 
+        E.HIREDATE, 
+        E.SALARY, 
+        E.BONUS, 
+        E.WORKDEPT,
+        D.DEPTNAME,
+        D.LOCATION,
+        M.FIRSTNME AS MGR_FIRSTNME,
+        M.LASTNAME AS MGR_LASTNAME
+      FROM SAMPLE.EMPLOYEE E
+      LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+      LEFT JOIN SAMPLE.EMPLOYEE M ON D.MGRNO = M.EMPNO
+      WHERE E.EMPNO = :employee_id
+    parameters:
+      - name: employee_id
+        type: string
+        description: "Employee ID (e.g., '000010') - Must be 6 digits"
+        required: true
+        pattern: "^[0-9]{6}$"
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "employee-info"
+      title: "Get Employee Details"
+
+  find_employees_by_department:
+    source: ibmi-sample
+    description: List employees in a specific department
+    statement: |
+      SELECT 
+        E.EMPNO, 
+        E.FIRSTNME, 
+        E.MIDINIT, 
+        E.LASTNAME, 
+        E.JOB, 
+        E.HIREDATE, 
+        E.SALARY
+      FROM SAMPLE.EMPLOYEE E
+      WHERE E.WORKDEPT = :department_id
+      ORDER BY E.LASTNAME, E.FIRSTNME
+    parameters:
+      - name: department_id
+        type: string
+        description: "Department ID - Select from predefined departments"
+        required: true
+        enum: ["A00", "B01", "C01", "D01", "E01"]
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "employee-info"
+      title: "Find Employees by Department"
+
+  find_employees_by_job:
+    source: ibmi-sample
+    description: Find employees with a specific job title
+    statement: |
+      SELECT 
+        E.EMPNO, 
+        E.FIRSTNME, 
+        E.MIDINIT, 
+        E.LASTNAME, 
+        E.WORKDEPT,
+        D.DEPTNAME,
+        E.HIREDATE, 
+        E.SALARY
+      FROM SAMPLE.EMPLOYEE E
+      LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+      WHERE E.JOB = :job_title
+      ORDER BY E.LASTNAME, E.FIRSTNME
+    parameters:
+      - name: job_title
+        type: string
+        description: "Job title - Select from common job titles"
+        required: true
+        enum: ["MANAGER", "ANALYST", "DESIGNER", "CLERK", "SALESREP", "PRES"]
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "employee-info"
+      title: "Find Employees by Job Title"
+
+  get_employee_projects:
+    source: ibmi-sample
+    description: List projects an employee is working on
+    statement: |
+      SELECT 
+        P.PROJNO,
+        P.PROJNAME,
+        A.ACTNO,
+        A.ACTDESC,
+        EPA.EMSTDATE AS START_DATE,
+        EPA.EMENDATE AS END_DATE,
+        EPA.EMPTIME
+      FROM SAMPLE.EMPPROJACT EPA
+      JOIN SAMPLE.PROJECT P ON EPA.PROJNO = P.PROJNO
+      JOIN SAMPLE.PROJACT PA ON EPA.PROJNO = PA.PROJNO AND EPA.ACTNO = PA.ACTNO
+      JOIN SAMPLE.ACT A ON EPA.ACTNO = A.ACTNO
+      WHERE EPA.EMPNO = :employee_id
+      AND (:include_completed = 1 OR EPA.EMENDATE IS NULL)
+      ORDER BY EPA.EMSTDATE DESC
+    parameters:
+      - name: employee_id
+        type: string
+        description: "Employee ID (e.g., '000010') - Must be 6 digits"
+        required: true
+        pattern: "^[0-9]{6}$"
+      - name: include_completed
+        type: boolean
+        description: "Include completed projects (true) or only active projects (false)"
+        default: true
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "project-assignments"
+      title: "Get Employee Projects"
+
+  get_department_salary_stats:
+    source: ibmi-sample
+    description: Salary statistics by department with optional salary range filter
+    statement: |
+      SELECT 
+        D.DEPTNO,
+        D.DEPTNAME,
+        COUNT(E.EMPNO) AS EMPLOYEE_COUNT,
+        AVG(E.SALARY) AS AVG_SALARY,
+        MIN(E.SALARY) AS MIN_SALARY,
+        MAX(E.SALARY) AS MAX_SALARY,
+        SUM(E.SALARY) AS TOTAL_SALARY
+      FROM SAMPLE.DEPARTMENT D
+      LEFT JOIN SAMPLE.EMPLOYEE E ON D.DEPTNO = E.WORKDEPT
+      WHERE (D.DEPTNO = :department_id OR :department_id = '*ALL')
+      AND (E.SALARY >= :min_salary OR :min_salary IS NULL)
+      AND (E.SALARY <= :max_salary OR :max_salary IS NULL)
+      GROUP BY D.DEPTNO, D.DEPTNAME
+      ORDER BY D.DEPTNO
+    parameters:
+      - name: department_id
+        type: string
+        description: "Department ID (e.g., 'A00') or '*ALL' for all departments"
+        default: "*ALL"
+      - name: min_salary
+        type: integer
+        description: "Minimum salary filter (optional)"
+        min: 0
+        max: 100000
+        default: 0
+      - name: max_salary
+        type: integer
+        description: "Maximum salary filter (optional)"
+        min: 0
+        max: 100000
+        default: 100000
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "salary-analysis"
+      title: "Department Salary Statistics"
+
+  find_project_team_members:
+    enabled: true
+    source: ibmi-sample
+    description: Find all employees working on specific projects. Accepts a JSON array of project IDs.
+    statement: |
+      SELECT
+        E.EMPNO,
+        E.FIRSTNME,
+        E.MIDINIT,
+        E.LASTNAME,
+        E.JOB,
+        E.WORKDEPT,
+        D.DEPTNAME,
+        EPA.PROJNO,
+        EPA.EMSTDATE AS PROJECT_START_DATE,
+        EPA.EMENDATE AS PROJECT_END_DATE,
+        EPA.EMPTIME AS TIME_ALLOCATION
+      FROM SAMPLE.EMPPROJACT EPA
+      JOIN SAMPLE.EMPLOYEE E ON EPA.EMPNO = E.EMPNO
+      LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+      WHERE EPA.PROJNO IN (:project_ids)
+      ORDER BY EPA.PROJNO, E.LASTNAME, E.FIRSTNME
+    parameters:
+      - name: project_ids
+        type: array
+        itemType: string
+        description: "Array of project IDs to search for. Must be a JSON array, not a string. Example: [\"MA2100\", \"AD3100\", \"AD3110\"]"
+        required: true
+        minLength: 1
+        maxLength: 10
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "project-assignments"
+      title: "Find Project Team Members"
+
+  calculate_employee_bonus:
+    source: ibmi-sample
+    description: Calculate potential bonus for an employee based on performance rating and salary
+    statement: |
+      SELECT 
+        E.EMPNO, 
+        E.FIRSTNME, 
+        E.LASTNAME, 
+        E.SALARY,
+        E.SALARY * :performance_multiplier AS CALCULATED_BONUS
+      FROM SAMPLE.EMPLOYEE E
+      WHERE E.EMPNO = :employee_id
+    parameters:
+      - name: employee_id
+        type: string
+        description: "Employee ID (e.g., '000010')"
+        required: true
+        pattern: "^[0-9]{6}$"
+      - name: performance_multiplier
+        type: float
+        description: "Performance rating multiplier (0.0-0.3)"
+        required: true
+        min: 0.0
+        max: 0.3
+        default: 0.1
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "salary-analysis"
+      title: "Calculate Employee Bonus"
+
+  search_employees:
+    source: ibmi-sample
+    description: Search for employees by name with pagination
+    statement: |
+      SELECT 
+        E.EMPNO, 
+        E.FIRSTNME, 
+        E.MIDINIT, 
+        E.LASTNAME, 
+        E.JOB, 
+        E.WORKDEPT,
+        D.DEPTNAME
+      FROM SAMPLE.EMPLOYEE E
+      LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+      WHERE UPPER(E.FIRSTNME) LIKE UPPER('%' || :name_search || '%')
+      OR UPPER(E.LASTNAME) LIKE UPPER('%' || :name_search || '%')
+      ORDER BY E.LASTNAME, E.FIRSTNME
+      LIMIT :page_size OFFSET (:page_number - 1) * :page_size
+    parameters:
+      - name: name_search
+        type: string
+        description: "Name to search for (partial match)"
+        required: true
+        minLength: 2
+      - name: page_size
+        type: integer
+        description: "Number of results per page"
+        default: 10
+        min: 1
+        max: 100
+      - name: page_number
+        type: integer
+        description: "Page number (starting from 1)"
+        default: 1
+        min: 1
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "hr"
+      category: "employee-info"
+      title: "Search Employees"
+
+toolsets:
+  employee_information:
+    title: "Employee Information"
+    description: "Tools for retrieving and analyzing employee data"
+    tools:
+      - get_employee_details
+      - find_employees_by_department
+      - find_employees_by_job
+      - search_employees
+
+  project_management:
+    title: "Project Management"
+    description: "Tools for managing project assignments and team members"
+    tools:
+      - get_employee_projects
+      - find_project_team_members
+
+  salary_analysis:
+    title: "Salary Analysis"
+    description: "Tools for analyzing salary data across departments"
+    tools:
+      - get_department_salary_stats
+      - calculate_employee_bonus
+
+# Made with Bob

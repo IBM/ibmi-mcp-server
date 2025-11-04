@@ -30,7 +30,13 @@ export const SqlToolParameterSchema = z
       .optional()
       .describe("Human-readable parameter description"),
     default: z
-      .union([z.string(), z.number(), z.boolean(), z.array(z.unknown()), z.null()])
+      .union([
+        z.string(),
+        z.number(),
+        z.boolean(),
+        z.array(z.unknown()),
+        z.null(),
+      ])
       .optional()
       .describe("Default value when parameter is not provided"),
     required: z
@@ -121,6 +127,13 @@ export const SqlToolSecurityConfigSchema = z
  */
 export const SqlToolConfigSchema = z
   .object({
+    enabled: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "Whether this tool is enabled and should be registered (default: true)",
+      ),
     source: z
       .string()
       .min(1, "Source reference cannot be empty")

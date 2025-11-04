@@ -22,6 +22,7 @@ import {
 } from "@/utils/internal/logging-helpers.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import http from "http";
+import { statSync, existsSync } from "fs";
 import { applyCliOverrides } from "./config/resolver.js";
 import {
   parseCliArguments,
@@ -60,9 +61,30 @@ async function listToolsetsCommand(): Promise<void> {
     });
 
     // Parse YAML configuration to extract toolsets using ToolProcessor
-    const configResult = Array.isArray(config.toolsYamlPath)
-      ? await ToolProcessor.fromFiles(config.toolsYamlPath, context)
-      : await ToolProcessor.fromFile(config.toolsYamlPath, context);
+    // Determine the appropriate method based on the path type
+    let configResult;
+    if (Array.isArray(config.toolsYamlPath)) {
+      configResult = await ToolProcessor.fromFiles(
+        config.toolsYamlPath,
+        context,
+      );
+    } else if (existsSync(config.toolsYamlPath)) {
+      const stats = statSync(config.toolsYamlPath);
+      if (stats.isDirectory()) {
+        configResult = await ToolProcessor.fromDirectory(
+          config.toolsYamlPath,
+          context,
+        );
+      } else {
+        configResult = await ToolProcessor.fromFile(
+          config.toolsYamlPath,
+          context,
+        );
+      }
+    } else {
+      console.error(`❌ Path does not exist: ${config.toolsYamlPath}`);
+      return;
+    }
 
     if (!configResult.success || !configResult.config) {
       console.error("❌ Failed to parse YAML configuration:");

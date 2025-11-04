@@ -42,6 +42,12 @@ interface FileValidationResult {
   errors: string[];
   processingTime: number;
   stats?: ConfigStats;
+  config?: any; // Keep the parsed config for cross-reference validation
+}
+
+interface CrossReferenceValidationResult {
+  isValid: boolean;
+  errors: string[];
 }
 
 interface ConfigStats {
@@ -57,6 +63,7 @@ interface ValidationReport {
   invalidFiles: number;
   files: FileValidationResult[];
   summary: ValidationSummary;
+  crossReferenceErrors?: string[]; // Cross-file validation errors
 }
 
 interface ValidationSummary {
@@ -334,6 +341,7 @@ function validateSingleFile(
       errors: validationResult.errors,
       processingTime,
       stats,
+      config: validationResult.success ? config : undefined,
     };
   } catch (error) {
     const endTime = process.hrtime.bigint();
@@ -395,6 +403,97 @@ function generateValidationSummary(
 }
 
 /**
+ * Perform cross-reference validation across all valid configurations
+ * Validates that:
+ * 1. All tools reference sources that exist (across all files)
+ * 2. All toolsets reference tools that exist (across all files)
+ */
+function validateCrossReferences(
+  validResults: FileValidationResult[]
+): CrossReferenceValidationResult {
+  const errors: string[] = [];
+
+  // Aggregate all sources, tools, and toolsets from valid configs
+  const allSources = new Set<string>();
+  const allTools = new Set<string>();
+  const allToolsets: Record<string, { tools: string[]; file: string }> = {};
+
+  // First pass: collect all sources and tools
+  for (const result of validResults) {
+    const config = result.config;
+    if (!config) continue;
+
+    // Collect sources
+    if (config.sources && typeof config.sources === "object") {
+      Object.keys(config.sources).forEach((sourceName) =>
+        allSources.add(sourceName)
+      );
+    }
+
+    // Collect tools
+    if (config.tools && typeof config.tools === "object") {
+      Object.keys(config.tools).forEach((toolName) => allTools.add(toolName));
+    }
+
+    // Collect toolsets
+    if (config.toolsets && typeof config.toolsets === "object") {
+      Object.entries(config.toolsets).forEach(([toolsetName, toolset]) => {
+        if (
+          typeof toolset === "object" &&
+          toolset !== null &&
+          "tools" in toolset &&
+          Array.isArray(toolset.tools)
+        ) {
+          allToolsets[toolsetName] = {
+            tools: toolset.tools,
+            file: result.relativePath,
+          };
+        }
+      });
+    }
+  }
+
+  // Second pass: validate tool source references
+  for (const result of validResults) {
+    const config = result.config;
+    if (!config || !config.tools) continue;
+
+    Object.entries(config.tools).forEach(([toolName, tool]) => {
+      if (
+        typeof tool === "object" &&
+        tool !== null &&
+        "source" in tool &&
+        typeof tool.source === "string"
+      ) {
+        if (!allSources.has(tool.source)) {
+          errors.push(
+            `[${result.relativePath}] Tool '${toolName}' references unknown source '${tool.source}'. ` +
+              `Available sources: ${allSources.size > 0 ? Array.from(allSources).join(", ") : "none"}`
+          );
+        }
+      }
+    });
+  }
+
+  // Third pass: validate toolset tool references
+  Object.entries(allToolsets).forEach(([toolsetName, toolsetInfo]) => {
+    toolsetInfo.tools.forEach((toolName) => {
+      if (!allTools.has(toolName)) {
+        errors.push(
+          `[${toolsetInfo.file}] Toolset '${toolsetName}' references unknown tool '${toolName}'. ` +
+            `Available tools: ${allTools.size > 0 ? Array.from(allTools).join(", ") : "none"}`
+        );
+      }
+    });
+  });
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
  * Format and display validation results
  */
 function displayResults(report: ValidationReport, verbose: boolean): void {
@@ -427,6 +526,14 @@ function displayResults(report: ValidationReport, verbose: boolean): void {
     console.log(`\n🚨 Most Common Errors:`);
     summary.commonErrors.forEach((error, index) => {
       console.log(`   ${index + 1}. ${error}`);
+    });
+  }
+
+  // Cross-reference validation errors
+  if (report.crossReferenceErrors && report.crossReferenceErrors.length > 0) {
+    console.log(`\n🔗 Cross-Reference Validation Errors:`);
+    report.crossReferenceErrors.forEach((error) => {
+      console.log(`   ❌ ${error}`);
     });
   }
 
@@ -466,7 +573,21 @@ function displayResults(report: ValidationReport, verbose: boolean): void {
     );
     console.log("   • Review the JSON schema for expected structure");
   }
-  if (validFiles > 0) {
+  if (report.crossReferenceErrors && report.crossReferenceErrors.length > 0) {
+    console.log(
+      "   • Fix cross-reference errors (tools referencing non-existent sources or toolsets referencing non-existent tools)"
+    );
+    console.log(
+      "   • Ensure all referenced sources are defined in at least one configuration file"
+    );
+    console.log(
+      "   • Ensure all tools referenced by toolsets exist in at least one configuration file"
+    );
+  }
+  if (
+    validFiles > 0 &&
+    (!report.crossReferenceErrors || report.crossReferenceErrors.length === 0)
+  ) {
     console.log("   • Valid configurations are ready for use");
   }
   console.log(
@@ -535,6 +656,10 @@ async function main(): Promise<void> {
       validateSingleFile(file, ajv)
     );
 
+    // Perform cross-reference validation on valid files
+    const validResults = results.filter((r) => r.isValid);
+    const crossRefValidation = validateCrossReferences(validResults);
+
     // Generate report
     const report: ValidationReport = {
       totalFiles: results.length,
@@ -542,13 +667,16 @@ async function main(): Promise<void> {
       invalidFiles: results.filter((r) => !r.isValid).length,
       files: results,
       summary: generateValidationSummary(results),
+      crossReferenceErrors: crossRefValidation.errors,
     };
 
     // Display results
     displayResults(report, args.verbose);
 
     // Set appropriate exit code
-    const exitCode = report.invalidFiles > 0 ? 1 : 0;
+    // Exit with error if there are invalid files OR cross-reference errors
+    const exitCode =
+      report.invalidFiles > 0 || !crossRefValidation.isValid ? 1 : 0;
     process.exit(exitCode);
   } catch (error) {
     console.error(

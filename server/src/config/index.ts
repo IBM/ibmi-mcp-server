@@ -244,7 +244,7 @@ const EnvSchema = z.object({
   YAML_MERGE_ARRAYS: z
     .string()
     .optional()
-    .default("false")
+    .default("true")
     .transform((val) => val === "true"),
   YAML_ALLOW_DUPLICATE_TOOLS: z
     .string()

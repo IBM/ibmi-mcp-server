@@ -148,6 +148,14 @@ describe("Execute SQL Tool Registration", () => {
         data: [{ RESULT: "success" }],
         success: true,
         is_done: true,
+        metadata: {},
+        has_results: true,
+        update_count: 0,
+        id: "mock-query-id",
+        job: "mock-job",
+        sql_rc: 0,
+        sql_state: "00000",
+        execution_time: 10,
       };
       vi.mocked(IBMiConnectionPool.executeQuery).mockResolvedValue(mockResult);
 

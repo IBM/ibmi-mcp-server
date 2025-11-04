@@ -764,18 +764,52 @@ export class ParameterProcessor {
         paramName,
         strictTypeValidation,
       );
-      parameters.push(bindingValue);
 
-      // Replace :param with ? placeholder
-      const replacePosition = paramMatch.position + offset;
-      const beforeReplacement = processedSql.substring(0, replacePosition);
-      const afterReplacement = processedSql.substring(
-        replacePosition + paramMatch.fullMatch.length,
-      );
-      processedSql = beforeReplacement + "?" + afterReplacement;
+      // Handle array parameters - expand to multiple placeholders
+      if (Array.isArray(bindingValue)) {
+        // Add each array element as individual parameters
+        for (const item of bindingValue) {
+          parameters.push(item);
+        }
 
-      // Update offset for subsequent replacements
-      offset += 1 - paramMatch.fullMatch.length;
+        // Generate multiple ? placeholders for array (?, ?, ?)
+        const placeholders = bindingValue.map(() => "?").join(", ");
+
+        // Replace :param with (?, ?, ?)
+        const replacePosition = paramMatch.position + offset;
+        const beforeReplacement = processedSql.substring(0, replacePosition);
+        const afterReplacement = processedSql.substring(
+          replacePosition + paramMatch.fullMatch.length,
+        );
+        processedSql = beforeReplacement + placeholders + afterReplacement;
+
+        // Update offset for subsequent replacements
+        offset += placeholders.length - paramMatch.fullMatch.length;
+
+        logger.debug(
+          {
+            ...context,
+            paramName,
+            arrayLength: bindingValue.length,
+            placeholders,
+          },
+          `Expanded array parameter to ${bindingValue.length} placeholders`,
+        );
+      } else {
+        // Non-array parameter - standard single placeholder
+        parameters.push(bindingValue);
+
+        // Replace :param with ? placeholder
+        const replacePosition = paramMatch.position + offset;
+        const beforeReplacement = processedSql.substring(0, replacePosition);
+        const afterReplacement = processedSql.substring(
+          replacePosition + paramMatch.fullMatch.length,
+        );
+        processedSql = beforeReplacement + "?" + afterReplacement;
+
+        // Update offset for subsequent replacements
+        offset += 1 - paramMatch.fullMatch.length;
+      }
     }
 
     return {

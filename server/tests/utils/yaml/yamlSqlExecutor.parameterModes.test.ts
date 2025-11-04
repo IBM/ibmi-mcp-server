@@ -144,8 +144,8 @@ describe("SQLToolFactory - Parameter Binding", () => {
       expect(result.data).toBeDefined();
       expect(mockSourceManager.executeQuery).toHaveBeenCalledWith(
         "test_source",
-        "SELECT * FROM users WHERE id IN (?) AND status = ?",
-        [[1, 2, 3], "active"],
+        "SELECT * FROM users WHERE id IN (?, ?, ?) AND status = ?",
+        [1, 2, 3, "active"],
         expect.any(Object),
       );
     });
@@ -378,14 +378,16 @@ describe("SQLToolFactory - Parameter Binding", () => {
       expect(processedSql).toContain("WHERE entry_timestamp >= ?");
       expect(processedSql).toContain("AND entry_timestamp <= ?");
       expect(processedSql).toContain("AND user_name = ?");
-      expect(processedSql).toContain("AND object_type IN (?)");
+      expect(processedSql).toContain("AND object_type IN (?, ?, ?)");
       expect(processedSql).toContain("LIMIT ?");
 
       expect(bindingParams).toEqual([
         "2024-01-01",
         "2024-12-31",
         "TESTUSER",
-        ["*FILE", "*PGM", "*SRVPGM"],
+        "*FILE",
+        "*PGM",
+        "*SRVPGM",
         100,
       ]);
     });
@@ -693,11 +695,8 @@ describe("SQLToolFactory - Parameter Binding", () => {
       expect(result.data).toBeDefined();
       expect(mockSourceManager.executeQuery).toHaveBeenCalledWith(
         "test_source",
-        "SELECT * FROM users WHERE status IN (?) AND roles IN (?)",
-        [
-          ["active", "pending"],
-          ["admin", "user", "guest"],
-        ],
+        "SELECT * FROM users WHERE status IN (?, ?) AND roles IN (?, ?, ?)",
+        ["active", "pending", "admin", "user", "guest"],
         expect.any(Object),
       );
     });
@@ -1027,10 +1026,12 @@ describe("SQLToolFactory - Parameter Binding", () => {
       );
 
       expect(result.data).toBeDefined();
+      // Array parameters are expanded to individual placeholders
+      const expectedPlaceholders = largeArray.map(() => "?").join(", ");
       expect(mockSourceManager.executeQuery).toHaveBeenCalledWith(
         "test_source",
-        "SELECT * FROM users WHERE id IN (?)",
-        [largeArray],
+        `SELECT * FROM users WHERE id IN (${expectedPlaceholders})`,
+        largeArray,
         expect.any(Object),
       );
     });

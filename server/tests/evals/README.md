@@ -9,6 +9,7 @@ This directory contains evaluation configurations and test cases for the MCP Ser
 ```bash
 npm install -g @mcpjam/cli
 ```
+
 ### Set up tests
 
 To set up, create a new folder directory for your test. In that directory, create three files:
@@ -24,6 +25,7 @@ cp templates/tests.template.json tests.json
 ```
 
 ## Server connection file (environment.json)
+
 This file is configured very similar to a mcp.json file. For servers with OAuth, you must provide your own Bearer API tokens. MCPJam CLI does not handle OAuth flows / DCR. For bearer tokens, make sure to wrap your header with requestInit.
 
 ### Server connection file (environment.json)
@@ -61,10 +63,10 @@ The test file is an array of tests.
 [
   {
     "title": "Workspace test",
-    "query": "What is my asana workspace?",             
-    "runs": 1, 
+    "query": "What is my asana workspace?",
+    "runs": 1,
     "model": "anthropic/claude-3.7-sonnet",
-    "provider": "openrouter", 
+    "provider": "openrouter",
     "expectedToolCalls": ["asana_list_workspaces"]
   },
   {
@@ -107,4 +109,3 @@ mcpjam evals run -t tests.json -e environment.json -l llms.json
 - `--llms, -l <file>`: Path to the LLM API key configuration file
 - `--help, -h`: Show help information
 - `--version, -V`: Display version number
-

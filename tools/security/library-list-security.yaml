@@ -1,0 +1,192 @@
+# Library List Security Tools
+# Based on SQL script by Scott Forstie
+# Purpose: Protect against 'Uncontrolled Search Path Element' attacks
+
+sources:
+  ibmi-security:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  get_system_library_list_config:
+    source: ibmi-security
+    description: "Retrieve the system portion of the library list configuration from system values"
+    statement: |
+      SELECT system_value
+        FROM qsys2.system_value_info
+        WHERE system_value_name = 'QSYSLIBL'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list"
+
+  get_system_library_list_details:
+    source: ibmi-security
+    description: "Get detailed information about the system portion of the library list"
+    statement: |
+      SELECT *
+        FROM qsys2.library_list_info
+        WHERE "TYPE" = 'SYSTEM'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list"
+
+  check_chgsyslibl_security:
+    source: ibmi-security
+    description: "Check if the Change System Library List command is properly secured (should be *EXCLUDE for *PUBLIC)"
+    statement: |
+      SELECT object_authority
+        FROM qsys2.object_privileges
+        WHERE system_object_schema = 'QSYS' 
+          AND system_object_name = 'CHGSYSLIBL' 
+          AND object_type = '*CMD'
+          AND authorization_name = '*PUBLIC'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list"
+
+  get_user_library_list_config:
+    source: ibmi-security
+    description: "Retrieve the user portion of the library list configuration from system values"
+    statement: |
+      SELECT system_value
+        FROM qsys2.system_value_info
+        WHERE system_value_name = 'QUSRLIBL'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list"
+
+  get_complete_library_list:
+    source: ibmi-security
+    description: "Get detailed information about the complete library list"
+    statement: |
+      SELECT *
+        FROM qsys2.library_list_info
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list"
+
+  analyze_library_list_security:
+    source: ibmi-security
+    description: "Analyze the security configuration of all libraries in the library list"
+    statement: |
+      SELECT libl.*, priv.*
+        FROM qsys2.library_list_info libl, LATERAL (
+               SELECT *
+                 FROM TABLE (
+                     qsys2.object_privileges(
+                       system_object_schema => 'QSYS',
+                       system_object_name   => system_schema_name, 
+                       object_type          => '*LIB')
+                   )
+             ) priv
+        WHERE priv.authorization_user = '*PUBLIC'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list-security"
+
+  find_vulnerable_libraries:
+    source: ibmi-security
+    description: "Identify libraries in the library list with *PUBLIC authority not set to *USE (potential security risk)"
+    statement: |
+      SELECT libl.system_schema_name AS lib_name, priv.authorization_user AS user_name,
+             priv.object_authority
+        FROM qsys2.library_list_info libl, LATERAL (
+               SELECT *
+                 FROM TABLE (
+                     qsys2.object_privileges(
+                       system_object_schema => 'QSYS', system_object_name => system_schema_name,
+                       object_type => '*LIB')
+                   )
+             ) priv
+        WHERE priv.authorization_user = '*PUBLIC' AND 
+              priv.object_authority   <> '*USE'   AND
+              libl.system_schema_name not in ('QTEMP')
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list-security"
+
+  check_library_security:
+    source: ibmi-security
+    description: "Check the security configuration of a specific library"
+    statement: |
+      SELECT priv.*
+        FROM TABLE (
+            qsys2.object_privileges(
+              system_object_schema => 'QSYS', 
+              system_object_name => :library_name,
+              object_type => '*LIB')
+          ) priv
+        WHERE priv.authorization_user = '*PUBLIC'
+    parameters:
+      - name: library_name
+        type: string
+        description: "Name of the library to check"
+        required: true
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "library-list-security"
+
+toolsets:
+  library_list_configuration:
+    title: "Library List Configuration"
+    description: "Tools for retrieving and analyzing library list configuration"
+    tools:
+      - get_system_library_list_config
+      - get_user_library_list_config
+      - get_system_library_list_details
+      - get_complete_library_list
+
+  library_list_security:
+    title: "Library List Security"
+    description: "Tools for analyzing and identifying security vulnerabilities in the library list"
+    tools:
+      - check_chgsyslibl_security
+      - analyze_library_list_security
+      - find_vulnerable_libraries
+      - check_library_security
+
+  library_list_security_assessment:
+    title: "Library List Security Assessment"
+    description: "Comprehensive tools for assessing the security of the library list configuration"
+    tools:
+      - get_system_library_list_config
+      - get_user_library_list_config
+      - check_chgsyslibl_security
+      - find_vulnerable_libraries
+
+# Made with Bob

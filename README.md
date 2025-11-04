@@ -1367,7 +1367,7 @@ When loading multiple YAML files, these settings control merge behavior:
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `YAML_MERGE_ARRAYS` | Merge arrays from multiple files (`true`) or replace them (`false`) | `false` | No |
+| `YAML_MERGE_ARRAYS` | Merge arrays from multiple files (`true`) or replace them (`false`) | `true` | No |
 | `YAML_ALLOW_DUPLICATE_TOOLS` | Allow duplicate tool names across files | `false` | No |
 | `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names across files | `false` | No |
 | `YAML_VALIDATE_MERGED` | Validate merged configuration before loading tools | `true` | No |

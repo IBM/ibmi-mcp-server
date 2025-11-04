@@ -20,7 +20,6 @@ Thumbs.db
 *.sublime-project
 .history/
 .clinerules/
-.bob/
 
 # =============================================================================
 # NODE.JS & PACKAGE MANAGERS

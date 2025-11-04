@@ -176,6 +176,14 @@ export const ParsingResultSchema = z
       .object({
         sourceCount: z.number().describe("Number of sources in configuration"),
         toolCount: z.number().describe("Number of tools in configuration"),
+        enabledToolCount: z
+          .number()
+          .optional()
+          .describe("Number of enabled tools"),
+        disabledToolCount: z
+          .number()
+          .optional()
+          .describe("Number of disabled tools"),
         toolsetCount: z
           .number()
           .describe("Number of toolsets in configuration"),

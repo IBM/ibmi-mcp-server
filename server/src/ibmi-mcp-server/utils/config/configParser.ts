@@ -150,10 +150,20 @@ export class ConfigParser {
         // Process tools
         const processedTools = this.processTools(config);
 
+        // Count disabled tools
+        const totalTools = config.tools ? Object.keys(config.tools).length : 0;
+        const disabledTools = config.tools
+          ? Object.values(config.tools).filter((tool) => tool.enabled === false)
+              .length
+          : 0;
+        const enabledTools = totalTools - disabledTools;
+
         // Generate statistics
         const stats = {
           sourceCount: config.sources ? Object.keys(config.sources).length : 0,
-          toolCount: config.tools ? Object.keys(config.tools).length : 0,
+          toolCount: totalTools,
+          enabledToolCount: enabledTools,
+          disabledToolCount: disabledTools,
           toolsetCount: config.toolsets
             ? Object.keys(config.toolsets).length
             : 0,
@@ -362,6 +372,18 @@ export class ConfigParser {
 
     // Process each tool
     Object.entries(config.tools).forEach(([toolName, tool]) => {
+      // Skip disabled tools
+      if (tool.enabled === false) {
+        logger.debug(
+          {
+            toolName,
+            enabled: false,
+          },
+          `Skipping disabled tool: ${toolName}`,
+        );
+        return;
+      }
+
       const source = config.sources?.[tool.source];
       const toolsets = toolToToolsets[toolName] || [];
 

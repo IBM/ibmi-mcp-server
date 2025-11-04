@@ -1,0 +1,204 @@
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  list_service_categories:
+    source: ibmi-system
+    description: List all service categories with counts of services in each.
+    statement: |-
+      SELECT service_category,
+             COUNT(*) AS service_count
+      FROM qsys2.services_info
+      GROUP BY service_category
+      ORDER BY service_count DESC, service_category
+    domain: sysadmin
+    category: discovery
+    metadata:
+      title: Service categories and counts
+
+  list_services_by_category:
+    source: ibmi-system
+    description: Browse services for a specific category with key details.
+    statement: |-
+      SELECT service_schema_name,
+             service_name,
+             sql_object_type,
+             object_type,
+             system_object_name,
+             earliest_possible_release,
+             latest_db2_group_level,
+             initial_db2_group_level
+      FROM qsys2.services_info
+      WHERE service_category = :category
+      ORDER BY service_schema_name, service_name
+    parameters:
+      - name: category
+        type: string
+        description: Exact value of SERVICE_CATEGORY to filter by.
+        required: true
+    domain: sysadmin
+    category: browse
+    metadata:
+      title: Services by category
+
+  search_services_by_name:
+    source: ibmi-system
+    description: Case-insensitive search of services by name (contains match).
+    statement: |-
+      SELECT service_category,
+             service_schema_name,
+             service_name,
+             sql_object_type,
+             earliest_possible_release
+      FROM qsys2.services_info
+      WHERE UPPER(service_name) LIKE UPPER('%' CONCAT :name_contains CONCAT '%')
+      ORDER BY service_category, service_schema_name, service_name
+    parameters:
+      - name: name_contains
+        type: string
+        description: Substring to search for in SERVICE_NAME.
+        required: true
+        minLength: 2
+    domain: sysadmin
+    category: search
+    metadata:
+      title: Search services by name
+
+  list_services_by_sql_object_type:
+    source: ibmi-system
+    description: List services by SQL object type (VIEW, PROCEDURE, SCALAR FUNCTION, etc.).
+    statement: |-
+      SELECT service_category,
+             service_schema_name,
+             service_name,
+             sql_object_type,
+             earliest_possible_release
+      FROM qsys2.services_info
+      WHERE sql_object_type = :sql_object_type
+      ORDER BY service_category, service_schema_name, service_name
+    parameters:
+      - name: sql_object_type
+        type: string
+        description: SQL object type to filter by.
+        required: true
+        enum: ["VIEW", "PROCEDURE", "SCALAR FUNCTION", "TABLE FUNCTION", "TABLE"]
+    domain: sysadmin
+    category: browse
+    metadata:
+      title: Services by SQL object type
+
+  get_service_example:
+    source: ibmi-system
+    description: Retrieve the example SQL/usage snippet for a specific service.
+    statement: |-
+      SELECT service_schema_name,
+             service_name,
+             example
+      FROM qsys2.services_info
+      WHERE service_schema_name = UPPER(:schema_name)
+        AND service_name = UPPER(:service_name)
+    parameters:
+      - name: schema_name
+        type: string
+        description: Schema name containing the service (e.g., QSYS2).
+        required: true
+      - name: service_name
+        type: string
+        description: Exact SERVICE_NAME (case-insensitive match used).
+        required: true
+    domain: sysadmin
+    category: reference
+    metadata:
+      title: Get service example
+
+  where_is_service:
+    source: ibmi-system
+    description: Locate a service by name and return its schema and object metadata.
+    statement: |-
+      SELECT service_category,
+             service_schema_name,
+             service_name,
+             sql_object_type,
+             object_type,
+             system_object_name,
+             earliest_possible_release
+      FROM qsys2.services_info
+      WHERE UPPER(service_name) = UPPER(:service_name)
+      ORDER BY service_schema_name
+    parameters:
+      - name: service_name
+        type: string
+        description: Exact SERVICE_NAME to locate.
+        required: true
+    domain: sysadmin
+    category: search
+    metadata:
+      title: Where is this service?
+
+  search_examples_for_keyword:
+    source: ibmi-system
+    description: Search the EXAMPLE text for a keyword or phrase (case-insensitive).
+    statement: |-
+      SELECT service_category,
+             service_schema_name,
+             service_name,
+             SUBSTR(example, 1, 300) AS example_snippet
+      FROM qsys2.services_info
+      WHERE example IS NOT NULL
+        AND UPPER(example) LIKE UPPER('%' CONCAT :keyword CONCAT '%')
+      ORDER BY service_category, service_schema_name, service_name
+    parameters:
+      - name: keyword
+        type: string
+        description: Keyword or phrase to search for within EXAMPLE text.
+        required: true
+        minLength: 2
+    domain: sysadmin
+    category: search
+    metadata:
+      title: Search examples for keyword
+
+
+  list_tables_by_schema:
+    source: ibmi-system
+    description: List all tables in a specified schema with key metadata.
+    statement: |-
+      SELECT 
+          table_name,
+          column_count,
+          row_length,
+          table_text,
+          table_schema,
+          system_table_name
+      FROM QSYS2.SYSTABLES
+      WHERE TABLE_SCHEMA = UPPER(:schema_name)
+        AND TABLE_TYPE = 'T'
+      ORDER BY TABLE_NAME
+      FETCH FIRST 500 ROWS ONLY
+    parameters:
+      - name: schema_name
+        type: string
+        description: Schema name (library) to list tables from, e.g., QIWS, QSYS2.
+        required: true
+    security:
+      readOnly: true
+
+
+toolsets:
+  bob_tools:
+    title: Bob Tools
+    description: Tools for fetching meta data for services.
+    tools:
+      - list_service_categories
+      - list_services_by_category
+      - list_services_by_sql_object_type
+      - search_services_by_name
+      - where_is_service
+      - search_examples_for_keyword
+      - get_service_example
+      - list_tables_by_schema
