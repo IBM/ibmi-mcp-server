@@ -260,7 +260,7 @@ npx ibmi-mcp-server --transport http --tools ./tools
 ```
 
 #### Run the Example Scripts:
-In another terminal, navigate to the `client/` directory and follow the setup instructions in the [README](./tests/agents/README.md).
+In another terminal, navigate to the `client/` directory and follow the setup instructions in the [README](client/README.md).
 
 
 Run an example MCP Client script to list available tools:
