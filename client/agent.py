@@ -10,7 +10,7 @@ load_dotenv(override=True)
 url = "http://127.0.0.1:3010/mcp"
 
 
-async def main(prompt=None, dry_run=False, model_id="watsonx:meta-llama/llama-3-3-70b-instruct"):
+async def main(prompt=None, dry_run=False, model_id="openai:gpt-4o"):
     async with MCPTools(url=url, transport="streamable-http") as tools:
         # Print available tools for debugging
         result = await tools.session.list_tools()
@@ -23,7 +23,6 @@ async def main(prompt=None, dry_run=False, model_id="watsonx:meta-llama/llama-3-
                 tools=[tools],  # Use original tools but with specific instructions
                 name="agno-agent",
                 description=f"An agent that specializes in IBM i performance analysis.",
-                show_tool_calls=True,
                 debug_mode=True,
                 debug_level=1,
                 markdown=True,

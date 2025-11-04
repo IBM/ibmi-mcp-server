@@ -260,34 +260,34 @@ npx ibmi-mcp-server --transport http --tools ./tools
 ```
 
 #### Run the Example Scripts:
-In another terminal, navigate to the `server/tests/agents` directory and follow the setup instructions in the [README](./tests/agents/README.md).
+In another terminal, navigate to the `client/` directory and follow the setup instructions in the [README](./tests/agents/README.md).
 
 
 Run an example MCP Client script to list available tools:
 
 ```bash
-cd server/tests/agents
+cd client/
 uv run mcp_client.py
 ```
 
 List Configured tool annotations and server resources:
 
 ```bash
-cd server/tests/agents
+cd client/
 
 # See a list of configured tools:
-uv run test_tool_annotations.py
+uv run list_tool_annotations.py
 
 # see a list of server resources:
-uv run test_toolset_resources.py
+uv run list_toolset_resources.py
 ```
 
-> Note: `test_tool_annotations.py` and `run test_toolset_resources.py` DO NOT require and OpenAI API Key 
+> Note: `list_tool_annotations.py` and `list_toolset_resources.py` DO NOT require and OpenAI API Key 
 
 #### Run the example Agent:
 
 ```bash
-cd server/tests/agents
+cd client/
 export OPENAI_API_KEY=your_open_ai_key
 uv run agent.py -p "What is my system status?"
 ```

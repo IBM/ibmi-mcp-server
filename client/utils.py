@@ -1,5 +1,4 @@
 import argparse
-from agno.agent import Agent
 from agno.models.ollama import Ollama
 from agno.models.openai import OpenAIChat
 from agno.models.base import Model
