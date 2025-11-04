@@ -30,6 +30,7 @@ import { registerAllTools } from "@/mcp-server/tools/index.js";
 import { startHttpTransport } from "@/mcp-server/transports/http/index.js";
 import { startStdioTransport } from "@/mcp-server/transports/stdio/index.js";
 import { registerSQLTools } from "@/ibmi-mcp-server/index.js";
+import { registerLoggingSetLevelHandler } from "@/mcp-server/logging/setLevelHandler.js";
 
 /**
  * Creates and configures a new instance of the `McpServer`.
@@ -54,6 +55,9 @@ async function createMcpServerInstance(): Promise<McpServer> {
       },
     },
   );
+
+  // Register the logging/setLevel handler to fulfill the logging capability contract
+  registerLoggingSetLevelHandler(server);
 
   try {
     logOperationStart(context, "Registering resources and tools...");
