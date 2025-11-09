@@ -1,0 +1,455 @@
+# Security Vulnerability Assessment and Remediation Tools
+# Purpose: Comprehensive security analysis tools for identifying vulnerabilities,
+# assessing user privileges, file permissions, and potential attack vectors on IBM i systems
+
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  users_with_limited_capabilities:
+    source: ibmi-system
+    description: "Identify which users are configured with limited capabilities"
+    statement: |
+      SELECT *
+        FROM qsys2.user_info_basic
+        WHERE limit_capabilities = '*YES'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "user-management"
+
+  commands_allowed_for_users_with_limited_capabilities:
+    source: ibmi-system
+    description: "Identify which commands on the IBM i can be executed by the `users` with limited capabilities"
+    parameters: []
+    statement: |
+      SELECT *
+        FROM qsys2.command_info
+        WHERE allow_limited_user = 'YES'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "user-management"
+
+  repopulate_special_authority_detail:
+    source: ibmi-system
+    description: "Repopulate the special authority detail in the SYSTOOLS MQT"
+    statement: |
+      REFRESH TABLE systools.special_authority_data_mart
+    security:
+      readOnly: false
+    annotations:
+      readOnlyHint: false
+      idempotentHint: true
+      domain: "security"
+      category: "audit"
+
+  list_users_who_can_see_all_db2_data:
+    source: ibmi-system
+    description: "Identify which users have *ALLOBJ or *SAVSYS special authorities, can see any Db2 for i data"
+    statement: |
+      SELECT *
+        FROM systools.special_authority_data_mart
+        WHERE special_authority IN ('*ALLOBJ', '*SAVSYS')
+        ORDER BY user_name
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_db_files_readable_by_any_user:
+    source: ibmi-system
+    description: "List database files that any user can read"
+    statement: |
+      WITH libs (lib_name) AS (
+        SELECT object_name
+          FROM qsys2.object_privileges
+          WHERE system_object_schema = 'QSYS'
+            AND object_type = '*LIB'
+            AND user_name = '*PUBLIC'
+            AND data_execute = 'YES'
+      )
+      SELECT *
+        FROM libs, qsys2.object_privileges
+        WHERE system_object_schema = lib_name
+          AND object_type = '*FILE'
+          AND user_name = '*PUBLIC'
+          AND data_read = 'YES'
+          AND object_operational = 'YES'
+          AND ('PF' = (SELECT objattribute
+                         FROM TABLE (qsys2.object_statistics(lib_name, '*FILE', object_name))))
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_db_files_writable_by_any_user:
+    source: ibmi-system
+    description: "List files where any user can insert rows"
+    statement: |
+      WITH libs (lib_name) AS (
+        SELECT object_name
+          FROM qsys2.object_privileges
+          WHERE system_object_schema = 'QSYS'
+            AND object_type = '*LIB'
+            AND user_name = '*PUBLIC'
+            AND data_execute = 'YES'
+      )
+      SELECT *
+        FROM libs, qsys2.object_privileges
+        WHERE system_object_schema = lib_name
+          AND object_type = '*FILE'
+          AND user_name = '*PUBLIC'
+          AND data_add = 'YES'
+          AND ('PF' = (SELECT objattribute
+                         FROM TABLE (qsys2.object_statistics(lib_name, '*FILE', object_name))))
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_db_files_deletable_by_any_user:
+    source: ibmi-system
+    description: "List all files where any user can delete rows"
+    statement: |
+      WITH libs (lib_name) AS (
+        SELECT object_name
+          FROM qsys2.object_privileges
+          WHERE system_object_schema = 'QSYS'
+            AND object_type = '*LIB'
+            AND user_name = '*PUBLIC'
+            AND data_execute = 'YES'
+      )
+      SELECT *
+        FROM libs, qsys2.object_privileges
+        WHERE system_object_schema = lib_name
+          AND object_type = '*FILE'
+          AND user_name = '*PUBLIC'
+          AND data_delete = 'YES'
+          AND ('PF' = (SELECT objattribute
+                         FROM TABLE (qsys2.object_statistics(lib_name, '*FILE', object_name))))
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_db_files_updatable_by_any_user:
+    source: ibmi-system
+    description: "List all files where any user can update rows"
+    statement: |
+      WITH libs (lib_name) AS (
+        SELECT object_name
+          FROM qsys2.object_privileges
+          WHERE system_object_schema = 'QSYS'
+            AND object_type = '*LIB'
+            AND user_name = '*PUBLIC'
+            AND data_execute = 'YES'
+      )
+      SELECT *
+        FROM libs, qsys2.object_privileges
+        WHERE system_object_schema = lib_name
+          AND object_type = '*FILE'
+          AND user_name = '*PUBLIC'
+          AND data_update = 'YES'
+          AND ('PF' = (SELECT objattribute
+                         FROM TABLE (qsys2.object_statistics(lib_name, '*FILE', object_name))))
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_db_files_exposed_to_trigger_attack:
+    source: ibmi-system
+    description: "List files exposed to a trigger attack where any user can read and alter or manage the file"
+    statement: |
+      WITH libs (lib_name) AS (
+        SELECT object_name
+          FROM qsys2.object_privileges
+          WHERE system_object_schema = 'QSYS'
+            AND object_type = '*LIB'
+            AND user_name = '*PUBLIC'
+            AND data_execute = 'YES'
+      )
+      SELECT *
+        FROM libs, qsys2.object_privileges
+        WHERE system_object_schema = lib_name
+          AND object_type = '*FILE'
+          AND user_name = '*PUBLIC'
+          AND data_read = 'YES'
+          AND object_operational = 'YES'
+          AND (object_alter = 'YES' OR object_management = 'YES')
+          AND ('PF' = (SELECT objattribute
+                         FROM TABLE (qsys2.object_statistics(lib_name, '*FILE', object_name))))
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_user_profiles_vulnerable_to_impersonation:
+    source: ibmi-system
+    description: "Identify user profiles vulnerable to impersonation attack where *PUBLIC authority is not set to *EXCLUDE"
+    statement: |
+      SELECT object_name AS user_name, object_authority, owner
+        FROM qsys2.object_privileges
+        WHERE system_object_schema = 'QSYS'
+          AND object_type = '*USRPRF'
+          AND object_name NOT IN ('QDBSHR', 'QDBSHRDO', 'QDOC', 'QTMPLPD')
+          AND user_name = '*PUBLIC'
+          AND object_authority <> '*EXCLUDE'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_public_authority_on_attack_vector_commands:
+    source: ibmi-system
+    description: "Identify dangerous commands that *PUBLIC users can execute, enabling potential privilege escalation or data exfiltration"
+    statement: |
+      SELECT object_name, object_type, object_authority
+        FROM qsys2.object_privileges
+        WHERE system_object_schema = 'QSYS'
+          AND object_type = '*CMD'
+          AND object_name IN ('ADDPFTRG', 'CRTPGM', 'CRTSRVPGM', 'SAVOBJ', 'SAVLIB', 'CRTDUPOBJ', 'CPYF')
+          AND user_name = '*PUBLIC'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  check_command_audit_settings:
+    source: ibmi-system
+    description: "Check object audit settings for specified IBM i commands in QSYS library to verify if security logging is enabled"
+    parameters:
+      - name: command_names
+        type: array
+        description: "Array of command names to check audit settings for (e.g., ['ADDPFTRG', 'CRTPGM', 'SAVOBJ']). Common attack vector commands include ADDPFTRG, CRTPGM, CRTSRVPGM, SAVOBJ, SAVLIB, CRTDUPOBJ, CPYF"
+        required: true
+    statement: |
+      SELECT objname, object_audit
+        FROM TABLE (qsys2.object_statistics('QSYS', '*CMD'))
+        WHERE objname IN ({{command_names}})
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "audit"
+
+  generate_impersonation_lockdown_commands:
+    source: ibmi-system
+    description: "Generate GRTOBJAUT commands to lock down user profiles vulnerable to impersonation by setting *PUBLIC authority to *EXCLUDE. Returns CL commands as strings without executing them"
+    statement: |
+      SELECT 'QSYS/GRTOBJAUT OBJ(' CONCAT object_name CONCAT ') OBJTYPE(*USRPRF) USER(*PUBLIC) AUT(*EXCLUDE)' AS lockdown_commands
+        FROM qsys2.object_privileges
+        WHERE system_object_schema = 'QSYS'
+          AND object_type = '*USRPRF'
+          AND user_name = '*PUBLIC'
+          AND object_name NOT IN ('QDBSHR', 'QDBSHRDO', 'QDOC', 'QTMPLPD')
+          AND object_authority <> '*EXCLUDE'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "remediation"
+
+  execute_impersonation_lockdown:
+    source: ibmi-system
+    description: "WRITE OPERATION: Execute GRTOBJAUT commands to lock down user profiles vulnerable to impersonation by setting *PUBLIC authority to *EXCLUDE. This modifies system security settings. Use with caution"
+    statement: |
+      SELECT qsys2.qcmdexc('QSYS/GRTOBJAUT OBJ(' CONCAT object_name CONCAT ') OBJTYPE(*USRPRF) USER(*PUBLIC) AUT(*EXCLUDE)') AS lockdown_result
+        FROM qsys2.object_privileges
+        WHERE system_object_schema = 'QSYS'
+          AND object_type = '*USRPRF'
+          AND user_name = '*PUBLIC'
+          AND object_name NOT IN ('QDBSHR', 'QDBSHRDO', 'QDOC', 'QTMPLPD')
+          AND object_authority <> '*EXCLUDE'
+    security:
+      readOnly: false
+    annotations:
+      readOnlyHint: false
+      idempotentHint: false
+      destructiveHint: true
+      openWorldHint: true
+      domain: "security"
+      category: "remediation"
+
+  list_files_exposed_to_rename_attack:
+    source: ibmi-system
+    description: "Identify database files vulnerable to rename attacks where *PUBLIC has DATA_EXECUTE & DATA_UPDATE on library plus OBJECT_MANAGEMENT & OBJECT_OPERATIONAL on file"
+    statement: |
+      WITH libs (lib_name) AS (
+        SELECT object_name
+          FROM qsys2.object_privileges
+          WHERE system_object_schema = 'QSYS'
+            AND object_type = '*LIB'
+            AND authorization_name = '*PUBLIC'
+            AND data_execute = 'YES'
+            AND data_update = 'YES'
+      )
+      SELECT priv.*
+        FROM libs, LATERAL (
+               SELECT *
+                 FROM qsys2.object_privileges
+                 WHERE system_object_schema = lib_name
+                   AND object_type = '*FILE'
+                   AND authorization_name = '*PUBLIC'
+                   AND object_management = 'YES'
+                   AND object_operational = 'YES'
+                   AND ('PF' = (SELECT objattribute
+                                  FROM TABLE (qsys2.object_statistics(lib_name, '*FILE', object_name))))
+             ) priv
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  check_chgsyslibl_public_authority:
+    source: ibmi-system
+    description: "Check if CHGSYSLIBL command has *PUBLIC authority set to *EXCLUDE to prevent library list attacks"
+    statement: |
+      SELECT object_authority
+        FROM qsys2.object_privileges
+        WHERE system_object_schema = 'QSYS'
+          AND system_object_name = 'CHGSYSLIBL'
+          AND object_type = '*CMD'
+          AND authorization_name = '*PUBLIC'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_system_libraries_allowing_table_creation:
+    source: ibmi-system
+    description: "Identify libraries in system or product portion of library list where *PUBLIC can create tables, exposing system to library list attacks"
+    statement: |
+      SELECT lib.*, priv.*
+        FROM qsys2.library_list_info lib, LATERAL (
+               SELECT *
+                 FROM qsys2.object_privileges
+                 WHERE system_object_schema = 'QSYS'
+                   AND system_object_name = lib.system_schema_name
+                   AND object_type = '*LIB'
+             ) priv
+        WHERE lib.type NOT IN ('USER')
+          AND authorization_name = '*PUBLIC'
+          AND object_operational = 'YES'
+          AND data_read = 'YES'
+          AND data_add = 'YES'
+          AND data_execute = 'YES'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+  list_adopted_authority_programs_with_public_access:
+    source: ibmi-system
+    description: "Identify programs using adopted authority (USRPRF=*OWNER) that are not secured with *PUBLIC *EXCLUDE or *AUTL, enabling privilege escalation attacks"
+    statement: |
+      WITH adopt_pgms(lib_name, pgm_name, obj_type) AS (
+        SELECT program_library, program_name, object_type
+          FROM qsys2.program_info
+          WHERE program_library NOT LIKE 'Q%'
+            AND program_library NOT LIKE 'SYS%'
+            AND user_profile = '*OWNER'
+      )
+      SELECT lib_name, pgm_name, obj_type, object_authority AS public_authority
+        FROM adopt_pgms, LATERAL (
+               SELECT *
+                 FROM TABLE (qsys2.object_privileges(
+                        system_object_schema => lib_name,
+                        system_object_name => pgm_name,
+                        object_type => obj_type))
+             )
+        WHERE authorization_user = '*PUBLIC'
+          AND object_authority NOT IN ('*EXCLUDE', '*AUTL')
+        ORDER BY lib_name, pgm_name, obj_type
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "security"
+      category: "vulnerability-assessment"
+
+toolsets:
+  security_vulnerability_assessment:
+    title: "Security Vulnerability Assessment"
+    description: "Comprehensive tools for identifying security vulnerabilities, assessing user privileges, file permissions, and potential attack vectors"
+    tools:
+      - users_with_limited_capabilities
+      - commands_allowed_for_users_with_limited_capabilities
+      - list_users_who_can_see_all_db2_data
+      - list_db_files_readable_by_any_user
+      - list_db_files_writable_by_any_user
+      - list_db_files_deletable_by_any_user
+      - list_db_files_updatable_by_any_user
+      - list_db_files_exposed_to_trigger_attack
+      - list_user_profiles_vulnerable_to_impersonation
+      - list_public_authority_on_attack_vector_commands
+      - list_files_exposed_to_rename_attack
+      - check_chgsyslibl_public_authority
+      - list_system_libraries_allowing_table_creation
+      - list_adopted_authority_programs_with_public_access
+
+  security_audit:
+    title: "Security Audit"
+    description: "Tools for auditing security configurations and maintaining security data"
+    tools:
+      - repopulate_special_authority_detail
+      - check_command_audit_settings
+
+  security_remediation:
+    title: "Security Remediation"
+    description: "Tools for generating and executing security remediation commands"
+    tools:
+      - generate_impersonation_lockdown_commands
+      - execute_impersonation_lockdown
+
+
