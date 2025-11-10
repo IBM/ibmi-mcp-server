@@ -27,6 +27,15 @@ import {
   StandardSqlToolOutput,
 } from "@/ibmi-mcp-server/schemas/index.js";
 
+// Import formatting utilities
+import {
+  markdown,
+  tableFormatter,
+  buildColumnAlignmentMap,
+  formatColumnHeader,
+  type TableStyle,
+} from "@/utils/formatting/index.js";
+
 /**
  * Represents the complete, self-contained definition of an MCP tool.
  */
@@ -84,27 +93,62 @@ export interface ToolDefinition<
 export const standardSqlToolOutputSchema = StandardSqlToolOutputSchema;
 
 /**
- * Formats SQL tool output into a well-formatted markdown table with metadata.
- * Provides a user-friendly representation of database query results.
+ * Configuration options for SQL response formatting.
+ */
+export interface SqlFormatterConfig {
+  /**
+   * Table formatting style (default: 'markdown').
+   */
+  tableFormat?: TableStyle;
+
+  /**
+   * Maximum number of rows to display (default: 100).
+   */
+  maxDisplayRows?: number;
+}
+
+/**
+ * Formats SQL tool output into a professionally formatted markdown response.
+ * Uses MarkdownBuilder for structure and TableFormatter for type-aware table rendering.
+ * Provides column type indicators, NULL tracking, and performance metrics.
+ *
+ * @param result - The SQL tool execution result
+ * @param config - Optional formatting configuration
+ * @returns Array of content blocks for MCP response
+ *
+ * @example
+ * ```typescript
+ * const result = await executeSqlTool(params);
+ * const formatted = sqlResponseFormatter(result, {
+ *   tableFormat: 'grid',
+ *   maxDisplayRows: 50
+ * });
+ * ```
  */
 export const sqlResponseFormatter = (
   result: StandardSqlToolOutput,
+  config?: SqlFormatterConfig,
 ): ContentBlock[] => {
+  const tableFormat = config?.tableFormat || 'markdown';
+  const maxDisplayRows = config?.maxDisplayRows || 100;
+
+  // Handle error cases
   if (!result.success || !result.data) {
-    // Handle error cases
     const errorMessage = result.error || "Unknown error occurred";
     const { metadata } = result;
 
-    let errorResponse = `❌ **SQL Query Failed**\n\n`;
+    const errorBuilder = markdown()
+      .alert('caution', '❌ SQL Query Failed')
+      .blankLine();
 
     if (metadata?.toolName) {
-      errorResponse += `**Tool:** ${metadata.toolName}\n\n`;
+      errorBuilder.keyValue('Tool', metadata.toolName);
     }
 
-    errorResponse += `**Error:** ${errorMessage}`;
+    errorBuilder.keyValue('Error', errorMessage);
 
     if (result.errorCode) {
-      errorResponse += `\n**Error Code:** ${result.errorCode}`;
+      errorBuilder.keyValue('Error Code', String(result.errorCode));
     }
 
     if (metadata?.sqlStatement) {
@@ -112,27 +156,35 @@ export const sqlResponseFormatter = (
         metadata.sqlStatement.length > 200
           ? metadata.sqlStatement.substring(0, 197) + "..."
           : metadata.sqlStatement;
-      errorResponse += `\n\n**SQL Statement:**\n\`\`\`sql\n${truncatedSql}\n\`\`\``;
+      errorBuilder
+        .blankLine()
+        .h3('SQL Statement')
+        .codeBlock(truncatedSql, 'sql');
     }
 
-    return [{ type: "text", text: errorResponse }];
+    const errorMarkdown = errorBuilder.build();
+
+    return [{ type: "text", text: errorMarkdown }];
   }
 
   const { data, metadata } = result;
   const rowCount = data.length;
-  const columnCount = metadata?.columns?.length || 0;
 
-  // Build structured response
-  let response = "";
+  // Start building the markdown response
+  const mdBuilder = markdown();
 
   // Tool header
   if (metadata?.toolName) {
-    response += `## ${metadata.toolName}\n\n`;
+    mdBuilder.h2(metadata.toolName);
   }
 
-  // Success indicator and row count
-  response += `✅ **Query completed successfully**\n\n`;
-  response += `Found **${rowCount} row${rowCount !== 1 ? "s" : ""}** from the database query\n\n`;
+  // Success indicator
+  mdBuilder
+    .alert('tip', '✅ Query completed successfully')
+    .blankLine()
+    .paragraph(
+      `Found **${rowCount} row${rowCount !== 1 ? 's' : ''}** from the database query`
+    );
 
   // SQL Statement section
   if (metadata?.sqlStatement) {
@@ -140,31 +192,35 @@ export const sqlResponseFormatter = (
       metadata.sqlStatement.length > 500
         ? metadata.sqlStatement.substring(0, 497) + "..."
         : metadata.sqlStatement;
-    response += `**SQL Statement:**\n\`\`\`sql\n${truncatedSql}\n\`\`\`\n\n`;
+    mdBuilder
+      .h3('SQL Statement')
+      .codeBlock(truncatedSql, 'sql');
   }
 
   // Parameters section
   if (metadata?.parameters && Object.keys(metadata.parameters).length > 0) {
-    response += `**Parameters:**\n`;
-    Object.entries(metadata.parameters).forEach(([key, value]) => {
+    mdBuilder.h3('Parameters');
+    const paramList = Object.entries(metadata.parameters).map(([key, value]) => {
       const displayValue =
         value === null || value === undefined
           ? "NULL"
           : typeof value === "string" && value.length > 100
             ? `${String(value).substring(0, 97)}...`
             : String(value);
-      response += `- \`${key}\`: ${displayValue}\n`;
+      return `\`${key}\`: ${displayValue}`;
     });
-    response += `\n`;
+    mdBuilder.list(paramList);
   }
 
   // Handle empty results
   if (rowCount === 0) {
-    response += `No rows returned from the query.\n\n`;
-    response += `**Execution Summary:**\n`;
-    response += `- Execution time: ${metadata?.executionTime ? `${metadata.executionTime}ms` : "N/A"}\n`;
-    response += `- Parameters used: ${metadata?.parameterCount || 0}\n`;
-    return [{ type: "text", text: response }];
+    mdBuilder
+      .paragraph('No rows returned from the query.')
+      .h3('Execution Summary')
+      .keyValue('Execution time', metadata?.executionTime ? `${metadata.executionTime}ms` : 'N/A')
+      .keyValue('Parameters used', String(metadata?.parameterCount || 0));
+
+    return [{ type: "text", text: mdBuilder.build() }];
   }
 
   // Extract column information
@@ -179,68 +235,93 @@ export const sqlResponseFormatter = (
           label: key,
         }));
 
-  // Build markdown table
-  let tableMarkdown = "";
-
-  // Header row with cleaner formatting
-  const headers = allColumns.map((col) => {
-    const header = col.label || col.name;
-    return col.type ? `${header} (${col.type})` : header;
-  });
-  tableMarkdown += `| ${headers.join(" | ")} |\n`;
-
-  // Separator row
-  tableMarkdown += `|${headers.map(() => "----------").join("|")}|\n`;
-
-  // Data rows (limit to first 500 rows for better performance)
-  const maxDisplayRows = 500;
+  // Prepare data for table formatter
   const displayRows = data.slice(0, maxDisplayRows);
+  const columnCount = allColumns.length;
 
-  displayRows.forEach((row) => {
-    const values = allColumns.map((col) => {
+  // Format headers with type indicators
+  const headers = allColumns.map((col) =>
+    formatColumnHeader(col.label || col.name, col.type)
+  );
+
+  // Build column alignment map based on types
+  const alignment = buildColumnAlignmentMap(allColumns);
+
+  // Convert data rows to string arrays
+  const rows = displayRows.map((row) =>
+    allColumns.map((col) => {
       const value = row[col.name];
-      if (value === null || value === undefined) return "NULL";
+      if (value === null || value === undefined) return null;
       return String(value);
-    });
-    tableMarkdown += `| ${values.join(" | ")} |\n`;
-  });
+    })
+  );
 
-  // Show row limitation notice if applicable
+  // Format table with metadata tracking
+  const tableResult = tableFormatter.formatRawWithMetadata(
+    headers,
+    rows,
+    {
+      style: tableFormat,
+      alignment,
+      nullReplacement: '-',
+      maxWidth: 50,
+      truncate: true,
+    }
+  );
+
+  // Add truncation notice if applicable
   if (displayRows.length < rowCount) {
-    response += `*Showing first ${displayRows.length} of ${rowCount} rows*\n\n`;
+    mdBuilder.alert(
+      'note',
+      `Showing ${displayRows.length} of ${rowCount} rows. ${rowCount - displayRows.length} rows omitted.`
+    );
   }
 
-  response += `**Results:**\n\n${tableMarkdown}\n`;
+  // Results section
+  mdBuilder
+    .h3('Results')
+    .raw(tableResult.table);
 
-  // Count null values across all displayed data
-  let nullCount = 0;
-  displayRows.forEach((row) => {
-    allColumns.forEach((col) => {
-      if (row[col.name] === null || row[col.name] === undefined) {
-        nullCount++;
-      }
-    });
-  });
+  // NULL value summary (only if there are NULLs)
+  const nullCounts = tableResult.metadata.nullCounts;
+  const totalNulls = Object.values(nullCounts).reduce((sum, count) => sum + count, 0);
 
-  // Execution summary
-  response += `**Summary:**\n`;
-  response += `- Total rows: ${rowCount}\n`;
-  response += `- Columns: ${columnCount}\n`;
-  response += `- Null values: ${nullCount}\n`;
+  // Summary section
+  const summaryItems: string[] = [
+    `**Total rows**: ${rowCount}`,
+    `**Columns**: ${columnCount}`,
+  ];
 
   if (metadata?.executionTime) {
-    response += `- Execution time: ${metadata.executionTime}ms\n`;
+    summaryItems.push(`**Execution time**: ${metadata.executionTime}ms`);
+  }
+
+  if (totalNulls > 0) {
+    const nullDetails = Object.entries(nullCounts)
+      .filter(([, count]) => count > 0)
+      .map(([col, count]) => {
+        // Convert column index to name for display
+        const colIndex = parseInt(col);
+        const colName = isNaN(colIndex) ? col : (allColumns[colIndex]?.name || col);
+        return `${colName} (${count})`;
+      })
+      .join(', ');
+    summaryItems.push(`**NULL values**: ${totalNulls} total - ${nullDetails}`);
   }
 
   if (metadata?.affectedRows !== undefined) {
-    response += `- Affected rows: ${metadata.affectedRows}\n`;
+    summaryItems.push(`**Affected rows**: ${metadata.affectedRows}`);
   }
 
   if (metadata?.parameterCount) {
-    response += `- Parameters processed: ${metadata.parameterCount}\n`;
+    summaryItems.push(`**Parameters processed**: ${metadata.parameterCount}`);
   }
 
-  return [{ type: "text", text: response }];
+  mdBuilder
+    .h3('Summary')
+    .list(summaryItems);
+
+  return [{ type: "text", text: mdBuilder.build() }];
 };
 
 /**

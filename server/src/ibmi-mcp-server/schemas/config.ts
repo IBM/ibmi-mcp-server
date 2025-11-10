@@ -165,6 +165,23 @@ export const SqlToolConfigSchema = z
     security: SqlToolSecurityConfigSchema.optional().describe(
       "Security configuration for tool execution",
     ),
+    tableFormat: z
+      .enum(["markdown", "ascii", "grid", "compact"])
+      .optional()
+      .default("markdown")
+      .describe(
+        "Table formatting style for SQL results (default: markdown). Options: markdown (GitHub-style), ascii (plain text), grid (Unicode boxes), compact (minimal spacing)",
+      ),
+    maxDisplayRows: z
+      .number()
+      .int()
+      .min(1, "maxDisplayRows must be at least 1")
+      .max(1000, "maxDisplayRows cannot exceed 1000")
+      .optional()
+      .default(100)
+      .describe(
+        "Maximum number of rows to display in result tables (default: 100). Rows beyond this limit will show a truncation message",
+      ),
 
     // Legacy deprecated fields (for backward compatibility)
     readOnlyHint: z

@@ -39,6 +39,7 @@ tools:
         description: "Employee ID (e.g., '000010') - Must be 6 digits"
         required: true
         pattern: "^[0-9]{6}$"
+    responseFormat: markdown
     security:
       readOnly: true
     annotations:

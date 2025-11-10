@@ -1,4 +1,16 @@
-import { beforeAll, afterEach, afterAll } from "vitest";
+import { beforeAll, afterEach, afterAll, vi } from "vitest";
+
+// Suppress all logging in tests - creates silent no-op functions
+vi.mock("../src/utils/internal/logger.js", () => ({
+  logger: {
+    info: () => {},
+    debug: () => {},
+    warn: () => {},
+    error: () => {},
+    trace: () => {},
+    fatal: () => {},
+  },
+}));
 
 // Global test setup without MSW - tests use real APIs or isolated MSW servers
 beforeAll(() => {

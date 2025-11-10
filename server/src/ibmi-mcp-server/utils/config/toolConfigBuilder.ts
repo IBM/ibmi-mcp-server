@@ -464,12 +464,23 @@ export class ToolConfigBuilder {
   }
 
   /**
-   * Determines the appropriate response formatter based on tool configuration
+   * Determines the appropriate response formatter based on tool configuration.
+   * For SQL formatters, extracts and passes formatting configuration (tableFormat, maxDisplayRows).
    */
   private getResponseFormatter(config: SqlToolConfig) {
-    return config.responseFormat === "markdown"
-      ? sqlResponseFormatter
-      : defaultResponseFormatter;
+    if (config.responseFormat === "markdown") {
+      // Extract formatting configuration from tool config
+      const formatterConfig = {
+        tableFormat: config.tableFormat,
+        maxDisplayRows: config.maxDisplayRows,
+      };
+
+      // Return a wrapper that passes the config to sqlResponseFormatter
+      return (result: StandardSqlToolOutput) =>
+        sqlResponseFormatter(result, formatterConfig);
+    }
+
+    return defaultResponseFormatter;
   }
 
   private buildAnnotations(
