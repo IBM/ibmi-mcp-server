@@ -588,6 +588,369 @@ All parameters are validated before SQL execution:
 
 ---
 
+## Output Format Options
+
+SQL tools support configurable output formatting to optimize readability and control the display of query results. These options control how result sets are presented in markdown format, including table styling and row truncation.
+
+> **⚠️ Important:** Output formatting options only apply when `responseFormat: markdown` is set (default is set to `json`). Tools using `responseFormat: json` will return raw JSON data without formatting.
+
+### Overview
+
+The output formatting system provides:
+- **Multiple table styles** for different display contexts
+- **Type-aware column alignment** (numeric right-aligned, text left-aligned)
+- **NULL value handling** with configurable replacements
+- **Row truncation** with clear truncation indicators
+- **Metadata display** including execution time, row counts, and NULL statistics
+
+All SQL tools use markdown formatting by default with sensible defaults that work well for most use cases. You can override these settings per tool to customize the output presentation.
+
+---
+
+### Output Format Configuration
+
+Output formatting is configured using two optional fields in the tool definition:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `responseFormat` | enum | `markdown` | Response format (`markdown` or `json`) - **required for formatting** |
+| `tableFormat` | enum | `markdown` | Table formatting style (see styles below) |
+| `maxDisplayRows` | integer | `100` | Maximum rows to display before truncation |
+
+The `tableFormat` and `maxDisplayRows` fields are optional. If omitted, the tool will use the default values.
+
+---
+
+### Table Format Styles
+
+The `tableFormat` field controls the visual style of result tables. Four styles are available:
+
+#### 1. `markdown` (Default)
+
+GitHub-flavored markdown table format with column type indicators. Best for documentation, web viewers, and LLM consumption.
+
+**Characteristics:**
+- Uses `|` for column separators
+- Includes `---` header separator with alignment indicators
+- Column headers include type information: `EMPLOYEE_ID (INTEGER)`
+- Numeric columns automatically right-aligned
+- Most readable in markdown renderers
+
+**Example:**
+```markdown
+| EMPLOYEE_ID (INTEGER) | FIRST_NAME (VARCHAR) | SALARY (DECIMAL) |
+|----------------------:|:---------------------|------------------:|
+|                000010 | John                 |         75000.00 |
+|                000020 | Alice                |         82500.00 |
+```
+
+**Use Cases:**
+- Default choice for most tools
+- Documentation and reports
+- Web-based interfaces
+- LLM-friendly output
+
+---
+
+#### 2. `ascii`
+
+Plain ASCII table format using `+`, `-`, and `|` characters. Compatible with any text display.
+
+**Characteristics:**
+- Uses `+` for corners and intersections
+- Uses `-` for horizontal borders
+- Uses `|` for vertical borders
+- Works in any text editor or terminal
+- Fixed-width display for consistent alignment
+
+**Example:**
+```
++-------------+------------+----------+
+| EMPLOYEE_ID | FIRST_NAME | SALARY   |
++-------------+------------+----------+
+|      000010 | John       | 75000.00 |
+|      000020 | Alice      | 82500.00 |
++-------------+------------+----------+
+```
+
+**Use Cases:**
+- Plain text environments
+- Email or text file output
+- Legacy system integration
+- Terminal-based tools
+
+---
+
+#### 3. `grid`
+
+Unicode box-drawing characters for a polished, professional appearance.
+
+**Characteristics:**
+- Uses Unicode box-drawing characters (`│`, `┌`, `┐`, `├`, `┤`, `┴`, `┬`, `└`, `┘`)
+- Visually distinct and modern
+- Requires Unicode support
+- Slightly more compact than ASCII
+
+**Example:**
+```
+┌─────────────┬────────────┬──────────┐
+│ EMPLOYEE_ID │ FIRST_NAME │ SALARY   │
+├─────────────┼────────────┼──────────┤
+│      000010 │ John       │ 75000.00 │
+│      000020 │ Alice      │ 82500.00 │
+└─────────────┴────────────┴──────────┘
+```
+
+**Use Cases:**
+- Modern terminal output
+- Professional reports
+- Rich text environments
+- Visual clarity over compatibility
+
+---
+
+#### 4. `compact`
+
+Minimal spacing for space-constrained displays.
+
+**Characteristics:**
+- Reduced column padding (1 space instead of 2)
+- Still uses markdown-style separators
+- Maintains alignment and readability
+- Most space-efficient option
+
+**Example:**
+```markdown
+|EMPLOYEE_ID|FIRST_NAME|SALARY   |
+|----------:|:---------|--------:|
+|     000010|John      | 75000.00|
+|     000020|Alice     | 82500.00|
+```
+
+**Use Cases:**
+- Mobile or narrow displays
+- High-density information display
+- Logs with space constraints
+- Minimalist output preferences
+
+---
+
+### Maximum Display Rows
+
+The `maxDisplayRows` field controls how many rows are displayed before truncation occurs.
+
+**Constraints:**
+- Minimum: `1`
+- Maximum: `1000`
+- Default: `100`
+
+**Behavior:**
+- If result row count ≤ `maxDisplayRows`: All rows are displayed
+- If result row count > `maxDisplayRows`: First `maxDisplayRows` rows shown with truncation alert
+
+**Truncation Alert:**
+When truncation occurs, a clear alert message is displayed:
+
+```markdown
+> ⚠️ **Truncated Results**
+> Showing 100 of 1,247 rows. 1,147 additional rows were truncated.
+```
+
+**Use Cases for Different Limits:**
+
+| Limit | Use Case |
+|-------|----------|
+| `1-10` | Quick previews, debugging |
+| `10-50` | Interactive queries, dashboards |
+| `50-100` | Standard reports (default) |
+| `100-500` | Detailed analysis |
+| `500-1000` | Comprehensive exports |
+
+---
+
+### Configuration Examples
+
+#### Example 1: Default Configuration
+
+Most tools work well with defaults (markdown format, 100-row limit):
+
+```yaml
+tools:
+  list_employees:
+    source: ibmi-system
+    description: "List all employees"
+    statement: "SELECT EMPNO, FIRSTNME, SALARY FROM SAMPLE.EMPLOYEE"
+    # Defaults: responseFormat: markdown, tableFormat: markdown, maxDisplayRows: 100
+```
+
+---
+
+#### Example 2: ASCII Format
+
+```yaml
+tools:
+  system_status:
+    source: ibmi-system
+    description: "System status in plain text format"
+    statement: "SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS())"
+    responseFormat: markdown  # Required for formatting
+    tableFormat: ascii         # Plain text compatible
+    maxDisplayRows: 50
+```
+
+**Use for:** Plain text files, emails, legacy terminals, non-Unicode systems
+
+---
+
+#### Example 3: Grid Format
+
+```yaml
+tools:
+  monthly_report:
+    source: ibmi-system
+    description: "Monthly sales report"
+    statement: "SELECT MONTH_NAME, TOTAL_SALES FROM SALES.MONTHLY_SUMMARY"
+    responseFormat: markdown
+    tableFormat: grid    # Unicode box characters
+    maxDisplayRows: 12
+```
+
+**Use for:** Professional reports, dashboards, modern terminals
+
+---
+
+#### Example 4: Compact Format
+
+```yaml
+tools:
+  active_jobs:
+    source: ibmi-system
+    description: "List active jobs"
+    statement: "SELECT JOB_NAME, USER_NAME, CPU_USED FROM QSYS2.ACTIVE_JOB_INFO"
+    responseFormat: markdown
+    tableFormat: compact  # Minimal spacing
+    maxDisplayRows: 200
+```
+
+**Use for:** Space-constrained displays, logs, high-density data
+
+---
+
+#### Example 5: High Row Limit
+
+```yaml
+tools:
+  export_customers:
+    source: ibmi-system
+    description: "Export customer list"
+    statement: "SELECT * FROM CUSTOMERS.MASTER WHERE STATUS = 'ACTIVE'"
+    responseFormat: markdown
+    maxDisplayRows: 1000  # Maximum allowed
+```
+
+**Use for:** Data exports, comprehensive analysis, admin tools
+
+---
+
+### Automatic Features
+
+#### Column Type Awareness
+
+Columns are automatically aligned based on database types:
+- **Right-aligned:** INTEGER, DECIMAL, FLOAT, NUMERIC (all numeric types)
+- **Left-aligned:** VARCHAR, CHAR, DATE, TIME, TIMESTAMP (text and temporal types)
+
+Column headers include type information: `SALARY (DECIMAL)`
+
+**Example Output:**
+
+```markdown
+| EMPNO (INTEGER) | FIRSTNME (VARCHAR) |  SALARY (DECIMAL) |
+|----------------:|:-------------------|------------------:|
+|          000010 | John               |          75000.00 |
+```
+
+#### NULL Value Handling
+
+- NULL values display as `-` (dash)
+- NULL counts tracked per column in metadata
+- Consistent across all table formats
+
+**Example Output with NULLs:**
+
+```markdown
+| EMPNO (INTEGER) | PHONENO (CHAR) | EMAIL (VARCHAR) |
+|----------------:|:---------------|:----------------|
+|          000010 | 555-0100       | john@example.com |
+|          000020 | -              | -               |
+
+### Metadata
+- **NULL Values:** PHONENO (1), EMAIL (1)
+```
+
+---
+
+### Complete Output Structure
+
+A fully-formatted SQL tool response includes:
+
+1. **Tool Name Header** (H2)
+2. **Success Alert** with checkmark
+3. **Result Table** with type-aware formatting
+4. **Truncation Alert** (if applicable)
+5. **Metadata Section** with:
+   - Execution time
+   - Row counts (displayed and total)
+   - NULL value statistics
+   - Parameter values used
+6. **Performance Metrics** (optional)
+
+**Example Complete Output:**
+
+```markdown
+## query_employees
+
+> ✅ Query completed successfully
+
+| EMPNO (INTEGER) | FIRSTNME (VARCHAR) | LASTNAME (VARCHAR) |  SALARY (DECIMAL) |
+|----------------:|:-------------------|:-------------------|------------------:|
+|          000010 | John               | Smith              |          75000.00 |
+|          000020 | Alice              | Johnson            |          82500.00 |
+|          000030 | Bob                | Williams           |          68000.00 |
+
+### Metadata
+- **Execution Time:** 0.156s
+- **Rows Returned:** 3
+- **NULL Values:** None
+
+### Parameters
+- **department**: 'A00'
+- **min_salary**: 50000
+```
+
+---
+
+### Best Practices
+
+**Format Selection:**
+- `markdown` - Default, best for LLMs and web UIs
+- `ascii` - Plain text compatibility
+- `grid` - Professional reports
+- `compact` - Space-constrained displays
+
+**Row Limits by Use Case:**
+- Interactive tools: 10-50 rows
+- Standard reports: 50-100 rows (default)
+- Analysis tools: 100-500 rows
+- Export tools: 500-1000 rows
+
+**Performance:**
+- Lower `maxDisplayRows` for faster responses
+- Use SQL `LIMIT` clauses for database-level limits
+- Add `ORDER BY` to show most relevant rows first
+
+---
+
 ## Complete Example: Employee Information Tools
 
 The `tools/sample/employee-info.yaml` file demonstrates a comprehensive set of tools using the IBM i SAMPLE schema. This example showcases all parameter types, validation patterns, and best practices for building production-ready MCP tools.
