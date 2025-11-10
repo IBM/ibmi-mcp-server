@@ -1,5 +1,6 @@
 # Security Vulnerability Assessment and Remediation Tools
 # Purpose: Comprehensive security analysis tools for identifying vulnerabilities,
+# Based on SQL script by Scott Forstie
 # assessing user privileges, file permissions, and potential attack vectors on IBM i systems
 
 sources:
