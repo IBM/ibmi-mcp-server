@@ -625,6 +625,11 @@ The `tableFormat` and `maxDisplayRows` fields are optional. If omitted, the tool
 
 The `tableFormat` field controls the visual style of result tables. Four styles are available:
 
+- `markdown` (default)
+- `ascii`
+- `grid`
+- `compact`
+
 #### 1. `markdown` (Default)
 
 GitHub-flavored markdown table format with column type indicators. Best for documentation, web viewers, and LLM consumption.
