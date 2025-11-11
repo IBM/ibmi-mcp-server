@@ -12,6 +12,7 @@ Usage:
 import asyncio
 import sys
 import os
+from typing import Optional
 
 # Disable LangSmith tracing for tests
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
@@ -30,19 +31,30 @@ TEST_QUERIES = {
     "performance": "What is my system status? Give me CPU and memory metrics.",
     "discovery": "Give me an overview of available system services.",
     "browse": "Show me services in the QSYS2 schema.",
-    "search": "Search for services related to system status."
+    "search": "Search for services related to system status.",
+    "security": "Check for user profiles vulnerable to impersonation attacks."
 }
 
-async def test_single_agent(agent_type: str, model_id: str = "gpt-oss:20b"):
+async def test_single_agent(agent_type: str, model_id: str = "gpt-oss:20b", category: Optional[str] = None):
     """Test a single agent with a sample query."""
     print(f"\n{'='*80}")
     print(f"Testing {agent_type.upper()} Agent")
+    if category:
+        print(f"Category Filter: {category}")
     print(f"{'='*80}\n")
     
     try:
         # Create agent context
         print(f"🔧 Creating {agent_type} agent with model {model_id}...")
-        ctx = await create_ibmi_agent(agent_type, model_id=model_id)
+        if category:
+            print(f"   Filtering by category: {category}")
+        
+        # Pass category parameter if provided (only for security agent)
+        kwargs = {"model_id": model_id}
+        if category and agent_type == "security":
+            kwargs["category"] = category
+        
+        ctx = await create_ibmi_agent(agent_type, **kwargs)
         
         async with ctx as (agent, session):
             print(f"✅ Agent created: {agent.name}\n")
@@ -111,16 +123,27 @@ async def test_all_agents(model_id: str = "gpt-oss:20b"):
     
     return all(results.values())
 
-async def interactive_mode(agent_type: str, model_id: str = "gpt-oss:20b"):
+async def interactive_mode(agent_type: str, model_id: str = "gpt-oss:20b", category: Optional[str] = None):
     """Interactive chat mode with a specific agent."""
     print(f"\n{'='*80}")
     print(f"Interactive Mode - {agent_type.upper()} Agent")
+    if category:
+        print(f"Category Filter: {category}")
     print(f"{'='*80}\n")
     
     try:
         # Create agent context
-        print(f"🔧 Initializing {agent_type} agent with {model_id}...\n")
-        ctx = await create_ibmi_agent(agent_type, model_id=model_id)
+        print(f"🔧 Initializing {agent_type} agent with {model_id}...")
+        if category:
+            print(f"   Filtering by category: {category}")
+        print()
+        
+        # Pass category parameter if provided (only for security agent)
+        kwargs = {"model_id": model_id}
+        if category and agent_type == "security":
+            kwargs["category"] = category
+        
+        ctx = await create_ibmi_agent(agent_type, **kwargs)
         
         async with ctx as (agent, session):
             print(f"✅ {agent.name} ready!\n")
@@ -171,19 +194,32 @@ async def interactive_mode(agent_type: str, model_id: str = "gpt-oss:20b"):
         import traceback
         traceback.print_exc()
 
-async def quick_test(model_id: str = "gpt-oss:20b"):
+async def quick_test(model_id: str = "gpt-oss:20b", category: Optional[str] = None, agent_filter: Optional[str] = None):
     """Quick test - just verify all agents can be created."""
     print("\n" + "="*80)
     print("Quick Agent Creation Test")
     print("="*80)
-    print(f"Model: {model_id}\n")
+    print(f"Model: {model_id}")
+    if category:
+        print(f"Category Filter: {category}")
+    print()
     
     results = {}
     
-    for agent_type in AVAILABLE_AGENTS.keys():
+    # Filter to specific agent if requested
+    agents_to_test = [agent_filter] if agent_filter else list(AVAILABLE_AGENTS.keys())
+    
+    for agent_type in agents_to_test:
         try:
             print(f"Creating {agent_type} agent...", end=" ")
-            ctx = await create_ibmi_agent(agent_type, model_id=model_id)
+            
+            # Pass category parameter if provided (only for security agent)
+            kwargs = {"model_id": model_id}
+            if category and agent_type == "security":
+                kwargs["category"] = category
+                print(f"(category: {category})...", end=" ")
+            
+            ctx = await create_ibmi_agent(agent_type, **kwargs)
             async with ctx as (agent, session):
                 print(f"✅ {agent.name}")
                 results[agent_type] = True
@@ -236,6 +272,12 @@ Examples:
     )
     
     parser.add_argument(
+        "--category",
+        choices=["vulnerability-assessment", "audit", "remediation", "user-management"],
+        help="Filter security agent tools by category (only applies to security agent)"
+    )
+    
+    parser.add_argument(
         "--interactive",
         action="store_true",
         help="Run in interactive chat mode (requires --agent)"
@@ -278,15 +320,21 @@ Examples:
     if args.interactive and not args.agent:
         parser.error("--interactive requires --agent to be specified")
     
+    if args.category and not args.agent:
+        parser.error("--category requires --agent to be specified")
+    
+    if args.category and args.agent != "security":
+        parser.error("--category can only be used with --agent security")
+    
     # Run appropriate test mode
     try:
         if args.quick:
-            success = asyncio.run(quick_test(args.model))
+            success = asyncio.run(quick_test(args.model, args.category, args.agent))
         elif args.interactive:
-            asyncio.run(interactive_mode(args.agent, args.model))
+            asyncio.run(interactive_mode(args.agent, args.model, args.category))
             success = True
         elif args.agent:
-            success = asyncio.run(test_single_agent(args.agent, args.model))
+            success = asyncio.run(test_single_agent(args.agent, args.model, args.category))
         else:
             success = asyncio.run(test_all_agents(args.model))
         

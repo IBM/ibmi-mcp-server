@@ -7,8 +7,9 @@ administration and monitoring tasks.
 Available agents:
 - Performance Agent: System performance monitoring and analysis
 - SysAdmin Discovery Agent: High-level system discovery and summarization
-- SysAdmin Browse Agent: Detailed system browsing and exploration  
+- SysAdmin Browse Agent: Detailed system browsing and exploration
 - SysAdmin Search Agent: System search and lookup capabilities
+- Security Operations Agent: Security vulnerability assessment and remediation
 """
 
 from .ibmi_agents import (
@@ -17,6 +18,7 @@ from .ibmi_agents import (
     create_sysadmin_discovery_agent,
     create_sysadmin_browse_agent,
     create_sysadmin_search_agent,
+    create_security_ops_agent,
     chat_with_agent,
     list_available_agents,
     set_verbose_logging,
@@ -30,6 +32,7 @@ __all__ = [
     "create_sysadmin_discovery_agent",
     "create_sysadmin_browse_agent",
     "create_sysadmin_search_agent",
+    "create_security_ops_agent",
     "chat_with_agent",
     "list_available_agents",
     "set_verbose_logging",

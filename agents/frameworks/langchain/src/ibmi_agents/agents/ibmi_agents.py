@@ -18,12 +18,13 @@ import asyncio
 import os
 import json
 import getpass
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from contextlib import _AsyncGeneratorContextManager, asynccontextmanager
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 # Import MCP tools from the SDK package
@@ -132,6 +133,38 @@ def get_model(model_id: str = "gpt-oss:20b", temperature: float = 0.3):
     # Default to Ollama if no prefix is specified
     else:
         return ChatOllama(model=model_id, temperature=temperature)
+
+# -----------------------------------------------------------------------------
+# Tool Metadata Helper Functions
+# -----------------------------------------------------------------------------
+
+def _get_non_readonly_tools(tools: List[Any]) -> List[str]:
+    """
+    Extract tool names that have readOnly: false in their metadata.
+    
+    This function checks the tool metadata for the 'readOnlyHint' annotation
+    (which corresponds to the security.readOnly field in YAML) and returns
+    a list of tool names that are marked as non-readonly (write operations).
+    
+    Args:
+        tools: List of LangChain tool objects with metadata
+        
+    Returns:
+        List of tool names that require human approval (readOnly: false)
+    """
+    non_readonly_tools = []
+    
+    for tool in tools:
+        # Check if tool has metadata
+        if hasattr(tool, 'metadata') and tool.metadata:
+            # Check readOnlyHint annotation (corresponds to security.readOnly in YAML)
+            read_only_hint = tool.metadata.get('readOnlyHint', True)
+            
+            # If readOnlyHint is False, this is a write operation that needs approval
+            if read_only_hint is False:
+                non_readonly_tools.append(tool.name)
+    
+    return non_readonly_tools
 
 # -----------------------------------------------------------------------------
 # Agent Creation Functions
@@ -370,6 +403,116 @@ Suggest related searches or alternative terms when searches yield few results.""
     
     return agent_session()
 
+async def create_security_ops_agent(
+    model_id: str = "gpt-oss:20b",
+    mcp_url: str = DEFAULT_MCP_URL,
+    transport: str = DEFAULT_TRANSPORT,
+    category: Optional[str] = None,
+    enable_human_in_loop: bool = True,
+    **kwargs
+):
+    """
+    Create IBM i Security Operations Agent.
+    
+    Args:
+        model_id: Model identifier (default: "gpt-oss:20b")
+        mcp_url: MCP server URL
+        transport: Transport type
+        category: Optional category filter for security tools. Options:
+                 - "vulnerability-assessment": Tools for identifying security vulnerabilities
+                 - "audit": Tools for auditing security configurations
+                 - "remediation": Tools for generating and executing security fixes
+                 - "user-management": Tools for managing user capabilities and permissions
+                 - None: Load all security tools (default)
+        enable_human_in_loop: Enable human-in-the-loop middleware for non-readonly tools (default: True)
+        **kwargs: Additional agent configuration options
+    
+    Returns an async context manager that yields (agent, session).
+    Usage: async with (await create_security_ops_agent()) as (agent, session): ...
+    """
+    client = get_mcp_client(mcp_url, transport)
+    
+    @asynccontextmanager
+    async def agent_session():
+        async with client.session("ibmi_tools") as session:
+            # Load security tools with optional category filtering
+            if category:
+                # Use annotation filtering to load tools by domain and category
+                tools = await load_filtered_mcp_tools(
+                    session,
+                    annotation_filters={
+                        "domain": "security",
+                        "category": category
+                    },
+                    debug=True
+                )
+                print(f"✅ Loaded {len(tools)} security operations tools (category: {category}) for Security Ops Agent")
+            else:
+                # Load all security tools by domain
+                tools = await load_filtered_mcp_tools(
+                    session,
+                    annotation_filters={"domain": "security"},
+                    debug=True
+                )
+                print(f"✅ Loaded {len(tools)} security operations tools for Security Ops Agent")
+            
+            # Build human-in-the-loop middleware dynamically based on tool annotations
+            middleware = []
+            if enable_human_in_loop:
+                non_readonly_tools = _get_non_readonly_tools(tools)
+                if non_readonly_tools:
+                    interrupt_config = {}
+                    for tool_name in non_readonly_tools:
+                        interrupt_config[tool_name] = {
+                            "allowed_decision": ["approve", "reject"],
+                        }
+                    
+                    middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_config))
+                    print(f"🔒 Human-in-the-loop enabled for {len(non_readonly_tools)} non-readonly tools:")
+                    for tool_name in non_readonly_tools:
+                        print(f"   - {tool_name}")
+            
+            system_message = """You are a specialized IBM i security operations assistant.
+You help administrators identify security vulnerabilities, audit system configurations, and remediate security issues.
+Your role is to:
+- Identify security vulnerabilities and misconfigurations
+- Assess user privileges and special authorities
+- Audit file and object permissions for *PUBLIC access
+- Detect potential attack vectors (triggers, impersonation, privilege escalation)
+- Generate remediation commands for security lockdown
+- Explain security risks in business terms
+- Provide actionable recommendations for hardening system security
+
+IMPORTANT SECURITY NOTES:
+- Always explain the security implications of findings
+- Distinguish between read-only assessment tools and destructive remediation tools
+- For remediation tools, you will be prompted for approval before execution
+- Recommend testing remediation commands in development before production
+- Prioritize findings by severity (critical vulnerabilities first)
+
+Focus on helping administrators understand their security posture and take appropriate action to protect their IBM i systems."""
+            
+            llm = get_model(model_id)
+            
+            # Only pass middleware if it's not empty
+            agent_kwargs = {
+                "model": llm,
+                "tools": tools,
+                "system_prompt": system_message,
+                "checkpointer": get_shared_checkpointer(),
+                "store": get_shared_store(),
+                "name": "IBM i Security Operations",
+                **kwargs
+            }
+            
+            if middleware:
+                agent_kwargs["middleware"] = middleware
+            
+            agent = create_agent(**agent_kwargs)
+            yield agent, session
+    
+    return agent_session()
+
 # -----------------------------------------------------------------------------
 # Agent Registry and Factory Pattern
 # -----------------------------------------------------------------------------
@@ -379,6 +522,7 @@ AVAILABLE_AGENTS = {
     "discovery": create_sysadmin_discovery_agent,
     "browse": create_sysadmin_browse_agent,
     "search": create_sysadmin_search_agent,
+    "security": create_security_ops_agent,
 }
 
 async def create_ibmi_agent(agent_type: str, **kwargs) -> _AsyncGeneratorContextManager[tuple[Any, Any], None]:
@@ -404,7 +548,8 @@ def list_available_agents() -> Dict[str, str]:
         "performance": "System performance monitoring and analysis",
         "discovery": "High-level system discovery and summarization",
         "browse": "Detailed system browsing and exploration",
-        "search": "System search and lookup capabilities"
+        "search": "System search and lookup capabilities",
+        "security": "Security vulnerability assessment and remediation"
     }
 
 def set_verbose_logging(enabled: bool):
@@ -609,7 +754,7 @@ if __name__ == "__main__":
             "gpt-oss:20b",           # Default Ollama model
             "ollama:llama3.1",         # Explicit Ollama model
             "openai:gpt-4o",  # OpenAI model
-            "anthropic:claude-3.7-sonnet"  # Anthropic model
+            "aanthropic:claude-3-7-sonnet-20250219"  # Anthropic model
         ]
         
         print("Available model options:")
