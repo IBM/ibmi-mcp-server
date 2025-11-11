@@ -9,7 +9,11 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "agno>=2.1.0",
+    "google-adk>=1.17.0",
+    "ibm-watsonx-ai>=1.4.4",
+    "langchain-mcp-adapters>=0.1.12",
     "mcp>=1.16.0",
+    "openai>=2.6.1",
 ]
 
 [project.scripts]
@@ -21,5 +25,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
     "ruff>=0.13.3",
 ]
