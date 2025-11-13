@@ -5,24 +5,24 @@
  * @module src/utils/formatting/sqlFormattingUtils
  */
 
-import type { Alignment } from './tableFormatter.js';
+import type { Alignment } from "./tableFormatter.js";
 
 /**
  * IBM i DB2 numeric data types that should be right-aligned in tables.
  * @private
  */
 const NUMERIC_TYPES = new Set([
-  'INTEGER',
-  'SMALLINT',
-  'BIGINT',
-  'DECIMAL',
-  'NUMERIC',
-  'FLOAT',
-  'REAL',
-  'DOUBLE',
-  'DECFLOAT',
-  'INT',
-  'DEC',
+  "INTEGER",
+  "SMALLINT",
+  "BIGINT",
+  "DECIMAL",
+  "NUMERIC",
+  "FLOAT",
+  "REAL",
+  "DOUBLE",
+  "DECFLOAT",
+  "INT",
+  "DEC",
 ]);
 
 /**
@@ -30,28 +30,23 @@ const NUMERIC_TYPES = new Set([
  * @private
  */
 const TEXT_TYPES = new Set([
-  'VARCHAR',
-  'CHAR',
-  'CHARACTER',
-  'CLOB',
-  'VARGRAPHIC',
-  'GRAPHIC',
-  'DBCLOB',
-  'BLOB',
-  'BINARY',
-  'VARBINARY',
+  "VARCHAR",
+  "CHAR",
+  "CHARACTER",
+  "CLOB",
+  "VARGRAPHIC",
+  "GRAPHIC",
+  "DBCLOB",
+  "BLOB",
+  "BINARY",
+  "VARBINARY",
 ]);
 
 /**
  * IBM i DB2 temporal data types that should be left-aligned in tables.
  * @private
  */
-const TEMPORAL_TYPES = new Set([
-  'DATE',
-  'TIME',
-  'TIMESTAMP',
-  'TIMESTMP',
-]);
+const TEMPORAL_TYPES = new Set(["DATE", "TIME", "TIMESTAMP", "TIMESTMP"]);
 
 /**
  * Determine the appropriate column alignment based on IBM i DB2 data type.
@@ -71,23 +66,23 @@ const TEMPORAL_TYPES = new Set([
  */
 export function getColumnAlignment(columnType: string | undefined): Alignment {
   if (!columnType) {
-    return 'left'; // Default for unknown types
+    return "left"; // Default for unknown types
   }
 
   // Normalize type name (uppercase, remove precision/scale info)
-  const normalizedType = columnType.toUpperCase().split('(')[0]!.trim();
+  const normalizedType = columnType.toUpperCase().split("(")[0]!.trim();
 
   // Check type categories
   if (NUMERIC_TYPES.has(normalizedType)) {
-    return 'right';
+    return "right";
   }
 
   if (TEXT_TYPES.has(normalizedType) || TEMPORAL_TYPES.has(normalizedType)) {
-    return 'left';
+    return "left";
   }
 
   // Default to left alignment for unknown types
-  return 'left';
+  return "left";
 }
 
 /**
@@ -119,7 +114,7 @@ export function formatColumnHeader(
   }
 
   // Extract base type without precision/scale
-  const baseType = columnType.split('(')[0]!.trim().toUpperCase();
+  const baseType = columnType.split("(")[0]!.trim().toUpperCase();
   return `${columnName} (${baseType})`;
 }
 

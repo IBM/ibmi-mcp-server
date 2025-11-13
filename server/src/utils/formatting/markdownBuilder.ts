@@ -33,7 +33,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   h1(text: string, emoji?: string): this {
-    const prefix = emoji ? `${emoji} ` : '';
+    const prefix = emoji ? `${emoji} ` : "";
     this.sections.push(`# ${prefix}${text}\n\n`);
     return this;
   }
@@ -45,7 +45,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   h2(text: string, emoji?: string): this {
-    const prefix = emoji ? `${emoji} ` : '';
+    const prefix = emoji ? `${emoji} ` : "";
     this.sections.push(`## ${prefix}${text}\n\n`);
     return this;
   }
@@ -57,7 +57,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   h3(text: string, emoji?: string): this {
-    const prefix = emoji ? `${emoji} ` : '';
+    const prefix = emoji ? `${emoji} ` : "";
     this.sections.push(`### ${prefix}${text}\n\n`);
     return this;
   }
@@ -79,7 +79,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   keyValue(key: string, value: string | number | boolean | null): this {
-    const displayValue = value === null ? 'null' : String(value);
+    const displayValue = value === null ? "null" : String(value);
     this.sections.push(`**${key}:** ${displayValue}\n`);
     return this;
   }
@@ -91,7 +91,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   keyValuePlain(key: string, value: string | number | boolean | null): this {
-    const displayValue = value === null ? 'null' : String(value);
+    const displayValue = value === null ? "null" : String(value);
     this.sections.push(`${key}: ${displayValue}\n`);
     return this;
   }
@@ -105,9 +105,9 @@ export class MarkdownBuilder {
   list(items: string[], ordered = false): this {
     if (items.length === 0) return this;
 
-    const marker = ordered ? (i: number) => `${i + 1}.` : () => '-';
+    const marker = ordered ? (i: number) => `${i + 1}.` : () => "-";
     this.sections.push(
-      items.map((item, i) => `${marker(i)} ${item}`).join('\n') + '\n\n',
+      items.map((item, i) => `${marker(i)} ${item}`).join("\n") + "\n\n",
     );
     return this;
   }
@@ -118,7 +118,7 @@ export class MarkdownBuilder {
    * @param language - Optional language identifier (e.g., 'typescript', 'diff', 'json')
    * @returns this builder for chaining
    */
-  codeBlock(content: string, language = ''): this {
+  codeBlock(content: string, language = ""): this {
     this.sections.push(`\`\`\`${language}\n${content}\n\`\`\`\n\n`);
     return this;
   }
@@ -149,8 +149,8 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   blockquote(text: string): this {
-    const lines = text.split('\n');
-    const quoted = lines.map((line) => `> ${line}`).join('\n');
+    const lines = text.split("\n");
+    const quoted = lines.map((line) => `> ${line}`).join("\n");
     this.sections.push(`${quoted}\n\n`);
     return this;
   }
@@ -160,7 +160,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   hr(): this {
-    this.sections.push('---\n\n');
+    this.sections.push("---\n\n");
     return this;
   }
 
@@ -185,17 +185,17 @@ export class MarkdownBuilder {
     if (headers.length === 0 || rows.length === 0) return this;
 
     // Header row
-    this.sections.push(`| ${headers.join(' | ')} |\n`);
+    this.sections.push(`| ${headers.join(" | ")} |\n`);
 
     // Separator row
-    this.sections.push(`| ${headers.map(() => '---').join(' | ')} |\n`);
+    this.sections.push(`| ${headers.map(() => "---").join(" | ")} |\n`);
 
     // Data rows
     rows.forEach((row) => {
-      this.sections.push(`| ${row.join(' | ')} |\n`);
+      this.sections.push(`| ${row.join(" | ")} |\n`);
     });
 
-    this.sections.push('\n');
+    this.sections.push("\n");
     return this;
   }
 
@@ -220,9 +220,9 @@ export class MarkdownBuilder {
     levelOrContent: 2 | 3 | 4 | (() => void),
     content?: () => void,
   ): this {
-    const level = typeof levelOrContent === 'function' ? 2 : levelOrContent;
+    const level = typeof levelOrContent === "function" ? 2 : levelOrContent;
     const callback =
-      typeof levelOrContent === 'function' ? levelOrContent : content!;
+      typeof levelOrContent === "function" ? levelOrContent : content!;
     switch (level) {
       case 2:
         this.h2(title);
@@ -276,16 +276,16 @@ export class MarkdownBuilder {
    * ```
    */
   alert(
-    type: 'note' | 'tip' | 'important' | 'warning' | 'caution',
+    type: "note" | "tip" | "important" | "warning" | "caution",
     content: string,
   ): this {
     const typeUpper = type.toUpperCase();
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     this.sections.push(`> [!${typeUpper}]\n`);
     lines.forEach((line) => {
       this.sections.push(`> ${line}\n`);
     });
-    this.sections.push('\n');
+    this.sections.push("\n");
     return this;
   }
 
@@ -310,8 +310,8 @@ export class MarkdownBuilder {
 
     this.sections.push(
       items
-        .map((item) => `- [${item.checked ? 'x' : ' '}] ${item.text}`)
-        .join('\n') + '\n\n',
+        .map((item) => `- [${item.checked ? "x" : " "}] ${item.text}`)
+        .join("\n") + "\n\n",
     );
     return this;
   }
@@ -331,7 +331,7 @@ export class MarkdownBuilder {
    * ```
    */
   image(altText: string, url: string, title?: string): this {
-    const titlePart = title ? ` "${title}"` : '';
+    const titlePart = title ? ` "${title}"` : "";
     this.sections.push(`![${altText}](${url}${titlePart})\n\n`);
     return this;
   }
@@ -393,7 +393,7 @@ export class MarkdownBuilder {
     }
 
     if (lines.length > 0) {
-      this.codeBlock(lines.join('\n'), 'diff');
+      this.codeBlock(lines.join("\n"), "diff");
     }
 
     return this;
@@ -413,7 +413,7 @@ export class MarkdownBuilder {
    * // Renders: ![build: passing](https://img.shields.io/badge/build-passing-green)
    * ```
    */
-  badge(label: string, message: string, color = 'blue'): this {
+  badge(label: string, message: string, color = "blue"): this {
     const encodedLabel = encodeURIComponent(label);
     const encodedMessage = encodeURIComponent(message);
     const url = `https://img.shields.io/badge/${encodedLabel}-${encodedMessage}-${color}`;
@@ -489,7 +489,7 @@ export class MarkdownBuilder {
    * @returns this builder for chaining
    */
   blankLine(): this {
-    this.sections.push('\n');
+    this.sections.push("\n");
     return this;
   }
 
@@ -533,7 +533,7 @@ export class MarkdownBuilder {
    * @returns The complete markdown document as a string
    */
   build(): string {
-    return this.sections.join('').trim();
+    return this.sections.join("").trim();
   }
 
   /**

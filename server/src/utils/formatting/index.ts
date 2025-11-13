@@ -5,7 +5,7 @@
  * @module utils/formatting
  */
 
-export { MarkdownBuilder, markdown } from './markdownBuilder.js';
+export { MarkdownBuilder, markdown } from "./markdownBuilder.js";
 export {
   tableFormatter,
   TableFormatter,
@@ -13,9 +13,9 @@ export {
   type TableStyle,
   type Alignment,
   type TableFormattingResult,
-} from './tableFormatter.js';
+} from "./tableFormatter.js";
 export {
   getColumnAlignment,
   formatColumnHeader,
   buildColumnAlignmentMap,
-} from './sqlFormattingUtils.js';
+} from "./sqlFormattingUtils.js";

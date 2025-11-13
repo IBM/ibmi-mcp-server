@@ -5,22 +5,22 @@
  * @module src/utils/formatting/tableFormatter
  */
 
-import { JsonRpcErrorCode, McpError } from '@/types-global/errors.js';
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import {
   type RequestContext,
   logger,
   requestContextService,
-} from '@/utils/index.js';
+} from "@/utils/index.js";
 
 /**
  * Table output style options.
  */
-export type TableStyle = 'markdown' | 'ascii' | 'grid' | 'compact';
+export type TableStyle = "markdown" | "ascii" | "grid" | "compact";
 
 /**
  * Column alignment options.
  */
-export type Alignment = 'left' | 'center' | 'right';
+export type Alignment = "left" | "center" | "right";
 
 /**
  * Configuration options for table formatting.
@@ -59,7 +59,7 @@ export interface TableFormatterOptions {
    * - uppercase: Convert headers to uppercase
    * - none: No special header formatting
    */
-  headerStyle?: 'bold' | 'uppercase' | 'none';
+  headerStyle?: "bold" | "uppercase" | "none";
 
   /**
    * Minimum column width (default: 3).
@@ -120,14 +120,14 @@ export class TableFormatter {
    * @private
    */
   private readonly defaultOptions: Required<TableFormatterOptions> = {
-    style: 'markdown',
+    style: "markdown",
     alignment: {},
     maxWidth: 50,
     truncate: true,
-    headerStyle: 'none',
+    headerStyle: "none",
     minWidth: 3,
     padding: 1,
-    nullReplacement: '-',
+    nullReplacement: "-",
   };
 
   /**
@@ -165,20 +165,20 @@ export class TableFormatter {
     const logContext =
       context ||
       requestContextService.createRequestContext({
-        operation: 'TableFormatter.format',
+        operation: "TableFormatter.format",
       });
 
     if (!Array.isArray(data)) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        'Data must be an array',
+        "Data must be an array",
         logContext,
       );
     }
 
     if (data.length === 0) {
-      logger.debug(logContext, 'Empty data array provided to table formatter');
-      return '';
+      logger.debug(logContext, "Empty data array provided to table formatter");
+      return "";
     }
 
     // Extract headers from first object
@@ -193,14 +193,19 @@ export class TableFormatter {
 
     // Convert objects to 2D array (without NULL tracking for backward compatibility)
     const rows = data.map((obj) =>
-      headers.map((header) => this.stringify(obj[header], opts.nullReplacement)),
+      headers.map((header) =>
+        this.stringify(obj[header], opts.nullReplacement),
+      ),
     );
 
-    logger.debug({
-      ...logContext,
-      rowCount: rows.length,
-      columnCount: headers.length,
-    }, 'Formatting table from object array');
+    logger.debug(
+      {
+        ...logContext,
+        rowCount: rows.length,
+        columnCount: headers.length,
+      },
+      "Formatting table from object array",
+    );
 
     return this.formatRaw(headers, rows, options, context);
   }
@@ -235,14 +240,14 @@ export class TableFormatter {
     const logContext =
       context ||
       requestContextService.createRequestContext({
-        operation: 'TableFormatter.formatRaw',
+        operation: "TableFormatter.formatRaw",
       });
 
     // Validate inputs
     if (!Array.isArray(headers) || headers.length === 0) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        'Headers must be a non-empty array',
+        "Headers must be a non-empty array",
         logContext,
       );
     }
@@ -250,14 +255,14 @@ export class TableFormatter {
     if (!Array.isArray(rows)) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        'Rows must be an array',
+        "Rows must be an array",
         logContext,
       );
     }
 
     if (rows.length === 0) {
-      logger.debug(logContext, 'Empty rows array provided to table formatter');
-      return '';
+      logger.debug(logContext, "Empty rows array provided to table formatter");
+      return "";
     }
 
     // Validate row lengths
@@ -294,20 +299,26 @@ export class TableFormatter {
     try {
       const result = this.renderTable(columns, styledHeaders, rows, opts);
 
-      logger.debug({
-        ...logContext,
-        style: opts.style,
-        rows: rows.length,
-        columns: columns.length,
-      }, 'Table formatted successfully');
+      logger.debug(
+        {
+          ...logContext,
+          style: opts.style,
+          rows: rows.length,
+          columns: columns.length,
+        },
+        "Table formatted successfully",
+      );
 
       return result;
     } catch (error: unknown) {
       const err = error as Error;
-      logger.error({
-        ...logContext,
-        error: err.message,
-      }, 'Failed to render table');
+      logger.error(
+        {
+          ...logContext,
+          error: err.message,
+        },
+        "Failed to render table",
+      );
 
       throw new McpError(
         JsonRpcErrorCode.InternalError,
@@ -347,21 +358,21 @@ export class TableFormatter {
     const logContext =
       context ||
       requestContextService.createRequestContext({
-        operation: 'TableFormatter.formatWithMetadata',
+        operation: "TableFormatter.formatWithMetadata",
       });
 
     if (!Array.isArray(data)) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        'Data must be an array',
+        "Data must be an array",
         logContext,
       );
     }
 
     if (data.length === 0) {
-      logger.debug(logContext, 'Empty data array provided to table formatter');
+      logger.debug(logContext, "Empty data array provided to table formatter");
       return {
-        table: '',
+        table: "",
         metadata: { nullCounts: {} },
       };
     }
@@ -386,12 +397,15 @@ export class TableFormatter {
       ),
     );
 
-    logger.debug({
-      ...logContext,
-      rowCount: rows.length,
-      columnCount: headers.length,
-      nullCounts: this.nullCounts,
-    }, 'Formatting table with metadata');
+    logger.debug(
+      {
+        ...logContext,
+        rowCount: rows.length,
+        columnCount: headers.length,
+        nullCounts: this.nullCounts,
+      },
+      "Formatting table with metadata",
+    );
 
     // Format the table
     const table = this.formatRaw(headers, rows, options, context);
@@ -437,14 +451,14 @@ export class TableFormatter {
     const logContext =
       context ||
       requestContextService.createRequestContext({
-        operation: 'TableFormatter.formatRawWithMetadata',
+        operation: "TableFormatter.formatRawWithMetadata",
       });
 
     // Validate inputs
     if (!Array.isArray(headers) || headers.length === 0) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        'Headers must be a non-empty array',
+        "Headers must be a non-empty array",
         logContext,
       );
     }
@@ -452,15 +466,15 @@ export class TableFormatter {
     if (!Array.isArray(rows)) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        'Rows must be an array',
+        "Rows must be an array",
         logContext,
       );
     }
 
     if (rows.length === 0) {
-      logger.debug(logContext, 'Empty rows array provided to table formatter');
+      logger.debug(logContext, "Empty rows array provided to table formatter");
       return {
-        table: '',
+        table: "",
         metadata: { nullCounts: {} },
       };
     }
@@ -482,12 +496,15 @@ export class TableFormatter {
       ),
     );
 
-    logger.debug({
-      ...logContext,
-      rowCount: stringRows.length,
-      columnCount: headers.length,
-      nullCounts: this.nullCounts,
-    }, 'Formatting raw table with metadata');
+    logger.debug(
+      {
+        ...logContext,
+        rowCount: stringRows.length,
+        columnCount: headers.length,
+        nullCounts: this.nullCounts,
+      },
+      "Formatting raw table with metadata",
+    );
 
     // Format the table
     const table = this.formatRaw(headers, stringRows, options, context);
@@ -506,13 +523,13 @@ export class TableFormatter {
    */
   private applyHeaderStyle(
     headers: string[],
-    style: 'bold' | 'uppercase' | 'none',
+    style: "bold" | "uppercase" | "none",
   ): string[] {
     switch (style) {
-      case 'uppercase':
+      case "uppercase":
         return headers.map((h) => h.toUpperCase());
-      case 'bold':
-      case 'none':
+      case "bold":
+      case "none":
       default:
         return headers;
     }
@@ -533,12 +550,12 @@ export class TableFormatter {
       const alignment =
         options.alignment[header] ||
         options.alignment[index.toString()] ||
-        'left';
+        "left";
 
       // Calculate max content width for this column
       const headerWidth = header.length;
       const maxContentWidth = Math.max(
-        ...rows.map((row) => (row[index] || '').length),
+        ...rows.map((row) => (row[index] || "").length),
       );
 
       // Determine final width (respecting min/max constraints)
@@ -551,10 +568,13 @@ export class TableFormatter {
       return { name: header, width, alignment };
     });
 
-    logger.debug({
-      ...context,
-      columns: columns.map((c) => ({ name: c.name, width: c.width })),
-    }, 'Calculated column widths');
+    logger.debug(
+      {
+        ...context,
+        columns: columns.map((c) => ({ name: c.name, width: c.width })),
+      },
+      "Calculated column widths",
+    );
 
     return columns;
   }
@@ -570,13 +590,13 @@ export class TableFormatter {
     options: Required<TableFormatterOptions>,
   ): string {
     switch (options.style) {
-      case 'markdown':
+      case "markdown":
         return this.renderMarkdown(columns, headers, rows, options);
-      case 'ascii':
+      case "ascii":
         return this.renderAscii(columns, headers, rows, options);
-      case 'grid':
+      case "grid":
         return this.renderGrid(columns, headers, rows, options);
-      case 'compact':
+      case "compact":
         return this.renderCompact(columns, headers, rows, options);
       default:
         throw new Error(`Unknown table style: ${String(options.style)}`);
@@ -594,7 +614,7 @@ export class TableFormatter {
     options: Required<TableFormatterOptions>,
   ): string {
     const lines: string[] = [];
-    const pad = ' '.repeat(options.padding);
+    const pad = " ".repeat(options.padding);
 
     // Header row
     const headerCells = headers.map((header, i) =>
@@ -604,7 +624,7 @@ export class TableFormatter {
 
     // Separator row
     const separators = columns.map((col) => {
-      const dashes = '-'.repeat(col.width);
+      const dashes = "-".repeat(col.width);
       return dashes;
     });
     lines.push(`|${pad}${separators.join(`${pad}|${pad}`)}${pad}|`);
@@ -617,7 +637,7 @@ export class TableFormatter {
       lines.push(`|${pad}${cells.join(`${pad}|${pad}`)}${pad}|`);
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -631,12 +651,12 @@ export class TableFormatter {
     options: Required<TableFormatterOptions>,
   ): string {
     const lines: string[] = [];
-    const pad = ' '.repeat(options.padding);
+    const pad = " ".repeat(options.padding);
 
     // Top border
     const topBorder = columns
-      .map((col) => '-'.repeat(col.width + options.padding * 2))
-      .join('+');
+      .map((col) => "-".repeat(col.width + options.padding * 2))
+      .join("+");
     lines.push(`+${topBorder}+`);
 
     // Header row
@@ -647,8 +667,8 @@ export class TableFormatter {
 
     // Header separator
     const headerSep = columns
-      .map((col) => '-'.repeat(col.width + options.padding * 2))
-      .join('+');
+      .map((col) => "-".repeat(col.width + options.padding * 2))
+      .join("+");
     lines.push(`+${headerSep}+`);
 
     // Data rows
@@ -661,11 +681,11 @@ export class TableFormatter {
 
     // Bottom border
     const bottomBorder = columns
-      .map((col) => '-'.repeat(col.width + options.padding * 2))
-      .join('+');
+      .map((col) => "-".repeat(col.width + options.padding * 2))
+      .join("+");
     lines.push(`+${bottomBorder}+`);
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -679,12 +699,12 @@ export class TableFormatter {
     options: Required<TableFormatterOptions>,
   ): string {
     const lines: string[] = [];
-    const pad = ' '.repeat(options.padding);
+    const pad = " ".repeat(options.padding);
 
     // Top border
     const topBorder = columns
-      .map((col) => '─'.repeat(col.width + options.padding * 2))
-      .join('┬');
+      .map((col) => "─".repeat(col.width + options.padding * 2))
+      .join("┬");
     lines.push(`┌${topBorder}┐`);
 
     // Header row
@@ -695,8 +715,8 @@ export class TableFormatter {
 
     // Header separator
     const headerSep = columns
-      .map((col) => '─'.repeat(col.width + options.padding * 2))
-      .join('┼');
+      .map((col) => "─".repeat(col.width + options.padding * 2))
+      .join("┼");
     lines.push(`├${headerSep}┤`);
 
     // Data rows
@@ -709,11 +729,11 @@ export class TableFormatter {
 
     // Bottom border
     const bottomBorder = columns
-      .map((col) => '─'.repeat(col.width + options.padding * 2))
-      .join('┴');
+      .map((col) => "─".repeat(col.width + options.padding * 2))
+      .join("┴");
     lines.push(`└${bottomBorder}┘`);
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -727,7 +747,7 @@ export class TableFormatter {
     options: Required<TableFormatterOptions>,
   ): string {
     const lines: string[] = [];
-    const pad = ' '.repeat(options.padding * 2);
+    const pad = " ".repeat(options.padding * 2);
 
     // Header row
     const headerCells = headers.map((header, i) =>
@@ -743,7 +763,7 @@ export class TableFormatter {
       lines.push(cells.join(pad));
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -759,7 +779,7 @@ export class TableFormatter {
 
     // Truncate if needed
     if (options.truncate && text.length > column.width) {
-      text = text.substring(0, column.width - 3) + '...';
+      text = text.substring(0, column.width - 3) + "...";
     }
 
     // Apply alignment padding
@@ -769,14 +789,14 @@ export class TableFormatter {
     }
 
     switch (column.alignment) {
-      case 'left':
-        return text + ' '.repeat(padding);
-      case 'right':
-        return ' '.repeat(padding) + text;
-      case 'center': {
+      case "left":
+        return text + " ".repeat(padding);
+      case "right":
+        return " ".repeat(padding) + text;
+      case "center": {
         const leftPad = Math.floor(padding / 2);
         const rightPad = padding - leftPad;
-        return ' '.repeat(leftPad) + text + ' '.repeat(rightPad);
+        return " ".repeat(leftPad) + text + " ".repeat(rightPad);
       }
       default:
         return text;
@@ -790,7 +810,7 @@ export class TableFormatter {
    */
   private stringify(
     value: unknown,
-    nullReplacement: string = '-',
+    nullReplacement: string = "-",
     columnKey?: string,
   ): string {
     // Handle NULL/undefined values with tracking
@@ -802,21 +822,21 @@ export class TableFormatter {
     }
 
     // Standard value conversion
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number') return value.toString();
-    if (typeof value === 'boolean') return value.toString();
-    if (typeof value === 'bigint') return value.toString();
-    if (typeof value === 'symbol') return value.toString();
-    if (typeof value === 'function') return '[Function]';
+    if (typeof value === "string") return value;
+    if (typeof value === "number") return value.toString();
+    if (typeof value === "boolean") return value.toString();
+    if (typeof value === "bigint") return value.toString();
+    if (typeof value === "symbol") return value.toString();
+    if (typeof value === "function") return "[Function]";
     if (Array.isArray(value)) return JSON.stringify(value);
-    if (typeof value === 'object') {
+    if (typeof value === "object") {
       try {
         return JSON.stringify(value);
       } catch {
-        return '[Object]';
+        return "[Object]";
       }
     }
-    return '[Unknown]';
+    return "[Unknown]";
   }
 }
 

@@ -129,7 +129,7 @@ export const sqlResponseFormatter = (
   result: StandardSqlToolOutput,
   config?: SqlFormatterConfig,
 ): ContentBlock[] => {
-  const tableFormat = config?.tableFormat || 'markdown';
+  const tableFormat = config?.tableFormat || "markdown";
   const maxDisplayRows = config?.maxDisplayRows || 100;
 
   // Handle error cases
@@ -138,17 +138,17 @@ export const sqlResponseFormatter = (
     const { metadata } = result;
 
     const errorBuilder = markdown()
-      .alert('caution', '❌ SQL Query Failed')
+      .alert("caution", "❌ SQL Query Failed")
       .blankLine();
 
     if (metadata?.toolName) {
-      errorBuilder.keyValue('Tool', metadata.toolName);
+      errorBuilder.keyValue("Tool", metadata.toolName);
     }
 
-    errorBuilder.keyValue('Error', errorMessage);
+    errorBuilder.keyValue("Error", errorMessage);
 
     if (result.errorCode) {
-      errorBuilder.keyValue('Error Code', String(result.errorCode));
+      errorBuilder.keyValue("Error Code", String(result.errorCode));
     }
 
     if (metadata?.sqlStatement) {
@@ -158,8 +158,8 @@ export const sqlResponseFormatter = (
           : metadata.sqlStatement;
       errorBuilder
         .blankLine()
-        .h3('SQL Statement')
-        .codeBlock(truncatedSql, 'sql');
+        .h3("SQL Statement")
+        .codeBlock(truncatedSql, "sql");
     }
 
     const errorMarkdown = errorBuilder.build();
@@ -180,10 +180,10 @@ export const sqlResponseFormatter = (
 
   // Success indicator
   mdBuilder
-    .alert('tip', '✅ Query completed successfully')
+    .alert("tip", "✅ Query completed successfully")
     .blankLine()
     .paragraph(
-      `Found **${rowCount} row${rowCount !== 1 ? 's' : ''}** from the database query`
+      `Found **${rowCount} row${rowCount !== 1 ? "s" : ""}** from the database query`,
     );
 
   // SQL Statement section
@@ -192,33 +192,36 @@ export const sqlResponseFormatter = (
       metadata.sqlStatement.length > 500
         ? metadata.sqlStatement.substring(0, 497) + "..."
         : metadata.sqlStatement;
-    mdBuilder
-      .h3('SQL Statement')
-      .codeBlock(truncatedSql, 'sql');
+    mdBuilder.h3("SQL Statement").codeBlock(truncatedSql, "sql");
   }
 
   // Parameters section
   if (metadata?.parameters && Object.keys(metadata.parameters).length > 0) {
-    mdBuilder.h3('Parameters');
-    const paramList = Object.entries(metadata.parameters).map(([key, value]) => {
-      const displayValue =
-        value === null || value === undefined
-          ? "NULL"
-          : typeof value === "string" && value.length > 100
-            ? `${String(value).substring(0, 97)}...`
-            : String(value);
-      return `\`${key}\`: ${displayValue}`;
-    });
+    mdBuilder.h3("Parameters");
+    const paramList = Object.entries(metadata.parameters).map(
+      ([key, value]) => {
+        const displayValue =
+          value === null || value === undefined
+            ? "NULL"
+            : typeof value === "string" && value.length > 100
+              ? `${String(value).substring(0, 97)}...`
+              : String(value);
+        return `\`${key}\`: ${displayValue}`;
+      },
+    );
     mdBuilder.list(paramList);
   }
 
   // Handle empty results
   if (rowCount === 0) {
     mdBuilder
-      .paragraph('No rows returned from the query.')
-      .h3('Execution Summary')
-      .keyValue('Execution time', metadata?.executionTime ? `${metadata.executionTime}ms` : 'N/A')
-      .keyValue('Parameters used', String(metadata?.parameterCount || 0));
+      .paragraph("No rows returned from the query.")
+      .h3("Execution Summary")
+      .keyValue(
+        "Execution time",
+        metadata?.executionTime ? `${metadata.executionTime}ms` : "N/A",
+      )
+      .keyValue("Parameters used", String(metadata?.parameterCount || 0));
 
     return [{ type: "text", text: mdBuilder.build() }];
   }
@@ -241,7 +244,7 @@ export const sqlResponseFormatter = (
 
   // Format headers with type indicators
   const headers = allColumns.map((col) =>
-    formatColumnHeader(col.label || col.name, col.type)
+    formatColumnHeader(col.label || col.name, col.type),
   );
 
   // Build column alignment map based on types
@@ -253,38 +256,35 @@ export const sqlResponseFormatter = (
       const value = row[col.name];
       if (value === null || value === undefined) return null;
       return String(value);
-    })
+    }),
   );
 
   // Format table with metadata tracking
-  const tableResult = tableFormatter.formatRawWithMetadata(
-    headers,
-    rows,
-    {
-      style: tableFormat,
-      alignment,
-      nullReplacement: '-',
-      maxWidth: 50,
-      truncate: true,
-    }
-  );
+  const tableResult = tableFormatter.formatRawWithMetadata(headers, rows, {
+    style: tableFormat,
+    alignment,
+    nullReplacement: "-",
+    maxWidth: 50,
+    truncate: true,
+  });
 
   // Add truncation notice if applicable
   if (displayRows.length < rowCount) {
     mdBuilder.alert(
-      'note',
-      `Showing ${displayRows.length} of ${rowCount} rows. ${rowCount - displayRows.length} rows omitted.`
+      "note",
+      `Showing ${displayRows.length} of ${rowCount} rows. ${rowCount - displayRows.length} rows omitted.`,
     );
   }
 
   // Results section
-  mdBuilder
-    .h3('Results')
-    .raw(tableResult.table);
+  mdBuilder.h3("Results").raw(tableResult.table);
 
   // NULL value summary (only if there are NULLs)
   const nullCounts = tableResult.metadata.nullCounts;
-  const totalNulls = Object.values(nullCounts).reduce((sum, count) => sum + count, 0);
+  const totalNulls = Object.values(nullCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
 
   // Summary section
   const summaryItems: string[] = [
@@ -302,10 +302,12 @@ export const sqlResponseFormatter = (
       .map(([col, count]) => {
         // Convert column index to name for display
         const colIndex = parseInt(col);
-        const colName = isNaN(colIndex) ? col : (allColumns[colIndex]?.name || col);
+        const colName = isNaN(colIndex)
+          ? col
+          : allColumns[colIndex]?.name || col;
         return `${colName} (${count})`;
       })
-      .join(', ');
+      .join(", ");
     summaryItems.push(`**NULL values**: ${totalNulls} total - ${nullDetails}`);
   }
 
@@ -317,9 +319,7 @@ export const sqlResponseFormatter = (
     summaryItems.push(`**Parameters processed**: ${metadata.parameterCount}`);
   }
 
-  mdBuilder
-    .h3('Summary')
-    .list(summaryItems);
+  mdBuilder.h3("Summary").list(summaryItems);
 
   return [{ type: "text", text: mdBuilder.build() }];
 };
