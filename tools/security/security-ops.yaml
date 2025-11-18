@@ -345,23 +345,6 @@ tools:
       domain: "security"
       category: "vulnerability-assessment"
 
-  check_chgsyslibl_public_authority:
-    source: ibmi-system
-    description: "Check if CHGSYSLIBL command has *PUBLIC authority set to *EXCLUDE to prevent library list attacks"
-    statement: |
-      SELECT object_authority
-        FROM qsys2.object_privileges
-        WHERE system_object_schema = 'QSYS'
-          AND system_object_name = 'CHGSYSLIBL'
-          AND object_type = '*CMD'
-          AND authorization_name = '*PUBLIC'
-    security:
-      readOnly: true
-    annotations:
-      readOnlyHint: true
-      idempotentHint: true
-      domain: "security"
-      category: "vulnerability-assessment"
 
   list_system_libraries_allowing_table_creation:
     source: ibmi-system
@@ -435,7 +418,6 @@ toolsets:
       - list_user_profiles_vulnerable_to_impersonation
       - list_public_authority_on_attack_vector_commands
       - list_files_exposed_to_rename_attack
-      - check_chgsyslibl_public_authority
       - list_system_libraries_allowing_table_creation
       - list_adopted_authority_programs_with_public_access
 
