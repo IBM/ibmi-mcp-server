@@ -39,11 +39,10 @@ export const registerToolsetsResource = async (
   await ErrorHandler.tryCatch(
     async () => {
       // Register the main "all toolsets" resource
-      server.resource(
+      server.registerResource(
         `${resourceName}-all`,
         "toolsets://",
         {
-          name: "All Toolsets",
           description:
             "Complete catalog of all available toolsets and their tools",
           mimeType: "application/json",
@@ -97,11 +96,10 @@ export const registerToolsetsResource = async (
         const toolsetConfig = toolsetManager.getToolsetConfig(toolsetName);
         const toolsInToolset = toolsetManager.getToolsInToolset(toolsetName);
 
-        server.resource(
+        server.registerResource(
           `${resourceName}-${toolsetName}`,
           `toolsets://${toolsetName}`,
           {
-            name: `Toolset: ${toolsetName}`,
             description: toolsetConfig?.description
               ? `${toolsetConfig.description} (${toolsInToolset.length} tools)`
               : `${toolsetName} toolset with ${toolsInToolset.length} tools`,

@@ -170,9 +170,10 @@ export const registerExecuteSqlTool = async (
           outputSchema: ExecuteSqlResponseSchema.shape,
           annotations: {
             readOnlyHint: toolConfig.security?.readOnly, // Default to true for safety
+            destructiveHint: !(toolConfig.security?.readOnly ?? true), // Destructive if not read-only
             openWorldHint: !(toolConfig.security?.readOnly ?? true), // Open world if not read-only
-            // Additional security annotations
-            dangerous: !(toolConfig.security?.readOnly ?? true), // Dangerous if not read-only
+          },
+          _meta: {
             requiresAuth: true, // Requires database authentication
           },
         },

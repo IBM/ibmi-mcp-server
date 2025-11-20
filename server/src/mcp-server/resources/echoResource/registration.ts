@@ -65,14 +65,12 @@ export const registerEchoResource = async (
         }),
       });
 
-      server.resource(
+      server.registerResource(
         RESOURCE_NAME,
         template,
         {
-          name: "Echo Message Resource",
           description: "A simple echo resource that returns a message.",
           mimeType: "application/json",
-          examples: [{ name: "Basic echo", uri: "echo://hello" }],
         },
         createResourceHandler(
           RESOURCE_NAME,
