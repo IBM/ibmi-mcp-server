@@ -66,21 +66,21 @@ services:
       retries: 5
       start_period: 20s
 
-  # agent-ui:
-  #   build:
-  #     context: ./agent-ui
-  #     dockerfile: Dockerfile
-  #   image: ${AGENT_UI_IMAGE:-agent-ui:latest}
-  #   container_name: agent-ui
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:3000"
-  #   networks:
-  #     - agent-os
-  #   environment:
-  #     - NEXT_PUBLIC_API_URL=http://api:8000
-  #   depends_on:
-  #     - api
+  agent-ui:
+    build:
+      context: ./agent-ui
+      dockerfile: Dockerfile
+    image: ${AGENT_UI_IMAGE:-agent-ui:latest}
+    container_name: agent-ui
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    networks:
+      - agent-os
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    depends_on:
+      - api
 
 networks:
   agent-os:
