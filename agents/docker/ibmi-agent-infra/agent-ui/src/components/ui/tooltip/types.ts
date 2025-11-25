@@ -7,4 +7,5 @@ export interface TooltipProps {
   side?: 'top' | 'right' | 'bottom' | 'left' | undefined
   delayDuration?: number
   contentClassName?: string
+  asChild?: boolean
 }

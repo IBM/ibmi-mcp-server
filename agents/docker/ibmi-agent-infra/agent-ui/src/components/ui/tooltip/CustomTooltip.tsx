@@ -15,11 +15,14 @@ const Tooltip: FC<TooltipProps> = ({
   content,
   side,
   delayDuration,
-  contentClassName
+  contentClassName,
+  asChild = false
 }) => (
   <TooltipProvider delayDuration={delayDuration}>
     <BaseTooltip>
-      <TooltipTrigger className={className}>{children}</TooltipTrigger>
+      <TooltipTrigger asChild={asChild} className={className}>
+        {children}
+      </TooltipTrigger>
       <TooltipContent side={side} className={contentClassName}>
         {content}
       </TooltipContent>

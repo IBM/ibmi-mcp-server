@@ -1,12 +1,14 @@
 export interface ToolCall {
   role: 'user' | 'tool' | 'system' | 'assistant'
   content: string | null
+  result?: string | null
   tool_call_id: string
   tool_name: string
   tool_args: Record<string, string>
   tool_call_error: boolean
-  metrics: {
-    time: number
+  metrics?: {
+    time?: number
+    duration?: number
   }
   created_at: number
 }

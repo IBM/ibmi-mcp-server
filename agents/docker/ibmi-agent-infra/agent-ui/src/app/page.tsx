@@ -1,6 +1,7 @@
 'use client'
 import Sidebar from '@/components/chat/Sidebar/Sidebar'
 import { ChatArea } from '@/components/chat/ChatArea'
+import { ToolCallPanel } from '@/components/chat/ToolCallPanel'
 import { Suspense } from 'react'
 
 export default function Home() {
@@ -12,6 +13,7 @@ export default function Home() {
       <div className="flex h-screen bg-background/80">
         <Sidebar hasEnvToken={hasEnvToken} envToken={envToken} />
         <ChatArea />
+        <ToolCallPanel />
       </div>
     </Suspense>
   )
