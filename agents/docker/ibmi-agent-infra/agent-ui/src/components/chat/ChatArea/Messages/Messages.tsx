@@ -135,11 +135,17 @@ interface ToolCallsSectionProps {
 const ToolCallsSection: FC<ToolCallsSectionProps> = ({ toolCalls }) => {
   const setToolCallPanelOpen = useStore((state) => state.setToolCallPanelOpen)
   const setSelectedToolCalls = useStore((state) => state.setSelectedToolCalls)
+  const setStreamingToolCalls = useStore((state) => state.setStreamingToolCalls)
+  const isStreaming = useStore((state) => state.isStreaming)
 
   const handleOpenToolPanel = () => {
     // Deep copy tool calls to preserve data when panel is reopened
     const toolCallsCopy = JSON.parse(JSON.stringify(toolCalls))
     setSelectedToolCalls(toolCallsCopy)
+    // Also sync to streaming tool calls if currently streaming
+    if (isStreaming) {
+      setStreamingToolCalls(toolCallsCopy)
+    }
     setToolCallPanelOpen(true)
   }
 
