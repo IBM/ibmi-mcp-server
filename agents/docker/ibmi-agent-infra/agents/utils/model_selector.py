@@ -24,7 +24,7 @@ from agno.models.base import Model
 from agno.models.openai import OpenAIChat
 from agno.models.anthropic import Claude
 from agents.utils.watsonx import MyWatsonx
-from infra.config import config
+from infra.config_models import config
 from dotenv import load_dotenv
 
 load_dotenv()

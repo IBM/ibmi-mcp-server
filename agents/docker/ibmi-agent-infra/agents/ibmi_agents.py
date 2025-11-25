@@ -13,26 +13,29 @@ Available agents:
 """
 
 from textwrap import dedent
-from typing import Union
+from typing import Optional, Union
 
 from agno.agent import Agent
 from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
+from agno.models.base import Model
 from agno.tools.reasoning import ReasoningTools
 
 from agents.utils import FilteredMCPTools, get_model
-from agents.utils.watsonx import MyWatsonx
+from agents.agent_ids import AgentID
 from db.session import db_url
-from infra.config import config
+from infra.config_models import config
+from infra.config_manager import AgentConfigManager
+from infra.config_helper import apply_agent_config
 
 
 def get_performance_agent(
-    model: Union[str, OpenAIChat, MyWatsonx] = "openai:gpt-4o",
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str | None = None,
     transport: str | None = None,
     debug_filtering: bool = False,
     debug_mode: bool = False,
     enable_reasoning: bool = True,
+    config_manager: Optional[AgentConfigManager] = None,
 ) -> Agent:
     """
     Create an IBM i Performance Monitoring Agent.
@@ -41,24 +44,33 @@ def get_performance_agent(
     I/O metrics, and providing insights on system resource utilization.
 
     Args:
-        model: Either:
-               - String in format "provider:model_id" (e.g., "openai:gpt-4o", "watsonx:llama-3-3-70b-instruct")
-               - Pre-configured model instance (OpenAIChat or MyWatsonx)
+        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
+               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
         debug_filtering: Enable debug output for tool filtering
         debug_mode: Enable debug mode for the agent
         enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
+                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
 
     Examples:
-        >>> # Using string specification (watsonx config from env vars)
+        >>> # Using model string
         >>> agent = get_performance_agent("watsonx:llama-3-3-70b-instruct")
 
-        >>> # Using pre-configured model
-        >>> from agents.utils.watsonx import MyWatsonx
-        >>> custom_model = MyWatsonx(id="llama-3-3-70b-instruct", project_id="custom")
-        >>> agent = get_performance_agent(model=custom_model)
+        >>> # Using config manager (recommended)
+        >>> from infra.config_manager import AgentConfigManager
+        >>> config_mgr = AgentConfigManager("infra/config.yaml")
+        >>> agent = get_performance_agent(config_manager=config_mgr)
     """
+    # Apply configuration from config_manager if provided
+    model, debug_mode, enable_reasoning = apply_agent_config(
+        agent_id=AgentID.IBMI_PERFORMANCE_MONITOR,
+        config_manager=config_manager,
+        model=model,
+        debug_mode=debug_mode,
+        enable_reasoning=enable_reasoning,
+    )
     performance_tools = FilteredMCPTools(
         url=mcp_url or config.mcp.url,
         transport=transport or config.mcp.transport,
@@ -72,7 +84,7 @@ def get_performance_agent(
         tools_list.append(ReasoningTools(add_instructions=True))
 
     return Agent(
-        id="ibmi-performance-monitor",
+        id=AgentID.IBMI_PERFORMANCE_MONITOR,
         name="IBM i Performance Monitor",
         model=get_model(model),
         # Tools available to the agent
@@ -143,12 +155,13 @@ def get_performance_agent(
 
 
 def get_sysadmin_discovery_agent(
-    model: Union[str, OpenAIChat, MyWatsonx] = "openai:gpt-4o",
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str | None = None,
     transport: str | None = None,
     debug_filtering: bool = False,
     debug_mode: bool = False,
     enable_reasoning: bool = True,
+    config_manager: Optional[AgentConfigManager] = None,
 ) -> Agent:
     """
     Create an IBM i System Administration Discovery Agent.
@@ -157,15 +170,24 @@ def get_sysadmin_discovery_agent(
     and counts of system services and components.
 
     Args:
-        model: Either:
-               - String in format "provider:model_id" (e.g., "openai:gpt-4o", "watsonx:llama-3-3-70b-instruct")
-               - Pre-configured model instance (OpenAIChat or MyWatsonx)
+        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
+               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
         debug_filtering: Enable debug output for tool filtering
         debug_mode: Enable debug mode for the agent
         enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
+                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
     """
+    # Apply configuration from config_manager if provided
+    model, debug_mode, enable_reasoning = apply_agent_config(
+        agent_id=AgentID.IBMI_SYSADMIN_DISCOVERY,
+        config_manager=config_manager,
+        model=model,
+        debug_mode=debug_mode,
+        enable_reasoning=enable_reasoning,
+    )
     discovery_tools = FilteredMCPTools(
         url=mcp_url or config.mcp.url,
         transport=transport or config.mcp.transport,
@@ -179,7 +201,7 @@ def get_sysadmin_discovery_agent(
         tools_list.append(ReasoningTools(add_instructions=True))
 
     return Agent(
-        id="ibmi-sysadmin-discovery",
+        id=AgentID.IBMI_SYSADMIN_DISCOVERY,
         name="IBM i SysAdmin Discovery",
         model=get_model(model),
         # Tools available to the agent
@@ -244,12 +266,13 @@ def get_sysadmin_discovery_agent(
 
 
 def get_sysadmin_browse_agent(
-    model: Union[str, OpenAIChat, MyWatsonx] = "openai:gpt-4o",
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str | None = None,
     transport: str | None = None,
     debug_filtering: bool = False,
     debug_mode: bool = False,
     enable_reasoning: bool = True,
+    config_manager: Optional[AgentConfigManager] = None,
 ) -> Agent:
     """
     Create an IBM i System Administration Browse Agent.
@@ -258,15 +281,24 @@ def get_sysadmin_browse_agent(
     allowing deep dives into specific categories, schemas, and object types.
 
     Args:
-        model: Either:
-               - String in format "provider:model_id" (e.g., "openai:gpt-4o", "watsonx:llama-3-3-70b-instruct")
-               - Pre-configured model instance (OpenAIChat or MyWatsonx)
+        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
+               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
         debug_filtering: Enable debug output for tool filtering
         debug_mode: Enable debug mode for the agent
         enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
+                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
     """
+    # Apply configuration from config_manager if provided
+    model, debug_mode, enable_reasoning = apply_agent_config(
+        agent_id=AgentID.IBMI_SYSADMIN_BROWSE,
+        config_manager=config_manager,
+        model=model,
+        debug_mode=debug_mode,
+        enable_reasoning=enable_reasoning,
+    )
     browse_tools = FilteredMCPTools(
         url=mcp_url or config.mcp.url,
         transport=transport or config.mcp.transport,
@@ -280,7 +312,7 @@ def get_sysadmin_browse_agent(
         tools_list.append(ReasoningTools(add_instructions=True))
 
     return Agent(
-        id="ibmi-sysadmin-browse",
+        id=AgentID.IBMI_SYSADMIN_BROWSE,
         name="IBM i SysAdmin Browser",
         model=get_model(model),
         # Tools available to the agent
@@ -346,12 +378,13 @@ def get_sysadmin_browse_agent(
 
 
 def get_sysadmin_search_agent(
-    model: Union[str, OpenAIChat, MyWatsonx] = "openai:gpt-4o",
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str | None = None,
     transport: str | None = None,
     debug_filtering: bool = False,
     debug_mode: bool = False,
     enable_reasoning: bool = True,
+    config_manager: Optional[AgentConfigManager] = None,
 ) -> Agent:
     """
     Create an IBM i System Administration Search Agent.
@@ -360,15 +393,24 @@ def get_sysadmin_search_agent(
     find specific services, examples, and usage patterns.
 
     Args:
-        model: Either:
-               - String in format "provider:model_id" (e.g., "openai:gpt-4o", "watsonx:llama-3-3-70b-instruct")
-               - Pre-configured model instance (OpenAIChat or MyWatsonx)
+        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
+               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
         debug_filtering: Enable debug output for tool filtering
         debug_mode: Enable debug mode for the agent
         enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
+                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
     """
+    # Apply configuration from config_manager if provided
+    model, debug_mode, enable_reasoning = apply_agent_config(
+        agent_id=AgentID.IBMI_SYSADMIN_SEARCH,
+        config_manager=config_manager,
+        model=model,
+        debug_mode=debug_mode,
+        enable_reasoning=enable_reasoning,
+    )
     search_tools = FilteredMCPTools(
         url=mcp_url or config.mcp.url,
         transport=transport or config.mcp.transport,
@@ -382,7 +424,7 @@ def get_sysadmin_search_agent(
         tools_list.append(ReasoningTools(add_instructions=True))
 
     return Agent(
-        id="ibmi-sysadmin-search",
+        id=AgentID.IBMI_SYSADMIN_SEARCH,
         name="IBM i SysAdmin Search",
         model=get_model(model),
         # Tools available to the agent
