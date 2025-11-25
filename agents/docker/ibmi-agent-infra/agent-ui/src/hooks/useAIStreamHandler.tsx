@@ -27,6 +27,10 @@ const useAIChatStreamHandler = () => {
   const setSessionsData = useStore((state) => state.setSessionsData)
   const { streamResponse } = useAIResponseStream()
 
+  // Streaming tool call state
+  const setStreamingToolCalls = useStore((state) => state.setStreamingToolCalls)
+  const setInProgressToolCallIds = useStore((state) => state.setInProgressToolCallIds)
+
   const updateMessagesWithErrorState = useCallback(() => {
     setMessages((prevMessages) => {
       const newMessages = [...prevMessages]
@@ -102,6 +106,9 @@ const useAIChatStreamHandler = () => {
   const handleStreamResponse = useCallback(
     async (input: string | FormData) => {
       setIsStreaming(true)
+      // Clear streaming tool call state at start
+      setStreamingToolCalls([])
+      setInProgressToolCallIds(new Set<string>())
 
       const formData = input instanceof FormData ? input : new FormData()
       if (typeof input === 'string') {
@@ -207,6 +214,22 @@ const useAIChatStreamHandler = () => {
               chunk.event === RunEvent.ToolCallCompleted ||
               chunk.event === RunEvent.TeamToolCallCompleted
             ) {
+              const isStarted = chunk.event === RunEvent.ToolCallStarted ||
+                               chunk.event === RunEvent.TeamToolCallStarted
+              const toolCallId = chunk.tool?.tool_call_id ||
+                                `${chunk.tool?.tool_name}-${chunk.tool?.created_at}`
+
+              // Track in-progress tool calls
+              setInProgressToolCallIds((prevIds: Set<string>) => {
+                const newIds = new Set(prevIds)
+                if (isStarted && toolCallId) {
+                  newIds.add(toolCallId)
+                } else if (toolCallId) {
+                  newIds.delete(toolCallId)
+                }
+                return newIds
+              })
+
               setMessages((prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
@@ -215,6 +238,8 @@ const useAIChatStreamHandler = () => {
                     chunk,
                     lastMessage.tool_calls
                   )
+                  // Always sync to streaming tool calls store for live updates
+                  setStreamingToolCalls([...(lastMessage.tool_calls || [])])
                 }
                 return newMessages
               })
@@ -443,7 +468,9 @@ const useAIChatStreamHandler = () => {
       setSessionsData,
       sessionId,
       setSessionId,
-      processChunkToolCalls
+      processChunkToolCalls,
+      setStreamingToolCalls,
+      setInProgressToolCallIds
     ]
   )
 

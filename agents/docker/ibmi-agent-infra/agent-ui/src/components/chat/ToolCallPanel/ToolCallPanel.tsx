@@ -9,6 +9,15 @@ export function ToolCallPanel() {
   const toolCallPanelOpen = useStore((state) => state.toolCallPanelOpen)
   const setToolCallPanelOpen = useStore((state) => state.setToolCallPanelOpen)
   const selectedToolCalls = useStore((state) => state.selectedToolCalls)
+  const streamingToolCalls = useStore((state) => state.streamingToolCalls)
+  const inProgressToolCallIds = useStore((state) => state.inProgressToolCallIds)
+  const isStreaming = useStore((state) => state.isStreaming)
+
+  // Use streaming tool calls when streaming is active and there are any,
+  // otherwise fall back to selected tool calls
+  const toolCalls = isStreaming && streamingToolCalls.length > 0
+    ? streamingToolCalls
+    : selectedToolCalls
 
   if (!toolCallPanelOpen) return null
 
@@ -29,8 +38,14 @@ export function ToolCallPanel() {
           />
           <h2 className="font-medium text-primary">Tool Calls</h2>
           <span className="rounded-full bg-accent px-2 py-0.5 text-xs text-primary">
-            {selectedToolCalls.length}
+            {toolCalls.length}
           </span>
+          {isStreaming && inProgressToolCallIds.size > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-warning/20 px-2 py-0.5 text-xs text-warning">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+              Running
+            </span>
+          )}
         </div>
         <button
           onClick={() => setToolCallPanelOpen(false)}
@@ -43,7 +58,7 @@ export function ToolCallPanel() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {selectedToolCalls.length === 0 ? (
+        {toolCalls.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <Icon
               type="hammer"
@@ -57,16 +72,19 @@ export function ToolCallPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {selectedToolCalls.map((toolCall, index) => (
-              <ToolCallItem
-                key={
-                  toolCall.tool_call_id ||
-                  `${toolCall.tool_name}-${toolCall.created_at}-${index}`
-                }
-                toolCall={toolCall}
-                index={index}
-              />
-            ))}
+            {toolCalls.map((toolCall, index) => {
+              const toolCallId = toolCall.tool_call_id ||
+                `${toolCall.tool_name}-${toolCall.created_at}`
+              const isInProgress = inProgressToolCallIds.has(toolCallId)
+              return (
+                <ToolCallItem
+                  key={toolCallId || `${toolCall.tool_name}-${index}`}
+                  toolCall={toolCall}
+                  index={index}
+                  isInProgress={isInProgress}
+                />
+              )
+            })}
           </div>
         )}
       </div>

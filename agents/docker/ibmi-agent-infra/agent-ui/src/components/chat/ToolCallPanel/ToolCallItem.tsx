@@ -8,9 +8,10 @@ import Icon from '@/components/ui/icon'
 interface ToolCallItemProps {
   toolCall: ToolCall
   index: number
+  isInProgress?: boolean
 }
 
-export function ToolCallItem({ toolCall, index }: ToolCallItemProps) {
+export function ToolCallItem({ toolCall, index, isInProgress = false }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const hasError = toolCall.tool_call_error
@@ -24,7 +25,9 @@ export function ToolCallItem({ toolCall, index }: ToolCallItemProps) {
         'rounded-lg border transition-colors',
         hasError
           ? 'border-destructive/50 bg-destructive/10'
-          : 'border-border bg-background-secondary/50'
+          : isInProgress
+            ? 'border-warning/50 bg-warning/10'
+            : 'border-border bg-background-secondary/50'
       )}
     >
       {/* Header - Clickable to expand/collapse */}
@@ -49,6 +52,11 @@ export function ToolCallItem({ toolCall, index }: ToolCallItemProps) {
           {hasError ? (
             <span className="rounded-full bg-destructive/20 px-2 py-0.5 text-xs text-destructive">
               Error
+            </span>
+          ) : isInProgress ? (
+            <span className="flex items-center gap-1 rounded-full bg-warning/20 px-2 py-0.5 text-xs text-warning">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+              Running
             </span>
           ) : (toolCall.result || toolCall.content) ? (
             <span className="rounded-full bg-positive/20 px-2 py-0.5 text-xs text-positive">
@@ -115,10 +123,21 @@ export function ToolCallItem({ toolCall, index }: ToolCallItemProps) {
                 'max-h-64 min-h-[2rem] overflow-auto rounded border p-2 font-dmmono text-xs whitespace-pre-wrap break-words',
                 hasError
                   ? 'border-destructive/30 bg-destructive/10 text-destructive'
-                  : 'border-border bg-[#1a1a1c] text-primary'
+                  : isInProgress
+                    ? 'border-warning/30 bg-warning/5 text-primary'
+                    : 'border-border bg-[#1a1a1c] text-primary'
               )}
             >
               {(() => {
+                // Show running indicator for in-progress tool calls
+                if (isInProgress) {
+                  return (
+                    <span className="flex items-center gap-2 text-warning">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
+                      Executing tool...
+                    </span>
+                  )
+                }
                 // Check result field first (API response), then content field (legacy)
                 const response = toolCall.result || toolCall.content
                 if (!response) {

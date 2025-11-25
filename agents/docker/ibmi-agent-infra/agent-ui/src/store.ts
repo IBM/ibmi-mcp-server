@@ -15,6 +15,14 @@ interface Store {
   setToolCallPanelOpen: (open: boolean) => void
   selectedToolCalls: ToolCall[]
   setSelectedToolCalls: (toolCalls: ToolCall[]) => void
+  // Streaming tool calls (live updates during streaming)
+  streamingToolCalls: ToolCall[]
+  setStreamingToolCalls: (toolCalls: ToolCall[]) => void
+  // Track which tool calls are in progress (started but not completed)
+  inProgressToolCallIds: Set<string>
+  setInProgressToolCallIds: (
+    ids: Set<string> | ((prevIds: Set<string>) => Set<string>)
+  ) => void
   hydrated: boolean
   setHydrated: () => void
   streamingErrorMessage: string
@@ -70,6 +78,16 @@ export const useStore = create<Store>()(
       setToolCallPanelOpen: (open) => set({ toolCallPanelOpen: open }),
       selectedToolCalls: [],
       setSelectedToolCalls: (toolCalls) => set({ selectedToolCalls: toolCalls }),
+      // Streaming tool calls (live updates during streaming)
+      streamingToolCalls: [],
+      setStreamingToolCalls: (toolCalls) => set({ streamingToolCalls: toolCalls }),
+      // Track which tool calls are in progress (started but not completed)
+      inProgressToolCallIds: new Set<string>(),
+      setInProgressToolCallIds: (ids) =>
+        set((state) => ({
+          inProgressToolCallIds:
+            typeof ids === 'function' ? ids(state.inProgressToolCallIds) : ids
+        })),
 
       hydrated: false,
       setHydrated: () => set({ hydrated: true }),
