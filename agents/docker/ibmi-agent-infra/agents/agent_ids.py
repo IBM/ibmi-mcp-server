@@ -37,9 +37,7 @@ class AgentID(str, Enum):
         for member in cls:
             if member.value == agent_id:
                 return member
-        raise ValueError(
-            f"Unknown agent ID: {agent_id}. Valid options: {cls.all_ids()}"
-        )
+        raise ValueError(f"Unknown agent ID: {agent_id}. Valid options: {cls.all_ids()}")
 
     @classmethod
     def all_ids(cls) -> list[str]:

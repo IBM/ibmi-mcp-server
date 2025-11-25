@@ -37,9 +37,7 @@ search_agent = get_sysadmin_search_agent(model="openai:gpt-4o", enable_reasoning
 
 # Step 1: Initial Health Check
 initial_health_step = Step(
-    name="InitialHealthCheck",
-    agent=performance_agent,
-    description="Perform initial system health assessment"
+    name="InitialHealthCheck", agent=performance_agent, description="Perform initial system health assessment"
 )
 
 
@@ -67,9 +65,7 @@ def needs_deeper_investigation(step_input: StepInput) -> bool:
     ]
 
     # Check if any concern indicators are present
-    has_concerns = any(
-        indicator in health_content.lower() for indicator in concern_indicators
-    )
+    has_concerns = any(indicator in health_content.lower() for indicator in concern_indicators)
 
     if has_concerns:
         print("\n⚠️  Issues detected - triggering deeper investigation")
@@ -81,21 +77,19 @@ def needs_deeper_investigation(step_input: StepInput) -> bool:
 
 # Conditional deep investigation steps
 service_analysis_step = Step(
-    name="ServiceAnalysis",
-    agent=discovery_agent,
-    description="Analyze available diagnostic and monitoring services"
+    name="ServiceAnalysis", agent=discovery_agent, description="Analyze available diagnostic and monitoring services"
 )
 
 configuration_review_step = Step(
     name="ConfigurationReview",
     agent=browse_agent,
-    description="Review system configuration and services related to issues found"
+    description="Review system configuration and services related to issues found",
 )
 
 best_practices_check_step = Step(
     name="BestPracticesCheck",
     agent=search_agent,
-    description="Search for best practices and solutions for identified issues"
+    description="Search for best practices and solutions for identified issues",
 )
 
 
@@ -103,7 +97,7 @@ best_practices_check_step = Step(
 audit_report_step = Step(
     name="AuditReport",
     agent=performance_agent,
-    description="Generate comprehensive audit report with findings and recommendations"
+    description="Generate comprehensive audit report with findings and recommendations",
 )
 
 
@@ -193,5 +187,5 @@ if __name__ == "__main__":
         """),
         markdown=True,
         stream=True,
-        stream_intermediate_steps=True
+        stream_intermediate_steps=True,
     )

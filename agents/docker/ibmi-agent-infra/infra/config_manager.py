@@ -16,16 +16,10 @@ class AgentModelConfig(BaseModel):
 
     model: Optional[str] = Field(
         None,
-        description="Model to use for this agent in format 'provider:model_id' (e.g., 'openai:gpt-4o', 'watsonx:llama-3-3-70b-instruct')"
+        description="Model to use for this agent in format 'provider:model_id' (e.g., 'openai:gpt-4o', 'watsonx:llama-3-3-70b-instruct')",
     )
-    enable_reasoning: Optional[bool] = Field(
-        True,
-        description="Enable reasoning tools for structured analysis"
-    )
-    debug_mode: Optional[bool] = Field(
-        False,
-        description="Enable debug mode for detailed logging"
-    )
+    enable_reasoning: Optional[bool] = Field(True, description="Enable reasoning tools for structured analysis")
+    debug_mode: Optional[bool] = Field(False, description="Enable debug mode for detailed logging")
 
 
 class AgentsConfig(BaseModel):
@@ -36,8 +30,7 @@ class AgentsConfig(BaseModel):
     """
 
     default_model: Optional[str] = Field(
-        "openai:gpt-4o",
-        description="Default model to use for agents that don't specify one"
+        "openai:gpt-4o", description="Default model to use for agents that don't specify one"
     )
 
     class Config:
@@ -48,8 +41,7 @@ class ExtendedAgentOSConfig(AgentOSConfig):
     """Extended AgentOS configuration with IBM i agent-specific settings."""
 
     agents: Optional[AgentsConfig] = Field(
-        default_factory=AgentsConfig,
-        description="Configuration for IBM i specialized agents"
+        default_factory=AgentsConfig, description="Configuration for IBM i specialized agents"
     )
 
 
@@ -124,7 +116,7 @@ class AgentConfigManager:
         source_descriptions = {
             "explicit": f"explicit path: {self.config_path}",
             "environment": f"environment variable {self.ENV_VAR_NAME}: {self.config_path}",
-            "default": f"default: {self.config_path}"
+            "default": f"default: {self.config_path}",
         }
         return source_descriptions.get(self._config_source, f"unknown: {self.config_path}")
 
@@ -141,7 +133,7 @@ class AgentConfigManager:
         if not self.config_path.exists():
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
 
-        with open(self.config_path, 'r') as file:
+        with open(self.config_path, "r") as file:
             return yaml.safe_load(file)
 
     def load_config(self) -> ExtendedAgentOSConfig:
@@ -218,7 +210,7 @@ class AgentConfigManager:
         agent_data = agent_config_dict.get(agent_id)
 
         if agent_data and isinstance(agent_data, dict):
-            model = agent_data.get('model')
+            model = agent_data.get("model")
             if model:
                 return model
 
@@ -269,7 +261,4 @@ class AgentConfigManager:
         Returns:
             Dictionary mapping agent IDs to their configurations
         """
-        return {
-            agent_id: self.get_agent_config(agent_id)
-            for agent_id in AgentID.all_ids()
-        }
+        return {agent_id: self.get_agent_config(agent_id) for agent_id in AgentID.all_ids()}

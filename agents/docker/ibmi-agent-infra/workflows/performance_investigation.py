@@ -31,29 +31,23 @@ from db.session import db_url
 
 
 # Create agents with reasoning enabled
-performance_agent = get_performance_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True
-)
+performance_agent = get_performance_agent(model="openai:gpt-4o", enable_reasoning=True)
 
-discovery_agent = get_sysadmin_discovery_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True
-)
+discovery_agent = get_sysadmin_discovery_agent(model="openai:gpt-4o", enable_reasoning=True)
 
 
 # Step 1: Gather initial performance metrics
 initial_metrics_step = Step(
     name="InitialMetrics",
     agent=performance_agent,
-    description="Gather comprehensive performance metrics for investigation"
+    description="Gather comprehensive performance metrics for investigation",
 )
 
 # Step 2: Identify relevant monitoring services
 monitoring_services_step = Step(
     name="MonitoringServices",
     agent=discovery_agent,
-    description="Identify additional monitoring services that might help with diagnosis"
+    description="Identify additional monitoring services that might help with diagnosis",
 )
 
 
@@ -105,24 +99,18 @@ def deep_performance_analysis(step_input: StepInput) -> StepOutput:
     Show your reasoning process for the diagnosis.
     """
 
-    return StepOutput(
-        step_name="DeepAnalysis",
-        content=analysis_prompt,
-        success=True
-    )
+    return StepOutput(step_name="DeepAnalysis", content=analysis_prompt, success=True)
 
 
 deep_analysis_step = Step(
     name="DeepAnalysis",
     executor=deep_performance_analysis,
-    description="Perform deep analysis using reasoning tools and all collected data"
+    description="Perform deep analysis using reasoning tools and all collected data",
 )
 
 # Step 4: Run the deep analysis with the performance agent
 analysis_execution_step = Step(
-    name="AnalysisExecution",
-    agent=performance_agent,
-    description="Execute the deep analysis plan with reasoning"
+    name="AnalysisExecution", agent=performance_agent, description="Execute the deep analysis plan with reasoning"
 )
 
 
@@ -130,7 +118,7 @@ analysis_execution_step = Step(
 recommendations_step = Step(
     name="Recommendations",
     agent=performance_agent,
-    description="Generate prioritized recommendations based on complete analysis"
+    description="Generate prioritized recommendations based on complete analysis",
 )
 
 
@@ -204,5 +192,5 @@ if __name__ == "__main__":
         """),
         markdown=True,
         stream=True,
-        stream_intermediate_steps=True
+        stream_intermediate_steps=True,
     )

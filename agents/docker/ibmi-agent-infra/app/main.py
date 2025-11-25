@@ -1,7 +1,6 @@
 """AgentOS Demo"""
 
 import asyncio
-from pathlib import Path
 
 from agno.os import AgentOS
 
