@@ -27,28 +27,20 @@ from db.session import db_url
 
 
 # Create agents
-performance_agent = get_performance_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True
-)
+performance_agent = get_performance_agent(model="openai:gpt-4o", enable_reasoning=True)
 
-discovery_agent = get_sysadmin_discovery_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True
-)
+discovery_agent = get_sysadmin_discovery_agent(model="openai:gpt-4o", enable_reasoning=True)
 
 
 # Define individual steps for parallel execution
 current_utilization_step = Step(
     name="CurrentUtilization",
     agent=performance_agent,
-    description="Gather current resource utilization across all system components"
+    description="Gather current resource utilization across all system components",
 )
 
 service_inventory_step = Step(
-    name="ServiceInventory",
-    agent=discovery_agent,
-    description="Inventory available monitoring and management services"
+    name="ServiceInventory", agent=discovery_agent, description="Inventory available monitoring and management services"
 )
 
 
@@ -95,11 +87,7 @@ def synthesize_capacity_data(step_input: StepInput) -> StepOutput:
     Provide structured capacity assessment for planning.
     """
 
-    return StepOutput(
-        step_name="CapacitySynthesis",
-        content=synthesis_prompt,
-        success=True
-    )
+    return StepOutput(step_name="CapacitySynthesis", content=synthesis_prompt, success=True)
 
 
 # Steps for workflow
@@ -107,25 +95,21 @@ parallel_gathering = Parallel(
     current_utilization_step,
     service_inventory_step,
     name="ParallelCapacityGathering",
-    description="Gather utilization and service data in parallel"
+    description="Gather utilization and service data in parallel",
 )
 
 synthesis_step = Step(
     name="CapacitySynthesis",
     executor=synthesize_capacity_data,
-    description="Synthesize capacity data from parallel assessments"
+    description="Synthesize capacity data from parallel assessments",
 )
 
 analysis_step = Step(
-    name="CapacityAnalysis",
-    agent=performance_agent,
-    description="Execute capacity analysis with reasoning"
+    name="CapacityAnalysis", agent=performance_agent, description="Execute capacity analysis with reasoning"
 )
 
 planning_step = Step(
-    name="CapacityPlanning",
-    agent=performance_agent,
-    description="Generate capacity planning recommendations"
+    name="CapacityPlanning", agent=performance_agent, description="Generate capacity planning recommendations"
 )
 
 
@@ -195,5 +179,5 @@ if __name__ == "__main__":
         """),
         markdown=True,
         stream=True,
-        stream_intermediate_steps=True
+        stream_intermediate_steps=True,
     )

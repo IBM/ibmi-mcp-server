@@ -1,11 +1,12 @@
 from typing import Any, Dict, List
 from agno.models.ibm import WatsonX
 
+
 class MyWatsonx(WatsonX):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Custom initialization if needed
-        
+
     # Override base method
     @staticmethod
     def parse_tool_calls(tool_calls_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -25,7 +26,6 @@ class MyWatsonx(WatsonX):
             _tool_call_type = _tool_call.get("type")
             _function_name = _tool_call.get("function", {}).get("name")
             _function_arguments = _tool_call.get("function", {}).get("arguments", None)
-            
 
             if len(tool_calls) <= _index:
                 tool_calls.extend([{}] * (_index - len(tool_calls) + 1))
@@ -49,4 +49,4 @@ class MyWatsonx(WatsonX):
                     tool_call_entry["function"]["arguments"] = _function_arguments
                 else:
                     tool_call_entry["function"]["arguments"] += _function_arguments
-        return tool_calls 
+        return tool_calls

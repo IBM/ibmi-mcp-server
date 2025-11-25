@@ -7,7 +7,6 @@ Centralized, type-safe configuration for the IBM i Agent Infrastructure. All con
 1. Copy the template below to `infra/.env`
 2. Add your API keys (watsonx and/or OpenAI)
 3. Configure MCP server URL and database connection
-4. Use `from infra.config import config` in your code
 
 ## Environment Variables
 
