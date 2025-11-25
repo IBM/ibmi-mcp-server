@@ -20,17 +20,11 @@ from db.session import db_url
 
 
 # Create discovery agent with reasoning enabled
-discovery_agent = get_sysadmin_discovery_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True,
-    debug_mode=False
-)
+discovery_agent = get_sysadmin_discovery_agent(model="openai:gpt-4o", enable_reasoning=True, debug_mode=False)
 
 # Define workflow step
 service_discovery_step = Step(
-    name="ServiceDiscovery",
-    agent=discovery_agent,
-    description="Discover and categorize available IBM i services"
+    name="ServiceDiscovery", agent=discovery_agent, description="Discover and categorize available IBM i services"
 )
 
 # Create workflow
@@ -72,8 +66,5 @@ if __name__ == "__main__":
 
     # Run the workflow
     service_discovery_workflow.print_response(
-        message=message,
-        markdown=True,
-        stream=True,
-        stream_intermediate_steps=True
+        message=message, markdown=True, stream=True, stream_intermediate_steps=True
     )

@@ -57,15 +57,9 @@ def apply_agent_config(
 
     # Apply configuration values, preferring config over defaults
     configured_model = agent_config.model or model
-    configured_debug = (
-        agent_config.debug_mode
-        if agent_config.debug_mode is not None
-        else debug_mode
-    )
+    configured_debug = agent_config.debug_mode if agent_config.debug_mode is not None else debug_mode
     configured_reasoning = (
-        agent_config.enable_reasoning
-        if agent_config.enable_reasoning is not None
-        else enable_reasoning
+        agent_config.enable_reasoning if agent_config.enable_reasoning is not None else enable_reasoning
     )
 
     return configured_model, configured_debug, configured_reasoning

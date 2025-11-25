@@ -19,17 +19,11 @@ from db.session import db_url
 
 
 # Create search agent with reasoning enabled
-search_agent = get_sysadmin_search_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True,
-    debug_mode=False
-)
+search_agent = get_sysadmin_search_agent(model="openai:gpt-4o", enable_reasoning=True, debug_mode=False)
 
 # Define workflow step
 service_search_step = Step(
-    name="ServiceSearch",
-    agent=search_agent,
-    description="Search for IBM i services and retrieve usage examples"
+    name="ServiceSearch", agent=search_agent, description="Search for IBM i services and retrieve usage examples"
 )
 
 # Create workflow
@@ -68,5 +62,5 @@ if __name__ == "__main__":
         """,
         markdown=True,
         stream=True,
-        stream_intermediate_steps=True
+        stream_intermediate_steps=True,
     )

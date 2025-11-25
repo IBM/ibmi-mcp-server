@@ -87,10 +87,7 @@ def get_model(model_spec: str | object, **kwargs) -> Union[Model]:
         return Claude(id=model_id, **kwargs)
     else:
         supported_providers = ["openai", "watsonx", "anthropic"]
-        raise ValueError(
-            f"Unsupported provider: '{provider}'. "
-            f"Supported providers: {', '.join(supported_providers)}"
-        )
+        raise ValueError(f"Unsupported provider: '{provider}'. Supported providers: {', '.join(supported_providers)}")
 
 
 def parse_model_spec(model_spec: str) -> tuple[str, str]:
@@ -112,10 +109,7 @@ def parse_model_spec(model_spec: str) -> tuple[str, str]:
         >>> print(model_id)  # "gpt-4o"
     """
     if ":" not in model_spec:
-        raise ValueError(
-            f"Invalid model specification: '{model_spec}'. "
-            f"Expected format: 'provider:model_id'"
-        )
+        raise ValueError(f"Invalid model specification: '{model_spec}'. Expected format: 'provider:model_id'")
 
     provider, model_id = model_spec.split(":", 1)
     return provider.lower().strip(), model_id.strip()
