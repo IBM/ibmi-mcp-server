@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@/types/os'
+import type { ChatMessage, ToolCall } from '@/types/os'
 
 import { AgentMessage, UserMessage } from './MessageItem'
 import Tooltip from '@/components/ui/tooltip'
@@ -14,6 +14,7 @@ import React, { type FC } from 'react'
 
 import Icon from '@/components/ui/icon'
 import ChatBlankState from './ChatBlankState'
+import { useStore } from '@/store'
 
 interface MessageListProps {
   messages: ChatMessage[]
@@ -94,32 +95,7 @@ const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
           </div>
         )}
       {message.tool_calls && message.tool_calls.length > 0 && (
-        <div className="flex items-start gap-3">
-          <Tooltip
-            delayDuration={0}
-            content={<p className="text-accent">Tool Calls</p>}
-            side="top"
-          >
-            <Icon
-              type="hammer"
-              className="rounded-lg bg-background-secondary p-1"
-              size="sm"
-              color="secondary"
-            />
-          </Tooltip>
-
-          <div className="flex flex-wrap gap-2">
-            {message.tool_calls.map((toolCall, index) => (
-              <ToolComponent
-                key={
-                  toolCall.tool_call_id ||
-                  `${toolCall.tool_name}-${toolCall.created_at}-${index}`
-                }
-                tools={toolCall}
-              />
-            ))}
-          </div>
-        </div>
+        <ToolCallsSection toolCalls={message.tool_calls} />
       )}
       <AgentMessage message={message} />
     </div>
@@ -151,6 +127,58 @@ const ToolComponent = memo(({ tools }: ToolCallProps) => (
   </div>
 ))
 ToolComponent.displayName = 'ToolComponent'
+
+interface ToolCallsSectionProps {
+  toolCalls: ToolCall[]
+}
+
+const ToolCallsSection: FC<ToolCallsSectionProps> = ({ toolCalls }) => {
+  const setToolCallPanelOpen = useStore((state) => state.setToolCallPanelOpen)
+  const setSelectedToolCalls = useStore((state) => state.setSelectedToolCalls)
+
+  const handleOpenToolPanel = () => {
+    // Deep copy tool calls to preserve data when panel is reopened
+    const toolCallsCopy = JSON.parse(JSON.stringify(toolCalls))
+    setSelectedToolCalls(toolCallsCopy)
+    setToolCallPanelOpen(true)
+  }
+
+  return (
+    <div className="flex items-start gap-3">
+      <Tooltip
+        delayDuration={0}
+        content={<p className="text-accent">Click to view tool calls</p>}
+        side="top"
+        asChild
+      >
+        <button
+          onClick={handleOpenToolPanel}
+          className="rounded-lg bg-background-secondary p-1 transition-colors hover:bg-background-secondary/80"
+          aria-label="View tool calls"
+        >
+          <Icon type="hammer" size="sm" color="secondary" />
+        </button>
+      </Tooltip>
+
+      <div className="flex flex-wrap gap-2">
+        {toolCalls.map((toolCall, index) => (
+          <button
+            key={
+              toolCall.tool_call_id ||
+              `${toolCall.tool_name}-${toolCall.created_at}-${index}`
+            }
+            onClick={handleOpenToolPanel}
+            className="cursor-pointer rounded-full bg-accent px-2 py-1.5 text-xs transition-colors hover:bg-accent/80"
+          >
+            <span className="font-dmmono uppercase text-primary/80">
+              {toolCall.tool_name}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 const Messages = ({ messages }: MessageListProps) => {
   if (messages.length === 0) {
     return <ChatBlankState />

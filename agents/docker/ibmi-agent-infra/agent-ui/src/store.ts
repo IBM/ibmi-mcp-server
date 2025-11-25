@@ -5,10 +5,16 @@ import {
   AgentDetails,
   SessionEntry,
   TeamDetails,
+  ToolCall,
   type ChatMessage
 } from '@/types/os'
 
 interface Store {
+  // Tool Call Panel State
+  toolCallPanelOpen: boolean
+  setToolCallPanelOpen: (open: boolean) => void
+  selectedToolCalls: ToolCall[]
+  setSelectedToolCalls: (toolCalls: ToolCall[]) => void
   hydrated: boolean
   setHydrated: () => void
   streamingErrorMessage: string
@@ -59,6 +65,12 @@ interface Store {
 export const useStore = create<Store>()(
   persist(
     (set) => ({
+      // Tool Call Panel State
+      toolCallPanelOpen: false,
+      setToolCallPanelOpen: (open) => set({ toolCallPanelOpen: open }),
+      selectedToolCalls: [],
+      setSelectedToolCalls: (toolCalls) => set({ selectedToolCalls: toolCalls }),
+
       hydrated: false,
       setHydrated: () => set({ hydrated: true }),
       streamingErrorMessage: '',
