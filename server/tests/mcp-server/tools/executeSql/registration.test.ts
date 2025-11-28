@@ -104,8 +104,10 @@ describe("Execute SQL Tool Registration", () => {
         description: expect.stringContaining("SQL statements"),
         annotations: expect.objectContaining({
           readOnlyHint: true,
+          destructiveHint: false,
           openWorldHint: false,
-          dangerous: false,
+        }),
+        _meta: expect.objectContaining({
           requiresAuth: true,
         }),
       });
