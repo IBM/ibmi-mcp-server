@@ -6,6 +6,7 @@ vi.mock("../src/utils/internal/logger.js", () => ({
     info: () => {},
     debug: () => {},
     warn: () => {},
+    warning: () => {}, // MCP-specific log level
     error: () => {},
     trace: () => {},
     fatal: () => {},
