@@ -10,23 +10,41 @@ def format_result(result):
     if hasattr(result, "content") and result.content:
         content = result.content[0]
         if hasattr(content, "text"):
-            data = json.loads(content.text)
+            try:
+                data = json.loads(content.text)
 
-            if data.get("success") and data.get("data"):
-                print(
-                    f"\n✓ Query executed successfully in {data['metadata']['executionTime']}ms"
-                )
-                print(f"  SQL: {data['metadata']['sqlStatement'].strip()}")
-                print(f"\n  Results ({data['metadata']['rowCount']} row(s)):")
-                print("  " + "-" * 76)
-
-                for row in data["data"]:
-                    for key, value in row.items():
-                        print(f"  {key:30s}: {value}")
-                print("  " + "-" * 76)
-            else:
-                print("\n❌ Query failed or returned no data")
-                print(json.dumps(data, indent=2))
+                if data.get("success") and data.get("data"):
+                    # Check if we have SQL metadata (for SQL tools)
+                    if "metadata" in data and "executionTime" in data["metadata"]:
+                        print(
+                            f"\n✓ Query executed successfully in {data['metadata']['executionTime']}ms"
+                        )
+                        print(f"  SQL: {data['metadata']['sqlStatement'].strip()}")
+                        print(f"\n  Results ({data['metadata']['rowCount']} row(s)):")
+                    else:
+                        # Non-SQL tool result
+                        print(f"\n✓ Tool executed successfully")
+                        row_count = len(data["data"]) if isinstance(data["data"], list) else 1
+                        print(f"\n  Results ({row_count} row(s)):")
+                    
+                    print("  " + "-" * 76)
+                    
+                    # Handle both single dict and list of dicts
+                    rows = data["data"] if isinstance(data["data"], list) else [data["data"]]
+                    for row in rows:
+                        for key, value in row.items():
+                            print(f"  {key:30s}: {value}")
+                        if len(rows) > 1:  # Only print separator between rows if multiple rows
+                            print("  " + "-" * 76)
+                    
+                    if len(rows) == 1:  # Print final separator for single row
+                        print("  " + "-" * 76)
+                else:
+                    print("\n❌ Query failed or returned no data")
+                    print(json.dumps(data, indent=2))
+            except json.JSONDecodeError as e:
+                print(f"\n⚠ Failed to parse JSON response: {e}")
+                print(f"  Raw text: {content.text[:200]}...")
     else:
         print("\n⚠ Unexpected result format")
         print(
