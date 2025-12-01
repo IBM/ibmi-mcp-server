@@ -2,55 +2,105 @@
 
 Production-ready agent infrastructure for IBM i system administration and performance monitoring. Built on [Agno](https://agno.link/gh) AgentOS with specialized IBM i agents that use MCP (Model Context Protocol) tools.
 
-**Key Features:**
-- **IBM i Specialized Agents**: Performance monitoring, system administration, and database analysis
-- **MCP Integration**: Direct access to IBM i systems via MCP tools (SQL queries, system services)
-- **Multi-LLM Support**: watsonx and OpenAI models
-- **AgentOS API**: RESTful API for agent interactions and workflow orchestration
-- **PostgreSQL Storage**: Agent sessions, knowledge, and conversation history
+## Architecture
+
+```mermaid
+graph TB
+    UI[Agent UI<br/>Web Interface]
+
+    subgraph "Docker Compose Stack"
+        Agents[IBM i Agents<br/>Performance · Discovery<br/>Browse · Search]
+        MCP[<b>IBM i MCP Server</b><br/>Central Tool Provider]
+        DB[(PostgreSQL<br/>Sessions & Memory)]
+    end
+
+    LLM[AI Models<br/>watsonx · OpenAI · Anthropic]
+    IBM_i[IBM i System<br/>Db2 Database]
+
+    UI -->|User Queries| Agents
+    Agents <-->|<b>MCP Protocol</b><br/><b>Tool Calls</b>| MCP
+    Agents -.->|Inference| LLM
+    Agents -->|Persist| DB
+    MCP -->|SQL Queries<br/>System Services| IBM_i
+
+    %% Styling
+    classDef ui fill:#e1f5ff,stroke:#01579b,stroke-width:3px
+    classDef agents fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    classDef mcp fill:#c8e6c9,stroke:#2e7d32,stroke-width:4px
+    classDef external fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef database fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class UI ui
+    class Agents agents
+    class MCP mcp
+    class LLM,IBM_i external
+    class DB database
+```
+
+### Architecture Overview
+
+The IBM i Agent Infrastructure is built around the **MCP Server as the central component**, providing all agents with unified access to IBM i system data and services.
+
+**Key Components:**
+
+- **Agent UI**: Web-based chat interface for interacting with specialized agents
+- **IBM i Agents**: Four specialized agents (Performance, Discovery, Browse, Search) that orchestrate IBM i operations
+- **MCP Server** ⭐: Central tool provider enabling agents to query IBM i databases and system services via standardized protocol
+- **PostgreSQL**: Persistent storage for agent sessions, memory, and conversation history
+- **AI Models**: Multi-provider LLM support (watsonx, OpenAI, Anthropic) for agent intelligence
+- **IBM i System**: Production IBM i environment with Db2 database
+
+**How It Works:**
+
+1. Users interact with agents through the web UI
+2. Agents leverage the **MCP Server** to access IBM i data via tool calls
+3. MCP Server executes SQL queries and retrieves system information
+4. Agents use AI models for reasoning and natural language understanding
+5. All interactions are persisted in PostgreSQL for continuity
+
 
 ## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) installed and running
-- IBM i MCP server running (see [ibmi-mcp-server README](../../../README.md))
-- API keys:
+- [Docker Desktop](https://www.docker.com/products/docker-desktop) installed and running or Podman
+- API key from **at least one** AI provider:
   - [watsonx API key](https://cloud.ibm.com/) (IBM Cloud) **OR**
-  - [OpenAI API key](https://platform.openai.com/api-keys)
+  - [OpenAI API key](https://platform.openai.com/api-keys) **OR**
+  - [Anthropic API key](https://console.anthropic.com)
+
+> **Note**: The IBM i MCP server runs automatically as part of the Docker Compose stack - no separate setup required!
 
 ## Quick Start
 
-### 1. Configure Environment
+Get the IBM i Agent Infrastructure running in 3 steps:
 
-Create `infra/.env` file (see [infra/README.md](infra/README.md) for details):
+### 1. Configure API Keys
+
+Navigate to the project directory:
 
 ```bash
-# MCP Server (required)
-MCP_URL=http://host.docker.internal:3010/mcp
-MCP_TRANSPORT=streamable-http
-
-# watsonx (option 1)
+cd agents/docker/ibmi-agent-infra
+```
+Create `infra/.env` with your API keys (choose at least one provider):
+```bash
+# AI Model Provider (Choose at least one)
+# watsonx (IBM Cloud) - Get from cloud.ibm.com
 WATSONX_API_KEY=your_ibm_cloud_api_key
 WATSONX_PROJECT_ID=your_project_id
-WATSONX_BASE_URL=https://us-south.ml.cloud.ibm.com
-WATSONX_MODEL_ID=meta-llama/llama-3-3-70b-instruct
 
-# OpenAI (option 2)
+# OpenAI - Get from platform.openai.com/api-keys
 OPENAI_API_KEY=sk-your_openai_key
 
-# Database (optional)
-DB_HOST=postgres
-DB_PORT=5432
-DB_USER=postgres
-DB_PASS=mysecretpassword
-DB_DATABASE=agno
+# Anthropic - Get from console.anthropic.com
+ANTHROPIC_API_KEY=sk-your_anthropic_key
 ```
 
-> **Note**: Use `host.docker.internal` instead of `localhost` for MCP_URL when running in Docker to access services on the host machine.
+> **📖 For detailed configuration options**, including MCP settings, database configuration, and agent customization, see the **[Configuration Guide](infra/README.md)**
 
 ### 2. Start the Application
 
 **Using ag CLI** (recommended):
 ```sh
+source .venv/bin/activate
 ag infra up
 ```
 
@@ -61,23 +111,63 @@ docker compose up -d --build
 
 This starts:
 - **AgentOS API**: [http://localhost:8000](http://localhost:8000)
+- **IBM i MCP Server**: [http://localhost:3010](http://localhost:3010/health) (automatically included)
 - **PostgreSQL Database**: `localhost:5432`
+- **Agent UI**: [http://localhost:3000](http://localhost:3000) (optional)
 - **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### 3. Access the Application
+### 3. Access and Use the Application
 
-**API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+Once the application is running, you can interact with the agents in several ways:
+1. Open source Agent UI
+2. Direct API calls
+3. AgentOS Control Plane
 
-**AgentOS UI** (optional):
-1. Open [os.agno.com](https://os.agno.com)
-2. Connect to `http://localhost:8000`
-3. Interact with agents via chat interface
+#### **Option 1: Agent UI**
+Open [http://localhost:3000](http://localhost:3000) in your browser to interact with the agents via a user-friendly interface:
+![alt text](docs/image.png)
+- add AgentOS endpoint `http://localhost:8000`
 
-**API Example**:
+#### **Option 2: Direct API Calls** (Recommended for Testing)
+
+Open [http://localhost:8000/docs](http://localhost:8000/docs) in your browser to access the Swagger UI where you can:
+- Browse all available agents and endpoints
+- Test agents directly in the browser
+- View request/response schemas
+- See example payloads
+
+Use curl or any HTTP client to call the agents:
+
 ```bash
-curl -X POST http://localhost:8000/agents/ibmi-performance-monitor/runs \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Check system performance"}'
+# Check IBM i system performance
+curl -X 'POST' \
+  'http://localhost:8000/agents/ibmi-performance-monitor/runs' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: multipart/form-data' \
+  -F 'message=Check my system status' \
+  -F 'stream=false'
+```
+
+#### **Option 3: AgentOS UI** (Visual Chat Interface)
+
+1. Open [os.agno.com](https://os.agno.com) in your browser
+2. Click "Connect to Local" and enter `http://localhost:8000`
+3. Select an agent from the sidebar
+4. Start chatting with the agent
+
+#### **Verify Setup**
+
+Check that everything is running correctly:
+
+```bash
+# Check service health
+curl http://localhost:8000/health
+
+# List available agents
+curl http://localhost:8000/agents
+
+# View PostgreSQL database (optional)
+docker compose exec postgres psql -U postgres -d agno -c "\dt"
 ```
 
 ### 4. Managing the Application
@@ -103,6 +193,148 @@ docker compose logs -f
 ```sh
 docker compose ps
 ```
+
+### Troubleshooting
+
+<details>
+<summary><strong>❌ Error: "Unable to serialize unknown type: ModelInference"</strong></summary>
+
+**Cause**: This error occurs when the WatsonX model client can't be serialized for MCP communication.
+
+**Solution**: This has been fixed in the latest version of `agents/utils/filtered_mcp_tools.py`. Make sure you're using the latest code:
+```sh
+git pull
+docker compose up -d --build
+```
+</details>
+
+<details>
+<summary><strong>❌ Error: "cannot import name 'ParsedBetaContentBlockStopEvent' from 'anthropic'"</strong></summary>
+
+**Cause**: Incompatible version of the Anthropic SDK.
+
+**Solution**: Update the Anthropic SDK version in `pyproject.toml` to `>=0.80.0` and regenerate requirements:
+```sh
+./scripts/generate_requirements.sh
+docker compose up -d --build
+```
+</details>
+
+<details>
+<summary><strong>🔌 MCP Connection Errors</strong></summary>
+
+**Symptoms**: "Failed to connect to MCP server" or timeout errors
+
+**Solutions**:
+1. **Verify MCP server container is running**:
+   ```sh
+   docker compose ps ibmi-mcp-server
+   curl http://localhost:3010/health
+   ```
+
+2. **Check MCP server logs**:
+   ```sh
+   docker compose logs ibmi-mcp-server
+   ```
+
+3. **Verify network configuration**:
+   - The MCP server runs automatically in Docker Compose on `ibmi-mcp-server:3010`
+   - Default `MCP_URL` in `.env` should be: `http://ibmi-mcp-server:3010/mcp`
+   - See [Configuration Guide](infra/README.md#mcp-server-configuration) for details
+
+4. **Restart the MCP server**:
+   ```sh
+   docker compose restart ibmi-mcp-server
+   ```
+</details>
+
+<details>
+<summary><strong>🔑 API Key Issues</strong></summary>
+
+**Symptoms**: "Invalid API key" or authentication errors
+
+**Solutions**:
+1. **Verify API keys are set correctly** in `infra/.env`:
+   ```sh
+   # Check if env file exists and has correct format
+   cat infra/.env | grep API_KEY
+   ```
+
+2. **Restart after changing .env**:
+   ```sh
+   docker compose down
+   docker compose up -d
+   ```
+
+3. **Test API keys directly**:
+   - watsonx: Check at [cloud.ibm.com](https://cloud.ibm.com)
+   - OpenAI: Check at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+</details>
+
+<details>
+<summary><strong>📊 Database Connection Issues</strong></summary>
+
+**Symptoms**: "Failed to connect to database" errors
+
+**Solutions**:
+1. **Check PostgreSQL is running**:
+   ```sh
+   docker compose ps postgres
+   ```
+
+2. **Verify database credentials** match in `infra/.env` and `compose.yml`
+
+3. **Reset database** (warning: deletes all data):
+   ```sh
+   docker compose down -v
+   docker compose up -d
+   ```
+</details>
+
+<details>
+<summary><strong>🐛 Enable Debug Mode</strong></summary>
+
+To get more detailed logs for troubleshooting:
+
+1. **In `infra/.env`**:
+   ```bash
+   DEBUG=true
+   LOG_LEVEL=DEBUG
+   ```
+
+2. **In `infra/config.yaml`** (for specific agent):
+   ```yaml
+   agents:
+     ibmi-performance-monitor:
+       debug_mode: true
+   ```
+
+3. **Restart and view logs**:
+   ```sh
+   docker compose restart
+   docker compose logs -f agent-api
+   ```
+</details>
+
+<details>
+<summary><strong>📖 View Agent Logs</strong></summary>
+
+```sh
+# All services
+docker compose logs -f
+
+# Specific service
+docker compose logs -f agent-api
+
+# Last 100 lines
+docker compose logs --tail=100 agent-api
+
+# Follow with timestamps
+docker compose logs -f -t agent-api
+```
+</details>
+
+---
 
 ## IBM i Agents
 
@@ -140,7 +372,7 @@ Three specialized agents for system administration:
 - Example code lookup
 - Documentation searches
 
-## Workflows
+## Workflows (Beta)
 
 Pre-built workflows for common IBM i tasks (see [workflows/](workflows/)):
 
@@ -150,14 +382,6 @@ Pre-built workflows for common IBM i tasks (see [workflows/](workflows/)):
 - **Database Tuning**: Db2 performance optimization
 - **System Health Audit**: Comprehensive system analysis
 
-**API Example**:
-```bash
-curl -X 'POST' \
-  'http://localhost:8000/workflows/ibm-i-quick-performance-check/runs' \
-  -H 'accept: application/json' \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'message=create a brief report of the current system status'
-```
 
 ## Development Setup
 
@@ -312,25 +536,6 @@ The specific deployment steps will vary depending on the chosen provider. Genera
 - The default `docker-compose.yml` sets up a PostgreSQL database for local development. In production, you will typically use a managed database service provided by your cloud provider (e.g., AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL) for better reliability, scalability, and manageability.
 - Ensure your deployed application is configured with the correct database connection URL for your production database instance. This is usually set via an environment variables.
 
-
-## Project Structure
-
-```
-.
-├── agents/            # IBM i specialized agents (performance, sysadmin)
-│   └── utils/         # MCP tool filtering, model selection, watsonx integration
-├── workflows/         # Pre-built IBM i workflows (performance, capacity, database)
-├── app/               # FastAPI application (AgentOS entry point)
-├── infra/             # Centralized configuration system (see infra/README.md)
-├── db/                # Database session management
-├── tools/             # MCP tool metadata (YAML configs)
-├── tests/             # Integration tests
-├── scripts/           # Development & build scripts
-├── secrets/           # Secret storage (gitignored)
-├── compose.yml        # docker compose file (With AgentOS instance and PostgreSQL database)
-├── Dockerfile         # Dockerfile for the application
-├── pyproject.toml     # python project definition
-├── requirements.txt   # python dependencies generated by pyproject.toml
 
 
 ## Resources
