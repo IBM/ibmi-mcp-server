@@ -23,12 +23,12 @@ graph TB
     Agents -->|Persist| DB
     MCP -->|SQL Queries<br/>System Services| IBM_i
 
-    %% Styling
-    classDef ui fill:#e1f5ff,stroke:#01579b,stroke-width:3px
-    classDef agents fill:#fff3e0,stroke:#e65100,stroke-width:3px
-    classDef mcp fill:#c8e6c9,stroke:#2e7d32,stroke-width:4px
-    classDef external fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef database fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    %% Styling with better contrast
+    classDef ui fill:#0288d1,stroke:#01579b,stroke-width:3px,color:#fff
+    classDef agents fill:#ff6f00,stroke:#e65100,stroke-width:3px,color:#fff
+    classDef mcp fill:#2e7d32,stroke:#1b5e20,stroke-width:4px,color:#fff
+    classDef external fill:#7b1fa2,stroke:#4a148c,stroke-width:2px,color:#fff
+    classDef database fill:#c2185b,stroke:#880e4f,stroke-width:2px,color:#fff
 
     class UI ui
     class Agents agents
