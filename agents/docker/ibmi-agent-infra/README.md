@@ -83,15 +83,15 @@ cd agents/docker/ibmi-agent-infra
 Create `infra/.env` with your API keys (choose at least one provider):
 ```bash
 # AI Model Provider (Choose at least one)
+# Anthropic - Get from console.anthropic.com (default model)
+ANTHROPIC_API_KEY=sk-your_anthropic_key
+
 # watsonx (IBM Cloud) - Get from cloud.ibm.com
 WATSONX_API_KEY=your_ibm_cloud_api_key
 WATSONX_PROJECT_ID=your_project_id
 
 # OpenAI - Get from platform.openai.com/api-keys
 OPENAI_API_KEY=sk-your_openai_key
-
-# Anthropic - Get from console.anthropic.com
-ANTHROPIC_API_KEY=sk-your_anthropic_key
 ```
 
 > **📖 For detailed configuration options**, including MCP settings, database configuration, and agent customization, see the **[Configuration Guide](infra/README.md)**

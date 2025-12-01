@@ -45,6 +45,7 @@ OPENAI_API_KEY=sk-your_openai_key
 # Get key from: https://console.anthropic.com
 ANTHROPIC_API_KEY=sk-your_anthropic_key
 ```
+> **Note**: The default model is `"anthropic:claude-haiku-4-5"`
 
 #### Getting API Keys
 
@@ -85,35 +86,27 @@ The MCP server configuration is loaded from the monorepo root `.env` file (not `
 
 ### 2. Agent Configuration (`config.yaml`)
 
-The `config.yaml` file controls agent behavior, model selection, and UI settings. This file is version-controlled and safe to commit.
+The `config.yaml` file controls agent behavior, model selection, and UI settings. 
 
 #### Agent Configuration
 
+**performance monitoring agent example:**
 ```yaml
 agents:
   # Default model for all agents (can be overridden per agent)
-  default_model: "openai:gpt-4o"
+  default_model: "anthropic:claude-haiku-4-5"
 
   # Performance monitoring agent
   ibmi-performance-monitor:
-    model: "watsonx:meta-llama/llama-3-3-70b-instruct"
+    # Uses default_model when not specified
+    # model:
     enable_reasoning: false
     debug_mode: false
-
-  # System discovery agent
-  ibmi-sysadmin-discovery:
-    model: "watsonx:meta-llama/llama-3-3-70b-instruct"
-    enable_reasoning: true
-    debug_mode: false
-
-  # System browsing agent (uses default_model)
-  ibmi-sysadmin-browse:
-    enable_reasoning: true
-    debug_mode: false
-
-  # System search agent
-  ibmi-sysadmin-search:
-    model: "anthropic:claude-sonnet-4-5-20250929"
-    enable_reasoning: true
-    debug_mode: false
 ```
+
+
+Override the default model per agent as needed. Supported models include:
+- **watsonx**: `meta-llama/llama-3-3-70b-instruct`, etc.
+- **OpenAI**: `gpt-4o`, etc.
+- **Anthropic**: `claude-sonnet-4-5-20250929`, etc.
+
