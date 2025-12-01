@@ -8,7 +8,7 @@ Production-ready agent infrastructure for IBM i system administration and perfor
 graph TB
     UI[Agent UI<br/>Web Interface]
 
-    subgraph "Docker Compose Stack"
+    subgraph "AgentOS Stack"
         Agents[IBM i Agents<br/>Performance · Discovery<br/>Browse · Search]
         MCP[<b>IBM i MCP Server</b><br/>Central Tool Provider]
         DB[(PostgreSQL<br/>Sessions & Memory)]
