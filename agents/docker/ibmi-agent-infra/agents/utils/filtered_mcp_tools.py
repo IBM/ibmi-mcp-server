@@ -7,7 +7,7 @@ to add toolset-based filtering capabilities using tool annotations.
 
 from typing import List, Optional, Union, Literal, Callable, Dict, Any
 from agno.tools.mcp import MCPTools, SSEClientParams, StreamableHTTPClientParams
-from agno.utils.log import log_debug, log_info, set_log_level_to_debug
+from agno.utils.log import log_debug, set_log_level_to_debug
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -41,9 +41,7 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
         url: Optional[str] = None,
         env: Optional[dict[str, str]] = None,
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
-        server_params: Optional[
-            Union[StdioServerParameters, SSEClientParams, StreamableHTTPClientParams]
-        ] = None,
+        server_params: Optional[Union[StdioServerParameters, SSEClientParams, StreamableHTTPClientParams]] = None,
         session: Optional[ClientSession] = None,
         timeout_seconds: int = 5,
         client=None,
@@ -142,9 +140,7 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
         except Exception:
             return None
 
-    def _annotation_value_matches_filter(
-        self, annotation_value: Any, filter_value: Any
-    ) -> bool:
+    def _annotation_value_matches_filter(self, annotation_value: Any, filter_value: Any) -> bool:
         """
         Check if annotation value matches the filter criteria.
 
@@ -207,9 +203,7 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
             for annotation_key, filter_value in self.annotation_filters.items():
                 annotation_value = self._get_annotation_value(tool, annotation_key)
 
-                if not self._annotation_value_matches_filter(
-                    annotation_value, filter_value
-                ):
+                if not self._annotation_value_matches_filter(annotation_value, filter_value):
                     self.log(
                         f"Tool {tool.name} excluded: {annotation_key}={annotation_value} doesn't match filter {filter_value}"
                     )
@@ -271,7 +265,9 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
                     coerced[key] = value
 
                 if self.debug_filtering and coerced[key] != value:
-                    self.log(f"Parameter coercion: {key} from {type(value).__name__}({value}) to {type(coerced[key]).__name__}({coerced[key]})")
+                    self.log(
+                        f"Parameter coercion: {key} from {type(value).__name__}({value}) to {type(coerced[key]).__name__}({coerced[key]})"
+                    )
 
             except (ValueError, TypeError) as e:
                 # If coercion fails, log and pass through original value
@@ -303,9 +299,7 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
             if self.debug_filtering and (self.annotation_filters or self.custom_filter):
                 filter_descriptions = []
                 if self.annotation_filters:
-                    filter_descriptions.append(
-                        f"annotation_filters: {self.annotation_filters}"
-                    )
+                    filter_descriptions.append(f"annotation_filters: {self.annotation_filters}")
                 if self.custom_filter:
                     filter_descriptions.append("custom_filter")
                 filter_desc = ", ".join(filter_descriptions)
@@ -320,23 +314,13 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
                         # Show annotation values for excluded tools
                         annotations_info = []
                         for annotation_key in self.annotation_filters.keys():
-                            annotation_value = self._get_annotation_value(
-                                tool, annotation_key
-                            )
-                            annotations_info.append(
-                                f"{annotation_key}={annotation_value}"
-                            )
-                        annotations_str = (
-                            ", ".join(annotations_info)
-                            if annotations_info
-                            else "no matching annotations"
-                        )
+                            annotation_value = self._get_annotation_value(tool, annotation_key)
+                            annotations_info.append(f"{annotation_key}={annotation_value}")
+                        annotations_str = ", ".join(annotations_info) if annotations_info else "no matching annotations"
                         self.log(f"✗ Excluding tool: {tool.name} ({annotations_str})")
 
             if self.debug_filtering and (self.annotation_filters or self.custom_filter):
-                self.log(
-                    f"=== ANNOTATION FILTERED TOOLS COUNT: {len(annotation_filtered_tools)} ==="
-                )
+                self.log(f"=== ANNOTATION FILTERED TOOLS COUNT: {len(annotation_filtered_tools)} ===")
 
             # Check the existing include/exclude tools filters
             self._check_tools_filters(
@@ -367,18 +351,19 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
                     # Create a type-coercing wrapper around the entrypoint
                     def create_coercing_entrypoint(self_ref, schema, original_fn):
                         """Create an entrypoint that coerces parameter types based on schema."""
+
                         async def coercing_entrypoint(agent=None, **kwargs):
                             # Coerce parameters based on schema (excluding agent from tool params)
                             coerced_kwargs = self_ref._coerce_parameters(kwargs, schema)
                             # Call original entrypoint (which is a partial with tool_name already bound)
-                            # Pass agent if provided (agno passes it as kwarg if in signature)
-                            if agent is not None:
-                                result = original_fn(agent=agent, **coerced_kwargs)
-                            else:
-                                result = original_fn(**coerced_kwargs)
+                            # IMPORTANT: Do NOT pass agent to MCP tools - it causes serialization errors
+                            # when the agent contains non-serializable objects like ModelInference.
+                            # The agent param is accepted here for Agno compatibility but not forwarded.
+                            result = original_fn(**coerced_kwargs)
 
                             # Handle both coroutines and async generators
                             import inspect
+
                             if inspect.isasyncgen(result):
                                 # If it's an async generator, collect all results
                                 results = []
@@ -388,6 +373,7 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
                             else:
                                 # If it's a coroutine, await it normally
                                 return await result
+
                         return coercing_entrypoint
 
                     # Wrap the entrypoint with type coercion
@@ -424,9 +410,7 @@ def create_performance_tools(
     url: str = "http://127.0.0.1:3010/mcp", transport: str = "streamable-http", **kwargs
 ) -> FilteredMCPTools:
     """Create FilteredMCPTools for performance monitoring tools."""
-    return FilteredMCPTools(
-        url=url, transport=transport, toolsets="performance", **kwargs
-    )
+    return FilteredMCPTools(url=url, transport=transport, toolsets="performance", **kwargs)
 
 
 def create_sysadmin_tools(
@@ -464,9 +448,7 @@ def create_custom_filtered_tools(
     **kwargs,
 ) -> FilteredMCPTools:
     """Create FilteredMCPTools with custom filtering function."""
-    return FilteredMCPTools(
-        url=url, transport=transport, custom_filter=filter_func, **kwargs
-    )
+    return FilteredMCPTools(url=url, transport=transport, custom_filter=filter_func, **kwargs)
 
 
 # New generic annotation-based factory functions
@@ -479,9 +461,7 @@ def create_annotation_filtered_tools(
     **kwargs,
 ) -> FilteredMCPTools:
     """Create FilteredMCPTools with generic annotation-based filtering."""
-    return FilteredMCPTools(
-        url=url, transport=transport, annotation_filters=annotation_filters, **kwargs
-    )
+    return FilteredMCPTools(url=url, transport=transport, annotation_filters=annotation_filters, **kwargs)
 
 
 def create_readonly_tools(
@@ -600,9 +580,7 @@ if __name__ == "__main__":
         callable_tools = create_system_performance_tools()
 
         async with callable_tools:
-            print(
-                f"   System performance tools loaded: {len(callable_tools.functions)}"
-            )
+            print(f"   System performance tools loaded: {len(callable_tools.functions)}")
             for name in callable_tools.functions.keys():
                 print(f"   - {name}")
 
@@ -628,9 +606,7 @@ if __name__ == "__main__":
         )
 
         async with direct_tools:
-            print(
-                f"   Direct annotation filtered tools loaded: {len(direct_tools.functions)}"
-            )
+            print(f"   Direct annotation filtered tools loaded: {len(direct_tools.functions)}")
             for name in direct_tools.functions.keys():
                 print(f"   - {name}")
 

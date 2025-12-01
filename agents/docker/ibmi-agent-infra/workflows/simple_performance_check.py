@@ -17,17 +17,13 @@ from db.session import db_url
 
 
 # Create performance agent with reasoning enabled
-performance_agent = get_performance_agent(
-    model="openai:gpt-4o",
-    enable_reasoning=True,
-    debug_mode=False
-)
+performance_agent = get_performance_agent(model="openai:gpt-4o", enable_reasoning=True, debug_mode=False)
 
 # Define workflow step
 health_check_step = Step(
     name="PerformanceHealthCheck",
     agent=performance_agent,
-    description="Quick system health check with performance metrics analysis"
+    description="Quick system health check with performance metrics analysis",
 )
 
 # Create workflow
@@ -55,5 +51,5 @@ if __name__ == "__main__":
         """,
         markdown=True,
         stream=True,
-        stream_intermediate_steps=True
+        stream_intermediate_steps=True,
     )

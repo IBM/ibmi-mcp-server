@@ -1,0 +1,56 @@
+
+# ============================================================
+# Section 1: AgentOS Configuration
+# ============================================================
+chat:
+  quick_prompts:
+    web-search-agent:
+      - "What can you do?"
+      - "What is currently happening in France?"
+      - "What is the latest news on the stock market?"
+    agno-assist:
+      - "What can you do?"
+      - "What is the latest news on Agno?"
+      - "Tell me about Agno's AgentOS"
+
+available_models:
+  - "openai:gpt-4"
+  - "anthropic:claude-sonnet-4-5"
+  - "anthropic:claude-haiku-4-5"
+  - "watsonx:meta-llama/llama-3-3-70b-instruct"
+
+# ============================================================
+# Section 2: Custom Agent Configuration
+# ============================================================
+agents:
+  # Default model for all agents (can be overridden per agent)
+  default_model: "anthropic:claude-haiku-4-5"
+
+  # Performance monitoring agent
+  ibmi-performance-monitor:
+    # Uses default_model when not specified
+    # model:
+    enable_reasoning: false
+    debug_mode: false
+
+  # System discovery agent
+  ibmi-sysadmin-discovery:
+    # Uses default_model when not specified
+    # model:
+    enable_reasoning: true
+    debug_mode: false
+
+  # System browsing agent
+  ibmi-sysadmin-browse:
+    # Uses default_model when not specified
+    # model:
+    enable_reasoning: true
+    debug_mode: false
+
+  # System search agent
+  ibmi-sysadmin-search:
+    # Uses default_model when not specified
+    # model:
+    enable_reasoning: true
+    debug_mode: false
+

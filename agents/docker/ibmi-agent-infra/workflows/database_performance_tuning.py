@@ -37,7 +37,7 @@ search_agent = get_sysadmin_search_agent(model="openai:gpt-4o", enable_reasoning
 db_metrics_step = Step(
     name="DatabaseMetrics",
     agent=performance_agent,
-    description="Gather database-specific performance metrics and active job information"
+    description="Gather database-specific performance metrics and active job information",
 )
 
 
@@ -45,7 +45,7 @@ db_metrics_step = Step(
 db_services_step = Step(
     name="DatabaseServices",
     agent=discovery_agent,
-    description="Discover Db2 for i optimization and diagnostic services"
+    description="Discover Db2 for i optimization and diagnostic services",
 )
 
 
@@ -53,7 +53,7 @@ db_services_step = Step(
 db_best_practices_step = Step(
     name="DatabaseBestPractices",
     agent=search_agent,
-    description="Search for database performance and optimization services"
+    description="Search for database performance and optimization services",
 )
 
 
@@ -113,17 +113,13 @@ def database_performance_analysis(step_input: StepInput) -> StepOutput:
     Use reasoning tools to provide data-driven database optimization recommendations.
     """
 
-    return StepOutput(
-        step_name="DatabaseAnalysis",
-        content=analysis_prompt,
-        success=True
-    )
+    return StepOutput(step_name="DatabaseAnalysis", content=analysis_prompt, success=True)
 
 
 analysis_preparation_step = Step(
     name="DatabaseAnalysis",
     executor=database_performance_analysis,
-    description="Prepare comprehensive database performance analysis"
+    description="Prepare comprehensive database performance analysis",
 )
 
 
@@ -131,7 +127,7 @@ analysis_preparation_step = Step(
 analysis_execution_step = Step(
     name="AnalysisExecution",
     agent=performance_agent,
-    description="Execute database performance analysis with reasoning tools"
+    description="Execute database performance analysis with reasoning tools",
 )
 
 
@@ -139,7 +135,7 @@ analysis_execution_step = Step(
 tuning_recommendations_step = Step(
     name="TuningRecommendations",
     agent=performance_agent,
-    description="Generate prioritized database tuning recommendations"
+    description="Generate prioritized database tuning recommendations",
 )
 
 
@@ -233,5 +229,5 @@ if __name__ == "__main__":
         """),
         markdown=True,
         stream=True,
-        stream_intermediate_steps=True
+        stream_intermediate_steps=True,
     )

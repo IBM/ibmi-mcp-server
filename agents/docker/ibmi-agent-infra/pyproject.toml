@@ -7,7 +7,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Agno", email = "hello@agno.com" }]
 
 dependencies = [
-  "agno==2.0.11",
+  "agno==2.3.2",
   "agno-infra==1.0.4",
   "ddgs",
   "fastapi[standard]",
@@ -19,7 +19,8 @@ dependencies = [
   "mcp",
   "fastmcp",
   "ibm-watsonx-ai>=1.3.39",
-  "anthropic>=0.71.0",
+  "anthropic>=0.75.0",
+  "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
