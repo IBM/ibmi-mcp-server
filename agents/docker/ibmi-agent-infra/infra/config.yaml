@@ -26,13 +26,13 @@ agents:
 
   # Performance monitoring agent
   ibmi-performance-monitor:
-    model: "watsonx:llama-3-3-70b-instruct"
+    model: "watsonx:meta-llama/llama-3-3-70b-instruct"
     enable_reasoning: false
     debug_mode: false
 
   # System discovery agent
   ibmi-sysadmin-discovery:
-    model: "watsonx:llama-3-3-70b-instruct"
+    model: "watsonx:meta-llama/llama-3-3-70b-instruct"
     enable_reasoning: true
     debug_mode: false
 
@@ -44,7 +44,7 @@ agents:
 
   # System search agent
   ibmi-sysadmin-search:
-    model: "anthropic:claude-sonnet-4"
+    model: "anthropic:claude-sonnet-4-5-20250929"
     enable_reasoning: true
     debug_mode: false
 

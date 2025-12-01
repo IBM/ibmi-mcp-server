@@ -7,7 +7,7 @@ from db.session import db_url
 
 
 def create_ibmi_agent(
-    agent_id: AgentID,
+    id: AgentID,
     name: str,
     model: Model,
     description: str,
@@ -36,7 +36,7 @@ def create_ibmi_agent(
     """
 
     return Agent(
-        id=agent_id,
+        id=id,
         name=name,
         model=model,
         description=description,
@@ -55,7 +55,7 @@ def create_ibmi_agent(
         # --- Agent History ---
         add_history_to_context=True,
         num_history_runs=3,
-        num_history_messages=2,
+        # num_history_messages=2,
         # --- Default tools ---
         # Add a tool to read the chat history if needed
         read_chat_history=True,

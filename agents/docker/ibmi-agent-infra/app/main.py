@@ -36,7 +36,7 @@ performance_agent = get_performance_agent(config_manager=agent_config_manager)
 # Pass the config path as string so AgentOS can load it with its own AgentOSConfig schema
 # This avoids validation errors from our extended config fields
 agent_os = AgentOS(
-    os_id="agentos-demo",
+    id="agentos-demo",
     agents=[
         web_agent,
         agno_assist,
@@ -48,7 +48,7 @@ agent_os = AgentOS(
     # Pass config path - AgentOS will load and validate with AgentOSConfig
     # It will use available_models, chat, etc. and ignore our custom 'agents' section
     config=str(agent_config_manager.config_path),
-    enable_mcp=True,
+    enable_mcp_server=True,
 )
 app = agent_os.get_app()
 

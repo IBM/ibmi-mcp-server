@@ -118,7 +118,7 @@ const ChatBlankState = () => {
         >
           <div className="flex items-center justify-center gap-x-2 whitespace-nowrap font-medium">
             <span className="flex items-center font-[600]">
-              This is an open-source
+              This is an open-source Agent UI built with 
             </span>
             <span className="inline-flex translate-y-[10px] scale-125 items-center transition-transform duration-200 hover:rotate-6">
               <Link
@@ -131,7 +131,7 @@ const ChatBlankState = () => {
               </Link>
             </span>
             <span className="flex items-center font-[600]">
-              Agent UI, built with
+              and
             </span>
             <span className="inline-flex translate-y-[5px] scale-125 items-center">
               <div className="relative ml-2 h-[40px] w-[90px]">
@@ -172,7 +172,6 @@ const ChatBlankState = () => {
               </div>
             </span>
           </div>
-          <p>For the full experience, visit the AgentOS</p>
         </motion.h1>
         <motion.div
           initial={{ opacity: 0, y: 10 }}

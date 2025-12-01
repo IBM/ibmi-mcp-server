@@ -356,11 +356,10 @@ class FilteredMCPTools(MCPTools, metaclass=FilteredMCPToolsMeta):
                             # Coerce parameters based on schema (excluding agent from tool params)
                             coerced_kwargs = self_ref._coerce_parameters(kwargs, schema)
                             # Call original entrypoint (which is a partial with tool_name already bound)
-                            # Pass agent if provided (agno passes it as kwarg if in signature)
-                            if agent is not None:
-                                result = original_fn(agent=agent, **coerced_kwargs)
-                            else:
-                                result = original_fn(**coerced_kwargs)
+                            # IMPORTANT: Do NOT pass agent to MCP tools - it causes serialization errors
+                            # when the agent contains non-serializable objects like ModelInference.
+                            # The agent param is accepted here for Agno compatibility but not forwarded.
+                            result = original_fn(**coerced_kwargs)
 
                             # Handle both coroutines and async generators
                             import inspect
