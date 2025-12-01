@@ -536,8 +536,6 @@ The specific deployment steps will vary depending on the chosen provider. Genera
 - The default `docker-compose.yml` sets up a PostgreSQL database for local development. In production, you will typically use a managed database service provided by your cloud provider (e.g., AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL) for better reliability, scalability, and manageability.
 - Ensure your deployed application is configured with the correct database connection URL for your production database instance. This is usually set via an environment variables.
 
-
-
 ## Resources
 
 - **[Agno Documentation](https://docs.agno.com)** - AgentOS framework
