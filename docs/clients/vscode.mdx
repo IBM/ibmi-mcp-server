@@ -1,0 +1,351 @@
+---
+title: "VSCode (Copilot Chat)"
+description: "Configure IBM i MCP Server with VSCode through GitHub Copilot Chat"
+---
+
+# VSCode Integration
+
+Visual Studio Code supports MCP servers through GitHub Copilot Chat. You can configure servers at the workspace or user level, enabling your entire team to share MCP configurations.
+
+<Note>
+**Prerequisites**:
+- VSCode with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) installed and enabled
+- Copilot subscription (individual, business, or enterprise)
+</Note>
+
+## Configuration File Locations
+
+<Tabs>
+  <Tab title="Workspace">
+    **Location**: `.vscode/mcp.json` in your project root
+
+    **Benefits**:
+    - Shared with team via version control
+    - Project-specific MCP servers
+    - Consistent across team members
+
+    ```bash
+    mkdir -p .vscode
+    touch .vscode/mcp.json
+    ```
+  </Tab>
+
+  <Tab title="User">
+    **Locations**:
+    - **macOS/Linux**: `~/.config/Code/User/globalStorage/modelcontextprotocol.mcp/mcp.json`
+    - **Windows**: `%APPDATA%\Code\User\globalStorage\modelcontextprotocol.mcp\mcp.json`
+
+    **Benefits**:
+    - Available across all projects
+    - Personal configuration
+    - Not shared via version control
+  </Tab>
+</Tabs>
+
+## Local (Stdio) Setup
+
+### Using CLI
+
+```bash
+# Add local stdio server
+code --add-mcp '{
+  "name": "ibmiMcp",
+  "type": "stdio",
+  "command": "npx",
+  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+  "env": {
+    "DB2i_HOST": "your-ibmi-host.com",
+    "DB2i_USER": "your-username",
+    "DB2i_PASS": "your-password",
+    "DB2i_PORT": "8076",
+    "MCP_TRANSPORT_TYPE": "stdio"
+  }
+}'
+```
+
+### Using mcp.json
+
+Create or edit `mcp.json`:
+
+```json
+{
+  "servers": {
+    "ibmiMcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+<Warning>
+**Important**: The `--tools` path must be an **absolute path**.
+</Warning>
+
+## Remote (HTTP) Setup
+
+### Using CLI
+
+```bash
+# Add remote HTTP server
+code --add-mcp '{
+  "name": "ibmiMcp",
+  "type": "http",
+  "url": "http://localhost:3010/mcp",
+  "headers": {
+    "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+  }
+}'
+```
+
+### Using mcp.json
+
+```json
+{
+  "servers": {
+    "ibmiMcp": {
+      "type": "http",
+      "url": "http://localhost:3010/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+## Secure Credentials with Input Variables
+
+VSCode supports input variables to avoid hardcoding sensitive credentials:
+
+```json
+{
+  "inputs": [
+    {
+      "id": "db2iHost",
+      "type": "promptString",
+      "description": "IBM i DB2 host address"
+    },
+    {
+      "id": "db2iUser",
+      "type": "promptString",
+      "description": "IBM i username"
+    },
+    {
+      "id": "db2iPass",
+      "type": "promptString",
+      "description": "IBM i password",
+      "password": true
+    }
+  ],
+  "servers": {
+    "ibmiMcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "${input:db2iHost}",
+        "DB2i_USER": "${input:db2iUser}",
+        "DB2i_PASS": "${input:db2iPass}",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+<Tip>
+VSCode will prompt for these values when the server starts, keeping credentials secure and out of version control.
+</Tip>
+
+## Managing Servers
+
+### View Servers
+- Open the **Copilot Chat** view in the Activity Bar
+- Look for MCP servers listed in the chat interface
+
+### Restart Server
+1. Open Command Palette (`Cmd/Ctrl+Shift+P`)
+2. Search for "MCP: Restart Server"
+3. Select your server to restart
+
+### Disable Server
+Remove or comment out the server entry in `mcp.json`
+
+## Testing the Connection
+
+After configuration:
+
+1. **Reload VSCode**: `Cmd/Ctrl+Shift+P` → "Developer: Reload Window"
+2. **Open Copilot Chat**: Click the chat icon in Activity Bar
+3. **Check MCP status**: Look for MCP indicator in Copilot Chat
+4. **List tools**: Ask "@mcp what tools are available?"
+5. **Test a tool**: Ask "Show me the IBM i system status"
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="MCP Server Not Appearing">
+    **Solutions**:
+    - Verify JSON syntax in `mcp.json`
+    - Reload VSCode window: `Cmd/Ctrl+Shift+P` → "Developer: Reload Window"
+    - Check Copilot is installed and enabled
+    - Verify GitHub Copilot subscription is active
+    - Look for errors in Output panel: View → Output → "MCP"
+  </Accordion>
+
+  <Accordion title="Server Fails to Start">
+    **Solutions**:
+    - Verify `npx ibmi-mcp-server` works from terminal
+    - Check all paths are absolute
+    - Ensure IBM i credentials are correct
+    - Review VSCode Developer Tools: Help → Toggle Developer Tools
+  </Accordion>
+
+  <Accordion title="Authentication Failed (Remote)">
+    **Solutions**:
+    - Verify remote server is running
+    - Check token is valid and not expired
+    - Ensure correct Authorization header format
+    - Get fresh token: `node get-access-token.js --verbose`
+  </Accordion>
+
+  <Accordion title="Input Variables Not Prompting">
+    **Solutions**:
+    - Ensure `inputs` array is at root level of `mcp.json`
+    - Verify `${input:id}` syntax is correct
+    - Restart VSCode completely
+    - Check that input IDs match between definition and usage
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Configuration
+
+### Team Workspace Setup
+
+Share MCP configuration with your team via `.vscode/mcp.json`:
+
+```json
+{
+  "inputs": [
+    {
+      "id": "db2iHost",
+      "type": "promptString",
+      "description": "IBM i host (e.g., dev-ibmi.company.com)",
+      "default": "dev-ibmi.company.com"
+    },
+    {
+      "id": "db2iUser",
+      "type": "promptString",
+      "description": "Your IBM i username"
+    },
+    {
+      "id": "db2iPass",
+      "type": "promptString",
+      "description": "Your IBM i password",
+      "password": true
+    }
+  ],
+  "servers": {
+    "ibmiMcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "${workspaceFolder}/tools"],
+      "env": {
+        "DB2i_HOST": "${input:db2iHost}",
+        "DB2i_USER": "${input:db2iUser}",
+        "DB2i_PASS": "${input:db2iPass}",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+### Multiple Environments
+
+Configure dev and prod servers:
+
+```json
+{
+  "servers": {
+    "ibmi-dev": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "env": {
+        "DB2i_HOST": "dev-ibmi.company.com",
+        "DB2i_USER": "${input:devUser}",
+        "DB2i_PASS": "${input:devPass}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    },
+    "ibmi-prod": {
+      "type": "http",
+      "url": "https://prod-mcp.company.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:PROD_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Custom Toolsets
+
+Load specific toolsets for different workflows:
+
+```json
+{
+  "servers": {
+    "ibmi-performance": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "ibmi-mcp-server",
+        "--tools", "/path/to/tools",
+        "--toolsets", "performance,monitoring"
+      ],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "${input:db2iUser}",
+        "DB2i_PASS": "${input:db2iPass}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create custom SQL tools for your workflows
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Explore all configuration options
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration#ibm-i-authentication-settings">
+    Set up secure IBM i authentication
+  </Card>
+  <Card title="Other Clients" icon="grid" href="/clients/overview">
+    Explore other MCP-compatible clients
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [VSCode MCP Documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers)
+- [GitHub Copilot Marketplace](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot)
+- [IBM i MCP Quick Start](/quickstart)

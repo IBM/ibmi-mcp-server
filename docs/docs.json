@@ -31,6 +31,18 @@
             ]
           },
           {
+            "group": "Client Integration",
+            "pages": [
+              "clients/overview",
+              "clients/claude-desktop",
+              "clients/claude-code",
+              "clients/vscode",
+              "clients/cursor",
+              "clients/gemini-cli",
+              "clients/cline"
+            ]
+          },
+          {
             "group": "SQL Tools System",
             "pages": [
               "sql-tools/overview",

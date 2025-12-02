@@ -1,0 +1,306 @@
+---
+title: "Claude Desktop"
+description: "Configure IBM i MCP Server with Claude Desktop app for macOS and Windows"
+---
+
+# Claude Desktop Integration
+
+Claude Desktop is the official desktop application for Claude, available for macOS and Windows. It provides a rich interface for interacting with Claude while supporting MCP servers for extended capabilities.
+
+<Note>
+**Platform Support**: macOS and Windows
+**Transport Modes**: Stdio (local) and HTTP (remote)
+**Authentication**: Bearer Token for HTTP mode
+</Note>
+
+## Configuration File Location
+
+Claude Desktop stores its MCP server configuration in:
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    ~/Library/Application Support/Claude/claude_desktop_config.json
+    ```
+  </Tab>
+  <Tab title="Windows">
+    ```bash
+    %APPDATA%\Claude\claude_desktop_config.json
+    ```
+  </Tab>
+</Tabs>
+
+## Local (Stdio) Setup
+
+For local development with the server running on your machine:
+
+**Step 1: Ensure server is installed**
+```bash
+cd ibmi-mcp-server
+npm install && npm run build
+npm link
+```
+
+**Step 2: Edit configuration file**
+
+Edit `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "NODE_OPTIONS": "--no-deprecation"
+      }
+    }
+  }
+}
+```
+
+<Warning>
+**Important**:
+- The `--tools` path must be an **absolute path**
+- Replace credentials with your actual IBM i system details
+- User profile must have appropriate database authorities
+</Warning>
+
+**Step 3: Restart Claude Desktop**
+
+Close and reopen Claude Desktop to load the new configuration.
+
+## Remote (HTTP) Setup
+
+For connecting to a remote IBM i MCP Server:
+
+**Step 1: Start remote server with authentication**
+
+On your server machine:
+```bash
+# Configure .env file
+MCP_TRANSPORT_TYPE=http
+MCP_AUTH_MODE=ibmi
+IBMI_HTTP_AUTH_ENABLED=true
+
+# Start server
+npm run start:http
+```
+
+**Step 2: Obtain access token**
+
+```bash
+node get-access-token.js --verbose
+# Copy the token from output
+```
+
+**Step 3: Edit configuration file**
+
+Edit `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "http://localhost:3010/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+<Tip>
+**Production**: Replace `http://localhost:3010` with your production server URL and ensure HTTPS is enabled (`IBMI_AUTH_ALLOW_HTTP=false`).
+</Tip>
+
+**Step 4: Restart Claude Desktop**
+
+Close and reopen Claude Desktop to load the new configuration.
+
+## Environment Variable Expansion
+
+Claude Desktop supports environment variable expansion for secure credential management:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "${IBMI_TOOLS_PATH}"],
+      "env": {
+        "DB2i_HOST": "${DB2i_HOST}",
+        "DB2i_USER": "${DB2i_USER}",
+        "DB2i_PASS": "${DB2i_PASS}",
+        "DB2i_PORT": "${DB2i_PORT:-8076}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+**Supported syntax:**
+- `${VAR}` - Expands to the value of environment variable `VAR`
+- `${VAR:-default}` - Expands to `VAR` if set, otherwise uses `default`
+
+**Set environment variables** (before launching Claude Desktop):
+```bash
+# macOS/Linux
+export DB2i_HOST=your-ibmi-host.com
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
+export IBMI_TOOLS_PATH=/absolute/path/to/tools
+
+# Windows (PowerShell)
+$env:DB2i_HOST="your-ibmi-host.com"
+$env:DB2i_USER="your-username"
+$env:DB2i_PASS="your-password"
+$env:IBMI_TOOLS_PATH="C:\path\to\tools"
+```
+
+## Testing the Connection
+
+After configuring and restarting Claude Desktop:
+
+1. **Check MCP status**: Look for the MCP icon (plug symbol) in Claude Desktop
+2. **List available tools**: Ask Claude "What tools do you have available?"
+3. **Test a tool**: Try "Show me the system status of my IBM i"
+
+<Success>
+If configured correctly, Claude should list the IBM i MCP tools and be able to execute them.
+</Success>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server Not Appearing">
+    **Symptoms**: MCP server doesn't show up in Claude Desktop
+
+    **Solutions**:
+    - Verify JSON syntax in `claude_desktop_config.json`
+    - Check that `npx ibmi-mcp-server` works from terminal
+    - Ensure absolute paths are used for `--tools`
+    - Restart Claude Desktop completely (Cmd+Q / Alt+F4, then relaunch)
+    - Check Claude Desktop logs for errors
+  </Accordion>
+
+  <Accordion title="Authentication Failed (Remote)">
+    **Symptoms**: Connection refused or 401 Unauthorized
+
+    **Solutions**:
+    - Verify server is running: `curl http://localhost:3010/mcp`
+    - Check token is valid: `echo $IBMI_MCP_ACCESS_TOKEN`
+    - Ensure token hasn't expired (default: 1 hour)
+    - Confirm `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true`
+    - Get a fresh token: `node get-access-token.js --verbose`
+  </Accordion>
+
+  <Accordion title="Tools Not Loading">
+    **Symptoms**: Server connects but no tools available
+
+    **Solutions**:
+    - Verify tools path exists and is absolute
+    - Check YAML files are valid: `npm run validate -- --config tools`
+    - Ensure IBM i credentials are correct
+    - Verify Mapepire is running on IBM i: `sc check mapepire`
+    - Check server logs for tool loading errors
+  </Accordion>
+
+  <Accordion title="Connection to IBM i Failed">
+    **Symptoms**: Server starts but can't connect to IBM i
+
+    **Solutions**:
+    - Test IBM i connectivity: `ping your-ibmi-host`
+    - Verify Mapepire is running: `netstat -an | grep 8076`
+    - Check firewall allows port 8076
+    - Verify credentials with: `node get-access-token.js --verbose`
+    - Ensure user has database authorities
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Configuration
+
+### Multiple IBM i Systems
+
+Configure multiple server instances for different IBM i systems:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-dev": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "env": {
+        "DB2i_HOST": "dev-ibmi.company.com",
+        "DB2i_USER": "DEVUSER",
+        "DB2i_PASS": "devpass",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    },
+    "ibmi-prod": {
+      "url": "https://prod-mcp.company.com/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer PROD_TOKEN"
+      }
+    }
+  }
+}
+```
+
+### Custom Tool Sets
+
+Load specific toolsets instead of all tools:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": [
+        "ibmi-mcp-server",
+        "--tools", "/absolute/path/to/tools",
+        "--toolsets", "performance,security"
+      ],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="gear" href="/configuration">
+    Explore all environment variables and settings
+  </Card>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Learn how to create custom SQL tools
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration#ibm-i-authentication-settings">
+    Set up secure IBM i HTTP authentication
+  </Card>
+  <Card title="Other Clients" icon="grid" href="/clients/overview">
+    Explore other MCP-compatible clients
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Claude Desktop Documentation](https://modelcontextprotocol.io/quickstart/user)
+- [MCP Specification](https://modelcontextprotocol.io/specification)
+- [IBM i MCP Quick Start](/quickstart)
+- [Troubleshooting Guide](/clients/overview#troubleshooting)

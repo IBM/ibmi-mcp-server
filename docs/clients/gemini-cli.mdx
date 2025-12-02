@@ -1,0 +1,213 @@
+---
+title: "Gemini CLI"
+description: "Configure IBM i MCP Server with Google's Gemini CLI"
+---
+
+# Gemini CLI Integration
+
+The Gemini CLI provides command-line access to Google's Gemini AI models with MCP server support for enhanced capabilities.
+
+<Note>
+**Platform Support**: macOS, Linux, Windows
+**Transport Modes**: Stdio (local) and HTTP (remote)
+**Configuration**: `~/.gemini/settings.json`
+</Note>
+
+## Configuration File Location
+
+Gemini CLI stores its MCP server configuration at:
+
+```bash
+~/.gemini/settings.json
+```
+
+Where `~` is your home directory.
+
+## Local (Stdio) Setup
+
+**Step 1: Install Gemini CLI** (if not already installed)
+```bash
+# Follow installation instructions from Gemini CLI documentation
+```
+
+**Step 2: Edit settings file**
+
+Open `~/.gemini/settings.json` and add the following to the `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+<Warning>
+The `--tools` path must be an **absolute path**, not relative.
+</Warning>
+
+## Remote (HTTP) Setup
+
+For connecting to a remote IBM i MCP Server:
+
+**Step 1: Start remote server**
+```bash
+# On server machine
+npm run start:http
+```
+
+**Step 2: Obtain access token**
+```bash
+node get-access-token.js --verbose
+```
+
+**Step 3: Edit settings file**
+
+Add to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "http://localhost:3010/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+<Tip>
+**Production**: Replace `http://localhost:3010` with your production server URL and use HTTPS.
+</Tip>
+
+## Testing the Connection
+
+After configuration:
+
+```bash
+# Start Gemini CLI
+gemini
+
+# Ask about available tools
+> What tools are available?
+
+# Test IBM i integration
+> Show me the IBM i system status
+```
+
+## Multiple Servers
+
+You can configure multiple MCP servers for different purposes:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-dev": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "env": {
+        "DB2i_HOST": "dev-ibmi.company.com",
+        "DB2i_USER": "devuser",
+        "DB2i_PASS": "devpass",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    },
+    "ibmi-prod": {
+      "url": "https://prod-mcp.company.com/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer PROD_TOKEN"
+      }
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server Not Found">
+    **Solutions**:
+    - Verify `~/.gemini/settings.json` exists and has valid JSON
+    - Check that `npx ibmi-mcp-server` works from terminal
+    - Ensure Node.js and npm are in PATH
+    - Restart Gemini CLI after configuration changes
+  </Accordion>
+
+  <Accordion title="Tools Not Loading">
+    **Solutions**:
+    - Verify tools path is absolute: `/full/path/to/tools`
+    - Check YAML files are valid
+    - Ensure IBM i credentials are correct
+    - Verify Mapepire is running on IBM i
+  </Accordion>
+
+  <Accordion title="Authentication Failed (Remote)">
+    **Solutions**:
+    - Confirm server is running with auth enabled
+    - Verify token hasn't expired
+    - Get fresh token: `node get-access-token.js --verbose`
+    - Check Authorization header format
+  </Accordion>
+</AccordionGroup>
+
+## Custom Toolsets
+
+Load specific toolsets for focused workflows:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-performance": {
+      "command": "npx",
+      "args": [
+        "ibmi-mcp-server",
+        "--tools", "/path/to/tools",
+        "--toolsets", "performance,monitoring"
+      ],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create custom SQL operations
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Explore all configuration options
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Basic server setup
+  </Card>
+  <Card title="Other Clients" icon="grid" href="/clients/overview">
+    Explore other MCP clients
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Gemini CLI MCP Documentation](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html)
+- [Gemini CLI Installation](https://google-gemini.github.io/gemini-cli/)
+- [IBM i MCP Quick Start](/quickstart)
