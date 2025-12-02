@@ -5,7 +5,11 @@ description: "Complete guide to installing and configuring Mapepire server on IB
 
 # Setup Mapepire
 
-Mapepire is the database connectivity layer that enables the IBM i MCP Server to communicate with Db2 for i. This guide walks through installing and configuring Mapepire on your IBM i system.
+**Before you can use the IBM i MCP Server, you must install and configure Mapepire on your IBM i system.** Mapepire is the database connectivity layer that enables MCP tools and AI agents to communicate with Db2 for i.
+
+<Warning>
+**Mapepire is Required**: The IBM i MCP Server cannot function without Mapepire. Install and configure Mapepire first before proceeding with server setup.
+</Warning>
 
 <Note>
 **Prerequisites**: You need SSH access to your IBM i system and appropriate administrative privileges to install software and configure network services.
@@ -13,11 +17,26 @@ Mapepire is the database connectivity layer that enables the IBM i MCP Server to
 
 ## What is Mapepire?
 
-Mapepire is a modern database connectivity solution for IBM i that:
-- Provides secure, encrypted connections to Db2 for i
+[Mapepire](https://mapepire-ibmi.github.io/) is a modern, high-performance database server for IBM i that provides SQL query execution capabilities over WebSocket connections. It acts as a gateway between modern application architectures (like MCP servers, AI agents, and REST APIs) and IBM i's Db2 for i database.
+
+**Key Features**:
+- Modern database server for IBM i
+- SQL query execution over WebSocket connections
+- Secure, encrypted connections to Db2 for i
+- Optimized for AI agent workloads
 - Supports modern authentication methods
-- Enables remote database access for applications and tools
-- Offers both HTTP and direct socket connectivity options
+- Low-latency responses for interactive applications
+
+## Why Mapepire Enables AI and MCP Workloads
+
+Traditional IBM i database access methods (ODBC, JDBC) don't align well with modern AI and MCP architectures that require:
+
+- **Fast, lightweight connections**: AI agents make frequent, short-lived database queries
+- **WebSocket support**: Enables real-time, bidirectional communication for streaming results
+- **Modern JSON-based protocols**: Simplifies integration with TypeScript/JavaScript ecosystems
+- **Low-latency responses**: Essential for interactive AI conversations and tool executions
+
+Mapepire bridges this gap by providing a modern, WebSocket-based SQL query interface that's optimized for the request/response patterns of AI agents and MCP tools.
 
 ## Installation Methods
 
@@ -26,12 +45,23 @@ Mapepire is a modern database connectivity solution for IBM i that:
 The easiest way to install Mapepire is using the RPM package manager:
 
 ```bash
+# 1. Install Mapepire using yum
 yum install mapepire-server
+
+# 2. Install Service Commander (if not already installed)
+yum install service-commander
+
+# 3. Start Mapepire service
+sc start mapepire
 ```
 
 <Note>
 If you need help getting started with RPMs on IBM i, see the [IBM i Open Source RPM Guide](http://ibm.biz/ibmi-rpms).
 </Note>
+
+<Tip>
+**Full Documentation**: For comprehensive setup and configuration instructions, see the [Mapepire System Administrator Guide](https://mapepire-ibmi.github.io/guides/sysadmin/).
+</Tip>
 
 ### Option 2: Manual Installation
 
@@ -100,6 +130,10 @@ sc start mapepire.yaml
 ### Port Configuration
 
 Mapepire uses **port 8076** by default. This is the standard port and changing it is not recommended.
+
+<Note>
+**Important**: You'll need port 8076 when configuring the `DB2i_PORT` variable in your `.env` file. Ensure your IBM i firewall allows inbound connections on this port.
+</Note>
 
 If you need to change the port:
 

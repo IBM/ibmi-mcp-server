@@ -13,11 +13,19 @@ Get your IBM i MCP Server up and running in under 15 minutes. This guide walks y
 
 ## Step 1: Installation
 
+<Note>
+**Repository Structure**: The IBM i MCP Server follows a modular architecture:
+- `server/` - MCP server implementation (main package)
+- `tools/` - SQL tool YAML configurations
+- `agents/` - Agent implementations and examples
+- `apps/` - Deployment configurations (Docker, Gateway, n8n)
+</Note>
+
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/IBM/ibmi-mcp.git
-cd ibmi-mcp
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server/
 npm install
 ```
 
@@ -58,17 +66,58 @@ MCP_HTTP_PORT=3010
 Replace the connection values with your actual IBM i system credentials. The user profile must have appropriate authorities for database operations.
 </Warning>
 
-<Note>
-**Need to set up Mapepire?** If you don't have Mapepire running on your IBM i system yet, follow our [Setup Mapepire guide](/setup-mapepire) to install and configure the database connectivity layer.
-</Note>
+<Warning>
+**Mapepire is Required**: Before proceeding, you must have Mapepire running on your IBM i system. Mapepire is a modern database server for IBM i that provides SQL query execution over WebSocket connections, optimized for AI agent workloads. If you haven't installed it yet, follow our [Setup Mapepire guide](/setup-mapepire) to install and configure it. Default port: **8076**.
+</Warning>
 
 ## Step 3: Start the Server
 
-Launch the MCP server in HTTP mode:
+The server supports two transport modes:
 
-```bash
-npm run start:http
-```
+<Tabs>
+  <Tab title="HTTP Transport (Recommended)">
+    **Best for**: Web applications, remote connections, development with browser tools
+
+    ```bash
+    npm run start:http
+    ```
+
+    Or with custom options:
+    ```bash
+    npx ibmi-mcp-server --transport http --tools ./tools
+    ```
+
+    **Session Modes (HTTP Only)**:
+    - `auto` (default): Automatically detects client capabilities
+    - `stateful`: Maintains persistent sessions with connection state
+    - `stateless`: Each request is independent, no session state
+
+    Set via environment: `MCP_SESSION_MODE=stateful npm run start:http`
+  </Tab>
+
+  <Tab title="Stdio Transport">
+    **Best for**: CLI tools, MCP Inspector, direct process communication
+
+    ```bash
+    npm run start:stdio
+    ```
+
+    Or with custom options:
+    ```bash
+    npx ibmi-mcp-server --transport stdio --tools ./tools
+    ```
+  </Tab>
+</Tabs>
+
+**Available CLI Options**:
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--tools <path>` | Override YAML tools path | `--tools ./my-configs` |
+| `--toolsets <list>` | Load specific toolsets only | `--toolsets performance,security` |
+| `--transport <type>` | Force transport type | `--transport http` |
+| `--help` | Show help information | `--help` |
+| `--list-toolsets` | List available toolsets | `--list-toolsets` |
 
 You should see output similar to:
 
@@ -161,6 +210,9 @@ The agent will connect to your running server and execute the `system_status` to
 ## Next Steps
 
 <CardGroup cols={2}>
+  <Card title="Client Integration" icon="plug" href="/clients/overview">
+    Connect the server to Claude Desktop, VSCode, Cursor, and 10+ other MCP clients
+  </Card>
   <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
     Learn how to create custom SQL operations using YAML configurations
   </Card>
@@ -169,9 +221,6 @@ The agent will connect to your running server and execute the `system_status` to
   </Card>
   <Card title="Agent Development" icon="robot" href="/agents/building-agents">
     Build sophisticated AI agents that understand IBM i concepts
-  </Card>
-  <Card title="Production Deployment" icon="server" href="/deployment/production">
-    Deploy to production with authentication and monitoring
   </Card>
 </CardGroup>
 
