@@ -61,18 +61,19 @@ pip install uv
 
 Ensure you have the IBM i MCP Server installed and running.
 
-**2.1 Follow the MCP Server installation guide →** [Quickstart Guide](../../../README.md#-quickstart)
+> [!NOTE]
+> **Follow the MCP Server installation guide →** [Quickstart Guide](../../../README.md#-quickstart)
+> 
+> **Configure the server →** [Server Configuration Guide](../../../README.md#-configuration)
 
-**2.2 Configure the server →** [Server Configuration Guide](../../../README.md#-configuration)
-
-**2.3 Install dependencies and build the server:**
+**2.1 Install dependencies and build the server:**
 ```bash
 cd ibmi-mcp-server
 npm install
 npm run build
 ```
 
-**2.4 Start the MCP server:**
+**2.2 Start the MCP server:**
 ```bash
 npx ibmi-mcp-server --transport http --tools ./tools
 ```
