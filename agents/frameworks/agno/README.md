@@ -1,244 +1,207 @@
-# IBM i MCP Agents (WIP!!)
+# IBM i MCP Agents: Agno
 
 AI agents for IBM i system administration and monitoring built with Agno's AgentOS framework and Model Context Protocol (MCP) tools. This project provides intelligent agents that can analyze IBM i system performance, manage resources, and assist with administrative tasks.
 
 ## What is this project?
 
-The IBM i MCP Agents project consists of:
+The IBM i MCP Agents project provides Python-based intelligent agents that leverage MCP tools to perform system administration tasks on IBM i systems.
 
-1. **AI Agents**: Python-based intelligent agents that use the MCP tools to perform system administration tasks
-2. **Agent UI**: A web interface for interacting with the agents
-3. **Evaluation Framework**: Tools for testing and validating agent performance
+### Key Features
 
-The agents can help with tasks like:
-- System performance monitoring and analysis
-- Resource utilization reporting
-- Job and process management
-- System configuration analysis
-- Automated troubleshooting and recommendations
+- **Multiple Specialized Agents**: Six purpose-built agents for different IBM i tasks
+- **Multi-Model Support**: Works with OpenAI, Anthropic Claude, IBM WatsonX, and local Ollama models
+- **MCP Integration**: Connects to the IBM i MCP Server for system operations
+- **Persistent Memory**: Agents maintain context across sessions using SQLite
+- **Interactive CLI**: Simple command-line interface for agent interaction
 
-## Complete Setup Guide
+### Available Agents
 
-Follow these step-by-step instructions to set up and run the IBM i MCP Agents.
+1. **Performance Agent** - Monitor and analyze system performance metrics (CPU, memory, I/O)
+2. **Discovery Agent** - High-level system discovery, inventory, and service summaries
+3. **Browse Agent** - Detailed exploration of system services by category or schema
+4. **Search Agent** - Find specific services, programs, or system resources
+5. **Web Agent** - General web search using DuckDuckGo (no MCP required)
+6. **Agno Assist** - Learn about the Agno framework and agent development
+
+## Requirements
+
+- **Python 3.13+** - The project requires Python 3.13 or newer
+- **uv** - Python package manager for installing dependencies and managing virtual environments ([Install uv](https://astral.sh/uv/))
+- **IBM i MCP Server** - Must be installed and running on your system
+- **API Keys** - For your chosen LLM provider (OpenAI, Anthropic, WatsonX, or Ollama)
+
+## Setup Guide
+
+Follow these step-by-step instructions to set up and run the IBM i Agno MCP Agents.
 
 ### Step 1: Install Prerequisites
 
-**Install uv** (Python package manager):
-   ```bash
-   # On macOS and Linux:
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   
-   # On Windows (PowerShell):
-   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-   
-   # Alternative: Install via pip
-   pip install uv
-   ```
-
-#### Verify installations:
+**1.1 Install Python 3.13+**
 ```bash
-node --version    # Should be v20+
-uv --version      # Should show uv version
+# Check your Python version
+python --version  # or python3 --version
+
+# If you need to install Python 3.13+, visit:
+# https://www.python.org/downloads/
 ```
 
-### Step 2: Clone and Setup the Repository
-
+**1.2 Install uv (Python package manager)**
 ```bash
-# Clone the repository
-git clone https://github.com/IBM/ibmi-mcp-server.git
-cd ibmi-mcp-server/
+# On macOS and Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install Node.js dependencies for the MCP server
+# On Windows (PowerShell):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Alternative: Install via pip
+pip install uv
+```
+
+### Step 2: Set Up the IBM i MCP Server
+
+Ensure you have the IBM i MCP Server installed and running.
+
+**2.1 Follow the MCP Server installation guide →** [Quickstart Guide](../../../README.md#-quickstart)
+
+**2.2 Configure the server →** [Server Configuration Guide](../../../README.md#-configuration)
+
+**2.3 Install dependencies and build the server:**
+```bash
+cd ibmi-mcp-server
 npm install
-```
-
-### Step 3: Configure IBM i Connection
-
-Create the environment configuration file:
-
-```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Edit the .env file with your IBM i connection details
-# Use your preferred text editor (code, nano, vim, etc.)
-code .env
-```
-
-Fill in your IBM i connection details in the `.env` file:
-
-```bash
-# IBM i DB2 for i Connection Settings
-DB2i_HOST=your-ibmi-hostname
-DB2i_USER=your-username
-DB2i_PASS=your-password
-DB2i_PORT=8076
-DB2i_IGNORE_UNAUTHORIZED=true
-```
-
-### Step 4: Build and Start the MCP Server
-
-```bash
-# Build the TypeScript MCP server
 npm run build
-
-# Start the MCP server in HTTP mode (required for agents)
-npm run start:http
 ```
 
-The server will start on `http://127.0.0.1:3010/mcp` and display available tools and configuration.
+**2.4 Start the MCP server:**
+```bash
+npx ibmi-mcp-server --transport http --tools ./tools
+```
 
-**Keep this terminal open** - the MCP server needs to stay running for the agents to work.
+The server will start on `http://127.0.0.1:3010/mcp` by default.
 
-### Step 5: Setup the Agent Environment
+### Step 3: Configure Environment Variables
 
-Open a **new terminal** and navigate to the agents directory:
+Create a `.env` file in the `agents/frameworks/agno` directory with your API keys:
 
 ```bash
-cd ibmi-mcp-server/agents/frameworks/agno
-
-# Create the agents environment file
+cd agents/frameworks/agno
 touch .env
-
-# Edit the agents .env file
-code .env
 ```
 
-Add your OpenAI API key to the `agents/.env` file:
+**3.1 Add API keys for your chosen provider(s):**
 
 ```bash
-OPENAI_API_KEY=your-openai-api-key-here
+# OpenAI (for GPT-4, GPT-4o models)
+OPENAI_API_KEY=sk-your-openai-api-key
+
+# Anthropic (for Claude models)
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-api-key
+
+# Ollama (local models - no API key needed)
+# Ensure Ollama is installed and running: https://ollama.ai
+# Start with: ollama serve
 ```
 
-### Step 6: Run the Agents
+**Note:** You only need API keys for the providers you plan to use.
 
-Now you can run different types of agents. Choose one of the following options:
+### Step 4: Run an Agent
 
-#### Option A: Standard Agent (All MCP Tools)
-Provides access to all available MCP tools:
+**4.1 List available agents:**
+```bash
+cd agents/frameworks/agno
+uv run ibmi_agentos.py --list
+```
+
+**4.2 Run an agent with your chosen model:**
 
 ```bash
-uv run agentos.py
+# OpenAI GPT-4o
+uv run ibmi_agentos.py --agent performance --model openai:gpt-4o
+
+# Anthropic Claude Sonnet
+uv run ibmi_agentos.py --agent discovery --model anthropic:claude-sonnet-4-5
+
+# Local Ollama model
+uv run ibmi_agentos.py --agent search --model ollama:gpt-oss:20b
 ```
 
-This serves AgentOS on `http://localhost:7777` with full tool access.
+**4.3 Interact with the agent:**
+- Type your questions or requests at the prompt
+- The agent will use IBM i MCP tools to fulfill your requests
+- Type `exit` or `quit` to end the session
 
-#### Option B: Multi-Agent OS (Specialized Agents)
-Runs multiple specialized agents for different tasks:
+## Usage Examples
 
+### Performance Monitoring
 ```bash
-uv run ibmi_agentos.py
+uv run ibmi_agentos.py --agent performance --model openai:gpt-4o
 ```
+Example questions:
+- "What is the current CPU utilization?"
+- "Show me memory usage trends"
+- "Are there any performance bottlenecks?"
 
-This starts four specialized agents:
-- **Performance Agent**: System performance monitoring
-- **SysAdmin Discovery Agent**: System configuration discovery
-- **Browse Agent**: Data browsing and exploration
-- **Search Agent**: Information search and retrieval
-
-## Agent UI (Local)
-
-Use the local Next.js UI to chat with your AgentOS instance.
-
-1) Ensure AgentOS is running on `http://localhost:7777` (start one of the agents above).
-
-2) Start the UI from `agents/agent-ui`:
-
-   Using pnpm:
-   ```
-   cd agents/agent-ui
-   pnpm install
-   pnpm dev
-   ```
-
-   Using npm:
-   ```
-   cd agents/agent-ui
-   npm install
-   npm run dev
-   ```
-
-3) Open `http://localhost:3000` and confirm the endpoint is `http://localhost:7777` (edit from the left sidebar if needed).
-
-## Evals
-
-- Run reliability evals for the performance agent
-  - Command:
-    ```
-    uv run eval_runner.py
-    ```
-  - Runs `performance_agent_reliability_evals()` and asserts expected tool calls
-
-
-## Interacting with Agents
-
-Once your agents are running, you can interact with them in several ways:
-
-### Via Agent UI (Recommended)
-Use the web interface at `http://localhost:3000` to chat with agents in a user-friendly environment.
-
-### Via AgentOS API
-Send HTTP requests directly to `http://localhost:7777` using the AgentOS API.
-
-### Example Queries to Try
-
-Here are some example questions you can ask your IBM i agents:
-
-#### Performance Monitoring
-- "What is the current system status?"
-- "Show me memory pool utilization"
-- "What are the top CPU-consuming jobs?"
-- "Check for any performance bottlenecks"
-
-#### System Administration
-- "List all active jobs"
-- "Show system configuration values"
-- "What services are currently running?"
-- "Check disk usage and storage"
-
-#### Troubleshooting
-- "Are there any error messages in the system?"
-- "What jobs are waiting for resources?"
-- "Check for any system alerts or warnings"
-
-## Running Evaluations
-
-Test the reliability and performance of your agents using the evaluation framework:
-
+### System Discovery
 ```bash
-# Run performance agent reliability evaluations
-uv run eval_runner.py
+uv run ibmi_agentos.py --agent discovery --model openai:gpt-4o
+```
+Example questions:
+- "Give me an overview of the system services"
+- "What databases are available?"
+- "List all active subsystems"
+
+### Detailed Browsing
+```bash
+uv run ibmi_agentos.py --agent browse --model openai:gpt-4o
+```
+Example questions:
+- "Show me details about the QSYS library"
+- "Explore the database schemas"
+- "What's in the QTEMP library?"
+
+### System Search
+```bash
+uv run ibmi_agentos.py --agent search --model openai:gpt-4o
+```
+Example questions:
+- "Find all programs named CUST*"
+- "Search for services containing 'SQL'"
+- "Locate file CUSTOMER in any library"
+
+## Advanced Options
+
+### Debug Mode
+Enable debug output to troubleshoot issues:
+```bash
+uv run ibmi_agentos.py --agent performance --model openai:gpt-4o --debug
 ```
 
-This runs automated tests to ensure agents are working correctly and making appropriate tool calls.
+### Custom MCP Server URL
+If your MCP server runs on a different host or port:
+```bash
+uv run ibmi_agentos.py --agent performance --model openai:gpt-4o --mcp-url http://localhost:8080/mcp
+```
 
-## Technical Details
+## Architecture Overview
 
-### Architecture Overview
+### How It Works
 
-1. **MCP Server (TypeScript)**: Provides tools for IBM i system interaction via SQL
-2. **AgentOS (Python)**: Framework for running AI agents with tool access
-3. **Agents**: Specialized AI agents that use MCP tools to accomplish tasks
-4. **Transport**: HTTP-based communication between agents and MCP server
+1. **Agent Selection**: You choose an agent specialized for a specific task (performance, discovery, etc.)
+2. **MCP Connection**: The agent connects to the IBM i MCP Server via HTTP
+3. **Tool Filtering**: Each agent only has access to relevant tools (e.g., performance agent gets performance tools)
+4. **Model Execution**: Your chosen LLM model processes requests and generates tool calls
+5. **Persistent Memory**: Agent sessions and memory are stored in SQLite (`tmp/ibmi_agents.db`)
 
-### Default Configuration
+### Supported Models
 
-- **MCP Server URL**: `http://127.0.0.1:3010/mcp`
-- **AgentOS URL**: `http://localhost:7777`
-- **Agent UI URL**: `http://localhost:3000`
-- **Transport**: `streamable-http`
+| Provider | Model Examples | Usage |
+|----------|---------------|-------|
+| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-4-turbo | `openai:gpt-4o` |
+| **Anthropic** | claude-sonnet-4-5, claude-opus-4 | `anthropic:claude-sonnet-4-5` |
+| **WatsonX** | llama-3-3-70b, granite-3-3-8b | `watsonx:llama-3-3-70b-instruct` |
+| **Ollama** | llama3.2, gpt-oss, mistral | `ollama:llama3.2` |
 
-### Customization
 
-You can customize agent behavior by:
-- Modifying toolset selection in the filtered agent
-- Adjusting MCP server configuration
-- Creating custom agent specializations
-- Adding new evaluation scenarios
 
-## Notes
 
-- The MCP server must be running in HTTP mode for agents to connect
-- Default timeout for MCP operations is configured for IBM i system response times
-- Agents maintain conversation context and can handle multi-step tasks
-- All interactions are logged for debugging and evaluation purposes
+
