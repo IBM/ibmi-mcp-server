@@ -46,7 +46,10 @@
             "group": "SQL Tools System",
             "pages": [
               "sql-tools/overview",
-              "sql-tools/building-tools"
+              "sql-tools/building-tools",
+              "sql-tools/parameters",
+              "sql-tools/validation",
+              "sql-tools/output-formats"
             ]
           },
           {

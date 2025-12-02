@@ -30,6 +30,25 @@ For IBM i environments, most AI agent interactions involve querying database tab
   </Card>
 </CardGroup>
 
+## Tool Categories
+
+The `tools/` directory contains pre-built tool configurations organized by category:
+
+| Directory | Category | Description | Key Tools |
+|-----------|----------|-------------|-----------|
+| [**sample/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/sample) | Sample Data | Demonstration tools using IBM i SAMPLE schema (employee, department, project data) | Employee lookup, department analysis, project management |
+| [**sys-admin/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/sys-admin) | System Administration | High-level system service discovery and metadata exploration | Service catalogs, schema browsing, example queries |
+| [**security/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/security) | Security Analysis | Library list security assessment and vulnerability detection | Library list configuration, authority checks, security analysis |
+| [**performance/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/performance) | Performance Monitoring | System performance metrics and resource utilization | System status, active jobs, memory pools, HTTP server stats |
+| [**developer/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/developer) | Development Tools | Object statistics and dependency analysis for developers | Recently used objects, stale object detection, dependency tracking |
+
+<Tip>
+**Quick Start:** Use `--list-toolsets` to see all available toolsets:
+```bash
+npx ibmi-mcp-server --list-toolsets --tools tools
+```
+</Tip>
+
 ## YAML Tool Structure
 
 Every YAML configuration file follows a consistent structure that defines sources, tools, and toolsets:

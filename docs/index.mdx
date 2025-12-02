@@ -1,90 +1,384 @@
 ---
 title: "IBM i MCP Server"
-description: "Production-grade MCP server for IBM i database operations with YAML-based SQL tools, authentication, and AI agent development."
+description: "Connect AI agents to IBM i systems through secure, YAML-configured SQL tools with enterprise authentication and observability."
 ---
 
 # IBM i MCP Server
 
-A production-ready **Model Context Protocol (MCP) server** that enables AI agents to securely access IBM i database operations through YAML-configured SQL tools. Purpose-built for enterprise IBM i environments with comprehensive authentication, observability, and security features.
+A production-ready **Model Context Protocol (MCP) server** that bridges AI agents and IBM i database operations. Transform SQL queries into AI-accessible tools using simple YAML configurations—no programming required.
 
-## Quick Start
+<Info>
+**Perfect for IBM i Professionals**: If you work with DB2 for i, QSYS2 services, or IBM i applications, this server enables AI agents to securely access your data through controlled, audited SQL operations.
+</Info>
 
-<CardGroup cols={2}>
-  <Card title="Get Started" icon="rocket" href="/quickstart">
-    Set up your server and connect AI agents in 15 minutes
-  </Card>
-  <Card title="Build Agents" icon="robot" href="/agents/building-agents">
-    Create specialized IBM i agents using agno and filtered toolsets
-  </Card>
-</CardGroup>
+---
 
-## Key Features
-
-### 🔌 Core Infrastructure
-- **MCP Server**: Supports stdio and streamable HTTP transport with comprehensive tooling
-- **Observability**: Built-in OpenTelemetry tracing, metrics, and performance monitoring
-- **Type Safety & Security**: TypeScript with Zod validation, sanitization, and auth middleware
-- **Error Handling**: Consistent error categorization, detailed logging, and centralized handling
-
-### 🚀 Production Ready
-- **Production Utilities**: Logging, error handling, rate limiting, and request context tracking
-- **Performance Metrics**: Automatic measurement of execution time and payload size
-- **Integration Testing**: Vitest-based testing with coverage reporting and fast feedback
-- **Interaction Logging**: Full traceability with dedicated logging for all LLM interactions
-
-### 🤖 Agent Development
-- **Agent Ready**: Developer cheatsheet and tools tailored for LLM coding agents
-- **Services Integration**: Reusable modules for LLM and data storage with examples
-- **Utility Scripts**: Build management, permissions, directory trees, and OpenAPI specs
-- **Documentation**: Comprehensive guides, JSDoc comments, and API references
-
-## Documentation
+## Quick Navigation
 
 <CardGroup cols={3}>
-  <Card title="SQL Tools Guide" icon="database" href="/sql-tools/building-tools">
-    Create and configure YAML-based SQL tools with parameters and validation
+  <Card title="New to MCP?" icon="circle-question" href="/concepts/mcp-overview">
+    Learn what MCP is and why it matters for IBM i
   </Card>
-  <Card title="Server Architecture" icon="sitemap" href="/concepts/architecture">
-    Understand the server design and component interactions
-  </Card>  
-  <Card title="Configuration" icon="gear" href="/configuration">
-    Environment variables and deployment configuration options
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Get running in 15 minutes
+  </Card>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create database tools with YAML
   </Card>
 </CardGroup>
 
-## For IBM i Professionals
+---
 
-<Note>
-**Prerequisites**: This server requires appropriate IBM i authorities and database access. Ensure your user profile has necessary permissions for intended operations.
-</Note>
+## Getting Started
 
-## Common Workflows
+Choose your starting point based on your goal:
+
+<Tabs>
+  <Tab title="First-Time Setup">
+    **I want to get the server running**
+
+    <Steps>
+      <Step title="Understand MCP">
+        Read [What is MCP?](/concepts/mcp-overview) to understand how AI agents connect to IBM i (5 min read)
+      </Step>
+      <Step title="Install Prerequisites">
+        Set up [Mapepire](/setup-mapepire) on your IBM i system for database connectivity
+      </Step>
+      <Step title="Install Server">
+        Follow the [Quick Start](/quickstart) to install and configure the MCP server
+      </Step>
+      <Step title="Connect a Client">
+        Choose from [6 MCP clients](/clients/overview) like Claude Desktop, VSCode, or Cursor
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Create SQL Tools">
+    **I want to make IBM i data accessible to AI**
+
+    <Steps>
+      <Step title="Learn the Basics">
+        Review [SQL Tools Overview](/sql-tools/overview) to understand the YAML-based approach
+      </Step>
+      <Step title="Follow Tutorial">
+        Build your first tool with [Building SQL Tools](/sql-tools/building-tools)
+      </Step>
+      <Step title="Study Examples">
+        Explore the [complete employee-info example](/sql-tools/building-tools#complete-example-employee-information-tools) showing all parameter types
+      </Step>
+      <Step title="Reference Guides">
+        Deep dive into [Parameters](/sql-tools/parameters), [Validation](/sql-tools/validation), and [Output Formats](/sql-tools/output-formats)
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Build AI Agents">
+    **I want to create specialized IBM i agents**
+
+    <Steps>
+      <Step title="Review Architecture">
+        Understand [how the server works](/concepts/architecture) and why SQL-as-tools is powerful
+      </Step>
+      <Step title="Agent Development">
+        Learn patterns in [Building Agents](/agents/building-agents)
+      </Step>
+      <Step title="Connect Clients">
+        Set up your development environment with [Client Integration](/clients/overview)
+      </Step>
+      <Step title="Deploy">
+        Review [Configuration](/configuration) for production deployment
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+---
+
+## Core Features
+
+<CardGroup cols={2}>
+  <Card title="Zero-Code SQL Tools" icon="wand-magic-sparkles">
+    **Create database operations in minutes**
+
+    Define tools using simple YAML—no TypeScript or programming required. Built-in parameter validation, SQL injection prevention, and result formatting.
+
+    [Learn SQL Tools →](/sql-tools/overview)
+  </Card>
+
+  <Card title="Enterprise Security" icon="shield-halved">
+    **IBM i security integration**
+
+    Respects user profiles, object authorities, and audit requirements. Multiple auth modes including IBM i HTTP authentication with RSA encryption.
+
+    [See Configuration →](/configuration)
+  </Card>
+
+  <Card title="Multiple AI Clients" icon="plug">
+    **Works with your tools**
+
+    Connect Claude Desktop, VSCode, Cursor, Gemini CLI, Cline, and more. Supports both stdio (development) and HTTP (production) transports.
+
+    [View Clients →](/clients/overview)
+  </Card>
+
+  <Card title="Production Ready" icon="gauge-high">
+    **Built for enterprise IBM i**
+
+    OpenTelemetry observability, structured logging, connection pooling, error handling, and comprehensive audit trails.
+
+    [Review Architecture →](/concepts/architecture)
+  </Card>
+</CardGroup>
+
+---
+
+## Key Concepts
 
 <AccordionGroup>
-  <Accordion title="I'm new to MCP" icon="info">
-    Start with the [MCP Overview](/concepts/mcp-overview) to understand how the Model Context Protocol connects AI agents to IBM i systems.
+  <Accordion title="What is the Model Context Protocol (MCP)?" icon="circle-info">
+    MCP is an open standard that enables AI agents to securely access and interact with your data through a universal interface. Instead of building custom integrations for each AI tool, MCP provides a standardized way for any MCP-compatible agent to access your IBM i systems.
+
+    **Key Benefits:**
+    - 🔒 Secure, controlled access to enterprise data
+    - 🔌 Universal protocol understood by all MCP clients
+    - 🛡️ Preserves IBM i security and audit requirements
+    - ⚡ Real-time data access without ETL or data exports
+
+    [Read the full MCP overview →](/concepts/mcp-overview)
   </Accordion>
 
-  <Accordion title="I want to deploy quickly" icon="rocket">
-    Follow the [Quick Start Guide](/quickstart) to get your server running and connected to agents in 15 minutes.
+  <Accordion title="Why SQL as MCP Tools?" icon="database">
+    The IBM i MCP Server's core innovation is **transforming SQL queries into MCP tools** that AI agents can discover and use. This approach is ideal for IBM i because:
+
+    - **Zero Code Required**: Define tools in YAML files
+    - **IBM i Native**: Direct access to DB2, QSYS2 services, stored procedures
+    - **Security Built-In**: Parameter binding prevents SQL injection automatically
+    - **Rapid Development**: Create new tools in minutes
+
+    **Example**: A simple SQL query becomes a discoverable, validated, secure tool that AI agents can call naturally.
+
+    [Learn about SQL Tools →](/sql-tools/overview)
   </Accordion>
 
-  <Accordion title="I need to create SQL tools" icon="database">
-    Learn the [YAML SQL Tools system](/sql-tools/building-tools) to create database operations without writing code.
+  <Accordion title="How does authentication work?" icon="key">
+    The server supports multiple authentication modes to fit your deployment:
+
+    **For Development:**
+    - **Shared credentials** (stdio): All operations use same DB2i user
+    - Fast setup for testing and local development
+
+    **For Production:**
+    - **Per-user authentication** (HTTP): Each user connects with their own credentials
+    - **IBM i HTTP Auth**: RSA-encrypted credential exchange
+    - **JWT/OAuth**: Custom authentication systems
+
+    All modes respect IBM i object authorities and maintain audit trails.
+
+    [See authentication setup →](/configuration#authentication-settings)
   </Accordion>
 
-  <Accordion title="I'm building AI agents" icon="robot">
-    Explore [agent development patterns](/agents/building-agents) using agno and FilteredMCPTools for IBM i specialization.
+  <Accordion title="What can I build with this?" icon="lightbulb">
+    The server enables AI agents to perform any database operation you configure:
+
+    **Common Use Cases:**
+    - 📊 System monitoring and performance analysis
+    - 🔍 Business data queries and reporting
+    - 🔐 Security audits and compliance checks
+    - 📦 Inventory and resource management
+    - 🧪 Development and debugging tools
+
+    **Example Agents:**
+    - Performance monitoring agent tracking CPU, memory, jobs
+    - Discovery agent analyzing schemas and dependencies
+    - Business intelligence agent answering data questions
+    - System administration agent managing resources
+
+    [Explore agent examples →](/agents/building-agents)
   </Accordion>
 </AccordionGroup>
 
-## Resources
+---
+
+## Documentation Sections
 
 <CardGroup cols={2}>
-  <Card title="GitHub Repository" icon="github" href="https://github.com/IBM/ibmi-mcp-server.git">
-    Source code, issues, and community contributions
+  <Card title="Core Concepts" icon="book-open">
+    **Understanding the Foundation**
+
+    - [MCP Overview](/concepts/mcp-overview) - What is MCP?
+    - [Server Architecture](/concepts/architecture) - How SQL tools work
+
+    Start here if you're new to MCP or want to understand the architecture.
   </Card>
-  <Card title="API Reference" icon="book" href="/api/auth-endpoints">
-    Complete API documentation for authentication and endpoints
+
+  <Card title="SQL Tools System" icon="database">
+    **Creating Database Operations**
+
+    - [Overview](/sql-tools/overview) - Introduction and tool categories
+    - [Building Tools](/sql-tools/building-tools) - Step-by-step tutorial
+    - [Parameters](/sql-tools/parameters) - All 5 parameter types
+    - [Validation](/sql-tools/validation) - Security and error handling
+    - [Output Formats](/sql-tools/output-formats) - Result formatting
+
+    Everything needed to create YAML SQL tools.
+  </Card>
+
+  <Card title="Client Integration" icon="plug">
+    **Connecting AI Agents**
+
+    - [Overview](/clients/overview) - Supported clients comparison
+    - [Claude Desktop](/clients/claude-desktop) - macOS & Windows
+    - [Claude Code](/clients/claude-code) - CLI tool
+    - [VSCode](/clients/vscode) - GitHub Copilot Chat
+    - [Cursor](/clients/cursor) - AI-first editor
+    - [Gemini CLI](/clients/gemini-cli) - Google AI
+    - [Cline](/clients/cline) - VSCode extension
+
+    Setup guides for all major MCP clients.
+  </Card>
+
+  <Card title="Agent Development" icon="robot">
+    **Building Specialized Agents**
+
+    - [Building Agents](/agents/building-agents) - Patterns and examples
+
+    Learn how to create AI agents that effectively use IBM i tools.
   </Card>
 </CardGroup>
+
+---
+
+## Installation & Setup
+
+<Steps>
+  <Step title="Prerequisites">
+    **Before you begin:**
+    - IBM i system with DB2 for i access
+    - [Mapepire server](/setup-mapepire) installed on IBM i (port 8076)
+    - Node.js 18+ on your development machine
+    - IBM i user credentials with appropriate authorities
+  </Step>
+
+  <Step title="Install Server">
+    ```bash
+    # Clone repository
+    git clone https://github.com/IBM/ibmi-mcp-server.git
+    cd ibmi-mcp-server
+
+    # Install dependencies
+    npm install
+
+    # Build server
+    npm run build
+    ```
+
+    [Full installation guide →](/quickstart)
+  </Step>
+
+  <Step title="Configure">
+    Create `.env` file with your IBM i connection details:
+    ```bash
+    DB2i_HOST=your-ibmi-system.com
+    DB2i_USER=your-username
+    DB2i_PASS=your-password
+    DB2i_PORT=8076
+    ```
+
+    [See all configuration options →](/configuration)
+  </Step>
+
+  <Step title="Connect Client">
+    Choose an MCP client and add the server configuration:
+    - [Claude Desktop](/clients/claude-desktop) - Most popular
+    - [VSCode](/clients/vscode) - For development
+    - [Claude Code](/clients/claude-code) - CLI workflows
+
+    [View all clients →](/clients/overview)
+  </Step>
+</Steps>
+
+---
+
+## Common Questions
+
+<AccordionGroup>
+  <Accordion title="Will this work with my IBM i version?" icon="server">
+    The server works with any IBM i version that supports:
+    - DB2 for i (Db2 for IBM i)
+    - QSYS2 system services
+    - Mapepire server for WebSocket connectivity
+
+    Tested on IBM i 7.3+, but should work on older versions with proper DB2 support.
+  </Accordion>
+
+  <Accordion title="Do I need to know TypeScript?" icon="code">
+    **No!** The SQL Tools system uses simple YAML configuration files. You only need SQL knowledge to create database operations.
+
+    TypeScript is only required if you want to create custom tool types beyond SQL operations.
+  </Accordion>
+
+  <Accordion title="How is this different from REST APIs?" icon="question">
+    **MCP Advantages:**
+    - AI agents discover tools automatically (no hardcoded endpoints)
+    - Built-in validation and security patterns
+    - Universal protocol works with any MCP client
+    - Structured responses optimized for AI consumption
+
+    **REST APIs require:**
+    - Custom integration code for each AI tool
+    - Manual endpoint documentation
+    - Custom authentication per client
+    - Response parsing and adaptation
+  </Accordion>
+
+  <Accordion title="Can I use this in production?" icon="shield-check">
+    **Yes!** The server includes production-ready features:
+    - OpenTelemetry observability
+    - Comprehensive audit logging
+    - Connection pooling
+    - Error handling and categorization
+    - Rate limiting and resource protection
+    - Multi-environment configuration
+
+    Use HTTP transport with IBM i authentication for production deployments.
+  </Accordion>
+
+  <Accordion title="Where do I get help?" icon="life-ring">
+    **Resources:**
+    - 📖 Documentation: You're reading it!
+    - 💬 GitHub Issues: [Report bugs or request features](https://github.com/IBM/ibmi-mcp-server/issues)
+    - 🔧 Configuration: See [environment variables](/configuration)
+    - 🚀 Examples: Review [SQL tools](/sql-tools/building-tools) and [agents](/agents/building-agents)
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get your server running in 15 minutes
+  </Card>
+  <Card title="Create SQL Tools" icon="database" href="/sql-tools/building-tools">
+    Build your first YAML SQL tool
+  </Card>
+  <Card title="Connect a Client" icon="plug" href="/clients/overview">
+    Choose and configure an MCP client
+  </Card>
+  <Card title="Understand MCP" icon="book-open" href="/concepts/mcp-overview">
+    Learn about the Model Context Protocol
+  </Card>
+  <Card title="Review Examples" icon="code" href="/sql-tools/building-tools#complete-example-employee-information-tools">
+    Study the complete employee-info example
+  </Card>
+  <Card title="Build Agents" icon="robot" href="/agents/building-agents">
+    Create specialized IBM i AI agents
+  </Card>
+</CardGroup>
+
+---
+
+<Note>
+**About This Project**: The IBM i MCP Server is an open-source project that brings modern AI agent capabilities to IBM i environments while maintaining enterprise security and operational standards. Contributions and feedback are welcome on [GitHub](https://github.com/IBM/ibmi-mcp-server).
+</Note>

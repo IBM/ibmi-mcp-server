@@ -1,208 +1,184 @@
 ---
 title: "Understanding MCP"
-description: "A comprehensive introduction to the Model Context Protocol (MCP) for IBM i professionals, covering how AI agents access your data securely and efficiently."
+description: "A practical introduction to the Model Context Protocol (MCP) for IBM i professionals—what it is, why it matters, and how it works."
 ---
 
 # Understanding the Model Context Protocol (MCP)
 
-The Model Context Protocol (MCP) is an open standard that enables AI agents to securely access and interact with your data and systems. For IBM i professionals, MCP provides a bridge between modern AI applications and traditional enterprise systems, maintaining the security and reliability standards you expect.
+The Model Context Protocol (MCP) is an open standard that enables AI agents to securely access and interact with your data. For IBM i professionals, MCP provides a bridge between modern AI applications and enterprise systems while maintaining your security standards.
 
-<Note>
-Think of MCP as a standardized API that AI agents understand natively. Instead of building custom integrations for each AI tool, MCP provides a universal interface that works with any MCP-compatible agent.
-</Note>
+<Info>
+**In Simple Terms**: MCP is like a standardized API that AI agents understand natively. Instead of building custom integrations for each AI tool, MCP provides a universal interface that works with any MCP-compatible agent.
+</Info>
 
-## What Problem Does MCP Solve?
+---
 
-Traditional AI applications face significant challenges when working with enterprise data:
+## The Problem MCP Solves
 
-<Columns cols={2}>
+Traditional AI applications struggle with enterprise data access:
+
+<CardGroup cols={2}>
   <Card title="Data Silos" icon="database">
     Enterprise data locked in systems that AI can't easily access
   </Card>
-  <Card title="Security Concerns" icon="shield-exclamation">
-    Exposing sensitive data through broad API access or data dumps
+  <Card title="Security Risks" icon="shield-exclamation">
+    Exposing sensitive data through broad API access or data exports
   </Card>
   <Card title="Integration Complexity" icon="network-wired">
     Building custom connectors for every AI tool and data source
   </Card>
-  <Card title="Maintenance Overhead" icon="wrench">
+  <Card title="Maintenance Burden" icon="wrench">
     Managing multiple integration points and authentication methods
   </Card>
-</Columns>
+</CardGroup>
 
-MCP solves these problems by providing a **standardized, secure, and controlled way** for AI agents to access exactly the data they need, when they need it.
+**MCP's Solution**: A standardized, secure, and controlled way for AI agents to access exactly the data they need, when they need it.
 
-## MCP in IBM i Environments
+---
 
-For IBM i systems, MCP is particularly valuable because it:
+## Why MCP Matters for IBM i
 
-<AccordionGroup>
-  <Accordion title="Preserves IBM i Security Model" icon="lock">
-    MCP integrates with IBM i's comprehensive security system, respecting user profiles, object authorities, and audit requirements. AI agents can only access data that the authenticated user has permission to see.
+MCP is particularly valuable for IBM i environments because it:
 
-    ```
-    User JSMITH → MCP Server → DB2i (as JSMITH)
-    ✓ Inherits JSMITH's authorities
-    ✓ Audit trail maintained
-    ✓ Object-level security enforced
-    ```
-  </Accordion>
+### Preserves IBM i Security
 
-  <Accordion title="Enables Modern AI Workflows" icon="robot">
-    Connect cutting-edge AI agents to decades of business-critical data stored in DB2 for i, without compromising on security or performance.
+MCP integrates with IBM i's comprehensive security system:
 
-    **Example Use Cases:**
-    - AI-powered business intelligence and reporting
-    - Automated system monitoring and alerting
-    - Intelligent data analysis and trend identification
-    - Natural language queries against business data
-  </Accordion>
+```
+User JSMITH → MCP Server → DB2i (as JSMITH)
+✓ Inherits JSMITH's authorities
+✓ Audit trail maintained
+✓ Object-level security enforced
+```
 
-  <Accordion title="Maintains Enterprise Standards" icon="building">
-    MCP implementations can include comprehensive logging, audit trails, and compliance features required in regulated industries.
+AI agents can only access data that the authenticated user has permission to see.
 
-    **Enterprise Features:**
-    - OpenTelemetry integration for observability
-    - Structured audit logging for compliance
-    - Rate limiting and resource protection
-    - Multi-environment configuration management
-  </Accordion>
-</AccordionGroup>
+### Enables Modern AI Workflows
 
-## How MCP Works: A High-Level View
+Connect cutting-edge AI agents to decades of business-critical data without compromising security:
+
+- **AI-powered business intelligence** and reporting
+- **Automated system monitoring** and alerting
+- **Intelligent data analysis** and trend identification
+- **Natural language queries** against business data
+
+### Maintains Enterprise Standards
+
+- OpenTelemetry integration for observability
+- Structured audit logging for compliance
+- Rate limiting and resource protection
+- Multi-environment configuration management
+
+---
+
+## How MCP Works
 
 MCP creates a three-party interaction between your data, the MCP server, and AI agents:
 
 ```mermaid
 graph LR
-    subgraph "AI Agent"
-        A[Claude, GPT, etc.] --> B[MCP Client]
-    end
-
-    subgraph "IBM i Environment"
-        D[IBM i MCP Server] --> E[DB2 for i]
-        D --> F[System Services]
-        D --> G[Business Data]
-    end
-
-    B <--> C[MCP Protocol]
-    C <--> D
+    A["AI Agent
+    (Claude, GPT, etc.)"] --> B[MCP Protocol]
+    B --> C[IBM i MCP Server]
+    C --> D["DB2 for i
+    System Services
+    Business Data"]
 
     style A fill:#e3f2fd
-    style D fill:#e8f5e8
-    style E fill:#fff3e0
+    style C fill:#e8f5e8
+    style D fill:#fff3e0
 ```
 
-### The MCP Conversation Flow
+### The Conversation Flow
 
-Here's what happens when an AI agent needs information from your IBM i system:
-
-<Tabs>
-  <Tab title="1. Agent Request">
-    The AI agent identifies a need for data and makes a request through MCP:
-
+<Steps>
+  <Step title="Agent Request">
+    AI agent identifies a need for data:
     ```json
     {
-      "method": "tools/call",
-      "params": {
-        "name": "query_active_jobs",
-        "arguments": {
-          "user_filter": "ACCOUNTING",
-          "max_rows": 10
-        }
+      "name": "query_active_jobs",
+      "arguments": {
+        "user_filter": "ACCOUNTING",
+        "max_rows": 10
       }
     }
     ```
-  </Tab>
+  </Step>
 
-  <Tab title="2. Server Processing">
-    The MCP server validates the request and executes it against IBM i:
+  <Step title="Server Processing">
+    MCP server validates and executes:
+    - ✅ Authentication check
+    - ✅ Parameter validation
+    - ✅ Authority verification
+    - ✅ SQL execution with binding
+    - ✅ Result formatting
+  </Step>
 
-    - ✅ Authentication check (is user authorized?)
-    - ✅ Parameter validation (are inputs safe?)
-    - ✅ Authority verification (can user access this data?)
-    - ✅ SQL execution with proper binding
-    - ✅ Result formatting and return
-  </Tab>
-
-  <Tab title="3. Structured Response">
-    The agent receives structured data it can understand and act upon:
-
+  <Step title="Structured Response">
+    Agent receives structured, actionable data:
     ```json
     {
-      "content": [{
-        "type": "text",
-        "text": "Found 8 active jobs for ACCOUNTING department..."
-      }],
+      "content": "Found 8 active jobs for ACCOUNTING...",
       "structuredContent": {
         "jobs": [
-          {"job_name": "PAYROLL01", "user": "ACCUSER1", "status": "ACTIVE"},
-          {"job_name": "REPORTS", "user": "ACCUSER2", "status": "ACTIVE"}
+          {"job_name": "PAYROLL01", "user": "ACCUSER1"},
+          {"job_name": "REPORTS", "user": "ACCUSER2"}
         ]
       }
     }
     ```
-  </Tab>
-</Tabs>
+  </Step>
+</Steps>
 
-## MCP Components and Concepts
+---
 
-Understanding these key concepts will help you work effectively with MCP:
+## Key MCP Concepts
 
 ### Tools
 
-**Tools** are discrete operations that AI agents can perform through MCP. In the IBM i context, tools typically:
+**Tools** are discrete operations AI agents can perform. In IBM i, tools typically:
 
-<Columns cols={2}>
-  <Card title="Query Data" icon="search">
-    Execute SQL queries against DB2 for i tables and views
-
+<Tabs>
+  <Tab title="Query Data">
     ```yaml
     tools:
       system_status:
-        description: "Get current system performance metrics"
+        description: "Get system performance metrics"
         statement: "SELECT * FROM qsys2.system_status_info"
     ```
-  </Card>
+  </Tab>
 
-  <Card title="System Operations" icon="cog">
-    Perform system administration tasks and monitoring
-
+  <Tab title="Monitor Systems">
     ```yaml
     tools:
       check_subsystems:
         description: "List active subsystem status"
         statement: "SELECT * FROM qsys2.subsystem_info WHERE status = 'ACTIVE'"
     ```
-  </Card>
+  </Tab>
 
-  <Card title="Business Logic" icon="calculator">
-    Execute stored procedures and business functions
-
+  <Tab title="Business Logic">
     ```yaml
     tools:
       calculate_inventory:
-        description: "Run inventory calculation procedure"
+        description: "Run inventory calculation"
         statement: "CALL mylib.calc_inventory(:product_line)"
     ```
-  </Card>
+  </Tab>
 
-  <Card title="Report Generation" icon="chart-bar">
-    Generate formatted reports and summaries
-
+  <Tab title="Generate Reports">
     ```yaml
     tools:
       monthly_sales:
-        description: "Generate monthly sales summary"
+        description: "Monthly sales summary"
         statement: "SELECT * FROM sales_summary WHERE month = :target_month"
     ```
-  </Card>
-</Columns>
+  </Tab>
+</Tabs>
 
 ### Resources
 
-**Resources** represent data that can be retrieved and analyzed. Unlike tools that perform actions, resources provide static or semi-static content:
-
+**Resources** provide static or semi-static content:
 - Configuration files and documentation
 - Reference data and lookup tables
 - System catalogs and metadata
@@ -222,88 +198,79 @@ MCP servers declare their **capabilities** to inform clients about supported fea
 }
 ```
 
-## IBM i MCP Server Capabilities
+---
 
-The IBM i MCP Server provides enterprise-grade capabilities specifically designed for IBM i environments:
+## IBM i MCP Server Features
+
+The IBM i MCP Server provides enterprise-grade capabilities:
 
 <CardGroup cols={2}>
-  <Card title="YAML-Defined SQL Tools" icon="file-code">
-    Create powerful SQL operations using simple YAML configurations without writing TypeScript code.
+  <Card title="YAML SQL Tools" icon="file-code">
+    Create database operations using simple YAML—no TypeScript required
   </Card>
-
   <Card title="IBM i Authentication" icon="key">
-    Integrated authentication supporting IBM i user profiles and HTTP auth with RSA encryption.
+    Integrated authentication with RSA encryption for user profiles
   </Card>
-
   <Card title="Authority Integration" icon="shield-check">
-    Respects IBM i object authorities, special authorities, and security requirements.
+    Respects IBM i object authorities and special authorities
   </Card>
-
   <Card title="Audit & Compliance" icon="clipboard-check">
-    Comprehensive audit logging for regulatory compliance and security monitoring.
+    Comprehensive logging for regulatory compliance
   </Card>
-
   <Card title="Production Ready" icon="server">
-    Enterprise features including OpenTelemetry, error handling, and operational monitoring.
+    OpenTelemetry, error handling, operational monitoring
   </Card>
-
   <Card title="Multi-Transport" icon="arrows-alt">
-    Supports both STDIO (development) and HTTP (production) transport modes.
+    STDIO (development) and HTTP (production) support
   </Card>
 </CardGroup>
 
-## Security and Trust Model
+---
 
-MCP implements a security model based on **explicit consent and minimal access**:
+## Security Model
+
+MCP implements security based on **explicit consent and minimal access**:
 
 ```mermaid
 graph TB
-    subgraph "Security Layers"
-        A[User Authentication] --> B[Tool Authorization]
-        B --> C[Parameter Validation]
-        C --> D[IBM i Authority Check]
-        D --> E[SQL Security Validation]
-        E --> F[Audit Logging]
-    end
-
-    subgraph "Trust Boundaries"
-        G[AI Agent] --> H[MCP Protocol]
-        H --> I[IBM i MCP Server]
-        I --> J[IBM i System]
-    end
+    A[User Authentication] --> B[Tool Authorization]
+    B --> C[Parameter Validation]
+    C --> D[IBM i Authority Check]
+    D --> E[SQL Security Validation]
+    E --> F[Audit Logging]
 
     style A fill:#ffebee
     style D fill:#e8f5e8
     style F fill:#f3e5f5
 ```
 
-### Key Security Principles
+### Security Principles
 
 <AccordionGroup>
-  <Accordion title="Principle of Least Privilege" icon="lock">
-    AI agents can only access tools and data explicitly made available through the MCP server configuration. There's no blanket access to your systems.
+  <Accordion title="Least Privilege" icon="lock">
+    AI agents only access tools explicitly made available:
 
     ```yaml
-    # Only specific tools are exposed
     toolsets:
       read_only_reports:
         tools: [sales_summary, inventory_levels]
-        # No access to payroll, financial, or system administration tools
+        # No access to payroll or system admin tools
     ```
   </Accordion>
 
   <Accordion title="Authentication Required" icon="user-check">
-    All access requires valid authentication. The IBM i MCP Server supports multiple auth modes including IBM i HTTP authentication with encrypted credential exchange.
+    All access requires valid authentication:
 
     ```bash
-    # User must authenticate before any tool access
     MCP_AUTH_MODE=ibmi
     IBMI_HTTP_AUTH_ENABLED=true
     ```
+
+    Users authenticate before any tool access.
   </Accordion>
 
   <Accordion title="Transparent Audit Trail" icon="eye">
-    All operations are logged with full context, including user identity, requested operations, and results. Perfect for compliance and security monitoring.
+    All operations logged with full context:
 
     ```json
     {
@@ -317,168 +284,129 @@ graph TB
   </Accordion>
 </AccordionGroup>
 
-## Getting Started with MCP
+---
 
-If you're new to MCP, here's your learning path:
-
-<Steps>
-  <Step title="Start with the Basics">
-    Begin with our [Quick Start Guide](/quickstart) to get a basic MCP server running in your environment and test your first tool execution.
-  </Step>
-
-  <Step title="Understand the Architecture">
-    Review the [Server Architecture](/concepts/architecture) to understand how components work together and the "Logic Throws, Handler Catches" pattern.
-  </Step>
-
-  <Step title="Create Your First Tools">
-    Follow the [SQL Tools Guide](/sql-tools/building-tools) to create custom tools for your specific needs using YAML configurations.
-  </Step>
-
-  <Step title="Build an Agent">
-    Explore [Agent Development](/agents/building-agents) to create AI agents that understand your business context and effectively use your tools.
-  </Step>
-
-  <Step title="Deploy to Production">
-    Use our [Production Deployment](/deployment/production) guide for enterprise deployment with security, monitoring, and the [Configuration Reference](/configuration) for environment variables.
-  </Step>
-</Steps>
-
-## MCP vs. Traditional Integration Approaches
-
-Understanding how MCP compares to traditional integration methods helps illustrate its value:
+## MCP vs. Traditional Approaches
 
 <Tabs>
-  <Tab title="Traditional REST APIs">
-    **Challenges:**
-    - Each AI tool needs custom integration
+  <Tab title="vs. REST APIs">
+    **Traditional REST:**
+    - Custom integration for each AI tool
     - Broad API access often required
-    - Complex authentication for each endpoint
-    - Limited built-in security controls
+    - Complex per-endpoint authentication
+    - Inconsistent security controls
 
     **MCP Advantages:**
-    - Universal protocol works with any MCP client
+    - Universal protocol for all clients
     - Granular tool-level access control
-    - Built-in authentication and authorization
+    - Built-in authentication/authorization
     - Standardized security model
   </Tab>
 
-  <Tab title="Database Direct Access">
-    **Challenges:**
+  <Tab title="vs. Direct Database">
+    **Direct Database:**
     - AI tools need database credentials
-    - Difficult to audit and control access
-    - No abstraction for business logic
-    - Security risks with credential management
+    - Difficult to audit and control
+    - No business logic abstraction
+    - Credential management risks
 
     **MCP Advantages:**
-    - No direct database access required
-    - User-level authentication and authorization
-    - Business logic encapsulated in tools
+    - No direct database access needed
+    - User-level authentication
+    - Business logic in tools
     - Comprehensive audit trails
   </Tab>
 
-  <Tab title="Data Exports/ETL">
-    **Challenges:**
+  <Tab title="vs. Data Exports">
+    **Data Exports/ETL:**
     - Data becomes stale quickly
-    - Full datasets often exported for minimal needs
-    - Complex data pipeline maintenance
-    - Compliance and security concerns
+    - Full datasets for minimal needs
+    - Complex pipeline maintenance
+    - Compliance concerns
 
     **MCP Advantages:**
     - Real-time data access
     - Query only what's needed
     - No data duplication
-    - Native IBM i security integration
+    - Native IBM i security
   </Tab>
 </Tabs>
 
 <Note>
-**MCP's Key Innovation**: MCP enables AI agents to become **intelligent participants** in your existing business processes rather than external tools that need special integration. They can ask for specific data when needed, perform authorized operations, and maintain the same security standards as human users.
+**MCP's Key Innovation**: AI agents become **intelligent participants** in your existing business processes rather than external tools needing special integration. They ask for specific data when needed, perform authorized operations, and maintain the same security standards as human users.
 </Note>
 
-## Industry Examples and Use Cases
+---
 
-MCP is being adopted across various industries for different purposes:
-
-<CardGroup cols={2}>
-  <Card title="Manufacturing" icon="industry">
-    **Real-time Production Monitoring**
-    - AI agents monitor production metrics
-    - Automated quality control analysis
-    - Predictive maintenance scheduling
-    - Supply chain optimization
-  </Card>
-
-  <Card title="Financial Services" icon="dollar-sign">
-    **Compliance and Risk Management**
-    - Automated regulatory reporting
-    - Risk assessment and monitoring
-    - Fraud detection and analysis
-    - Customer service automation
-  </Card>
-
-  <Card title="Healthcare" icon="heartbeat">
-    **Patient Data Analysis**
-    - Clinical decision support
-    - Patient outcome tracking
-    - Resource utilization optimization
-    - Regulatory compliance reporting
-  </Card>
-
-  <Card title="Retail & Distribution" icon="shopping-cart">
-    **Inventory and Sales Intelligence**
-    - Demand forecasting
-    - Inventory optimization
-    - Customer behavior analysis
-    - Pricing strategy optimization
-  </Card>
-</CardGroup>
-
-## Common Questions from IBM i Professionals
+## Common Questions
 
 <AccordionGroup>
   <Accordion title="Will this compromise our IBM i security?" icon="shield-alt">
-    No. MCP enhances your security by providing controlled, audited access. AI agents authenticate as specific users and are subject to the same authority checking as any other user. All operations are logged and can be monitored.
+    **No.** MCP enhances security by providing controlled, audited access. AI agents authenticate as specific users and are subject to the same authority checking. All operations are logged and monitored.
   </Accordion>
 
   <Accordion title="Do we need to expose our database directly?" icon="database">
-    No. The MCP server acts as a secure intermediary. Your database remains protected behind your firewall, and the MCP server only exposes specific, pre-defined operations that you configure and control.
+    **No.** The MCP server acts as a secure intermediary. Your database remains protected behind your firewall. The server only exposes specific, pre-defined operations you configure and control.
   </Accordion>
 
   <Accordion title="How does this affect system performance?" icon="tachometer-alt">
-    MCP servers are designed for efficient operation. SQL tools include row limiting, connection pooling, and resource management. You maintain full control over what operations are available and how they're executed.
+    MCP servers are designed for efficiency. SQL tools include row limiting, connection pooling, and resource management. You maintain full control over operations and execution.
   </Accordion>
 
   <Accordion title="What about compliance and audit requirements?" icon="gavel">
-    MCP supports comprehensive audit logging, including user identity, requested operations, parameters, and results. This often provides better audit trails than traditional approaches while maintaining compliance requirements.
+    MCP supports comprehensive audit logging including user identity, operations, parameters, and results. This often provides better audit trails than traditional approaches.
   </Accordion>
 
-  <Accordion title="Can we integrate with existing monitoring tools?" icon="chart-line">
-    Yes. The IBM i MCP Server includes OpenTelemetry integration for metrics and tracing, structured logging for SIEM integration, and health check endpoints for monitoring systems.
+  <Accordion title="Can we integrate with existing monitoring?" icon="chart-line">
+    **Yes.** The IBM i MCP Server includes OpenTelemetry for metrics/tracing, structured logging for SIEM integration, and health check endpoints for monitoring systems.
   </Accordion>
 </AccordionGroup>
 
-## Next Steps
+---
 
-Ready to explore MCP for your IBM i environment?
+## Getting Started
+
+<Steps>
+  <Step title="Quick Start">
+    Begin with the [Quick Start Guide](/quickstart) to get a server running and test your first tool
+  </Step>
+
+  <Step title="Understand Architecture">
+    Review [Server Architecture](/concepts/architecture) to understand the SQL-as-tools approach
+  </Step>
+
+  <Step title="Create Tools">
+    Follow the [SQL Tools Guide](/sql-tools/building-tools) to create custom tools using YAML
+  </Step>
+
+  <Step title="Build Agents">
+    Explore [Agent Development](/agents/building-agents) to create AI agents for your business
+  </Step>
+
+  <Step title="Deploy">
+    Use [Configuration Reference](/configuration) for production deployment settings
+  </Step>
+</Steps>
+
+---
+
+## Next Steps
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/quickstart">
     Get your first MCP server running in 15 minutes
   </Card>
-
   <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
-    Learn how to create powerful IBM i data access tools
+    Learn how to create IBM i data access tools
   </Card>
-
   <Card title="Agent Development" icon="robot" href="/agents/building-agents">
     Build AI agents that understand your business
   </Card>
-
-  <Card title="Production Setup" icon="server" href="/deployment/production">
-    Deploy with enterprise security and monitoring
+  <Card title="Client Integration" icon="plug" href="/clients/overview">
+    Connect Claude, VSCode, or other MCP clients
   </Card>
 </CardGroup>
 
 <Note>
-MCP represents a fundamental shift in how AI systems interact with enterprise data. Instead of requiring you to adapt your systems for AI, MCP enables AI to work with your existing infrastructure, security models, and business processes.
+**The MCP Promise**: Instead of requiring you to adapt your systems for AI, MCP enables AI to work with your existing infrastructure, security models, and business processes. Your IBM i systems remain secure and performant while becoming accessible to modern AI agents.
 </Note>

@@ -1,0 +1,590 @@
+---
+title: "SQL Tool Parameters"
+description: "Complete reference for parameter types, constraints, and validation in YAML SQL tools"
+---
+
+# SQL Tool Parameters
+
+SQL tools can accept parameters to make queries dynamic and reusable. All parameters are validated before execution and bound securely to prevent SQL injection. This guide covers all parameter types, constraints, and best practices.
+
+<Note>
+Parameters are defined in the `parameters` array of a tool definition and referenced in SQL statements using the `:parameter_name` syntax.
+</Note>
+
+## Parameter Types
+
+The IBM i MCP Server supports five parameter types:
+
+| Type | Description | Use Cases | Constraints Available |
+|------|-------------|-----------|----------------------|
+| `string` | Text values | Library names, object names, patterns | `minLength`, `maxLength`, `pattern`, `enum` |
+| `integer` | Whole numbers | Row limits, IDs, counts | `min`, `max`, `enum` |
+| `float` | Decimal numbers | Thresholds, percentages, measurements | `min`, `max`, `enum` |
+| `boolean` | True/false values | Flags, enable/disable options | None (inherently constrained) |
+| `array` | List of values | Multiple filters, batch operations | `minLength`, `maxLength`, `itemType` (required) |
+
+## Parameter Structure
+
+Each parameter requires a minimum of `name` and `type`, with optional properties for validation and documentation:
+
+```yaml
+parameters:
+  - name: parameter_name      # Required: Name used in SQL statement
+    type: string              # Required: Data type
+    description: "..."        # Recommended: Description for LLM
+    required: true            # Optional: Whether parameter is required (default: true)
+    default: "value"          # Optional: Default value if not provided
+```
+
+### Common Properties
+
+| Property | Required | Type | Description |
+|----------|----------|------|-------------|
+| `name` | ✅ Yes | string | Parameter name used in SQL (e.g., `:library_name`) |
+| `type` | ✅ Yes | string | One of: `string`, `integer`, `float`, `boolean`, `array` |
+| `description` | ⭐ Recommended | string | **LLM-facing description**—clear guidance on usage and examples |
+| `required` | No | boolean | `true` = must be provided, `false` = optional (default: `true` unless `default` is set) |
+| `default` | No | varies | Default value if parameter is not provided |
+
+<Warning>
+The `description` field is sent directly to the LLM. Write clear, helpful descriptions with examples to guide the LLM in using the parameter correctly.
+</Warning>
+
+---
+
+## String Parameters
+
+String parameters accept text values and support length constraints, pattern matching, and enumerated values.
+
+### Available Constraints
+
+- **`minLength`**: Minimum string length
+- **`maxLength`**: Maximum string length
+- **`pattern`**: Regular expression validation
+- **`enum`**: List of allowed values
+
+### Example 1: Basic String Parameter
+
+```yaml
+parameters:
+  - name: library_name
+    type: string
+    description: "Library containing the file. Example: 'APPLIB', 'MYLIB'"
+    required: true
+```
+
+### Example 2: String with Length Constraints
+
+```yaml
+parameters:
+  - name: object_name
+    type: string
+    description: "IBM i object name (1-10 characters)"
+    required: true
+    minLength: 1
+    maxLength: 10
+```
+
+### Example 3: String with Pattern Validation
+
+```yaml
+parameters:
+  - name: library_name
+    type: string
+    description: "Library name (uppercase alphanumeric, starts with letter)"
+    required: true
+    pattern: "^[A-Z][A-Z0-9_]*$"
+    maxLength: 10
+```
+
+<Tip>
+Use regex patterns to enforce IBM i naming conventions (uppercase, alphanumeric, special characters).
+</Tip>
+
+### Example 4: String with Enum Values
+
+From `object-statistics-dev.yaml`:
+
+```yaml
+parameters:
+  - name: sql_object_type
+    type: string
+    description: "SQL object type to find."
+    required: false
+    default: "INDEX"
+    enum: [ALIAS, FUNCTION, INDEX, PACKAGE, PROCEDURE, ROUTINE, SEQUENCE, TABLE, TRIGGER, TYPE, VARIABLE, VIEW, XSR]
+```
+
+<Note>
+When `enum` is provided, the description is automatically enhanced with "Must be one of: 'ALIAS', 'FUNCTION', ..." for LLM clarity.
+</Note>
+
+---
+
+## Integer Parameters
+
+Integer parameters accept whole numbers and support minimum/maximum constraints and enumerated values.
+
+### Available Constraints
+
+- **`min`**: Minimum value (inclusive)
+- **`max`**: Maximum value (inclusive)
+- **`enum`**: List of allowed values
+
+### Example 1: Basic Integer Parameter
+
+```yaml
+parameters:
+  - name: max_rows
+    type: integer
+    description: "Maximum number of rows to return"
+    required: false
+    default: 100
+```
+
+### Example 2: Integer with Range Constraints
+
+From `object-statistics-dev.yaml`:
+
+```yaml
+parameters:
+  - name: months_unused
+    type: integer
+    description: "Look back this many months. Examples: 1 (past month), 3 (past 3 months), 6 (past 6 months)"
+    required: false
+    default: 1
+    min: 1
+    max: 120
+```
+
+### Example 3: Integer with Enum Values
+
+```yaml
+parameters:
+  - name: priority_level
+    type: integer
+    description: "Job priority level"
+    required: false
+    default: 5
+    enum: [1, 5, 10, 20]
+```
+
+### Example 4: Pagination Parameters
+
+```yaml
+parameters:
+  - name: page_size
+    type: integer
+    description: "Number of results per page"
+    default: 10
+    min: 1
+    max: 100
+  - name: page_number
+    type: integer
+    description: "Page number (starting from 1)"
+    default: 1
+    min: 1
+```
+
+---
+
+## Float Parameters
+
+Float parameters accept decimal numbers and support minimum/maximum constraints.
+
+### Available Constraints
+
+- **`min`**: Minimum value (inclusive)
+- **`max`**: Maximum value (inclusive)
+- **`enum`**: List of allowed values
+
+### Example 1: Basic Float Parameter
+
+```yaml
+parameters:
+  - name: cpu_threshold
+    type: float
+    description: "CPU usage threshold percentage (0.0 to 100.0)"
+    required: false
+    default: 80.0
+    min: 0.0
+    max: 100.0
+```
+
+### Example 2: Float for Decimal Precision
+
+```yaml
+parameters:
+  - name: memory_gb
+    type: float
+    description: "Memory size in gigabytes (supports decimals)"
+    required: true
+    min: 0.1
+    max: 1024.0
+```
+
+### Example 3: Performance Multiplier
+
+From `employee-info.yaml`:
+
+```yaml
+parameters:
+  - name: performance_multiplier
+    type: float
+    description: "Performance rating multiplier (0.0-0.3)"
+    required: true
+    min: 0.0
+    max: 0.3
+    default: 0.1
+```
+
+<Tip>
+Float parameters are ideal for percentages, ratios, and calculations requiring decimal precision.
+</Tip>
+
+---
+
+## Boolean Parameters
+
+Boolean parameters accept `true` or `false` values. They do not support additional constraints as they are inherently constrained to two values.
+
+### Example 1: Simple Boolean Flag
+
+```yaml
+parameters:
+  - name: include_inactive
+    type: boolean
+    description: "Include inactive objects in results"
+    required: false
+    default: false
+```
+
+### Example 2: Boolean with Clear Documentation
+
+```yaml
+parameters:
+  - name: reset_statistics
+    type: boolean
+    description: "Reset statistics after retrieval. true = reset counters, false = preserve current values"
+    required: false
+    default: false
+```
+
+### Example 3: Completed Project Filter
+
+From `employee-info.yaml`:
+
+```yaml
+parameters:
+  - name: include_completed
+    type: boolean
+    description: "Include completed projects (true) or only active projects (false)"
+    default: true
+```
+
+**Using in SQL:**
+
+```yaml
+statement: |
+  SELECT * FROM SAMPLE.EMPPROJACT EPA
+  WHERE EPA.EMPNO = :employee_id
+  AND (:include_completed = 1 OR EPA.EMENDATE IS NULL)
+```
+
+<Note>
+Boolean values are automatically converted to 1 (true) or 0 (false) in SQL queries.
+</Note>
+
+---
+
+## Array Parameters
+
+Array parameters accept lists of values and require an `itemType` to specify the type of elements. They are **designed for SQL IN clauses** and automatically expand to multiple placeholders.
+
+### Array Input Format
+
+<Warning>
+**IMPORTANT:** Array parameters must be passed as **JSON arrays**, not as strings containing SQL syntax.
+
+✅ **Correct:**   `{"project_ids": ["MA2100", "AD3100"]}`
+
+❌ **Incorrect:** `{"project_ids": "('MA2100', 'AD3100')"}`
+
+❌ **Incorrect:** `{"project_ids": "MA2100,AD3100"}`
+</Warning>
+
+### Available Constraints
+
+- **`itemType`**: **Required** - Type of array elements (`string`, `integer`, `float`, or `boolean`)
+- **`minLength`**: Minimum number of items
+- **`maxLength`**: Maximum number of items
+
+### Example 1: String Array
+
+```yaml
+parameters:
+  - name: library_list
+    type: array
+    itemType: string
+    description: "List of library names to search (e.g., ['MYLIB', 'QGPL', 'QSYS'])"
+    required: false
+    minLength: 1
+    maxLength: 50
+```
+
+### Example 2: Integer Array with Constraints
+
+```yaml
+parameters:
+  - name: job_numbers
+    type: array
+    itemType: integer
+    description: "List of job numbers to analyze (e.g., [12345, 67890, 11111])"
+    required: true
+    minLength: 1
+    maxLength: 100
+```
+
+### Example 3: Project IDs
+
+From `employee-info.yaml`:
+
+```yaml
+parameters:
+  - name: project_ids
+    type: array
+    itemType: string
+    description: "List of project IDs to search for (e.g., ['MA2100', 'AD3100'])"
+    required: true
+    minLength: 1
+    maxLength: 10
+```
+
+### Using Arrays in SQL
+
+Array parameters are automatically expanded to multiple placeholders for SQL `IN` clauses. **Simply use the array parameter name directly in the IN clause**:
+
+```yaml
+statement: |
+  SELECT * FROM SAMPLE.EMPPROJACT
+  WHERE PROJNO IN (:project_ids)
+```
+
+**What happens internally:**
+
+1. **Input JSON:** `{"project_ids": ["MA2100", "AD3100", "AD3110"]}`
+2. **SQL with named parameter:** `WHERE PROJNO IN (:project_ids)`
+3. **Automatic expansion:** `WHERE PROJNO IN (?, ?, ?)` (one placeholder per array element)
+4. **Parameter binding:** Each `?` is bound to one array element: `"MA2100"`, `"AD3100"`, `"AD3110"`
+5. **DB2 execution:** Standard prepared statement with bound parameters
+
+**Key Benefits:**
+
+- ✅ **No SQL injection risk** - Parameters are safely bound
+- ✅ **Variable-length arrays** - Works with any array size (within constraints)
+- ✅ **Simple syntax** - Just use `IN (:array_param)` in your SQL
+- ✅ **Type validation** - Each array element is validated against `itemType`
+- ✅ **No Db2-specific workarounds needed** - Works like standard JDBC parameter binding
+
+<Note>
+**SQL IN Clause Behavior**: The `IN` clause uses **OR logic** - it matches records where the column equals **ANY** value in the list, not ALL values.
+
+```sql
+WHERE PROJNO IN ('MA2100', 'AD3100')  -- Matches records with PROJNO = 'MA2100' OR 'AD3100'
+```
+
+If you need **AND logic** (matching ALL values), you'll need different SQL patterns like subqueries or aggregation.
+</Note>
+
+---
+
+## Parameter Constraint Summary
+
+| Constraint | Type Support | Description | Example |
+|-----------|--------------|-------------|---------|
+| `min` | integer, float | Minimum value (inclusive) | `min: 1` |
+| `max` | integer, float | Maximum value (inclusive) | `max: 100` |
+| `minLength` | string, array | Minimum length/count | `minLength: 1` |
+| `maxLength` | string, array | Maximum length/count | `maxLength: 50` |
+| `pattern` | string | Regular expression validation | `pattern: "^[A-Z][A-Z0-9]*$"` |
+| `enum` | string, integer, float, boolean | Allowed values only | `enum: [INDEX, TABLE, VIEW]` |
+| `itemType` | array | Type of array elements (**required**) | `itemType: string` |
+
+---
+
+## Best Practices
+
+### Parameter Descriptions
+
+The `description` field is **sent directly to the LLM** to help it understand how to use the parameter. Follow these guidelines:
+
+<Accordion title="✅ DO">
+- Provide clear, concise descriptions
+- Include examples of valid values
+- Explain the purpose and impact of the parameter
+- Use IBM i terminology when applicable
+- Indicate units for numeric values
+
+**Good examples:**
+```yaml
+description: "Library name. Examples: 'MYLIB', '*LIBL', '*USRLIBL', '*ALLUSR'"
+description: "Look back this many months. Examples: 1 (past month), 3 (past 3 months), 6 (past 6 months)"
+description: "CPU usage threshold percentage (0.0 to 100.0). Values above this trigger alerts"
+```
+</Accordion>
+
+<Accordion title="❌ DON'T">
+- Use vague descriptions: ~~`"A library"`~~
+- Omit examples: ~~`"Number of months"`~~
+- Forget to document special values: ~~`"Library name"` (should mention `*LIBL`, etc.)~~
+</Accordion>
+
+### Using Parameters in SQL
+
+Parameters are referenced in SQL statements using the `:parameter_name` syntax:
+
+**Example: Parameter Binding**
+```yaml
+statement: |
+  SELECT * FROM TABLE (
+    qsys2.object_statistics(
+      object_schema => :object_schema,
+      objtypelist => '*ALL',
+      object_name => '*ALL'
+    )
+  )
+  WHERE sql_object_type = :sql_object_type
+    AND last_used_timestamp < current_timestamp - :months_unused MONTHS
+  ORDER BY last_used_timestamp DESC
+```
+
+**Handling Optional Parameters:**
+```yaml
+statement: |
+  SELECT * FROM qsys2.library_info
+  WHERE (:name_filter IS NULL OR library_name LIKE :name_filter)
+    AND (:type_filter IS NULL OR library_type = :type_filter)
+  ORDER BY library_name
+```
+
+**Using Default Values:**
+```yaml
+parameters:
+  - name: name_filter
+    type: string
+    required: false  # NULL if not provided
+  - name: max_rows
+    type: integer
+    required: false
+    default: 100     # 100 if not provided
+```
+
+---
+
+## Complete Examples
+
+### Example 1: Recently Used Objects
+
+From `object-statistics-dev.yaml`:
+
+```yaml
+tools:
+  find_recently_used_objects:
+    source: ibmi-system
+    description: Find objects that have been used within a specified time period
+    statement: |
+      SELECT * FROM TABLE (
+        qsys2.object_statistics(
+          object_schema => :object_schema,
+          objtypelist => '*ALL',
+          object_name => '*ALL'
+        )
+      )
+      WHERE last_used_object = 'YES'
+        AND sql_object_type = :sql_object_type
+        AND last_used_timestamp < current_timestamp - :months_unused MONTHS
+      ORDER BY last_used_timestamp DESC
+    parameters:
+      - name: object_schema
+        type: string
+        description: "Library name. Examples: 'MYLIB', '*LIBL', '*USRLIBL', '*ALLUSR'"
+        required: true
+
+      - name: sql_object_type
+        type: string
+        description: "SQL object type to find."
+        required: false
+        default: "INDEX"
+        enum: [ALIAS, FUNCTION, INDEX, PACKAGE, PROCEDURE, ROUTINE, SEQUENCE, TABLE, TRIGGER, TYPE, VARIABLE, VIEW, XSR]
+
+      - name: months_unused
+        type: integer
+        description: "Look back this many months. Examples: 1 (past month), 3 (past 3 months), 6 (past 6 months)"
+        required: false
+        default: 1
+        min: 1
+        max: 120
+```
+
+### Example 2: Filtered Library Search
+
+```yaml
+tools:
+  search_libraries:
+    source: ibmi-system
+    description: Search for libraries with filtering options
+    statement: |
+      SELECT library_name, library_type, library_size
+      FROM qsys2.library_info
+      WHERE (:name_pattern IS NULL OR library_name LIKE :name_pattern)
+        AND (:type_filter IS NULL OR library_type = :type_filter)
+        AND (:min_size IS NULL OR library_size >= :min_size)
+      ORDER BY library_name
+      FETCH FIRST :max_rows ROWS ONLY
+    parameters:
+      - name: name_pattern
+        type: string
+        description: "Library name pattern (use % for wildcards). Example: 'APP%' matches all libraries starting with APP"
+        required: false
+        pattern: "^[A-Z0-9%_*]+$"
+        maxLength: 10
+
+      - name: type_filter
+        type: string
+        description: "Filter by library type"
+        required: false
+        enum: ["PROD", "TEST"]
+
+      - name: min_size
+        type: integer
+        description: "Minimum library size in bytes"
+        required: false
+        min: 0
+
+      - name: max_rows
+        type: integer
+        description: "Maximum number of results to return"
+        required: false
+        default: 100
+        min: 1
+        max: 1000
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Parameter Validation" icon="shield-check" href="/sql-tools/validation">
+    Learn how parameters are validated and secured
+  </Card>
+  <Card title="Output Formats" icon="table" href="/sql-tools/output-formats">
+    Configure result table formatting
+  </Card>
+  <Card title="Building Tools" icon="hammer" href="/sql-tools/building-tools">
+    Complete guide to creating SQL tools
+  </Card>
+  <Card title="SQL Tools Overview" icon="database" href="/sql-tools/overview">
+    Introduction to the SQL tools system
+  </Card>
+</CardGroup>

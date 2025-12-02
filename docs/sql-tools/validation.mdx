@@ -1,0 +1,569 @@
+---
+title: "Parameter Validation"
+description: "Understanding parameter validation, error handling, and SQL injection prevention in SQL tools"
+---
+
+# Parameter Validation
+
+All parameters are validated before SQL execution to ensure type safety, constraint compliance, and security. This validation process prevents errors and protects against SQL injection attacks.
+
+<Note>
+Parameter validation happens automatically—you just need to define constraints in your tool configuration. The server handles all validation logic.
+</Note>
+
+## Validation Process
+
+Parameters go through a four-step validation process before being bound to SQL statements:
+
+### 1. Type Validation
+
+**What it checks:** Values must match the declared type (`string`, `integer`, `float`, `boolean`, or `array`)
+
+**Examples:**
+
+<CodeGroup>
+```yaml Parameter Definition
+parameters:
+  - name: max_rows
+    type: integer
+    description: "Maximum rows to return"
+```
+
+```json ✅ Valid
+{
+  "max_rows": 100
+}
+```
+
+```json ❌ Invalid
+{
+  "max_rows": "100"  // String instead of integer
+}
+```
+</CodeGroup>
+
+**Error Message:**
+```
+Expected integer, got string for parameter 'max_rows'
+```
+
+---
+
+### 2. Constraint Validation
+
+**What it checks:** Values must satisfy all defined constraints (min/max, length, pattern, enum)
+
+**String Constraints:**
+
+<Tabs>
+  <Tab title="minLength / maxLength">
+    ```yaml
+    parameters:
+      - name: object_name
+        type: string
+        minLength: 1
+        maxLength: 10
+    ```
+
+    ```json
+    // ❌ Too short
+    {"object_name": ""}
+    // Error: String length 0 is less than minimum 1
+
+    // ❌ Too long
+    {"object_name": "VERYLONGOBJECTNAME"}
+    // Error: String length 18 exceeds maximum 10
+
+    // ✅ Valid
+    {"object_name": "MYOBJECT"}
+    ```
+  </Tab>
+
+  <Tab title="pattern">
+    ```yaml
+    parameters:
+      - name: library_name
+        type: string
+        pattern: "^[A-Z][A-Z0-9_]*$"
+    ```
+
+    ```json
+    // ❌ Invalid pattern
+    {"library_name": "my_lib"}
+    // Error: Value does not match pattern: ^[A-Z][A-Z0-9_]*$
+
+    // ✅ Valid
+    {"library_name": "MY_LIB"}
+    ```
+  </Tab>
+
+  <Tab title="enum">
+    ```yaml
+    parameters:
+      - name: object_type
+        type: string
+        enum: [TABLE, VIEW, INDEX]
+    ```
+
+    ```json
+    // ❌ Invalid value
+    {"object_type": "FUNCTION"}
+    // Error: Value 'FUNCTION' must be one of: 'TABLE', 'VIEW', 'INDEX'
+
+    // ✅ Valid
+    {"object_type": "TABLE"}
+    ```
+  </Tab>
+</Tabs>
+
+**Numeric Constraints:**
+
+<Tabs>
+  <Tab title="Integer min/max">
+    ```yaml
+    parameters:
+      - name: months_unused
+        type: integer
+        min: 1
+        max: 120
+    ```
+
+    ```json
+    // ❌ Below minimum
+    {"months_unused": 0}
+    // Error: Value 0 is less than minimum 1
+
+    // ❌ Above maximum
+    {"months_unused": 150}
+    // Error: Value 150 exceeds maximum 120
+
+    // ✅ Valid
+    {"months_unused": 6}
+    ```
+  </Tab>
+
+  <Tab title="Float min/max">
+    ```yaml
+    parameters:
+      - name: cpu_threshold
+        type: float
+        min: 0.0
+        max: 100.0
+    ```
+
+    ```json
+    // ❌ Out of range
+    {"cpu_threshold": 150.5}
+    // Error: Value 150.5 exceeds maximum 100.0
+
+    // ✅ Valid
+    {"cpu_threshold": 85.5}
+    ```
+  </Tab>
+</Tabs>
+
+**Array Constraints:**
+
+```yaml
+parameters:
+  - name: project_ids
+    type: array
+    itemType: string
+    minLength: 1
+    maxLength: 10
+```
+
+<CodeGroup>
+```json ❌ Empty array
+{
+  "project_ids": []
+}
+// Error: Array length 0 is less than minimum 1
+```
+
+```json ❌ Too many items
+{
+  "project_ids": ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11"]
+}
+// Error: Array length 11 exceeds maximum 10
+```
+
+```json ✅ Valid
+{
+  "project_ids": ["MA2100", "AD3100", "PL2100"]
+}
+```
+</CodeGroup>
+
+---
+
+### 3. SQL Security
+
+**What it does:** Parameters are bound securely using prepared statements to prevent SQL injection
+
+**How it works:**
+
+<Tabs>
+  <Tab title="Parameter Binding">
+    **Your YAML configuration:**
+    ```yaml
+    statement: |
+      SELECT * FROM SAMPLE.EMPLOYEE
+      WHERE EMPNO = :employee_id
+        AND WORKDEPT = :department
+    ```
+
+    **What happens internally:**
+    1. SQL is prepared with placeholders: `SELECT * FROM SAMPLE.EMPLOYEE WHERE EMPNO = ? AND WORKDEPT = ?`
+    2. Parameters are bound safely: `employee_id` → first `?`, `department` → second `?`
+    3. Values never concatenated into SQL string
+    4. SQL injection attempts fail automatically
+  </Tab>
+
+  <Tab title="Array Expansion">
+    **Your YAML configuration:**
+    ```yaml
+    statement: |
+      SELECT * FROM SAMPLE.PROJECT
+      WHERE PROJNO IN (:project_ids)
+    ```
+
+    **What happens internally:**
+    1. Input: `{"project_ids": ["MA2100", "AD3100", "PL2100"]}`
+    2. SQL prepared with multiple placeholders: `WHERE PROJNO IN (?, ?, ?)`
+    3. Each array element bound to a placeholder
+    4. Safe against injection even with dynamic array lengths
+  </Tab>
+</Tabs>
+
+<Success>
+**Security Guarantee**: All parameters use prepared statement parameter binding. SQL injection is not possible through parameters, regardless of input values.
+</Success>
+
+---
+
+### 4. Required Check
+
+**What it checks:** Required parameters must be provided (unless they have default values)
+
+**Examples:**
+
+<CodeGroup>
+```yaml Parameter Definition
+parameters:
+  - name: library_name
+    type: string
+    required: true  # Must be provided
+
+  - name: max_rows
+    type: integer
+    required: false
+    default: 100    # Optional with default
+
+  - name: name_filter
+    type: string
+    required: false  # Optional, NULL if not provided
+```
+
+```json ❌ Missing required parameter
+{
+  "max_rows": 50
+}
+// Error: Required parameter 'library_name' not provided
+```
+
+```json ✅ All required parameters present
+{
+  "library_name": "MYLIB",
+  "max_rows": 50
+  // name_filter omitted - will be NULL
+}
+```
+
+```json ✅ Using defaults
+{
+  "library_name": "MYLIB"
+  // max_rows omitted - will be 100 (default)
+  // name_filter omitted - will be NULL
+}
+```
+</CodeGroup>
+
+---
+
+## Common Validation Errors
+
+### Type Mismatch Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `Expected integer, got string` | Passed `"100"` instead of `100` | Remove quotes from numbers |
+| `Expected string, got integer` | Passed `100` instead of `"100"` | Add quotes around strings |
+| `Expected boolean, got string` | Passed `"true"` instead of `true` | Use boolean literals |
+| `Expected array, got string` | Passed `"A,B,C"` instead of `["A","B","C"]` | Use JSON array format |
+
+### Range/Length Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `Value X is less than minimum Y` | Number below `min` constraint | Increase value to meet minimum |
+| `Value X exceeds maximum Y` | Number above `max` constraint | Decrease value to meet maximum |
+| `String length X is less than minimum Y` | String too short | Add more characters |
+| `String length X exceeds maximum Y` | String too long | Shorten the string |
+
+### Pattern/Enum Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `Value does not match pattern: ...` | String doesn't match regex | Follow the required format |
+| `Value 'X' must be one of: ...` | Value not in enum list | Use one of the allowed values |
+
+### Required Parameter Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `Required parameter 'X' not provided` | Missing required parameter | Include the parameter in request |
+| `Parameter 'X' is required` | NULL value for required param | Provide a non-NULL value |
+
+---
+
+## Security Benefits
+
+### SQL Injection Prevention
+
+Parameter binding provides automatic SQL injection protection:
+
+<Accordion title="How SQL Injection Attacks Fail">
+**Malicious Input Attempt:**
+```json
+{
+  "employee_id": "000010' OR '1'='1"
+}
+```
+
+**What happens:**
+1. Value treated as literal string: `'000010' OR '1'='1'`
+2. Compared against `EMPNO` column as-is
+3. No match found (no employee with that literal ID)
+4. Query returns empty result set
+5. **Attack fails** - SQL is never modified
+
+**Why it's safe:**
+- Parameters are bound, not concatenated
+- Special characters like `'` are escaped automatically
+- SQL structure cannot be altered through parameters
+</Accordion>
+
+### Type Safety
+
+Type validation prevents data corruption and unexpected errors:
+
+<Accordion title="Type Safety Benefits">
+- **Prevents crashes**: No runtime type errors from invalid data
+- **Ensures consistency**: Database columns receive correct data types
+- **Catches bugs early**: Invalid data rejected before query execution
+- **Improves debugging**: Clear error messages identify problems immediately
+</Accordion>
+
+### Constraint Enforcement
+
+Constraints protect against invalid business logic:
+
+<Accordion title="Constraint Benefits">
+- **Range limits**: Prevent nonsensical values (negative ages, 200% CPU usage)
+- **Format validation**: Ensure IBM i naming conventions are followed
+- **Enum restrictions**: Limit choices to valid options
+- **Length limits**: Prevent buffer overflows and excessive data
+</Accordion>
+
+---
+
+## Debugging Validation Errors
+
+### Reading Error Messages
+
+Validation errors follow a consistent format:
+
+```
+[Parameter Name]: [Error Description]
+
+Example: months_unused: Value 150 exceeds maximum 120
+```
+
+**Error components:**
+1. **Parameter name**: Which parameter failed validation
+2. **Error description**: Why validation failed
+3. **Context**: Expected vs. actual values
+
+### Common Debugging Steps
+
+<Steps>
+  <Step title="Check the parameter type">
+    Ensure you're passing the correct JSON type (number vs. string, array vs. string)
+  </Step>
+  <Step title="Review constraints">
+    Check min/max, length, pattern, and enum constraints in the tool definition
+  </Step>
+  <Step title="Verify required parameters">
+    Confirm all required parameters are present in the request
+  </Step>
+  <Step title="Test with simple values">
+    Try minimal valid values to isolate the issue
+  </Step>
+  <Step title="Check special characters">
+    For pattern validation, ensure special characters are allowed
+  </Step>
+</Steps>
+
+### Testing Parameter Validation
+
+**Good practice:** Test parameter validation before deploying tools:
+
+```bash
+# Test with invalid values to see error messages
+curl -X POST http://localhost:3010/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my_tool",
+    "arguments": {
+      "months_unused": 999  # Intentionally invalid
+    }
+  }'
+```
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Appropriate Constraints" icon="sliders">
+    - Don't over-constrain: Allow reasonable ranges
+    - Don't under-constrain: Prevent invalid business logic
+    - Use enum for fixed value sets
+    - Use pattern for format validation
+  </Card>
+
+  <Card title="Provide Clear Descriptions" icon="message">
+    - Explain validation rules in descriptions
+    - Include examples of valid values
+    - Document special values (*LIBL, etc.)
+    - Mention units for numeric parameters
+  </Card>
+
+  <Card title="Test Edge Cases" icon="vial">
+    - Test minimum and maximum values
+    - Test boundary conditions
+    - Test with NULL values
+    - Test with empty strings/arrays
+  </Card>
+
+  <Card title="Handle Optional Parameters" icon="toggle-off">
+    - Use defaults for common values
+    - Check for NULL in SQL when needed
+    - Document optional parameter behavior
+    - Consider making parameters required if critical
+  </Card>
+</CardGroup>
+
+---
+
+## Examples
+
+### Complete Validated Tool
+
+```yaml
+tools:
+  search_employees:
+    source: ibmi-system
+    description: Search for employees with comprehensive validation
+    statement: |
+      SELECT EMPNO, FIRSTNME, LASTNAME, SALARY
+      FROM SAMPLE.EMPLOYEE
+      WHERE (:name_pattern IS NULL OR UPPER(FIRSTNME) LIKE UPPER(:name_pattern))
+        AND (:min_salary IS NULL OR SALARY >= :min_salary)
+        AND (:max_salary IS NULL OR SALARY <= :max_salary)
+        AND (:departments IS NULL OR WORKDEPT IN (:departments))
+      ORDER BY LASTNAME, FIRSTNME
+      LIMIT :page_size OFFSET (:page_number - 1) * :page_size
+    parameters:
+      # String with pattern validation
+      - name: name_pattern
+        type: string
+        description: "Name pattern (use % for wildcards)"
+        required: false
+        pattern: "^[A-Z%]+$"
+        maxLength: 50
+
+      # Integer with range constraints
+      - name: min_salary
+        type: integer
+        description: "Minimum salary filter"
+        required: false
+        min: 0
+        max: 999999
+
+      # Integer with range constraints
+      - name: max_salary
+        type: integer
+        description: "Maximum salary filter"
+        required: false
+        min: 0
+        max: 999999
+
+      # Array with length constraints
+      - name: departments
+        type: array
+        itemType: string
+        description: "Filter by departments (e.g., ['A00', 'B01'])"
+        required: false
+        minLength: 1
+        maxLength: 10
+
+      # Pagination parameters
+      - name: page_size
+        type: integer
+        description: "Results per page"
+        default: 10
+        min: 1
+        max: 100
+
+      - name: page_number
+        type: integer
+        description: "Page number (1-based)"
+        default: 1
+        min: 1
+```
+
+**Valid request:**
+```json
+{
+  "name": "search_employees",
+  "arguments": {
+    "name_pattern": "JOHN%",
+    "min_salary": 50000,
+    "max_salary": 100000,
+    "departments": ["A00", "B01"],
+    "page_size": 20,
+    "page_number": 1
+  }
+}
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Parameters Reference" icon="list" href="/sql-tools/parameters">
+    Complete guide to all parameter types
+  </Card>
+  <Card title="Output Formats" icon="table" href="/sql-tools/output-formats">
+    Configure result table formatting
+  </Card>
+  <Card title="Building Tools" icon="hammer" href="/sql-tools/building-tools">
+    Step-by-step tool creation guide
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Server configuration options
+  </Card>
+</CardGroup>
