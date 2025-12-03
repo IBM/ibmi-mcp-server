@@ -1,31 +1,77 @@
-name: Publish Package to npm
+name: Publish Package
+
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 jobs:
-  build-and-publish:
+  publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # Required for creating releases
+      id-token: write  # Required for npm provenance
+
     steps:
+      # 1. Checkout repository
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # 2. Setup Node.js with npm registry
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
-          registry-url: "https://registry.npmjs.org"
-          cache: "npm"
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
 
+      # 3. Install dependencies (server directory)
       - name: Install dependencies
+        working-directory: ./server
         run: npm ci
 
+      # 4. Run validation (prepublishOnly will run again, but be explicit)
+      - name: Run tests and checks
+        working-directory: ./server
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+
+      # 5. Build the package
       - name: Build
+        working-directory: ./server
         run: npm run build
 
+      # 6. Extract version and release notes from CHANGELOG
+      - name: Extract Release Notes
+        id: release_notes
+        working-directory: ./server
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Extract current version section from CHANGELOG
+          sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' > ../release-notes.md
+
+          # Fallback if no changelog section exists
+          if [ ! -s ../release-notes.md ]; then
+            echo "## Changes in v${VERSION}" > ../release-notes.md
+            git log -1 --pretty=format:"%B" >> ../release-notes.md
+          fi
+
+      # 7. Create GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: ./release-notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 8. Publish to npm
       - name: Publish to npm
-        run: npm publish
+        working-directory: ./server
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
