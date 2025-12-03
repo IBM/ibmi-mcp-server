@@ -69,7 +69,7 @@
     "jose": "^6.0.13",
     "js-yaml": "^4.1.0",
     "node-cron": "^4.2.1",
-    "node-sql-parser": "^5.3.12",
+    "node-sql-parser": "^5.3.13",
     "openai": "^5.15.0",
     "partial-json": "^0.1.7",
     "pino": "^9.9.0",
