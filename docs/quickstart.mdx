@@ -102,7 +102,7 @@ Edit `mcp.json` with your connection details:
       "command": "node",
       "args": ["dist/index.js"],
       "env": {
-        "TOOLS_YAML_PATH": "prebuiltconfigs",
+        "TOOLS_YAML_PATH": "tools",
         "DB2i_HOST": "your-ibmi-host",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
@@ -199,7 +199,7 @@ The agent will connect to your running server and execute the `system_status` to
   </Accordion>
 
   <Accordion title="Tools Not Loading" icon="">
-    - Check that `prebuiltconfigs/` directory exists
+    - Check that `tools/` directory exists
     - Verify your YAML tool configurations are valid
     - Use `--list-toolsets` to see available tools:
     ```bash

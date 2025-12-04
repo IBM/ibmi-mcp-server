@@ -163,7 +163,7 @@ The server is configured through environment variables in the `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TOOLS_YAML_PATH` | `prebuiltconfigs` | Path to YAML tool definitions |
+| `TOOLS_YAML_PATH` | `tools` | Path to YAML tool definitions |
 | `YAML_MERGE_ARRAYS` | `true` | Merge arrays when combining YAMLs |
 | `YAML_AUTO_RELOAD` | `true` | Auto-reload on YAML file changes |
 | `YAML_ALLOW_DUPLICATE_TOOLS` | `false` | Allow duplicate tool names |
@@ -348,7 +348,7 @@ npm run start:http -- --tools ./dev-configs --toolsets testing
 node dist/index.js --transport http --tools ./prod-configs
 
 # Quick toolset inspection
-npm run start:http -- --list-toolsets --tools ./prebuiltconfigs
+npm run start:http -- --list-toolsets --tools ./tools
 ```
 
 ---
@@ -408,7 +408,7 @@ Edit `mcp.json` with your IBM i credentials:
       "command": "node",
       "args": ["dist/index.js"],
       "env": {
-        "TOOLS_YAML_PATH": "prebuiltconfigs",
+        "TOOLS_YAML_PATH": "tools",
         "DB2i_HOST": "your-ibmi-host",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
@@ -879,7 +879,7 @@ tools:
 
 **Validate Configurations:**
 ```bash
-npm run validate -- --config prebuiltconfigs/my-tools.yaml
+npm run validate -- --tools tools/my-tools.yaml
 ```
 
 **Test Individual Tools:**
@@ -1271,7 +1271,7 @@ npm run list-toolsets
 npm run start:http -- --toolsets performance,sysadmin_discovery
 ```
 
-Common toolsets in `prebuiltconfigs/`:
+Common toolsets in `tools/`:
 - **`performance`**: System performance monitoring tools
 - **`sysadmin_discovery`**: High-level system discovery
 - **`sysadmin_browse`**: Detailed system browsing
@@ -1567,13 +1567,13 @@ npm run start:http
 
 ```bash
 # Verify tools path
-npm run list-toolsets -- --tools ./prebuiltconfigs
+npm run list-toolsets -- --tools ./tools
 
 # Check YAML syntax
-npm run validate -- --config ./prebuiltconfigs/performance.yaml
+npm run validate -- --tools ./tools/performance/performance.yaml
 
 # Enable debug logging
-MCP_LOG_LEVEL=debug npm run start:http -- --tools ./prebuiltconfigs
+MCP_LOG_LEVEL=debug npm run start:http -- --tools ./tools
 ```
 
 </details>

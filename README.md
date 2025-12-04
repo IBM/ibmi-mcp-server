@@ -514,7 +514,7 @@ code --add-mcp '{
   "name": "ibmiMcp",
   "type": "stdio",
   "command": "npx",
-  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/prebuiltconfigs"],
+  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
   "env": {
     "DB2i_HOST": "your-ibmi-host.com",
     "DB2i_USER": "your-username",
