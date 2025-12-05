@@ -10,7 +10,6 @@ from utils import get_model
 load_dotenv(override=True)
 
 command = f"npx ibmi-mcp-server --transport stdio"
-print(str(Path(__file__).parent.parent / "tools"))
 env = {
     "DB2i_HOST": os.getenv("DB2i_HOST"),
     "DB2i_USER": os.getenv("DB2i_USER"),
