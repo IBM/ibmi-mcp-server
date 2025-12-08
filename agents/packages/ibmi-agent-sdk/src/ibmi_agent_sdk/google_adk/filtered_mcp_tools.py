@@ -163,7 +163,7 @@ def annotation_filter_predicate(
 #  Main Loading Functions
 # ============================================================
 
-async def load_filtered_mcp_tools(
+def load_filtered_mcp_tools(
     annotation_filters: Optional[Dict[str, Union[Any, List[Any], Callable]]] = None,
     custom_filter: Optional[Callable] = None,
     transport: Literal["streamable_http", "stdio"] = DEFAULT_TRANSPORT,
@@ -195,14 +195,14 @@ async def load_filtered_mcp_tools(
         
     Examples:
         # Streamable HTTP with filtering
-        toolset = await load_filtered_mcp_tools(
+        toolset = load_filtered_mcp_tools(
             annotation_filters={"toolsets": ["performance"]},
             transport="streamable_http",
             url="http://127.0.0.1:3010/mcp"
         )
         
         # Stdio with filtering
-        toolset = await load_filtered_mcp_tools(
+        toolset = load_filtered_mcp_tools(
             annotation_filters={"readOnlyHint": True},
             transport="stdio",
             command="npx",
@@ -290,14 +290,7 @@ async def load_filtered_mcp_tools(
     
     else:
         raise ValueError(f"Unsupported transport type: {transport}. Must be 'streamable_http' or 'stdio'.")
-    
-    if debug:
-        print("[FilteredMCPTools] McpToolset created successfully")
-        tools = await toolset.get_tools()
-        print(f"[FilteredMCPTools] Loaded {len(tools)} tools")
-        for tool in tools:
-            print(f"  - {tool.name}: {tool.description}")
-    
+ 
     return toolset
 
 
@@ -305,7 +298,7 @@ async def load_filtered_mcp_tools(
 #  Convenience Factory Functions
 # ============================================================
 
-async def load_toolset_tools(
+def load_toolset_tools(
     toolsets: Union[str, List[str]],
     transport: Literal["streamable_http", "stdio"] = DEFAULT_TRANSPORT,
     url: Optional[str] = None,
@@ -337,13 +330,13 @@ async def load_toolset_tools(
         
     Examples:
         # HTTP transport with single toolset
-        toolset = await load_toolset_tools("performance")
+        toolset = load_toolset_tools("performance")
         
         # HTTP transport with multiple toolsets
-        toolset = await load_toolset_tools(["performance", "sys_admin"])
+        toolset = load_toolset_tools(["performance", "sys_admin"])
         
         # Stdio transport
-        toolset = await load_toolset_tools(
+        toolset = load_toolset_tools(
             "performance",
             transport="stdio",
             command="npx",
@@ -365,7 +358,7 @@ async def load_toolset_tools(
             "To load all tools without filtering, use load_filtered_mcp_tools() instead."
         )
     
-    return await load_filtered_mcp_tools(
+    return load_filtered_mcp_tools(
         annotation_filters={"toolsets": toolsets_list},
         transport=transport,
         url=url,
@@ -377,7 +370,7 @@ async def load_toolset_tools(
     )
 
 
-async def load_readonly_tools(
+def load_readonly_tools(
     transport: Literal["streamable_http", "stdio"] = DEFAULT_TRANSPORT,
     url: Optional[str] = None,
     token: Optional[str] = None,
@@ -387,7 +380,7 @@ async def load_readonly_tools(
     debug: bool = False,
 ) -> McpToolset:
     """Load only read-only tools (using MCP standard annotation)."""
-    return await load_filtered_mcp_tools(
+    return load_filtered_mcp_tools(
         annotation_filters={"readOnlyHint": True},
         transport=transport,
         url=url,
@@ -399,7 +392,7 @@ async def load_readonly_tools(
     )
 
 
-async def load_non_destructive_tools(
+def load_non_destructive_tools(
     transport: Literal["streamable_http", "stdio"] = DEFAULT_TRANSPORT,
     url: Optional[str] = None,
     token: Optional[str] = None,
@@ -409,7 +402,7 @@ async def load_non_destructive_tools(
     debug: bool = False,
 ) -> McpToolset:
     """Load only non-destructive tools (using MCP standard annotation)."""
-    return await load_filtered_mcp_tools(
+    return load_filtered_mcp_tools(
         annotation_filters={"destructiveHint": False},
         transport=transport,
         url=url,
@@ -421,7 +414,7 @@ async def load_non_destructive_tools(
     )
 
 
-async def load_closed_world_tools(
+def load_closed_world_tools(
     transport: Literal["streamable_http", "stdio"] = DEFAULT_TRANSPORT,
     url: Optional[str] = None,
     token: Optional[str] = None,
@@ -431,7 +424,7 @@ async def load_closed_world_tools(
     debug: bool = False,
 ) -> McpToolset:
     """Load only closed-world tools (using MCP standard annotation)."""
-    return await load_filtered_mcp_tools(
+    return load_filtered_mcp_tools(
         annotation_filters={"openWorldHint": False},
         transport=transport,
         url=url,
@@ -443,7 +436,7 @@ async def load_closed_world_tools(
     )
 
 
-async def load_safe_tools(
+def load_safe_tools(
     transport: Literal["streamable_http", "stdio"] = DEFAULT_TRANSPORT,
     url: Optional[str] = None,
     token: Optional[str] = None,
@@ -453,7 +446,7 @@ async def load_safe_tools(
     debug: bool = False,
 ) -> McpToolset:
     """Load safe tools (read-only, non-destructive, closed-world)."""
-    return await load_filtered_mcp_tools(
+    return load_filtered_mcp_tools(
         annotation_filters={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -473,7 +466,7 @@ async def load_safe_tools(
 #  Legacy Compatibility
 # ============================================================
 
-async def load_mcp_tools(tool_filter=None):
+def load_mcp_tools(tool_filter=None):
     """
     Legacy function for backward compatibility.
     
@@ -490,6 +483,6 @@ async def load_mcp_tools(tool_filter=None):
         New code should use load_toolset_tools() or load_filtered_mcp_tools().
     """
     if tool_filter:
-        return await load_toolset_tools(tool_filter)
+        return load_toolset_tools(tool_filter)
     else:
-        return await load_filtered_mcp_tools()
+        return load_filtered_mcp_tools()

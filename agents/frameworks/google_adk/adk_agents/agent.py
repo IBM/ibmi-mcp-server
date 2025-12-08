@@ -1,45 +1,46 @@
 from google.adk.agents.llm_agent import Agent
-from google.adk.agents.callback_context import CallbackContext
 from google.adk.apps.app import App
-from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins import ReflectAndRetryToolPlugin
-from google.adk.tools.tool_context import ToolContext
 from google.adk.planners import PlanReActPlanner
-from .sub_agents.performance_agent import performance_agent
-from .sub_agents.sysadmin_discover import sysadmin_discover_agent
-from .sub_agents.sysadmin_browse import sysadmin_browse_agent
-from .sub_agents.sysadmin_search import sysadmin_search_agent
+# from google.adk.tools import AgentTool
+from google.genai import types
+# from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from .sub_agents.performance_agent import get_performance_agent
+from .sub_agents.sysadmin_discover import get_discover_agent
+from .sub_agents.sysadmin_browse import get_browse_agent
+from .sub_agents.sysadmin_search import get_search_agent
+from .sub_agents.security_agent import get_security_agent
+from .utils.utils import get_model
+from .utils.prompts import COORDINATOR_INSTRUCTION
+
+import warnings
+warnings.filterwarnings("ignore")
+
+performance_agent, _ = get_performance_agent(False)
+discover_agent, _ = get_discover_agent(False) 
+browse_agent, _ = get_browse_agent(False)
+search_agent, _ = get_search_agent(False)
+security_agent, _ = get_security_agent(False)
+
+# Alternatively, use tools instead of sub_agents
+# performance_tool = AgentTool(agent=performance_agent)
+# sysadmin_discover_tool = AgentTool(agent=sysadmin_discover_agent)
+# sysadmin_browse_tool = AgentTool(agent=sysadmin_browse_agent)
+# sysadmin_search_tool = AgentTool(agent=sysadmin_search_agent)
 
 root_agent = Agent(
-    model='gemini-2.5-flash',
+    model=get_model(),
     description='A helpful assistant for user questions.',
     name='coordinator_agent',
-    instruction=""" ### Delegation Strategy
-
-        1. **Understand Intent**
-        - You have access to these four agents: performance_agent, sysadmin_search_agent, sysadmin_browse_agent, sysadmin_discover_agent
-        - Parse the user’s query to determine if it’s about performance, system admin search, sys admin browse or sys admin discovery.
-        - If uncertain, ask a clarifying question before delegating.
-
-        2. **Route to Correct Agent**
-        - **Performance:** CPU, jobs, memory, I/O, system utilization, or tuning.
-        - **Discovery:** Listing or summarizing schemas, categories, or system organization.
-        - **Browse:** Navigating or exploring libraries, schemas, or object hierarchies.
-        - **Search:** Finding objects, services, or SQL examples by name or keyword.
-
-        3. **Combine Agents When Needed**
-        - Chain agents logically (Discovery → Browse → Search) for multi-step user goals.
-
-        4. **Context Management**
-        - Preserve relevant outputs from one agent when delegating to another.
-        - Always mention which agent was used and why.
-
-        5. **Response Format**
-        - **Delegated Agent:** Explain routing choice.
-        - **Agent Output Summary:** Summarize results clearly.
-        - **Next Steps:** Suggest related insights or deeper queries.""",
-    sub_agents=[performance_agent, sysadmin_search_agent, sysadmin_browse_agent, sysadmin_discover_agent],
-    planner = PlanReActPlanner()
+    instruction= COORDINATOR_INSTRUCTION,
+    sub_agents=[performance_agent, discover_agent, browse_agent, search_agent, security_agent],
+    disallow_transfer_to_parent= True,
+    planner = PlanReActPlanner(),
+    generate_content_config=types.GenerateContentConfig(
+        http_options=types.HttpOptions(
+            retry_options=types.HttpRetryOptions(initial_delay=1, attempts=2),
+        ),
+    )
 )
 
 app = App(
@@ -49,3 +50,5 @@ app = App(
         ReflectAndRetryToolPlugin(max_retries=3),
     ],
 )
+
+# app = to_a2a(root_agent, host="localhost", port=8000, protocol="http")
