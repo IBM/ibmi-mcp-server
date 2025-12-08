@@ -3,7 +3,7 @@ from agno.agent import Agent
 from agno.models.base import Model
 from agno.db.postgres import PostgresDb
 from agents.agent_ids import AgentID
-from db.session import db_url
+from db.factory import get_database
 
 
 def create_ibmi_agent(
@@ -48,7 +48,7 @@ def create_ibmi_agent(
         add_datetime_to_context=True,
         # -*- Storage -*-
         # Storage chat history and session state in a Postgres table
-        db=PostgresDb(id="agno-storage", db_url=db_url),
+        db=get_database(),
         # --- Session settings ---
         search_session_history=True,
         num_history_sessions=2,

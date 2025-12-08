@@ -13,29 +13,25 @@ Available agents:
 """
 
 from textwrap import dedent
-from typing import Optional, Union
 
 from agno.agent import Agent
-from agno.models.base import Model
-from agno.tools.reasoning import ReasoningTools
 
-from agents.utils import FilteredMCPTools, get_model
 from agents.agent_ids import AgentID
-from infra.config_models import config
-from infra.config_manager import AgentConfigManager
-from infra.config_helper import apply_agent_config
-from agents.base_agent import create_ibmi_agent
+from agents.builder import AgentBuilder
+from agents.config import AgentRunConfig
+from agents.registry import register_agent, AgentMetadata
 
 
-def get_performance_agent(
-    model: Union[str, Model] = "openai:gpt-4o",
-    mcp_url: str | None = None,
-    transport: str | None = None,
-    debug_filtering: bool = False,
-    debug_mode: bool = False,
-    enable_reasoning: bool = True,
-    config_manager: Optional[AgentConfigManager] = None,
-) -> Agent:
+@register_agent(
+    AgentMetadata(
+        id="performance",
+        name="IBM i Performance Monitor",
+        description="System performance monitoring and analysis for CPU, memory, I/O metrics",
+        category="ibmi",
+        tags=["performance", "monitoring", "cpu", "memory"],
+    )
+)
+def get_performance_agent(config: AgentRunConfig = AgentRunConfig()) -> Agent:
     """
     Create an IBM i Performance Monitoring Agent.
 
@@ -43,62 +39,32 @@ def get_performance_agent(
     I/O metrics, and providing insights on system resource utilization.
 
     Args:
-        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
-               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
-        mcp_url: MCP server URL
-        transport: MCP transport type
-        debug_filtering: Enable debug output for tool filtering
-        debug_mode: Enable debug mode for the agent
-        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
-        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
-                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
+        config: Agent runtime configuration (model, debug, tools, etc.)
+
+    Returns:
+        Configured Agent instance
 
     Examples:
-        >>> # Using model string
-        >>> agent = get_performance_agent("watsonx:llama-3-3-70b-instruct")
+        >>> # Basic usage
+        >>> agent = get_performance_agent()
 
-        >>> # Using config manager (recommended)
+        >>> # With custom model
+        >>> config = AgentRunConfig(model="watsonx:llama-3-3-70b-instruct")
+        >>> agent = get_performance_agent(config)
+
+        >>> # With config file
         >>> from infra.config_manager import AgentConfigManager
-        >>> config_mgr = AgentConfigManager("infra/config.yaml")
-        >>> agent = get_performance_agent(config_manager=config_mgr)
+        >>> config = AgentRunConfig(config_manager=AgentConfigManager("infra/config.yaml"))
+        >>> agent = get_performance_agent(config)
     """
-    # Apply configuration from config_manager if provided
-    model, debug_mode, enable_reasoning = apply_agent_config(
-        agent_id=AgentID.IBMI_PERFORMANCE_MONITOR,
-        config_manager=config_manager,
-        model=model,
-        debug_mode=debug_mode,
-        enable_reasoning=enable_reasoning,
-    )
-    performance_tools = FilteredMCPTools(
-        url=mcp_url or config.mcp.url,
-        transport=transport or config.mcp.transport,
-        annotation_filters={"toolsets": ["performance"]},
-        debug_filtering=debug_filtering,
-    )
-
-    # Build tools list
-    tools_list = [performance_tools]
-    if enable_reasoning:
-        tools_list.append(ReasoningTools(add_instructions=True))
-
-    return create_ibmi_agent(
-        id=AgentID.IBMI_PERFORMANCE_MONITOR,
-        name="IBM i Performance Monitor",
-        model=get_model(model),
-        # Tools available to the agent
-        tools=tools_list,
-        # Description of the agent
-        description=dedent(
-            """\
+    return (
+        AgentBuilder(AgentID.IBMI_PERFORMANCE_MONITOR, "IBM i Performance Monitor")
+        .with_description(dedent("""\
             You are an IBM i Performance Monitoring Assistant specializing in system performance analysis and optimization.
 
             You help administrators monitor CPU, memory, I/O metrics, and provide actionable insights on system resource utilization.
-        """
-        ),
-        # Instructions for the agent
-        instructions=dedent(
-            """\
+        """))
+        .with_instructions(dedent("""\
             Your mission is to provide comprehensive performance monitoring and analysis for IBM i systems. Follow these steps:
 
             1. **Performance Assessment**
@@ -133,21 +99,22 @@ def get_performance_agent(
             Additional Information:
             - You are interacting with the user_id: {current_user_id}
             - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
-        """
-        ),
-        debug_mode=debug_mode,
+        """))
+        .with_toolsets("performance")
+        .build(config)
     )
 
 
-def get_sysadmin_discovery_agent(
-    model: Union[str, Model] = "openai:gpt-4o",
-    mcp_url: str | None = None,
-    transport: str | None = None,
-    debug_filtering: bool = False,
-    debug_mode: bool = False,
-    enable_reasoning: bool = True,
-    config_manager: Optional[AgentConfigManager] = None,
-) -> Agent:
+@register_agent(
+    AgentMetadata(
+        id="sysadmin-discovery",
+        name="IBM i SysAdmin Discovery",
+        description="High-level system discovery and summarization of services and components",
+        category="ibmi",
+        tags=["sysadmin", "discovery", "inventory"],
+    )
+)
+def get_sysadmin_discovery_agent(config: AgentRunConfig = AgentRunConfig()) -> Agent:
     """
     Create an IBM i System Administration Discovery Agent.
 
@@ -155,53 +122,19 @@ def get_sysadmin_discovery_agent(
     and counts of system services and components.
 
     Args:
-        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
-               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
-        mcp_url: MCP server URL
-        transport: MCP transport type
-        debug_filtering: Enable debug output for tool filtering
-        debug_mode: Enable debug mode for the agent
-        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
-        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
-                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
+        config: Agent runtime configuration (model, debug, tools, etc.)
+
+    Returns:
+        Configured Agent instance
     """
-    # Apply configuration from config_manager if provided
-    model, debug_mode, enable_reasoning = apply_agent_config(
-        agent_id=AgentID.IBMI_SYSADMIN_DISCOVERY,
-        config_manager=config_manager,
-        model=model,
-        debug_mode=debug_mode,
-        enable_reasoning=enable_reasoning,
-    )
-    discovery_tools = FilteredMCPTools(
-        url=mcp_url or config.mcp.url,
-        transport=transport or config.mcp.transport,
-        annotation_filters={"toolsets": ["sysadmin_discovery"]},
-        debug_filtering=debug_filtering,
-    )
-
-    # Build tools list
-    tools_list = [discovery_tools]
-    if enable_reasoning:
-        tools_list.append(ReasoningTools(add_instructions=True))
-
-    return create_ibmi_agent(
-        id=AgentID.IBMI_SYSADMIN_DISCOVERY,
-        name="IBM i SysAdmin Discovery",
-        model=get_model(model),
-        # Tools available to the agent
-        tools=tools_list,
-        # Description of the agent
-        description=dedent(
-            """\
+    return (
+        AgentBuilder(AgentID.IBMI_SYSADMIN_DISCOVERY, "IBM i SysAdmin Discovery")
+        .with_description(dedent("""\
             You are an IBM i System Administration Discovery Assistant specializing in high-level system analysis.
 
             You help administrators understand the scope and organization of system services through summaries and inventories.
-        """
-        ),
-        # Instructions for the agent
-        instructions=dedent(
-            """\
+        """))
+        .with_instructions(dedent("""\
             Your mission is to provide comprehensive system discovery and overview capabilities for IBM i systems. Follow these steps:
 
             1. **System Discovery**
@@ -230,21 +163,22 @@ def get_sysadmin_discovery_agent(
             Additional Information:
             - You are interacting with the user_id: {current_user_id}
             - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
-        """
-        ),
-        debug_mode=debug_mode,
+        """))
+        .with_toolsets("sysadmin_discovery")
+        .build(config)
     )
 
 
-def get_sysadmin_browse_agent(
-    model: Union[str, Model] = "openai:gpt-4o",
-    mcp_url: str | None = None,
-    transport: str | None = None,
-    debug_filtering: bool = False,
-    debug_mode: bool = False,
-    enable_reasoning: bool = True,
-    config_manager: Optional[AgentConfigManager] = None,
-) -> Agent:
+@register_agent(
+    AgentMetadata(
+        id="sysadmin-browse",
+        name="IBM i SysAdmin Browser",
+        description="Detailed browsing and exploration of system services by category and schema",
+        category="ibmi",
+        tags=["sysadmin", "browse", "exploration"],
+    )
+)
+def get_sysadmin_browse_agent(config: AgentRunConfig = AgentRunConfig()) -> Agent:
     """
     Create an IBM i System Administration Browse Agent.
 
@@ -252,53 +186,19 @@ def get_sysadmin_browse_agent(
     allowing deep dives into specific categories, schemas, and object types.
 
     Args:
-        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
-               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
-        mcp_url: MCP server URL
-        transport: MCP transport type
-        debug_filtering: Enable debug output for tool filtering
-        debug_mode: Enable debug mode for the agent
-        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
-        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
-                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
+        config: Agent runtime configuration (model, debug, tools, etc.)
+
+    Returns:
+        Configured Agent instance
     """
-    # Apply configuration from config_manager if provided
-    model, debug_mode, enable_reasoning = apply_agent_config(
-        agent_id=AgentID.IBMI_SYSADMIN_BROWSE,
-        config_manager=config_manager,
-        model=model,
-        debug_mode=debug_mode,
-        enable_reasoning=enable_reasoning,
-    )
-    browse_tools = FilteredMCPTools(
-        url=mcp_url or config.mcp.url,
-        transport=transport or config.mcp.transport,
-        annotation_filters={"toolsets": ["sysadmin_browse"]},
-        debug_filtering=debug_filtering,
-    )
-
-    # Build tools list
-    tools_list = [browse_tools]
-    if enable_reasoning:
-        tools_list.append(ReasoningTools(add_instructions=True))
-
-    return create_ibmi_agent(
-        id=AgentID.IBMI_SYSADMIN_BROWSE,
-        name="IBM i SysAdmin Browser",
-        model=get_model(model),
-        # Tools available to the agent
-        tools=tools_list,
-        # Description of the agent
-        description=dedent(
-            """\
+    return (
+        AgentBuilder(AgentID.IBMI_SYSADMIN_BROWSE, "IBM i SysAdmin Browser")
+        .with_description(dedent("""\
             You are an IBM i System Administration Browse Assistant specializing in detailed system exploration.
 
             You help administrators explore and examine system services in depth across categories, schemas, and object types.
-        """
-        ),
-        # Instructions for the agent
-        instructions=dedent(
-            """\
+        """))
+        .with_instructions(dedent("""\
             Your mission is to provide detailed browsing and exploration capabilities for IBM i system services. Follow these steps:
 
             1. **Detailed Browsing**
@@ -328,21 +228,22 @@ def get_sysadmin_browse_agent(
             Additional Information:
             - You are interacting with the user_id: {current_user_id}
             - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
-        """
-        ),
-        debug_mode=debug_mode,
+        """))
+        .with_toolsets("sysadmin_browse")
+        .build(config)
     )
 
 
-def get_sysadmin_search_agent(
-    model: Union[str, Model] = "openai:gpt-4o",
-    mcp_url: str | None = None,
-    transport: str | None = None,
-    debug_filtering: bool = False,
-    debug_mode: bool = False,
-    enable_reasoning: bool = True,
-    config_manager: Optional[AgentConfigManager] = None,
-) -> Agent:
+@register_agent(
+    AgentMetadata(
+        id="sysadmin-search",
+        name="IBM i SysAdmin Search",
+        description="Search and lookup capabilities for finding services and usage patterns",
+        category="ibmi",
+        tags=["sysadmin", "search", "lookup"],
+    )
+)
+def get_sysadmin_search_agent(config: AgentRunConfig = AgentRunConfig()) -> Agent:
     """
     Create an IBM i System Administration Search Agent.
 
@@ -350,53 +251,19 @@ def get_sysadmin_search_agent(
     find specific services, examples, and usage patterns.
 
     Args:
-        model: Either a model string in format "provider:model_id" (e.g., "openai:gpt-4o",
-               "watsonx:llama-3-3-70b-instruct") or a pre-configured Model instance
-        mcp_url: MCP server URL
-        transport: MCP transport type
-        debug_filtering: Enable debug output for tool filtering
-        debug_mode: Enable debug mode for the agent
-        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
-        config_manager: Optional AgentConfigManager to load configuration from config.yaml.
-                        When provided, overrides model, debug_mode, and enable_reasoning with config values.
+        config: Agent runtime configuration (model, debug, tools, etc.)
+
+    Returns:
+        Configured Agent instance
     """
-    # Apply configuration from config_manager if provided
-    model, debug_mode, enable_reasoning = apply_agent_config(
-        agent_id=AgentID.IBMI_SYSADMIN_SEARCH,
-        config_manager=config_manager,
-        model=model,
-        debug_mode=debug_mode,
-        enable_reasoning=enable_reasoning,
-    )
-    search_tools = FilteredMCPTools(
-        url=mcp_url or config.mcp.url,
-        transport=transport or config.mcp.transport,
-        annotation_filters={"toolsets": ["sysadmin_search"]},
-        debug_filtering=debug_filtering,
-    )
-
-    # Build tools list
-    tools_list = [search_tools]
-    if enable_reasoning:
-        tools_list.append(ReasoningTools(add_instructions=True))
-
-    return create_ibmi_agent(
-        id=AgentID.IBMI_SYSADMIN_SEARCH,
-        name="IBM i SysAdmin Search",
-        model=get_model(model),
-        # Tools available to the agent
-        tools=tools_list,
-        # Description of the agent
-        description=dedent(
-            """\
+    return (
+        AgentBuilder(AgentID.IBMI_SYSADMIN_SEARCH, "IBM i SysAdmin Search")
+        .with_description(dedent("""\
             You are an IBM i System Administration Search Assistant specializing in finding specific services and usage information.
 
             You help administrators quickly locate services, examples, and documentation across the system.
-        """
-        ),
-        # Instructions for the agent
-        instructions=dedent(
-            """\
+        """))
+        .with_instructions(dedent("""\
             Your mission is to provide powerful search and lookup capabilities for IBM i system services. Follow these steps:
 
             1. **Comprehensive Search**
@@ -426,13 +293,15 @@ def get_sysadmin_search_agent(
             Additional Information:
             - You are interacting with the user_id: {current_user_id}
             - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
-        """
-        ),
-        debug_mode=debug_mode,
+        """))
+        .with_toolsets("sysadmin_search")
+        .build(config)
     )
 
 
 # Agent instances for direct import
+# Note: These use default configuration. For custom config, call the factory
+# functions directly with AgentRunConfig parameters.
 performance_agent = get_performance_agent()
 discovery_agent = get_sysadmin_discovery_agent()
 browse_agent = get_sysadmin_browse_agent()

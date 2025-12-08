@@ -26,11 +26,19 @@ print(f"✓ Agent configuration loaded from: {agent_config_manager.get_config_so
 web_agent = get_web_agent(model_id="gpt-4o")
 agno_assist = get_agno_assist(model_id="gpt-4o")
 
-# Create all IBM i agents using config manager
-discovery_agent = get_sysadmin_discovery_agent(config_manager=agent_config_manager)
-browse_agent = get_sysadmin_browse_agent(config_manager=agent_config_manager)
-search_agent = get_sysadmin_search_agent(config_manager=agent_config_manager)
-performance_agent = get_performance_agent(config_manager=agent_config_manager)
+# Create all IBM i agents using new AgentRunConfig pattern
+from agents.config import AgentRunConfig
+
+# Build config with config manager for YAML-based configuration
+ibmi_config = AgentRunConfig(
+    config_manager=agent_config_manager,
+)
+
+# All agents use the same config, which will apply agent-specific overrides from config.yaml
+discovery_agent = get_sysadmin_discovery_agent(config=ibmi_config)
+browse_agent = get_sysadmin_browse_agent(config=ibmi_config)
+search_agent = get_sysadmin_search_agent(config=ibmi_config)
+performance_agent = get_performance_agent(config=ibmi_config)
 
 # Create the AgentOS
 # Pass the config path as string so AgentOS can load it with its own AgentOSConfig schema
