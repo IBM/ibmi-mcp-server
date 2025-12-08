@@ -183,10 +183,15 @@ uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show m
 uv run src/ibmi_agents/agents/ibmi_agents.py --list-agents
 ```
 
-**5.3 Interact with the agent:**
+**5.3 Interact with the agent CLI:**
+
+```bash
+cd agents/frameworks/google_adk
+adk run adk_agents
+```
 - Type your questions or requests at the prompt
 - The agent will use IBM i MCP tools to fulfill your requests
-- Type `exit` or `quit` to end the session
+- Type `exit` to end the session
 
 ## Usage Examples
 
