@@ -2,133 +2,110 @@
 
 A Google ADK-based multi-agent system for IBM i system administration and performance monitoring. This implementation uses a coordinator pattern with specialized sub-agents for different IBM i operational domains.
 
+## What is this?
+
+The multi-agent system provides intelligent routing between specialized agents, allowing complex queries to be handled by the most appropriate agent. The coordinator analyzes user intent and delegates to sub-agents with relevant expertise.
+
 ## Architecture
 
-### Coordinator Agent (`agent.py`)
+### Coordinator Agent
+
 The root agent acts as an intelligent router that delegates user queries to specialized sub-agents:
 
-- **Model**: Gemini 2.5 Flash
+- **Model**: Gemini 2.0 Flash
 - **Planner**: PlanReActPlanner for multi-step reasoning
 - **Plugins**: ReflectAndRetryToolPlugin (max 3 retries)
 
 ### Sub-Agents
 
-1. **Performance Agent** (`performance_agent.py`)
-   - Analyzes CPU, memory, I/O, and subsystem performance
-   - Tools: `system_status`, `system_activity`, `active_job_info`, `memory_pools`, `temp_storage_buckets`, `unnamed_temp_storage`, `http_server`, `collection_services`, `collection_categories`, `system_values`
+1. **Performance Agent** - Analyzes CPU, memory, I/O, and subsystem performance
+2. **Security Agent** - Analyzes security configurations, vulnerabilities, and compliance
+3. **SysAdmin Discovery Agent** - Lists and summarizes schemas, categories, and system organization
+4. **SysAdmin Browse Agent** - Navigates and explores libraries, schemas, and object hierarchies
+5. **SysAdmin Search Agent** - Finds objects, services, or SQL examples by name or keyword
 
-2. **SysAdmin Discover Agent**
-   - Lists and summarizes schemas, categories, and system organization
+## Requirements
 
-3. **SysAdmin Browse Agent**
-   - Navigates and explores libraries, schemas, and object hierarchies
-
-4. **SysAdmin Search Agent**
-   - Finds objects, services, or SQL examples by name or keyword
-
-## Prerequisites
-
-- Python 3.10+
+- Python 3.13+
 - Google ADK installed
 - IBM i MCP Server running (default: `http://127.0.0.1:3010/mcp`)
 - Valid IBM i MCP access token
+- Google API key (from [Google AI Studio](https://aistudio.google.com/app/apikey))
 
-## Setup and Running
+## Setup Guide
 
-### Prerequisites
-
-1. **Install Google ADK**
-   ```bash
-   pip install google-adk[eval]
-   ```
-
-2. **Start IBM i MCP Server**
-   
-   Ensure your IBM i MCP server is running and accessible:
-   ```bash
-   # From the repository root
-   npx ibmi-mcp-server --transport http --tools ./tools 
-   ```
-   
-   Default URL: `http://127.0.0.1:3010/mcp`
-
-3. **Configure Environment Variables**
-
-   Get the google api key by following quick start guide in [README.md](../README.md).
-
-   Create a `.env` file in the `adk_agents` directory:
-   ```bash
-   GOOGLE_GENAI_USE_VERTEXAI=0
-   GOOGLE_API_KEY=your_google_api_key
-   IBMI_MCP_ACCESS_TOKEN=your_bearer_token_here
-   ```
-
-### Running with ADK Web UI
-
-The ADK Web UI provides an interactive interface for testing and debugging your agents locally.
-
-#### Step 1: Start ADK Web Server
-
-From the parent folder of the `adk_agents` directory:
+### Step 1: Install Google ADK
 
 ```bash
-google_adk/      <-- navigate to this directory
-    adk_agents/
-        __init__.py
-        agent.py
-        .env
-        README.md
-``` 
+pip install google-adk[eval]
+```
+
+### Step 2: Start IBM i MCP Server
+
+Ensure your IBM i MCP server is running:
+
+```bash
+# From the repository root
+npx ibmi-mcp-server --transport http --tools ./tools 
+```
+
+Default URL: `http://127.0.0.1:3010/mcp`
+
+### Step 3: Configure Environment Variables
+
+Create a `.env` file in the `adk_agents` directory:
+
+```bash
+# Google AI Configuration
+GOOGLE_API_KEY=your_google_api_key
+IBMI_AGENT_MODEL=gemini-2.0-flash
+
+# IBM i MCP Server
+IBMI_MCP_ACCESS_TOKEN=your_bearer_token_here
+IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
+```
+
+> [!TIP]
+> Get your Google API key from [Google AI Studio](https://aistudio.google.com/app/apikey). See the [parent README](../README.md) for detailed setup instructions.
+
+## Running the Multi-Agent System
+
+### Using ADK Web UI (Recommended)
+
+The ADK Web UI provides an interactive interface for testing and debugging.
+
+**Navigate to the parent directory:**
 
 ```bash
 cd agents/frameworks/google_adk
 adk web
 ```
 
-This command will:
+This will:
 - Start a local web server
-- Automatically open your browser to the ADK Web UI
-- Load your agent configuration from `agent.py`
+- Open your browser to the ADK Web UI
+- Load the multi-agent configuration from `adk_agents/`
 
-#### Step 2: Interact with Your Agent
+**Interact with the agents:**
 
-In the ADK Web UI:
+Type queries in the chat interface:
+```
+Show me system CPU usage
+What are the top 10 CPU consumers?
+List all available schemas
+Find services related to performance
+```
 
-1. **Chat Interface**: Type queries in the chat box to interact with your agents
-   ```
-   Show me system CPU usage
-   ```
+The UI displays:
+- Which sub-agent is handling the request
+- Tool calls being made to the MCP server
+- Responses and results
+- Execution traces and logs
 
-2. **View Agent Execution**: The UI displays:
-   - Which sub-agent is handling the request
-   - Tool calls being made to the MCP server
-   - Responses and results
-   - Execution traces and logs
-
-3. **Test Different Queries**: Try various queries to test agent routing:
-   ```
-   What are the top 10 CPU consumers?
-   List all available schemas
-   Find services related to performance
-   ```
-
-#### Step 3: Debug and Iterate
-
-The Web UI provides debugging features:
-
-- **Execution Traces**: See step-by-step agent reasoning
-- **Tool Call Inspection**: View MCP tool parameters and responses
-- **Error Messages**: Detailed error information when issues occur
-- **Conversation History**: Review previous interactions
-
-
-Or use the ADK CLI:
+### Using ADK CLI
 
 ```bash
-# Navigate to the adk_agents parent directory
 cd agents/frameworks/google_adk
-
-# Run with ADK CLI
 adk run adk_agents
 ```
 
@@ -140,6 +117,14 @@ adk run adk_agents
 "What are the top 10 CPU consumers?"
 "Analyze memory pool utilization"
 "Check HTTP server performance"
+```
+
+### Security Queries
+```
+"Check system security configuration"
+"Analyze user access controls"
+"Review security vulnerabilities"
+"Check compliance status"
 ```
 
 ### Discovery Queries
@@ -165,49 +150,32 @@ adk run adk_agents
 
 ## Agent Delegation Strategy
 
-The coordinator agent uses the following routing logic:
+The coordinator uses intelligent routing:
 
-1. **Understand Intent**: Parse user query to determine domain
-2. **Route to Correct Agent**: 
+1. **Understand Intent** - Parse user query to determine domain
+2. **Route to Correct Agent**:
    - Performance → CPU, jobs, memory, I/O, tuning
+   - Security → Security configs, vulnerabilities, compliance
    - Discovery → Listing schemas, categories, organization
    - Browse → Navigating libraries, schemas, hierarchies
    - Search → Finding objects, services, SQL examples
-3. **Combine Agents**: Chain agents for multi-step goals (Discovery → Browse → Search)
-4. **Context Management**: Preserve outputs when delegating between agents
-5. **Response Format**: Explain routing, summarize results, suggest next steps
-
-## MCP Tool Integration
-
-The agents connect to the IBM i MCP Server via HTTP with bearer token authentication:
-
-```python
-McpToolset(
-    connection_params=StreamableHTTPConnectionParams(
-        url="http://127.0.0.1:3010/mcp",
-        headers={"Authorization": f"Bearer {os.getenv('IBMI_MCP_ACCESS_TOKEN')}"}
-    ),
-    tool_filter=['system_status', 'system_activity', ...]
-)
-```
-
-### Tool Filtering
-
-Each sub-agent has a curated set of tools relevant to its domain. The `tool_filter` parameter ensures agents only access appropriate MCP tools.
+3. **Combine Agents** - Chain agents for multi-step goals
+4. **Context Management** - Preserve outputs when delegating
+5. **Response Format** - Explain routing, summarize results, suggest next steps
 
 ## Configuration
 
 ### Customizing the MCP URL
 
-Set the `DEFAULT_MCP_URL` environment variable or modify the default in `performance_agent.py`:
+Set in your `.env` file:
 
-```python
-DEFAULT_MCP_URL = "http://your-mcp-server:3010/mcp"
+```bash
+IBMI_MCP_SERVER_URL=http://your-mcp-server:3010/mcp
 ```
 
 ### Adjusting Retry Behavior
 
-Modify the `ReflectAndRetryToolPlugin` configuration in `agent.py`:
+Modify in `agent.py`:
 
 ```python
 plugins=[
@@ -217,41 +185,41 @@ plugins=[
 
 ### Changing the Model
 
-Update the `model` parameter in agent definitions:
+Update in `agent.py`:
 
 ```python
 root_agent = Agent(
-    model='gemini-2.0-flash-exp',  # Use different model
+    model='gemini-2.0-pro-exp',  # Use different model
     ...
 )
 ```
 
-## Evaluation History
-
-ADK automatically tracks evaluation runs in `.adk/eval_history/`. Review these files to analyze agent performance and improve prompts. You can know more about it in [ADK Evals](https://google.github.io/adk-docs/evaluate/#example-test-code).
+For available models, see [Google ADK Models Documentation](https://google.github.io/adk-docs/agents/models/).
 
 ## Troubleshooting
 
 ### Authentication Errors
 - Verify `IBMI_MCP_ACCESS_TOKEN` is set correctly
 - Ensure the token hasn't expired
-- Check MCP server is running and accessible
+- Check MCP server is running: `curl http://127.0.0.1:3010/mcp`
 
 ### Connection Issues
 - Confirm MCP server URL is correct
 - Test connectivity: `curl http://127.0.0.1:3010/mcp`
 - Check firewall rules if using remote MCP server
 
-### Tool Execution Failures
-- Review `.adk/eval_history/` for detailed error logs
-- Verify tool names match available MCP tools
-- Check MCP server logs for backend issues
-
 ### Web UI Issues
 - Clear browser cache if UI doesn't load
-- Check browser console for JavaScript errors
-- Ensure ADK web server is running (`adk web`)
-- Verify network connectivity to deployment
+- Check browser console for JavaScript errors (F12 → Console)
+- Ensure `adk web` command is running
+- Verify network connectivity
+
+### Google API Issues
+- Verify `GOOGLE_API_KEY` is correct
+- Check API key is enabled in [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+- Ensure Gemini API is enabled for your project
+
+For more troubleshooting, see [Google ADK Troubleshooting](https://google.github.io/adk-docs/agents/models/#troubleshooting).
 
 ## Development
 
@@ -261,20 +229,31 @@ ADK automatically tracks evaluation runs in `.adk/eval_history/`. Review these f
 2. Define the agent with appropriate tools and instructions
 3. Import and add to `root_agent.sub_agents` list in `agent.py`
 4. Update the coordinator's delegation strategy
-5. Run 'adk web' comamand
+5. Test with `adk web` command
 
 ### Testing Locally
 
 ```bash
 # Run with ADK CLI
 adk run adk_agents
+
+# Or use the Web UI
+adk web
 ```
+
+### Evaluation History
+
+ADK tracks evaluation runs in `.adk/eval_history/`. Review these files to analyze agent performance and improve prompts.
+
+Learn more: [ADK Evaluation Framework](https://google.github.io/adk-docs/evaluate/)
 
 ## Resources
 
 - [Google ADK Documentation](https://google.github.io/adk-docs)
+- [Google ADK Models Guide](https://google.github.io/adk-docs/agents/models/)
 - [ADK Web Interface Guide](https://github.com/google/adk-web)
-- [IBM i MCP Server Documentation](../../../../server/README.md)
+- [ADK Evaluation Framework](https://google.github.io/adk-docs/evaluate/)
+- [IBM i MCP Server Documentation](../../../../README.md)
 - [MCP Protocol Specification](https://modelcontextprotocol.io/)
 
 ## License

@@ -222,16 +222,15 @@ class TestAnnotationFilterPredicate:
 class TestLoadFilteredMCPTools:
     """Test load_filtered_mcp_tools function."""
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.McpToolset')
     @patch.dict('os.environ', {'IBMI_MCP_ACCESS_TOKEN': 'test_token'})
-    async def test_streamable_http_transport(self, mock_mcptoolset):
+    def test_streamable_http_transport(self, mock_mcptoolset):
         """Test loading with streamable_http transport."""
-        mock_toolset_instance = AsyncMock()
+        mock_toolset_instance = Mock()
         mock_toolset_instance.get_tools = AsyncMock(return_value=[])
         mock_mcptoolset.return_value = mock_toolset_instance
         
-        result = await load_filtered_mcp_tools(
+        result = load_filtered_mcp_tools(
             transport="streamable_http",
             url="http://test.com/mcp"
         )
@@ -239,15 +238,14 @@ class TestLoadFilteredMCPTools:
         assert result == mock_toolset_instance
         mock_mcptoolset.assert_called_once()
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.McpToolset')
-    async def test_stdio_transport(self, mock_mcptoolset):
+    def test_stdio_transport(self, mock_mcptoolset):
         """Test loading with stdio transport."""
-        mock_toolset_instance = AsyncMock()
+        mock_toolset_instance = Mock()
         mock_toolset_instance.get_tools = AsyncMock(return_value=[])
         mock_mcptoolset.return_value = mock_toolset_instance
         
-        result = await load_filtered_mcp_tools(
+        result = load_filtered_mcp_tools(
             transport="stdio",
             command="npx",
             args=["ibmi-mcp-server"],
@@ -257,34 +255,30 @@ class TestLoadFilteredMCPTools:
         assert result == mock_toolset_instance
         mock_mcptoolset.assert_called_once()
     
-    @pytest.mark.asyncio
-    async def test_missing_token_for_http(self):
+    def test_missing_token_for_http(self):
         """Test error when token is missing for HTTP transport."""
         with pytest.raises(ValueError, match="Missing IBMI_MCP_ACCESS_TOKEN"):
-            await load_filtered_mcp_tools(transport="streamable_http")
+            load_filtered_mcp_tools(transport="streamable_http")
     
-    @pytest.mark.asyncio
-    async def test_missing_command_for_stdio(self):
+    def test_missing_command_for_stdio(self):
         """Test error when command is missing for stdio transport."""
         with pytest.raises(ValueError, match="command parameter is required"):
-            await load_filtered_mcp_tools(transport="stdio")
+            load_filtered_mcp_tools(transport="stdio")
     
-    @pytest.mark.asyncio
-    async def test_invalid_transport(self):
+    def test_invalid_transport(self):
         """Test error with invalid transport type."""
         with pytest.raises(ValueError, match="Unsupported transport type"):
-            await load_filtered_mcp_tools(transport="invalid")
+            load_filtered_mcp_tools(transport="invalid")
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.McpToolset')
     @patch.dict('os.environ', {'IBMI_MCP_ACCESS_TOKEN': 'test_token'})
-    async def test_with_annotation_filters(self, mock_mcptoolset):
+    def test_with_annotation_filters(self, mock_mcptoolset):
         """Test loading with annotation filters."""
-        mock_toolset_instance = AsyncMock()
+        mock_toolset_instance = Mock()
         mock_toolset_instance.get_tools = AsyncMock(return_value=[])
         mock_mcptoolset.return_value = mock_toolset_instance
         
-        result = await load_filtered_mcp_tools(
+        result = load_filtered_mcp_tools(
             annotation_filters={"toolsets": ["performance"]},
             transport="streamable_http"
         )
@@ -294,18 +288,17 @@ class TestLoadFilteredMCPTools:
         call_kwargs = mock_mcptoolset.call_args[1]
         assert call_kwargs['tool_filter'] is not None
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.McpToolset')
     @patch.dict('os.environ', {'IBMI_MCP_ACCESS_TOKEN': 'test_token'})
-    async def test_with_custom_filter(self, mock_mcptoolset):
+    def test_with_custom_filter(self, mock_mcptoolset):
         """Test loading with custom filter function."""
-        mock_toolset_instance = AsyncMock()
+        mock_toolset_instance = Mock()
         mock_toolset_instance.get_tools = AsyncMock(return_value=[])
         mock_mcptoolset.return_value = mock_toolset_instance
         
         custom_filter = lambda tool: "system" in tool.name.lower()
         
-        result = await load_filtered_mcp_tools(
+        result = load_filtered_mcp_tools(
             custom_filter=custom_filter,
             transport="streamable_http"
         )
@@ -320,75 +313,68 @@ class TestLoadFilteredMCPTools:
 class TestConvenienceFunctions:
     """Test convenience factory functions."""
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_toolset_tools_single(self, mock_load):
+    def test_load_toolset_tools_single(self, mock_load):
         """Test load_toolset_tools with single toolset."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_toolset_tools("performance")
+        load_toolset_tools("performance")
         
         mock_load.assert_called_once()
         call_kwargs = mock_load.call_args[1]
         assert call_kwargs['annotation_filters'] == {"toolsets": ["performance"]}
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_toolset_tools_multiple(self, mock_load):
+    def test_load_toolset_tools_multiple(self, mock_load):
         """Test load_toolset_tools with multiple toolsets."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_toolset_tools(["performance", "sys_admin"])
+        load_toolset_tools(["performance", "sys_admin"])
         
         call_kwargs = mock_load.call_args[1]
         assert call_kwargs['annotation_filters'] == {"toolsets": ["performance", "sys_admin"]}
     
-    @pytest.mark.asyncio
-    async def test_load_toolset_tools_empty_list(self):
+    def test_load_toolset_tools_empty_list(self):
         """Test load_toolset_tools with empty list raises ValueError."""
         with pytest.raises(ValueError, match="Empty toolsets list provided"):
-            await load_toolset_tools([])
+            load_toolset_tools([])
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_readonly_tools(self, mock_load):
+    def test_load_readonly_tools(self, mock_load):
         """Test load_readonly_tools."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_readonly_tools()
+        load_readonly_tools()
         
         call_kwargs = mock_load.call_args[1]
         assert call_kwargs['annotation_filters'] == {"readOnlyHint": True}
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_non_destructive_tools(self, mock_load):
+    def test_load_non_destructive_tools(self, mock_load):
         """Test load_non_destructive_tools."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_non_destructive_tools()
+        load_non_destructive_tools()
         
         call_kwargs = mock_load.call_args[1]
         assert call_kwargs['annotation_filters'] == {"destructiveHint": False}
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_closed_world_tools(self, mock_load):
+    def test_load_closed_world_tools(self, mock_load):
         """Test load_closed_world_tools."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_closed_world_tools()
+        load_closed_world_tools()
         
         call_kwargs = mock_load.call_args[1]
         assert call_kwargs['annotation_filters'] == {"openWorldHint": False}
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_safe_tools(self, mock_load):
+    def test_load_safe_tools(self, mock_load):
         """Test load_safe_tools."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_safe_tools()
+        load_safe_tools()
         
         call_kwargs = mock_load.call_args[1]
         assert call_kwargs['annotation_filters'] == {
@@ -397,13 +383,12 @@ class TestConvenienceFunctions:
             "openWorldHint": False,
         }
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_convenience_with_stdio_transport(self, mock_load):
+    def test_convenience_with_stdio_transport(self, mock_load):
         """Test convenience function with stdio transport."""
-        mock_load.return_value = AsyncMock()
+        mock_load.return_value = Mock()
         
-        await load_toolset_tools(
+        load_toolset_tools(
             "performance",
             transport="stdio",
             command="npx",
@@ -422,23 +407,21 @@ class TestConvenienceFunctions:
 class TestLegacyCompatibility:
     """Test legacy load_mcp_tools function."""
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_toolset_tools')
-    async def test_load_mcp_tools_with_filter(self, mock_load_toolset):
+    def test_load_mcp_tools_with_filter(self, mock_load_toolset):
         """Test legacy function with tool_filter parameter."""
-        mock_load_toolset.return_value = AsyncMock()
+        mock_load_toolset.return_value = Mock()
         
-        await load_mcp_tools(tool_filter="performance")
+        load_mcp_tools(tool_filter="performance")
         
         mock_load_toolset.assert_called_once_with("performance")
     
-    @pytest.mark.asyncio
     @patch('ibmi_agent_sdk.google_adk.filtered_mcp_tools.load_filtered_mcp_tools')
-    async def test_load_mcp_tools_without_filter(self, mock_load_filtered):
+    def test_load_mcp_tools_without_filter(self, mock_load_filtered):
         """Test legacy function without tool_filter parameter."""
-        mock_load_filtered.return_value = AsyncMock()
+        mock_load_filtered.return_value = Mock()
         
-        await load_mcp_tools()
+        load_mcp_tools()
         
         mock_load_filtered.assert_called_once()
 
