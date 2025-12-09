@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-context-forge
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"mcp-context-forge:latest","namespace":"NAMESPACE_PLACEHOLDER"},"fieldPath":"spec.template.spec.containers[?(@.name==\"gateway\")].image","paused":false}]'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-context-forge
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: gateway
+          image: image-registry.openshift-image-registry.svc:5000/NAMESPACE_PLACEHOLDER/mcp-context-forge
+          ports:
+            - containerPort: 4444
+          envFrom:
+            - configMapRef:
+                name: mcp-context-forge-env
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4444
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4444
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /app/data
+              name: sqlite-data
+      volumes:
+        - name: sqlite-data
+          persistentVolumeClaim:
+            claimName: sqlite-data-pv-claim

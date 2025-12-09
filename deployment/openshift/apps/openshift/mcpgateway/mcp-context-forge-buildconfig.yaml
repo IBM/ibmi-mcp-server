@@ -1,0 +1,22 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: mcp-context-forge
+spec:
+  nodeSelector: null
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'mcp-context-forge:latest'
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/IBM/mcp-context-forge.git"
+      ref: main
+    contextDir: /
+  triggers:
+    - type: ConfigChange

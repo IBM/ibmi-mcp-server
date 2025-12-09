@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mcp-context-forge
+      app: mcp-context-forge
+    includeTemplates: true
+
+resources:
+- mcp-context-forge-pvc.yaml
+- mcp-context-forge-imagestream.yaml
+- mcp-context-forge-buildconfig.yaml
+- mcp-context-forge-deployment.yaml
+- mcp-context-forge-service.yaml
+- mcp-context-forge-route.yaml
+
+replacements:
+- source:
+    kind: Deployment
+    name: mcp-context-forge
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      kind: Deployment
+      name: mcp-context-forge
+    fieldPaths:
+      - metadata.annotations.image\.openshift\.io/triggers
+    options:
+      delimiter: '"'
+      index: 13 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+  - select:
+      kind: Deployment
+      name: mcp-context-forge
+    fieldPaths:
+      - spec.template.spec.containers.[name=gateway].image
+    options:
+      delimiter: /
+      index: 1 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+
+configMapGenerator:
+- name: mcp-context-forge-env
+  env: .env
