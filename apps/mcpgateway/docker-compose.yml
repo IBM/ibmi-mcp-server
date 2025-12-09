@@ -421,7 +421,7 @@ services:
       - ../../tools:/usr/src/app/tools:rw,Z  # Mount tools configurations with read-write for auto-reload
       - ../../secrets:/usr/src/app/secrets:ro,Z  # Mount secrets directory as read-only
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3010/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
