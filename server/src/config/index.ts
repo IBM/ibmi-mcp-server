@@ -14,32 +14,55 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 
 // Load .env from multiple possible locations for monorepo flexibility
-// Priority order: current working directory > parent directory > server directory
-const envLocations = [
-  // 1. Current working directory (for production/user deployment)
-  path.resolve(process.cwd(), ".env"),
-  // 2. Parent directory (for monorepo development)
-  path.resolve(process.cwd(), "../.env"),
-  // 3. Two levels up (if running from dist/)
-  path.resolve(process.cwd(), "../../.env"),
-];
-
-// Load from first location that exists
+// Priority order:
+// 1. MCP_SERVER_CONFIG environment variable (explicit override)
+// 2. Current working directory (for production/user deployment)
+// 3. Parent directory (for monorepo development)
 let envLoaded = false;
-for (const envPath of envLocations) {
-  if (existsSync(envPath)) {
-    dotenv.config({ path: envPath });
+
+// Check for explicit config path via MCP_SERVER_CONFIG
+if (process.env.MCP_SERVER_CONFIG) {
+  const configPath = path.resolve(process.env.MCP_SERVER_CONFIG);
+  if (existsSync(configPath)) {
+    dotenv.config({ path: configPath });
     envLoaded = true;
     if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-      console.log(`Loaded .env from: ${envPath}`);
+      console.log(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
     }
-    break;
+  } else {
+    if (process.stdout.isTTY) {
+      console.error(
+        `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to default search.`,
+      );
+    }
   }
 }
 
-// Fallback: try default dotenv behavior (looks in cwd)
+// If no explicit config or it failed, try default locations
 if (!envLoaded) {
-  dotenv.config();
+  const envLocations = [
+    // 1. Current working directory (for production/user deployment)
+    path.resolve(process.cwd(), ".env"),
+    // 2. Parent directory (for monorepo development)
+    path.resolve(process.cwd(), "../.env"),
+  ];
+
+  // Load from first location that exists
+  for (const envPath of envLocations) {
+    if (existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+      envLoaded = true;
+      if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
+        console.log(`Loaded .env from: ${envPath}`);
+      }
+      break;
+    }
+  }
+
+  // Fallback: try default dotenv behavior (looks in cwd)
+  if (!envLoaded) {
+    dotenv.config();
+  }
 }
 
 // --- Determine Project Root ---
@@ -432,30 +455,30 @@ export const config = {
   llmDefaultMinP: env.LLM_DEFAULT_MIN_P,
   oauthProxy:
     env.OAUTH_PROXY_AUTHORIZATION_URL ||
-    env.OAUTH_PROXY_TOKEN_URL ||
-    env.OAUTH_PROXY_REVOCATION_URL ||
-    env.OAUTH_PROXY_ISSUER_URL ||
-    env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL ||
-    env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS
+      env.OAUTH_PROXY_TOKEN_URL ||
+      env.OAUTH_PROXY_REVOCATION_URL ||
+      env.OAUTH_PROXY_ISSUER_URL ||
+      env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL ||
+      env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS
       ? {
-          authorizationUrl: env.OAUTH_PROXY_AUTHORIZATION_URL,
-          tokenUrl: env.OAUTH_PROXY_TOKEN_URL,
-          revocationUrl: env.OAUTH_PROXY_REVOCATION_URL,
-          issuerUrl: env.OAUTH_PROXY_ISSUER_URL,
-          serviceDocumentationUrl: env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL,
-          defaultClientRedirectUris:
-            env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS?.split(",")
-              .map((uri) => uri.trim())
-              .filter(Boolean),
-        }
+        authorizationUrl: env.OAUTH_PROXY_AUTHORIZATION_URL,
+        tokenUrl: env.OAUTH_PROXY_TOKEN_URL,
+        revocationUrl: env.OAUTH_PROXY_REVOCATION_URL,
+        issuerUrl: env.OAUTH_PROXY_ISSUER_URL,
+        serviceDocumentationUrl: env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL,
+        defaultClientRedirectUris:
+          env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS?.split(",")
+            .map((uri) => uri.trim())
+            .filter(Boolean),
+      }
       : undefined,
   supabase:
     env.SUPABASE_URL && env.SUPABASE_ANON_KEY
       ? {
-          url: env.SUPABASE_URL,
-          anonKey: env.SUPABASE_ANON_KEY,
-          serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-        }
+        url: env.SUPABASE_URL,
+        anonKey: env.SUPABASE_ANON_KEY,
+        serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      }
       : undefined,
   openTelemetry: {
     enabled: env.OTEL_ENABLED,
@@ -472,11 +495,11 @@ export const config = {
   db2i:
     env.DB2i_HOST && env.DB2i_USER && env.DB2i_PASS
       ? {
-          host: env.DB2i_HOST,
-          user: env.DB2i_USER,
-          password: env.DB2i_PASS,
-          ignoreUnauthorized: env.DB2i_IGNORE_UNAUTHORIZED,
-        }
+        host: env.DB2i_HOST,
+        user: env.DB2i_USER,
+        password: env.DB2i_PASS,
+        ignoreUnauthorized: env.DB2i_IGNORE_UNAUTHORIZED,
+      }
       : undefined,
 
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
