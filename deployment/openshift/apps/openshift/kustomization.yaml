@@ -19,3 +19,4 @@ sortOptions:
 
 resources:
 - mcpgateway
+- ibmi-mcp-server

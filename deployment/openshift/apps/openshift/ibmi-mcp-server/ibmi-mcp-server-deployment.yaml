@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ibmi-mcp-server
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"ibmi-mcp-server:latest","namespace":"NAMESPACE_PLACEHOLDER"},"fieldPath":"spec.template.spec.containers[?(@.name==\"ibmi-mcp-server\")].image","paused":false}]'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ibmi-mcp-server
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: ibmi-mcp-server
+          image: image-registry.openshift-image-registry.svc:5000/NAMESPACE_PLACEHOLDER/ibmi-mcp-server
+          command: ["node"]
+          args: ["/usr/src/app/dist/index.js"]
+          ports:
+            - containerPort: 3010
+          envFrom:
+            - configMapRef:
+                name: ibmi-mcp-server-env
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3010
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3010
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tools
+              mountPath: /usr/src/app/tools
+            - name: secrets
+              mountPath: /usr/src/app/secrets
+              readOnly: true
+      volumes:
+        - name: tools
+          configMap:
+            name: tools-config
+        - name: secrets
+          secret:
+            secretName: ibmi-mcp-secrets
+            defaultMode: 0400

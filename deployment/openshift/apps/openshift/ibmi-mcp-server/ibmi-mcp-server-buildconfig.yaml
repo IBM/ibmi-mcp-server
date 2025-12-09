@@ -1,0 +1,20 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: ibmi-mcp-server
+spec:
+  nodeSelector: null
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'ibmi-mcp-server:latest'
+  strategy:
+    type: Docker
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/william-xiang/ibmi-mcp-server.git"
+      ref: chore/deployment_openshift
+    contextDir: server
+  triggers:
+    - type: ConfigChange

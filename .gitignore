@@ -204,3 +204,9 @@ secrets/
 specs/
 *.evalset_result.json
 *.evalset.json
+
+# tools directory used for openshift deployment
+deployment/openshift/apps/openshift/ibmi-mcp-server/tools
+
+# Docker file copied into server directory for openshift deployment
+server/Dockerfile

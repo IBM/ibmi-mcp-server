@@ -1,0 +1,15 @@
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: ibmi-mcp-server
+spec:
+  to:
+    kind: Service
+    name: ibmi-mcp-server
+    weight: 100
+  port:
+    targetPort: 3010
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

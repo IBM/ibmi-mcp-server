@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: ibmi-mcp-server
+      app: ibmi-mcp-server
+    includeTemplates: true
+
+resources:
+- ibmi-mcp-server-imagestream.yaml
+- ibmi-mcp-server-buildconfig.yaml
+- ibmi-mcp-server-deployment.yaml
+- ibmi-mcp-server-service.yaml
+- ibmi-mcp-server-route.yaml
+
+replacements:
+- source:
+    kind: Deployment
+    name: ibmi-mcp-server
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      kind: Deployment
+      name: ibmi-mcp-server
+    fieldPaths:
+      - metadata.annotations.image\.openshift\.io/triggers
+    options:
+      delimiter: '"'
+      index: 13 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+  - select:
+      kind: Deployment
+      name: ibmi-mcp-server
+    fieldPaths:
+      - spec.template.spec.containers.[name=ibmi-mcp-server].image
+    options:
+      delimiter: /
+      index: 1 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+
+configMapGenerator:
+- name: ibmi-mcp-server-env
+  env: .env
+- name: tools-config
+  files:
+    - tools/developer/object-statistics-dev.yaml
+    - tools/performance/performance.yaml
+    - tools/sample/employee-info.yaml
+    - tools/security/library-list-security.yaml
+    - tools/security/security-ops.yaml
+    - tools/sys-admin/sys-admin.yaml
+
+secretGenerator:
+  - name: ibmi-mcp-secrets
+    files:
+      - secrets/private.pem
+      - secrets/public.pem
+    type: Opaque
