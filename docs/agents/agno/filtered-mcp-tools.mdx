@@ -1,0 +1,597 @@
+---
+title: "FilteredMCPTools"
+description: "Master annotation-based tool filtering to create specialized IBM i agents with focused capabilities."
+---
+
+`FilteredMCPTools` is the foundation of specialized agent architecture for IBM i systems. It extends agno's standard `MCPTools` class to filter available tools based on MCP annotations, enabling creation of focused agents with access only to relevant capabilities.
+
+## Why FilteredMCP Tools?
+
+### The Problem with Unfiltered Tools
+
+Standard MCP integration gives agents access to **all** tools:
+
+```python
+from agno.tools import MCPTools
+
+# Agent sees ALL 45+ tools from the MCP server
+all_tools = MCPTools(url="http://localhost:3010/mcp")
+
+agent = Agent(
+    name="General Purpose Agent",
+    tools=[all_tools]  # Overwhelmed with choices
+)
+```
+
+**Problems:**
+- **Decision paralysis** - Too many options slows down agent reasoning
+- **Poor accuracy** - Agent may choose wrong tools for the task
+- **Security risks** - Agent has access to destructive operations
+- **Slow performance** - Large tool sets increase processing time
+
+### The FilteredMCPTools Solution
+
+Filter tools by annotations to create specialized agents:
+
+```python
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+# Agent sees only 8 performance-related tools
+performance_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    annotation_filters={"toolsets": ["performance"]}
+)
+
+agent = Agent(
+    name="Performance Monitor",
+    tools=[performance_tools]  # Focused toolset
+)
+```
+
+**Benefits:**
+- ✅ **Faster decisions** - Smaller tool sets mean quicker reasoning
+- ✅ **Higher accuracy** - Agent chooses from relevant tools only
+- ✅ **Enhanced security** - Limit access to only necessary operations
+- ✅ **Better performance** - Reduced token usage and processing time
+
+---
+
+## How Annotation Filtering Works
+
+### MCP Tool Annotations
+
+The MCP server attaches metadata to each tool as annotations:
+
+```typescript
+// Example tool definition with annotations
+{
+  "name": "system_status",
+  "description": "Get current IBM i system performance metrics",
+  "inputSchema": { /* parameters */ },
+  "annotations": {
+    "title": "System Status",
+    "toolsets": ["performance", "monitoring"],
+    "readOnlyHint": true,
+    "destructiveHint": false
+  }
+}
+```
+
+### FilteredMCPTools Matching
+
+FilteredMCPTools reads these annotations and applies your filters:
+
+```python
+# Only tools with "performance" in their toolsets annotation
+performance_tools = FilteredMCPTools(
+    annotation_filters={"toolsets": ["performance"]}
+)
+
+# Only read-only tools
+safe_tools = FilteredMCPTools(
+    annotation_filters={"readOnlyHint": True}
+)
+
+# Combine multiple filters (AND logic)
+strict_tools = FilteredMCPTools(
+    annotation_filters={
+        "toolsets": ["performance"],
+        "readOnlyHint": True,
+        "destructiveHint": False
+    }
+)
+```
+
+---
+
+## Available Toolsets
+
+Based on the prebuilt IBM i MCP configurations:
+
+| Toolset | Tools Count | Purpose | Example Tools |
+|---------|------------|---------|---------------|
+| `performance` | ~8 | System performance monitoring | system_status, memory_pools, active_jobs |
+| `sysadmin_discovery` | ~5 | High-level service discovery | list_service_categories, services_by_schema |
+| `sysadmin_browse` | ~10 | Detailed service exploration | list_services_by_category, browse_schema |
+| `sysadmin_search` | ~8 | Service and example search | search_services_by_name, find_example_code |
+
+<Note>
+**Custom Toolsets**: You can create your own toolsets in YAML SQL tools configuration. See [Toolsets Reference](/sql-tools/toolsets) for details.
+</Note>
+
+---
+
+## Basic Usage Patterns
+
+### Single Toolset Filter
+
+Most common pattern - filter to one toolset:
+
+```python
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+# Performance monitoring tools only
+performance_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    transport="streamable-http",
+    annotation_filters={"toolsets": ["performance"]}
+)
+```
+
+### Multiple Toolsets
+
+Combine related toolsets for broader capabilities:
+
+```python
+# Both discovery and browse tools
+exploration_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    transport="streamable-http",
+    annotation_filters={"toolsets": ["sysadmin_discovery", "sysadmin_browse"]}
+)
+```
+
+**When to use multiple toolsets:**
+- Agent needs capabilities from related domains
+- Workflow spans discovery and detailed exploration
+- Creating general-purpose but still focused agents
+
+### Security-Focused Filtering
+
+Use MCP standard annotations for safety:
+
+```python
+# Only read-only, non-destructive tools
+readonly_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    transport="streamable-http",
+    annotation_filters={
+        "readOnlyHint": True,
+        "destructiveHint": False
+    }
+)
+```
+
+---
+
+## Advanced Filtering Patterns
+
+### Callable Filters
+
+Use functions for complex filtering logic:
+
+```python
+# Filter by title content
+def short_title_filter(title):
+    """Only tools with short, concise titles"""
+    return title and len(title) < 30
+
+custom_tools = FilteredMCPTools(
+    annotation_filters={
+        "title": short_title_filter
+    }
+)
+```
+
+```python
+# Filter by multiple toolset criteria
+def is_admin_tool(toolsets):
+    """Tools for system administration"""
+    if not toolsets:
+        return False
+    admin_sets = {"sysadmin_discovery", "sysadmin_browse", "sysadmin_search"}
+    return any(ts in admin_sets for ts in toolsets)
+
+admin_tools = FilteredMCPTools(
+    annotation_filters={
+        "toolsets": is_admin_tool
+    }
+)
+```
+
+### Combined Filters (AND Logic)
+
+All filters must match for a tool to be included:
+
+```python
+# Must be in performance toolset AND read-only AND have short title
+strict_performance = FilteredMCPTools(
+    annotation_filters={
+        "toolsets": ["performance"],
+        "readOnlyHint": True,
+        "title": lambda t: len(t) < 50 if t else False
+    }
+)
+```
+
+### Legacy Toolsets Parameter
+
+Backward compatible shorthand for toolset filtering:
+
+```python
+# Old style (still works)
+tools = FilteredMCPTools(
+    toolsets="performance"  # Single toolset
+)
+
+# Equivalent to
+tools = FilteredMCPTools(
+    annotation_filters={"toolsets": ["performance"]}
+)
+```
+
+---
+
+## Debug Mode
+
+Enable filtering debug output to understand tool selection:
+
+```python
+tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    annotation_filters={"toolsets": ["performance"]},
+    debug_filtering=True  # Show filtering decisions
+)
+```
+
+**Debug output example:**
+```
+[FilteredMCPTools] Connecting to MCP server...
+[FilteredMCPTools] Discovered 45 total tools
+[FilteredMCPTools] Applying filters: {'toolsets': ['performance']}
+[FilteredMCPTools] ✓ system_status - matches filter
+[FilteredMCPTools] ✓ memory_pools - matches filter
+[FilteredMCPTools] ✗ search_services_by_name - does not match (toolset: sysadmin_search)
+[FilteredMCPTools] ✗ list_service_categories - does not match (toolset: sysadmin_discovery)
+[FilteredMCPTools] Final filtered tools: 8
+```
+
+---
+
+## Complete Examples
+
+### Example 1: Performance Monitoring Agent
+
+```python
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+# Configure performance-only tools
+performance_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    transport="streamable-http",
+    annotation_filters={"toolsets": ["performance"]},
+    debug_filtering=True
+)
+
+# Create specialized agent
+agent = Agent(
+    name="IBM i Performance Monitor",
+    model=OpenAIChat(id="gpt-4o"),
+    tools=[performance_tools],
+    instructions=[
+        "You are a specialized IBM i performance monitoring assistant.",
+        "You have access to comprehensive performance monitoring tools including:",
+        "- System status and activity monitoring",
+        "- Memory pool analysis",
+        "- Active job analysis and CPU consumption tracking",
+        "",
+        "Always explain technical metrics in business terms.",
+        "Identify performance bottlenecks and recommend specific actions."
+    ],
+    markdown=True
+)
+
+# Use the agent
+if __name__ == "__main__":
+    agent.print_response("What's the current system performance?")
+```
+
+### Example 2: Read-Only Security Agent
+
+```python
+# Only safe, read-only operations
+readonly_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    transport="streamable-http",
+    annotation_filters={
+        "readOnlyHint": True,
+        "destructiveHint": False
+    }
+)
+
+security_agent = Agent(
+    name="IBM i Security Analyst",
+    tools=[readonly_tools],
+    instructions=[
+        "You are a read-only security and compliance analyst.",
+        "You can view and analyze data but NEVER modify system settings.",
+        "Focus on identifying security risks and compliance issues.",
+        "Recommend actions but never attempt to execute them."
+    ]
+)
+```
+
+### Example 3: Multi-Toolset Explorer
+
+```python
+# Combine discovery and browse for comprehensive exploration
+explorer_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    transport="streamable-http",
+    annotation_filters={
+        "toolsets": ["sysadmin_discovery", "sysadmin_browse"]
+    }
+)
+
+explorer_agent = Agent(
+    name="IBM i System Explorer",
+    tools=[explorer_tools],
+    instructions=[
+        "You help administrators explore and understand IBM i system services.",
+        "Use discovery tools for high-level overviews.",
+        "Use browse tools for detailed examination of specific areas.",
+        "Always start broad and drill down based on user interest."
+    ]
+)
+```
+
+---
+
+## Connection Management
+
+FilteredMCPTools requires async context management for proper cleanup:
+
+### Async Context Manager (Recommended)
+
+```python
+import asyncio
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+async def run_analysis():
+    tools = FilteredMCPTools(
+        url="http://localhost:3010/mcp",
+        transport="streamable-http",
+        annotation_filters={"toolsets": ["performance"]}
+    )
+
+    # Use async context manager
+    async with tools:
+        agent = Agent(
+            name="Performance Analyst",
+            tools=[tools]
+        )
+
+        response = await agent.arun("Check system performance")
+        return response
+
+# Run async function
+asyncio.run(run_analysis())
+```
+
+### AgentOS Automatic Management
+
+AgentOS handles connection lifecycle automatically:
+
+```python
+from agno.agentos import AgentOS
+
+# AgentOS manages tool connections
+agent_os = AgentOS(
+    agents=[
+        Agent(
+            name="Performance Monitor",
+            tools=[FilteredMCPTools(
+                annotation_filters={"toolsets": ["performance"]}
+            )]
+        )
+    ]
+)
+
+# Connections managed automatically
+agent_os.serve(app="myapp:app", reload=True)
+```
+
+---
+
+## Filter Annotation Reference
+
+### MCP Standard Annotations
+
+Defined by the MCP specification:
+
+| Annotation | Type | Description | Use Case |
+|------------|------|-------------|----------|
+| `readOnlyHint` | boolean | Tool only reads data | Filter for safe operations |
+| `destructiveHint` | boolean | Tool modifies/deletes data | Exclude from readonly agents |
+
+```python
+# MCP standard filtering
+safe_tools = FilteredMCPTools(
+    annotation_filters={
+        "readOnlyHint": True,
+        "destructiveHint": False
+    }
+)
+```
+
+### Custom IBM i Annotations
+
+Server-specific metadata:
+
+| Annotation | Type | Description | Use Case |
+|------------|------|-------------|----------|
+| `toolsets` | array | Functional categorization | Domain-specific filtering |
+| `title` | string | Human-readable name | Display or callable filters |
+
+```python
+# Custom annotation filtering
+perf_tools = FilteredMCPTools(
+    annotation_filters={
+        "toolsets": ["performance"],
+        "title": lambda t: "system" in t.lower() if t else False
+    }
+)
+```
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Toolset Selection" icon="filter">
+    **Choose the narrowest toolset that meets agent needs:**
+
+    ✅ Good:
+    ```python
+    # Specific purpose = specific toolset
+    perf_agent = Agent(tools=[FilteredMCPTools(
+        annotation_filters={"toolsets": ["performance"]}
+    )])
+    ```
+
+    ❌ Avoid:
+    ```python
+    # Too broad - defeats purpose of filtering
+    general_agent = Agent(tools=[FilteredMCPTools(
+        annotation_filters={"toolsets": [
+            "performance", "sysadmin_discovery",
+            "sysadmin_browse", "sysadmin_search"
+        ]}
+    )])
+    ```
+  </Accordion>
+
+  <Accordion title="Security Layers" icon="shield">
+    **Combine toolset and safety filters for defense in depth:**
+
+    ```python
+    # Double security: specific domain + readonly
+    secure_tools = FilteredMCPTools(
+        annotation_filters={
+            "toolsets": ["performance"],
+            "readOnlyHint": True,
+            "destructiveHint": False
+        }
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Debug During Development" icon="bug">
+    **Always enable debug filtering when building agents:**
+
+    ```python
+    tools = FilteredMCPTools(
+        annotation_filters={"toolsets": ["performance"]},
+        debug_filtering=True  # See what's being filtered and why
+    )
+    ```
+
+    Disable in production for performance.
+  </Accordion>
+
+  <Accordion title="Test Filter Logic" icon="flask">
+    **Verify filters before deploying agents:**
+
+    ```python
+    # Test filtering separately
+    tools = FilteredMCPTools(
+        annotation_filters={"toolsets": ["performance"]},
+        debug_filtering=True
+    )
+
+    async with tools:
+        print(f"Filtered to {len(tools.tools)} tools")
+        for tool in tools.tools:
+            print(f"  - {tool.name}")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="No tools match filter" icon="exclamation-triangle">
+    **Problem:** Filter returns empty tool set
+
+    **Debug steps:**
+    1. Enable debug filtering:
+       ```python
+       FilteredMCPTools(debug_filtering=True, ...)
+       ```
+    2. Check available toolsets on server:
+       ```bash
+       npx ibmi-mcp-server --list-toolsets --tools tools/your-tools.yaml
+       ```
+    3. Verify annotation names match exactly (case-sensitive)
+  </Accordion>
+
+  <Accordion title="Tools not filtering correctly" icon="filter-slash">
+    **Problem:** Expected tools missing or unexpected tools included
+
+    **Solutions:**
+    - Filters use AND logic - all must match
+    - Check callable filters return boolean correctly
+    - Verify annotation exists on tools (some may lack annotations)
+    - Use debug mode to see filter decisions
+  </Accordion>
+
+  <Accordion title="Connection errors" icon="wifi-slash">
+    **Problem:** Cannot connect to MCP server
+
+    **Solutions:**
+    1. Verify MCP server is running:
+       ```bash
+       curl http://localhost:3010/health
+       ```
+    2. Check URL in FilteredMCPTools matches server
+    3. Ensure using async context manager or AgentOS
+    4. Review MCP server logs for errors
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Patterns" icon="diagram-project" href="/agents/agno/agent-patterns">
+    Learn proven patterns for organizing filtered tools into effective agents
+  </Card>
+  <Card title="Advanced Configuration" icon="cog" href="/agents/agno/advanced-config">
+    Memory, evaluation, and production deployment
+  </Card>
+  <Card title="Build Custom Toolsets" icon="layer-group" href="/sql-tools/toolsets">
+    Create your own toolsets for specialized filtering
+  </Card>
+  <Card title="Security Guide" icon="shield" href="/agents/security">
+    Security best practices for production agents
+  </Card>
+</CardGroup>
+
+<Note>
+**FilteredMCPTools Philosophy**: The goal is to create **specialist agents** that excel in specific domains rather than generalist agents that struggle with broad capabilities. Think of it like hiring a performance analyst vs. a general IT consultant - the specialist brings deeper expertise and makes better decisions within their domain.
+</Note>

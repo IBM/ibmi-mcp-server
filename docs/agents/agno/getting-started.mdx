@@ -1,0 +1,250 @@
+---
+title: "Getting Started with agno"
+description: "Introduction to building IBM i agents with the agno framework and FilteredMCPTools."
+---
+
+
+[agno](https://docs.agno.com/introduction) is a modern Python framework for building AI agents. This guide introduces the core concepts for building IBM i agents with agno and FilteredMCPTools.
+
+## What is agno?
+
+agno provides:
+
+- **Agent Framework** - Build AI agents with natural language interfaces
+- **Tool Integration** - Connect agents to external tools via MCP protocol
+- **Persistent Memory** - SQLite-backed conversation and knowledge storage
+- **AgentOS** - Deploy and manage multiple specialized agents
+- **Evaluation Framework** - Test agent reliability systematically
+
+## Core Concepts
+
+### FilteredMCPTools
+
+The key innovation for IBM i agents is **FilteredMCPTools** - a specialized class that filters MCP tools by annotations:
+
+```python
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+# Agent sees only performance tools (8 of 45+ total)
+performance_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",
+    annotation_filters={"toolsets": ["performance"]}
+)
+```
+
+**Why filter tools?**
+- **Faster decisions** - Smaller tool sets = quicker agent reasoning
+- **Higher accuracy** - Agent chooses from relevant tools only
+- **Better security** - Limit access to necessary operations
+- **Improved performance** - Reduced token usage
+
+<Card title="FilteredMCPTools Deep Dive" icon="filter" href="/agents/agno/filtered-mcp-tools">
+  Learn about annotation-based filtering, available toolsets, and advanced patterns
+</Card>
+
+### Specialized Agents
+
+Instead of one agent with all tools, create focused agents per domain:
+
+```python
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+
+# Performance monitoring agent
+performance_agent = Agent(
+    name="IBM i Performance Monitor",
+    model=OpenAIChat(id="gpt-4o"),
+    tools=[performance_tools],
+    instructions=[
+        "You are an IBM i performance monitoring specialist.",
+        "Analyze system metrics and identify bottlenecks.",
+        "Explain technical findings in business terms."
+    ]
+)
+```
+
+**Benefits of specialization:**
+- Each agent masters specific domain
+- Clear separation of concerns
+- Easier to test and maintain
+- Can run multiple agents in parallel
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+Before building agents:
+
+1. **MCP Server Running** - Complete the [Quick Start Guide](/quickstart)
+2. **Python 3.8+** installed
+3. **OpenAI API Key** from [platform.openai.com](https://platform.openai.com)
+
+Includes:
+- **Performance Agent** - System monitoring (performance toolset)
+- **Discovery Agent** - Service discovery (sysadmin_discovery toolset)
+- **Browse Agent** - Detailed exploration (sysadmin_browse toolset)
+- **Search Agent** - Find specific services (sysadmin_search toolset)
+
+<Card title="Example Documentation" icon="github" href="https://github.com/IBM/ibmi-mcp-server/tree/main/agents/frameworks/agno">
+  **See the agno examples README** for detailed setup instructions, configuration options, and usage examples
+</Card>
+
+---
+
+## Building Your First Agent
+
+### Basic Agent Structure
+
+```python
+import os
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+# 1. Configure filtered tools
+tools = FilteredMCPTools(
+    url=os.getenv("MCP_SERVER_URL", "http://localhost:3010/mcp"),
+    transport="streamable-http",
+    annotation_filters={"toolsets": ["performance"]}
+)
+
+# 2. Create specialized agent
+agent = Agent(
+    name="Performance Analyst",
+    model=OpenAIChat(id="gpt-4o"),
+    tools=[tools],
+    instructions=[
+        "You are an IBM i performance analyst.",
+        "Identify performance bottlenecks and recommend solutions.",
+        "Explain metrics in business terms."
+    ]
+)
+
+# 3. Use the agent
+if __name__ == "__main__":
+    agent.print_response("Check system performance")
+```
+
+### Key Components
+
+<AccordionGroup>
+  <Accordion title="FilteredMCPTools" icon="filter">
+    Filters available tools by annotations:
+
+    ```python
+    FilteredMCPTools(
+        url="http://localhost:3010/mcp",
+        annotation_filters={
+            "toolsets": ["performance"],  # Only performance tools
+            "readOnlyHint": True          # Only safe operations
+        }
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Agent Configuration" icon="robot">
+    Defines agent behavior:
+
+    ```python
+    Agent(
+        name="Agent Name",
+        model=OpenAIChat(id="gpt-4o"),  # LLM model
+        tools=[filtered_tools],          # Available tools
+        instructions=[...],              # Agent guidance
+        markdown=True                    # Rich formatting
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Instructions" icon="list-check">
+    Guide agent behavior and responses:
+
+    ```python
+    instructions=[
+        "You are a [domain] specialist.",
+        "Your capabilities include:",
+        "- Specific capability 1",
+        "- Specific capability 2",
+        "",
+        "Always explain results in business terms.",
+        "Recommend specific actionable steps."
+    ]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Development Workflow
+
+### 1. Design Agent Purpose
+
+Define what your agent should do:
+- What domain does it cover?
+- What questions should it answer?
+- What actions can it perform?
+
+### 2. Select Toolsets
+
+Choose relevant toolsets for the domain:
+- `performance` - System monitoring
+- `sysadmin_discovery` - Service discovery
+- `sysadmin_browse` - Detailed exploration
+- `sysadmin_search` - Find specific items
+
+### 3. Configure FilteredMCPTools
+
+Set up annotation filters:
+
+```python
+tools = FilteredMCPTools(
+    annotation_filters={"toolsets": ["your_toolset"]},
+    debug_filtering=True  # See filtering decisions during development
+)
+```
+
+### 4. Write Agent Instructions
+
+Clear, structured guidance:
+
+```python
+instructions=[
+    "You are a [role] for [system].",
+    "",
+    "Your workflow:",
+    "1. First step",
+    "2. Second step",
+    "",
+    "Always [guideline].",
+    "Never [restriction]."
+]
+```
+
+### 5. Test and Iterate
+
+- Start with debug mode enabled
+- Test with example queries
+- Review tool selection decisions
+- Refine instructions based on behavior
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="FilteredMCPTools" icon="filter" href="/agents/agno/filtered-mcp-tools">
+    Master annotation-based filtering and toolset selection
+  </Card>
+  <Card title="Agent Patterns" icon="diagram-project" href="/agents/agno/agent-patterns">
+    Learn proven patterns for specialized IBM i agents
+  </Card>
+  <Card title="Advanced Configuration" icon="cog" href="/agents/agno/advanced-config">
+    Memory, evaluation frameworks, and production deployment
+  </Card>
+</CardGroup>
+
+<Note>
+**Learning Path**: Read this page for concepts → Follow the [Complete Tutorial](/agents/agno/tutorial) for hands-on setup → Study [Agent Patterns](/agents/agno/agent-patterns) for architecture → Apply [Advanced Configuration](/agents/agno/advanced-config) for production.
+</Note>

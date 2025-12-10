@@ -32,20 +32,48 @@
           },
           {
             "group": "SQL Tools System",
+            "expanded": true,
             "pages": [
               "sql-tools/overview",
+              {
+                "group": "Tool Reference",
+                "expanded": false,
+                "pages": [
+                  "sql-tools/sources",
+                  "sql-tools/tools",
+                  "sql-tools/toolsets"
+                ]
+              },
               "sql-tools/building-tools",
-              "sql-tools/parameters",
-              "sql-tools/validation",
+              "sql-tools/parameter-guide",
               "sql-tools/output-formats"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Agent Integrations",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "agents/overview"
             ]
           },
           {
-            "group": "Agent Development",
+            "group": "agno Framework",
             "pages": [
-              "agents/building-agents"
+              "agents/agno/getting-started",
+              "agents/agno/filtered-mcp-tools",
+              "agents/agno/agent-patterns",
+              "agents/agno/advanced-config"
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
           {
             "group": "Deployment",
             "pages": [
@@ -66,23 +94,6 @@
               "clients/cursor",
               "clients/gemini-cli",
               "clients/cline"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "groups": [
-          {
-            "group": "MCP Protocol",
-            "pages": [
-              "api/mcp-endpoints"
-            ]
-          },
-          {
-            "group": "Authentication",
-            "pages": [
-              "api/auth-endpoints"
             ]
           }
         ]

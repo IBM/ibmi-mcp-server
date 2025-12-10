@@ -1,0 +1,698 @@
+---
+title: "Toolsets Reference"
+description: "Complete reference for organizing SQL tools into logical groups using toolsets."
+---
+
+<Info>
+**Official Schema**: See the [JSON Schema definition](https://github.com/IBM/ibmi-mcp-server/blob/main/server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json) for the authoritative toolset configuration specification.
+</Info>
+
+Toolsets organize related tools into logical groups that can be discovered, filtered, and deployed together. They provide a way to structure large collections of tools by functional area, business domain, or use case.
+
+## What Are Toolsets?
+
+Toolsets are named collections of tools that share a common purpose or domain. They enable:
+
+- **Selective loading** - Load only the tools you need
+- **Logical organization** - Group related capabilities together
+- **Discoverability** - Help AI agents find relevant tools
+- **Access control** - Manage permissions by toolset
+- **Deployment flexibility** - Deploy different toolsets to different environments
+
+<Note>
+**Design Principle**: Toolsets are purely organizational - they don't change tool behavior. A tool works the same whether loaded individually or as part of a toolset.
+</Note>
+
+---
+
+## Toolset Structure
+
+Define toolsets in the `toolsets` section of your YAML configuration:
+
+```yaml
+toolsets:
+  toolset_name:
+    title: "Human-Readable Title"
+    description: "What this toolset provides"
+    tools:
+      - tool_name_1
+      - tool_name_2
+      - tool_name_3
+```
+
+### Basic Example
+
+```yaml
+tools:
+  system_status:
+    source: ibmi-system
+    description: "Get system performance metrics"
+    # ... tool configuration
+
+  active_job_info:
+    source: ibmi-system
+    description: "List active jobs"
+    # ... tool configuration
+
+  memory_pools:
+    source: ibmi-system
+    description: "Show memory pool statistics"
+    # ... tool configuration
+
+toolsets:
+  performance_monitoring:
+    title: "Performance Monitoring"
+    description: "Tools for monitoring IBM i system performance and resource utilization"
+    tools:
+      - system_status
+      - active_job_info
+      - memory_pools
+```
+
+---
+
+## Toolset Fields Reference
+
+### Required Fields
+
+All toolsets must include these fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `toolset_name` | string (YAML key) | Unique identifier for the toolset, used to reference and load it |
+| `tools` | array of strings | List of tool names to include in this toolset |
+
+<Warning>
+**Tool References**: Each tool name in the `tools` array must match a key in the `tools` section. The server will error if a referenced tool doesn't exist.
+</Warning>
+
+---
+
+### Field Details
+
+<Tabs>
+  <Tab title="toolset_name">
+    **Unique identifier for the toolset**
+
+    The toolset name is the YAML key and must be unique across all toolsets in the configuration.
+
+    **Naming conventions:**
+    - Use lowercase with underscores: `performance_monitoring`
+    - Be descriptive of the domain: `employee_information`, `security_audit`
+    - Group logically: `system_administration`, `business_reporting`
+
+    ```yaml
+    # ✅ Good names
+    toolsets:
+      performance_monitoring:
+      employee_information:
+      security_audit:
+      business_reporting:
+
+    # ❌ Avoid
+    toolsets:
+      tools1:
+      misc:
+      temp:
+    ```
+  </Tab>
+
+  <Tab title="tools">
+    **Array of tool names to include**
+
+    **Type:** `array` of strings (tool names)
+
+    **Required:** Yes
+
+    Lists the tools that belong to this toolset. Each name must match a tool defined in the `tools` section.
+
+    ```yaml
+    toolsets:
+      employee_information:
+        title: "Employee Information"
+        description: "Tools for retrieving and analyzing employee data"
+        tools:
+          - get_employee_details
+          - find_employees_by_department
+          - find_employees_by_job
+          - search_employees
+    ```
+
+    <Note>
+    **Cross-toolset tools**: A tool can appear in multiple toolsets. This is useful for shared utilities or tools that serve multiple purposes.
+    </Note>
+  </Tab>
+
+  <Tab title="title">
+    **Human-readable display name**
+
+    **Type:** `string`
+
+    **Required:** No (but recommended)
+
+    Provides a clear, user-friendly name for the toolset displayed in documentation and tooling.
+
+    ```yaml
+    toolsets:
+      performance_monitoring:
+        title: "Performance Monitoring"  # Displayed to users
+        description: "Tools for monitoring system performance"
+        tools:
+          - system_status
+          - active_jobs
+    ```
+  </Tab>
+
+  <Tab title="description">
+    **Explanation of toolset purpose**
+
+    **Type:** `string`
+
+    **Required:** No (but recommended)
+
+    Describes what capabilities this toolset provides and who should use it.
+
+    **Best practices:**
+    - Describe the business purpose, not just the tools
+    - Mention target users or use cases
+    - Note any special requirements
+
+    ```yaml
+    toolsets:
+      security_audit:
+        title: "Security Audit Tools"
+        description: "Comprehensive security analysis and audit trail tools for compliance reporting. Requires *AUDIT special authority."
+        tools:
+          - user_audit
+          - authority_check
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Organization Strategies
+
+### By Functional Domain
+
+Organize tools by what they do:
+
+```yaml
+toolsets:
+  performance_monitoring:
+    title: "Performance Monitoring"
+    description: "System performance and resource utilization"
+    tools:
+      - system_status
+      - active_job_info
+      - memory_pools
+      - http_server_stats
+
+  system_administration:
+    title: "System Administration"
+    description: "Administrative tools for system management"
+    tools:
+      - describe_object
+      - list_services_by_category
+      - search_services_by_name
+      - library_list_info
+
+  security_audit:
+    title: "Security Audit"
+    description: "Security analysis and compliance reporting"
+    tools:
+      - user_profile_audit
+      - object_authority_check
+      - audit_trail_analysis
+```
+
+### By Business Process
+
+Organize tools by business workflow:
+
+```yaml
+toolsets:
+  employee_onboarding:
+    title: "Employee Onboarding"
+    description: "Tools for new employee setup and validation"
+    tools:
+      - create_employee_record
+      - assign_department
+      - initialize_benefits
+      - setup_security_access
+
+  payroll_processing:
+    title: "Payroll Processing"
+    description: "Payroll calculation and reporting tools"
+    tools:
+      - calculate_gross_pay
+      - compute_deductions
+      - generate_pay_stub
+      - tax_withholding_report
+
+  performance_review:
+    title: "Performance Review"
+    description: "Employee performance evaluation workflow"
+    tools:
+      - get_employee_metrics
+      - calculate_bonus
+      - generate_review_report
+      - update_salary_grade
+```
+
+### By User Role
+
+Organize tools by who uses them:
+
+```yaml
+toolsets:
+  developer_tools:
+    title: "Developer Tools"
+    description: "Development and debugging utilities"
+    tools:
+      - object_dependencies
+      - recently_used_objects
+      - stale_object_detection
+      - source_code_search
+
+  dba_tools:
+    title: "Database Administrator Tools"
+    description: "Database management and optimization"
+    tools:
+      - table_analysis
+      - index_statistics
+      - foreign_key_relationships
+      - database_health_check
+
+  auditor_tools:
+    title: "Auditor Tools"
+    description: "Compliance and security auditing"
+    tools:
+      - user_access_audit
+      - privilege_escalation_check
+      - data_modification_log
+      - security_configuration_review
+```
+
+### By Environment
+
+Organize tools by deployment environment:
+
+```yaml
+toolsets:
+  production_monitoring:
+    title: "Production Monitoring"
+    description: "Production system monitoring (read-only)"
+    tools:
+      - prod_system_health
+      - prod_performance_metrics
+      - prod_job_status
+      - prod_error_logs
+
+  development_utilities:
+    title: "Development Utilities"
+    description: "Development and testing tools (write-enabled)"
+    tools:
+      - dev_create_test_data
+      - dev_reset_environment
+      - dev_debug_trace
+      - dev_schema_compare
+```
+
+---
+
+## Selective Loading
+
+Control which toolsets are loaded at server startup:
+
+### Load All Toolsets
+
+```bash
+# No --toolsets parameter loads everything
+npx ibmi-mcp-server --tools tools/my-tools.yaml
+```
+
+### Load Specific Toolsets
+
+```bash
+# Load single toolset
+npx ibmi-mcp-server --tools tools/my-tools.yaml --toolsets performance_monitoring
+
+# Load multiple toolsets (comma-separated)
+npx ibmi-mcp-server --tools tools/my-tools.yaml --toolsets performance_monitoring,security_audit
+
+# Load from environment variable
+SELECTED_TOOLSETS=employee_information,payroll_processing
+npx ibmi-mcp-server --tools tools/my-tools.yaml --toolsets $SELECTED_TOOLSETS
+```
+
+### List Available Toolsets
+
+```bash
+# Show all toolsets without starting the server
+npx ibmi-mcp-server --list-toolsets --tools tools/my-tools.yaml
+```
+
+**Output:**
+```
+Available toolsets in tools/my-tools.yaml:
+
+performance_monitoring:
+  Title: Performance Monitoring
+  Description: Tools for monitoring IBM i system performance
+  Tools: system_status, active_job_info, memory_pools (3 tools)
+
+security_audit:
+  Title: Security Audit
+  Description: Security analysis and compliance reporting
+  Tools: user_profile_audit, object_authority_check (2 tools)
+
+employee_information:
+  Title: Employee Information
+  Description: Employee data retrieval and analysis
+  Tools: get_employee_details, find_employees_by_department, search_employees (3 tools)
+```
+
+---
+
+## Multiple File Organization
+
+Structure large tool collections across multiple files with consistent toolsets:
+
+### File Structure
+
+```
+tools/
+├── performance.yaml       # Performance monitoring tools
+├── security.yaml          # Security and audit tools
+├── employee.yaml          # Employee management tools
+└── business.yaml          # Business logic tools
+```
+
+### Consistent Toolsets Across Files
+
+**tools/performance.yaml:**
+```yaml
+sources:
+  ibmi-system:
+    # ... connection config
+
+tools:
+  system_status:
+    # ... tool config
+  active_job_info:
+    # ... tool config
+
+toolsets:
+  performance_monitoring:
+    title: "Performance Monitoring"
+    tools:
+      - system_status
+      - active_job_info
+```
+
+**tools/security.yaml:**
+```yaml
+sources:
+  ibmi-system:
+    # ... connection config
+
+tools:
+  user_audit:
+    # ... tool config
+  authority_check:
+    # ... tool config
+
+toolsets:
+  security_audit:
+    title: "Security Audit"
+    tools:
+      - user_audit
+      - authority_check
+```
+
+**Load all files:**
+```bash
+# Load entire directory
+npx ibmi-mcp-server --tools tools/
+
+# Load directory with specific toolsets
+npx ibmi-mcp-server --tools tools/ --toolsets performance_monitoring,security_audit
+```
+
+---
+
+## Complete Examples
+
+### Example 1: Sample Database Toolsets
+
+```yaml
+tools:
+  get_employee_details:
+    # ... tool config
+  find_employees_by_department:
+    # ... tool config
+  get_employee_projects:
+    # ... tool config
+  find_project_team_members:
+    # ... tool config
+  get_department_salary_stats:
+    # ... tool config
+  calculate_employee_bonus:
+    # ... tool config
+
+toolsets:
+  employee_information:
+    title: "Employee Information"
+    description: "Tools for retrieving and analyzing employee data"
+    tools:
+      - get_employee_details
+      - find_employees_by_department
+      - find_employees_by_job
+      - search_employees
+
+  project_management:
+    title: "Project Management"
+    description: "Tools for managing project assignments and team members"
+    tools:
+      - get_employee_projects
+      - find_project_team_members
+
+  salary_analysis:
+    title: "Salary Analysis"
+    description: "Tools for analyzing salary data across departments"
+    tools:
+      - get_department_salary_stats
+      - calculate_employee_bonus
+```
+
+### Example 2: System Administration Toolsets
+
+```yaml
+toolsets:
+  system_monitoring:
+    title: "System Monitoring"
+    description: "Real-time system health and performance monitoring"
+    tools:
+      - system_status
+      - subsystem_status
+      - active_job_info
+      - memory_pools
+      - http_server_stats
+
+  object_management:
+    title: "Object Management"
+    description: "Database object inspection and analysis"
+    tools:
+      - describe_object
+      - list_services_by_category
+      - search_services_by_name
+      - object_statistics
+      - object_dependencies
+
+  security_management:
+    title: "Security Management"
+    description: "User and authority management tools"
+    tools:
+      - user_profile_info
+      - object_authority_check
+      - library_list_security
+      - audit_trail_analysis
+```
+
+### Example 3: Multi-Environment Toolsets
+
+```yaml
+toolsets:
+  production_readonly:
+    title: "Production Read-Only Tools"
+    description: "Safe monitoring tools for production environment"
+    tools:
+      - prod_system_health
+      - prod_job_status
+      - prod_performance_metrics
+      - prod_error_logs
+
+  development_full:
+    title: "Development Full Access"
+    description: "All development tools including write operations"
+    tools:
+      - dev_system_health
+      - dev_job_status
+      - dev_create_test_data
+      - dev_reset_environment
+      - dev_debug_trace
+
+  testing_validation:
+    title: "Testing Validation Tools"
+    description: "Tools for test execution and validation"
+    tools:
+      - test_data_validation
+      - test_result_comparison
+      - test_coverage_analysis
+```
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Toolset Size" icon="layer-group">
+    **Optimal size:** 3-10 tools per toolset
+
+    - **Too small** (1-2 tools): Defeats the purpose of grouping
+    - **Too large** (20+ tools): Reduces discoverability and increases load time
+    - **Just right** (3-10 tools): Easy to understand and manage
+
+    **Example:**
+    ```yaml
+    # ✅ Good size
+    toolsets:
+      performance_monitoring:
+        tools: [system_status, active_jobs, memory_pools, cpu_usage]
+
+    # ❌ Too small
+    toolsets:
+      single_tool_set:
+        tools: [system_status]
+
+    # ❌ Too large
+    toolsets:
+      everything:
+        tools: [tool1, tool2, ... tool25]
+    ```
+  </Accordion>
+
+  <Accordion title="Naming Consistency" icon="text">
+    **Use consistent naming patterns:**
+
+    - Domain-based: `{domain}_{purpose}` → `security_audit`, `performance_monitoring`
+    - Role-based: `{role}_tools` → `developer_tools`, `dba_tools`
+    - Environment-based: `{env}_{category}` → `prod_monitoring`, `dev_utilities`
+
+    **Be consistent within a project:**
+    ```yaml
+    # ✅ Consistent pattern
+    toolsets:
+      performance_monitoring:
+      security_monitoring:
+      application_monitoring:
+
+    # ❌ Inconsistent
+    toolsets:
+      performance:      # Missing "_monitoring"
+      sec_audit:        # Abbreviated
+      app_mon_tools:    # Different pattern
+    ```
+  </Accordion>
+
+  <Accordion title="Cross-Toolset Tools" icon="arrows-split">
+    **Tools can belong to multiple toolsets:**
+
+    ```yaml
+    tools:
+      system_health:
+        # ... config
+
+    toolsets:
+      production_monitoring:
+        tools:
+          - system_health
+          - prod_metrics
+
+      development_monitoring:
+        tools:
+          - system_health  # Same tool in different toolset
+          - dev_metrics
+    ```
+
+    **Use cases:**
+    - Shared utility tools (logging, health checks)
+    - Cross-domain tools (system information)
+    - Different access levels to same tool
+  </Accordion>
+
+  <Accordion title="Documentation Standards" icon="book">
+    **Always include:**
+    - `title`: Clear, human-readable name
+    - `description`: Purpose and target users
+    - Mention any special requirements (authorities, environments)
+
+    ```yaml
+    toolsets:
+      security_audit:
+        title: "Security Audit Tools"
+        description: "Comprehensive security analysis and audit trail tools for compliance reporting. Requires *AUDIT special authority. Production use only."
+        tools:
+          - user_audit
+          - authority_check
+          - compliance_report
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Environment-Specific Toolset Loading
+
+Use environment variables to control toolset loading across environments:
+
+**Development:**
+```bash
+# .env.development
+SELECTED_TOOLSETS=development_full,testing_validation
+```
+
+**Production:**
+```bash
+# .env.production
+SELECTED_TOOLSETS=production_readonly,system_monitoring
+```
+
+**Start server:**
+```bash
+npx ibmi-mcp-server --tools tools/ --toolsets $SELECTED_TOOLSETS
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sources Reference" icon="database" href="/sql-tools/sources">
+    Configure database connection sources
+  </Card>
+  <Card title="Tools Reference" icon="wrench" href="/sql-tools/tools">
+    Define individual SQL tool operations
+  </Card>
+  <Card title="Building SQL Tools" icon="hammer" href="/sql-tools/building-tools">
+    Step-by-step guide to creating tools and toolsets
+  </Card>
+  <Card title="Tools Overview" icon="book-open" href="/sql-tools/overview">
+    High-level overview of the SQL tools system
+  </Card>
+</CardGroup>
+
+<Note>
+**Toolset Design Philosophy**: Toolsets are organizational constructs that improve discoverability and deployment flexibility. Design toolsets around how tools are **used** (functional domains, business processes, user roles) rather than how they're **built** (database schemas, file structure). Good toolsets help AI agents and humans quickly find the right tool for their task.
+</Note>

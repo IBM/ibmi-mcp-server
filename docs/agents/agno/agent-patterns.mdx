@@ -1,0 +1,645 @@
+---
+title: "Agent Patterns"
+description: "Proven architectural patterns for building specialized IBM i agents with filtered toolsets and domain expertise."
+---
+
+# Agent Patterns for IBM i
+
+This guide presents proven patterns for building specialized IBM i agents using FilteredMCPTools and agno. Each pattern demonstrates a focused approach to solving specific IBM i administrative challenges.
+
+## Specialized Agent Pattern
+
+The core pattern for IBM i agents: **one agent per domain** with filtered tool access.
+
+### Pattern Structure
+
+```python
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+def create_specialized_agent(
+    agent_name: str,
+    toolsets: list[str],
+    instructions: list[str],
+    **kwargs
+) -> Agent:
+    """Factory for creating specialized agents."""
+
+    # Filter tools to specific domain
+    tools = FilteredMCPTools(
+        url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+        transport="streamable-http",
+        annotation_filters={"toolsets": toolsets},
+        debug_filtering=kwargs.get("debug", False)
+    )
+
+    # Create focused agent
+    return Agent(
+        name=agent_name,
+        model=OpenAIChat(id=kwargs.get("model_id", "gpt-4o")),
+        tools=[tools],
+        instructions=instructions,
+        markdown=True,
+        **kwargs
+    )
+```
+
+### When to Use
+
+- ✅ Creating agents for specific IBM i administrative domains
+- ✅ Need clear separation of concerns between different workflows
+- ✅ Want optimal performance with minimal tool sets
+- ✅ Building multi-agent systems with focused expertise
+
+---
+
+## Four Specialized Agents Pattern
+
+The example agents demonstrate four complementary specializations:
+
+<Tabs>
+  <Tab title="Performance Agent">
+    **Domain:** System performance monitoring and resource analysis
+
+    ```python
+    def create_performance_agent(**kwargs) -> Agent:
+        """Agent specialized in IBM i performance monitoring."""
+
+        performance_tools = FilteredMCPTools(
+            url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+            transport="streamable-http",
+            annotation_filters={"toolsets": ["performance"]}
+        )
+
+        return Agent(
+            name="IBM i Performance Monitor",
+            model=OpenAIChat(id=kwargs.get("model_id", "gpt-4o")),
+            tools=[performance_tools],
+            instructions=[
+                "You are a specialized IBM i performance monitoring assistant.",
+                "You have access to comprehensive performance monitoring tools including:",
+                "- System status and activity monitoring",
+                "- Memory pool analysis",
+                "- Temporary storage tracking",
+                "- HTTP server performance metrics",
+                "- Active job analysis and CPU consumption tracking",
+                "",
+                "Always explain technical metrics in business terms.",
+                "Identify performance bottlenecks and recommend specific actions.",
+                "When analyzing performance, consider both current state and trends."
+            ],
+            markdown=True
+        )
+    ```
+
+    **Available Tools:**
+    - `system_status` - Overall system performance metrics
+    - `memory_pools` - Memory pool statistics and utilization
+    - `temp_storage_buckets` - Temporary storage analysis
+    - `system_activity` - System activity levels
+    - `active_job_info` - Active job CPU and resource usage
+    - `http_server_stats` - HTTP server performance
+
+    **Example Interactions:**
+    - "What's the current system performance?"
+    - "Show me memory pool utilization"
+    - "Which jobs are consuming the most CPU?"
+    - "Is the HTTP server experiencing performance issues?"
+  </Tab>
+
+  <Tab title="Discovery Agent">
+    **Domain:** High-level system service discovery and categorization
+
+    ```python
+    def create_sysadmin_discovery_agent(**kwargs) -> Agent:
+        """Agent specialized in discovering IBM i system services."""
+
+        discovery_tools = FilteredMCPTools(
+            url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+            transport="streamable-http",
+            annotation_filters={"toolsets": ["sysadmin_discovery"]}
+        )
+
+        return Agent(
+            name="IBM i SysAdmin Discovery",
+            model=OpenAIChat(id=kwargs.get("model_id", "gpt-4o")),
+            tools=[discovery_tools],
+            instructions=[
+                "You help administrators get high-level overviews and summaries of system components.",
+                "Your discovery tools include:",
+                "- Service category listings and counts",
+                "- Schema-based service summaries",
+                "- SQL object type categorization",
+                "",
+                "Start with broad overviews and help users drill down to specifics.",
+                "Explain the purpose of different service categories.",
+                "Guide users toward browse or search agents for detailed exploration."
+            ],
+            markdown=True
+        )
+    ```
+
+    **Available Tools:**
+    - `list_service_categories` - All service categories with counts
+    - `services_by_schema` - Services grouped by schema (QSYS2, SYSTOOLS, etc.)
+    - `object_type_summary` - Summary by SQL object type (VIEW, PROCEDURE, FUNCTION)
+
+    **Example Interactions:**
+    - "What service categories are available?"
+    - "Show me all services in QSYS2"
+    - "How many views vs procedures exist?"
+  </Tab>
+
+  <Tab title="Browse Agent">
+    **Domain:** Detailed exploration of system services
+
+    ```python
+    def create_sysadmin_browse_agent(**kwargs) -> Agent:
+        """Agent specialized in browsing IBM i system services in detail."""
+
+        browse_tools = FilteredMCPTools(
+            url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+            transport="streamable-http",
+            annotation_filters={"toolsets": ["sysadmin_browse"]}
+        )
+
+        return Agent(
+            name="IBM i SysAdmin Browser",
+            model=OpenAIChat(id=kwargs.get("model_id", "gpt-4o")),
+            tools=[browse_tools],
+            instructions=[
+                "You help administrators explore and examine system services in detail.",
+                "Your browsing tools include:",
+                "- Listing services by specific categories",
+                "- Exploring services within specific schemas (QSYS2, SYSTOOLS, etc.)",
+                "- Filtering services by SQL object type (VIEW, PROCEDURE, FUNCTION, etc.)",
+                "",
+                "Provide detailed information about each service.",
+                "Explain practical use cases for services.",
+                "Suggest related services the user might want to explore."
+            ],
+            markdown=True
+        )
+    ```
+
+    **Available Tools:**
+    - `list_services_by_category` - Services in specific category
+    - `browse_schema` - All services in a schema
+    - `services_by_type` - Filter by object type (VIEW, PROCEDURE, etc.)
+    - `service_details` - Detailed metadata for specific services
+
+    **Example Interactions:**
+    - "Show me all job-related services"
+    - "List procedures in QSYS2"
+    - "What services are in the performance category?"
+  </Tab>
+
+  <Tab title="Search Agent">
+    **Domain:** Finding specific services and usage examples
+
+    ```python
+    def create_sysadmin_search_agent(**kwargs) -> Agent:
+        """Agent specialized in searching for IBM i system services."""
+
+        search_tools = FilteredMCPTools(
+            url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+            transport="streamable-http",
+            annotation_filters={"toolsets": ["sysadmin_search"]}
+        )
+
+        return Agent(
+            name="IBM i SysAdmin Search",
+            model=OpenAIChat(id=kwargs.get("model_id", "gpt-4o")),
+            tools=[search_tools],
+            instructions=[
+                "You help administrators find specific services, examples, and usage information.",
+                "Your search capabilities include:",
+                "- Case-insensitive service name searching",
+                "- Locating services across all schemas",
+                "- Searching example code and usage patterns",
+                "",
+                "Provide exact service names and schemas for found results.",
+                "Include example SQL code when available.",
+                "Suggest similar or related services."
+            ],
+            markdown=True
+        )
+    ```
+
+    **Available Tools:**
+    - `search_services_by_name` - Case-insensitive name search
+    - `find_service` - Locate specific service across schemas
+    - `find_example_code` - Search for usage examples
+    - `search_by_keyword` - Keyword search in descriptions
+
+    **Example Interactions:**
+    - "Find services related to 'job' in their name"
+    - "Search for memory-related services"
+    - "Show me example code for ACTIVE_JOB_INFO"
+  </Tab>
+</Tabs>
+
+---
+
+## Multi-Agent Operating System Pattern
+
+Deploy multiple specialized agents together using agno's AgentOS:
+
+### Pattern Implementation
+
+```python
+from agno.agentos import AgentOS
+
+# Create multi-agent system
+agent_os = AgentOS(
+    os_id="ibmi-multi-agent-os",
+    description="IBM i Multi-Agent System with Specialized Toolsets",
+    agents=[
+        create_performance_agent(debug_filtering=True),
+        create_sysadmin_discovery_agent(debug_filtering=True),
+        create_sysadmin_browse_agent(debug_filtering=True),
+        create_sysadmin_search_agent(debug_filtering=True)
+    ]
+)
+
+# Serve web interface
+agent_os.serve(app="ibmi_agentos:app", reload=True)
+# Access at http://localhost:7777
+```
+
+### Benefits
+
+<CardGroup cols={2}>
+  <Card title="Domain Expertise" icon="graduation-cap">
+    Each agent specializes in specific IBM i domains with deep knowledge
+  </Card>
+  <Card title="Focused Tools" icon="bullseye">
+    Agents only see relevant tools, improving accuracy and performance
+  </Card>
+  <Card title="Parallel Operations" icon="users">
+    Users can interact with different agents simultaneously
+  </Card>
+  <Card title="Modular Development" icon="cubes">
+    Easy to add new specialized agents for emerging needs
+  </Card>
+</CardGroup>
+
+### When to Use
+
+- ✅ Building comprehensive IBM i administrative platform
+- ✅ Supporting multiple user workflows simultaneously
+- ✅ Need clear agent selection for different tasks
+- ✅ Want to scale by adding new specialized agents
+
+---
+
+## Factory Pattern for Agent Creation
+
+Centralize agent configuration with factory functions:
+
+### Pattern Implementation
+
+```python
+from typing import Dict, Callable
+from agno.agent import Agent
+
+# Registry of available agent types
+AVAILABLE_AGENTS: Dict[str, Callable] = {
+    "performance": create_performance_agent,
+    "discovery": create_sysadmin_discovery_agent,
+    "browse": create_sysadmin_browse_agent,
+    "search": create_sysadmin_search_agent,
+}
+
+def create_agent(agent_type: str, **kwargs) -> Agent:
+    """
+    Create an agent of the specified type with consistent configuration.
+
+    Args:
+        agent_type: One of: performance, discovery, browse, search
+        **kwargs: Additional configuration (model_id, mcp_url, debug_filtering, etc.)
+
+    Returns:
+        Configured Agent instance
+
+    Raises:
+        ValueError: If agent_type is not recognized
+    """
+    if agent_type not in AVAILABLE_AGENTS:
+        available = ", ".join(AVAILABLE_AGENTS.keys())
+        raise ValueError(
+            f"Unknown agent type '{agent_type}'. "
+            f"Available types: {available}"
+        )
+
+    return AVAILABLE_AGENTS[agent_type](**kwargs)
+
+# Usage examples
+performance_agent = create_agent("performance", debug_filtering=True)
+discovery_agent = create_agent("discovery", model_id="gpt-3.5-turbo")
+browse_agent = create_agent("browse", mcp_url="http://prod-server:3010/mcp")
+```
+
+### Benefits
+
+- **Consistent configuration** - All agents created with same defaults
+- **Easy testing** - Swap models or servers for different environments
+- **Type safety** - Centralized validation of agent types
+- **Extensibility** - Add new agents by updating registry
+
+---
+
+## Workflow-Specific Agent Pattern
+
+Create agents for specific IBM i workflows:
+
+### Example: Database Performance Analysis Workflow
+
+```python
+def create_db_performance_agent(**kwargs) -> Agent:
+    """Agent for database performance analysis workflow."""
+
+    # Combine performance and discovery for comprehensive analysis
+    tools = FilteredMCPTools(
+        url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+        annotation_filters={
+            "toolsets": ["performance", "sysadmin_discovery"],
+            "readOnlyHint": True  # Safe, read-only workflow
+        }
+    )
+
+    return Agent(
+        name="Database Performance Analyst",
+        tools=[tools],
+        instructions=[
+            "You analyze IBM i database performance issues using a structured workflow:",
+            "",
+            "1. **Baseline Assessment**:",
+            "   - Check overall system performance (CPU, memory, I/O)",
+            "   - Identify active database jobs and resource usage",
+            "",
+            "2. **Service Discovery**:",
+            "   - Identify relevant database monitoring services",
+            "   - Locate performance-related system services",
+            "",
+            "3. **Detailed Analysis**:",
+            "   - Analyze specific performance metrics",
+            "   - Identify bottlenecks and resource constraints",
+            "",
+            "4. **Recommendations**:",
+            "   - Suggest specific tuning actions",
+            "   - Recommend further investigation areas",
+            "",
+            "Always explain findings in terms of business impact.",
+            "Prioritize recommendations by potential performance gain."
+        ],
+        markdown=True
+    )
+```
+
+### Example: Security Audit Workflow
+
+```python
+def create_security_audit_agent(**kwargs) -> Agent:
+    """Agent for security compliance auditing workflow."""
+
+    # Read-only tools only for audit safety
+    tools = FilteredMCPTools(
+        url=kwargs.get("mcp_url", "http://localhost:3010/mcp"),
+        annotation_filters={
+            "toolsets": ["sysadmin_discovery", "sysadmin_browse"],
+            "readOnlyHint": True,
+            "destructiveHint": False
+        }
+    )
+
+    return Agent(
+        name="Security Compliance Auditor",
+        tools=[tools],
+        instructions=[
+            "You perform IBM i security compliance audits following this workflow:",
+            "",
+            "1. **Service Inventory**:",
+            "   - Catalog available security-related services",
+            "   - Identify authority checking capabilities",
+            "",
+            "2. **Configuration Review**:",
+            "   - Check system value configurations",
+            "   - Review object authorities",
+            "",
+            "3. **Compliance Checks**:",
+            "   - Verify against security baselines",
+            "   - Identify non-compliant configurations",
+            "",
+            "4. **Reporting**:",
+            "   - Document findings with severity levels",
+            "   - Recommend remediation actions",
+            "",
+            "IMPORTANT: You are READ-ONLY. Never attempt to modify configurations.",
+            "All recommendations must be reviewed and implemented by administrators."
+        ],
+        markdown=True,
+        enable_agentic_memory=True  # Remember audit history
+    )
+```
+
+---
+
+## Persistent Memory Pattern
+
+Enable agents to remember context across sessions:
+
+### Pattern Implementation
+
+```python
+from agno.storage import SqliteDb
+
+def create_memory_enabled_agent(agent_type: str, **kwargs) -> Agent:
+    """Create agent with persistent memory storage."""
+
+    # Configure database storage
+    db = SqliteDb(
+        db_file=f"tmp/ibmi_{agent_type}_agent.db",
+        memory_table=f"ibmi_{agent_type}_memory",
+        session_table=f"ibmi_{agent_type}_sessions",
+        metrics_table=f"ibmi_{agent_type}_metrics",
+        eval_table=f"ibmi_{agent_type}_evals",
+        knowledge_table=f"ibmi_{agent_type}_knowledge"
+    )
+
+    # Get base agent
+    agent = create_agent(agent_type, **kwargs)
+
+    # Add memory capabilities
+    agent.db = db
+    agent.enable_agentic_memory = True      # Remember conversation context
+    agent.enable_user_memories = True        # Remember user preferences
+    agent.search_knowledge = True            # Search previous interactions
+    agent.add_history_to_context = True      # Include conversation history
+    agent.read_chat_history = True           # Read past conversations
+
+    return agent
+
+# Usage
+performance_agent = create_memory_enabled_agent("performance")
+# Agent remembers previous performance discussions and patterns
+```
+
+### When to Use
+
+- ✅ Agents need to learn user preferences over time
+- ✅ Historical context improves recommendations
+- ✅ Building long-running monitoring agents
+- ✅ Supporting repeated administrative workflows
+
+---
+
+## Testing Pattern with Evaluations
+
+Systematically test agent reliability:
+
+### Pattern Implementation
+
+```python
+from agno.evals import Eval
+from agno.evals.metrics import SimpleMatchMetric
+from typing import List
+
+def performance_agent_reliability_evals() -> List[Eval]:
+    """Evaluation suite for testing performance agent reliability."""
+
+    return [
+        Eval(
+            id="performance_basic_queries",
+            description="Test basic performance monitoring queries",
+            test_cases=[
+                {
+                    "input": "What is the current system status?",
+                    "expected": "system_status",  # Expected tool
+                },
+                {
+                    "input": "Show me memory pool information",
+                    "expected": "memory_pools"
+                },
+                {
+                    "input": "Which jobs are using the most CPU?",
+                    "expected": "active_job_info"
+                }
+            ],
+            metric=SimpleMatchMetric()
+        ),
+        Eval(
+            id="performance_analysis_workflow",
+            description="Test multi-step performance analysis",
+            test_cases=[
+                {
+                    "input": "Perform a complete system performance analysis",
+                    "expected": ["system_status", "memory_pools", "active_job_info"]
+                }
+            ],
+            metric=SimpleMatchMetric()
+        )
+    ]
+
+# Run evaluations
+agent = create_agent("performance")
+evals = performance_agent_reliability_evals()
+for eval in evals:
+    results = agent.run_eval(eval)
+    print(f"{eval.id}: {results.score}")
+```
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="One Domain, One Agent" icon="bullseye">
+    **Keep agents focused on single domains:**
+
+    ✅ Good:
+    - Performance Agent (performance monitoring only)
+    - Discovery Agent (service discovery only)
+
+    ❌ Avoid:
+    - General IBM i Agent (tries to do everything)
+    - Mixed-purpose agents with unrelated toolsets
+  </Accordion>
+
+  <Accordion title="Clear Instructions" icon="book-open">
+    **Write detailed, structured instructions:**
+
+    ```python
+    instructions=[
+        "You are a specialized [domain] assistant.",
+        "",
+        "Your capabilities:",
+        "- Specific capability 1",
+        "- Specific capability 2",
+        "",
+        "Workflow:",
+        "1. First step",
+        "2. Second step",
+        "",
+        "Always explain results in business terms.",
+        "Recommend specific actions."
+    ]
+    ```
+  </Accordion>
+
+  <Accordion title="Appropriate Model Selection" icon="microchip">
+    **Match model to task complexity:**
+
+    ```python
+    # Routine monitoring - fast and cheap
+    routine_agent = Agent(
+        model=OpenAIChat(id="gpt-3.5-turbo"),
+        tools=[simple_tools]
+    )
+
+    # Complex analysis - more capable
+    analyst_agent = Agent(
+        model=OpenAIChat(id="gpt-4o"),
+        tools=[advanced_tools]
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Security Layering" icon="shield">
+    **Combine multiple security approaches:**
+
+    ```python
+    secure_tools = FilteredMCPTools(
+        annotation_filters={
+            "toolsets": ["performance"],     # Domain limit
+            "readOnlyHint": True,             # Read-only only
+            "destructiveHint": False          # No destructive ops
+        }
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Advanced Configuration" icon="cog" href="/agents/agno/advanced-config">
+    Memory, debugging, evaluation frameworks, and production deployment
+  </Card>
+  <Card title="Security Guide" icon="shield" href="/agents/security">
+    Production security best practices for IBM i agents
+  </Card>
+  <Card title="Build Custom Tools" icon="hammer" href="/sql-tools/building-tools">
+    Create specialized SQL tools for your agent domains
+  </Card>
+  <Card title="FilteredMCPTools Reference" icon="filter" href="/agents/agno/filtered-mcp-tools">
+    Deep dive into annotation-based filtering
+  </Card>
+</CardGroup>
+
+<Note>
+**Pattern Selection**: Start with the **Specialized Agent Pattern** for single-purpose agents, then graduate to **Multi-Agent OS Pattern** when you need multiple agents working together. Use **Factory Pattern** for consistency and **Persistent Memory Pattern** when agents benefit from historical context.
+</Note>
