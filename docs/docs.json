@@ -8,7 +8,7 @@
     "light": "#4285F4",
     "dark": "#1e3a8a"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "",
   "navigation": {
     "tabs": [
       {
@@ -31,18 +31,6 @@
             ]
           },
           {
-            "group": "Client Integration",
-            "pages": [
-              "clients/overview",
-              "clients/claude-desktop",
-              "clients/claude-code",
-              "clients/vscode",
-              "clients/cursor",
-              "clients/gemini-cli",
-              "clients/cline"
-            ]
-          },
-          {
             "group": "SQL Tools System",
             "pages": [
               "sql-tools/overview",
@@ -61,6 +49,23 @@
           {
             "group": "Deployment",
             "pages": [
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "MCP Client Integrations",
+        "groups": [
+          {
+            "group": "Client Setup",
+            "pages": [
+              "clients/overview",
+              "clients/claude-desktop",
+              "clients/claude-code",
+              "clients/vscode",
+              "clients/cursor",
+              "clients/gemini-cli",
+              "clients/cline"
             ]
           }
         ]
@@ -113,7 +118,7 @@
     "primary": {
       "type": "button",
       "label": "Get Started",
-      "href": "https://docs.ibmi-mcp-server.com/quickstart"
+      "href": "https://ibm-d95bab6e.mintlify.app/quickstart"
     }
   },
   "contextual": {

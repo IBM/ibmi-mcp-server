@@ -3,80 +3,145 @@ title: "Server Architecture"
 description: "Understand how the IBM i MCP Server transforms SQL queries into AI-accessible tools and integrates with IBM i systems."
 ---
 
-# Server Architecture
+The IBM i MCP Server transforms your existing SQL interface into AI-accessible tools using a standardized protocol. Instead of building new APIs or data pipelines, this server exposes IBM i's rich database services directly to AI agents through the SQL interface you already use.
 
-The IBM i MCP Server is a bridge that connects AI agents to your IBM i database operations. This guide explains what an MCP server is, how it works, and why using SQL as tools is powerful for IBM i environments.
+![alt text](../images/sql-interface.png)
 
 <Info>
-**Simple Concept**: AI agents need tools to do useful work. This MCP server turns your SQL queries into tools that AI agents can discover and use—while maintaining IBM i security and performance standards.
+**Core Innovation**: IBM i already has powerful SQL services (QSYS2, Db2 for i, stored procedures). The MCP server doesn't replace these—it makes them accessible to AI agents through a standardized protocol. No new infrastructure, no data duplication, just a bridge between AI and your existing IBM i capabilities.
 </Info>
+
+**Key Benefits:**
+- ✅ **Zero New Infrastructure**: Uses IBM i's existing SQL interface—no middleware, no ETL
+- ✅ **Standardized Protocol**: MCP is universal—works with Claude, VSCode, Cursor, and 10+ AI clients
+- ✅ **IBM i Native**: Leverages QSYS2 services, Db2 optimization, and existing security model
+- ✅ **Data Stays Put**: AI queries run against live data—no copies, no sync, no staleness
+
+---
+
+## The Architecture in One Picture
+
+```mermaid
+graph TB
+    subgraph clients["AI Clients"]
+        direction LR
+    end
+
+    subgraph mcp["IBM i MCP Server<br/>"]
+        direction TB
+        register["📋 Register SQL tools from YAML"]
+        validate["✓ Validate parameters & security"]
+        format["📊 Format responses for AI"]
+    end
+
+    subgraph ibmi["IBM i<br/>"]
+        direction TB
+        db2["✓ Db2 for i"]
+        qsys2["✓ QSYS2 Services"]
+        security["✓ Security Model"]
+        sprocs["✓ Stored Procedures"]
+    end
+
+    clients -->|MCP Protocol<br/>| mcp
+    mcp -->|SQL Queries<br/>| ibmi
+
+    style clients fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
+    style mcp fill:#fff3e0,stroke:#f57c00,stroke-width:3px,color:#000
+    style ibmi fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#000
+
+    style register fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+    style validate fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+    style format fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+
+    style db2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style qsys2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style security fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style sprocs fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+```
+
+<CardGroup cols={2}>
+  <Card title="What's New" icon="plus">
+    **MCP Server** (middle layer) and **YAML tool definitions**
+
+    This is the only new infrastructure you deploy
+  </Card>
+  <Card title="What's Reused" icon="recycle">
+    **Everything else**: SQL interface, Db2, QSYS2, security, stored procedures
+
+    All your existing IBM i capabilities
+  </Card>
+</CardGroup>
 
 ---
 
 ## What is an MCP Server?
 
-An **MCP server** is a specialized application that:
+An **MCP (Model Context Protocol) server** is a standardized interface that connects AI agents to external systems. Instead of building custom integrations for each AI platform, MCP provides a universal protocol that works across Claude, VSCode, Cursor, and other AI tools.
 
-1. **Registers tools** that AI agents can discover and use
-2. **Validates requests** to ensure security and correctness
-3. **Executes operations** safely against your systems
-4. **Returns structured results** that AI agents can understand
+**The MCP server handles four responsibilities:**
 
-Think of it as a secure API layer specifically designed for AI agents, with built-in capabilities for discovery, validation, and structured responses.
+1. **Tool Registration** - Advertises available operations to AI agents
+2. **Request Validation** - Ensures parameters are correct and safe
+3. **Execution** - Runs operations against your systems
+4. **Response Formatting** - Returns structured results AI agents understand
 
-<Tabs>
-  <Tab title="Traditional API">
-    **Traditional REST API:**
-    ```
-    AI Agent → Custom Integration Code → HTTP Endpoint → Database
-    ```
-    - Each AI tool needs custom integration
-    - No standardized discovery mechanism
-    - Security varies by implementation
-  </Tab>
-
-  <Tab title="MCP Server">
-    **With MCP Server:**
-    ```
-    AI Agent → MCP Protocol → MCP Server → Database
-    ```
-    - Universal protocol understood by all MCP clients
-    - Built-in tool discovery
-    - Consistent security and validation
-  </Tab>
-</Tabs>
+Think of it as translating between "AI language" (tool calls, structured data) and "IBM i language" (SQL queries, result sets).
 
 ---
 
-## SQL as MCP Tools: The Core Concept
+## SQL as MCP Tools: Exposing IBM i's Existing Capabilities
 
-The IBM i MCP Server's key innovation is **transforming SQL queries into MCP tools** that AI agents can use. This approach is ideal for IBM i because:
+**The key insight**: IBM i already has everything AI agents need—DB2 for i, QSYS2 system services, performance views, security tables. The MCP server simply makes these **existing SQL interfaces** accessible to AI through standardized tool definitions.
+
+### Why SQL is Perfect for IBM i AI Tools
+
+IBM i's SQL interface is uniquely powerful because it provides:
 
 <CardGroup cols={2}>
-  <Card title="Zero Code Required" icon="magic">
-    Define tools in simple YAML files—no TypeScript or programming knowledge needed
+  <Card title="QSYS2 System Services" icon="server">
+    **Already on your system**: 500+ views and functions for monitoring jobs, performance, security, and system health—no installation required
   </Card>
-  <Card title="IBM i Native" icon="database">
-    Leverage DB2 for i, QSYS2 services, and stored procedures directly
+  <Card title="Db2 for i Optimization" icon="gauge-high">
+    **Production-ready performance**: Query optimizer, connection pooling, result caching all work out of the box
   </Card>
-  <Card title="Security Built-In" icon="shield-check">
-    SQL parameter binding prevents injection attacks automatically
+  <Card title="Native Security Model" icon="shield-check">
+    **Built-in authority checking**: Object-level permissions, special authorities, and audit trails just work
   </Card>
-  <Card title="Rapid Development" icon="rocket">
-    Create new tools in minutes, not hours or days
+  <Card title="Stored Procedures" icon="code">
+    **Existing business logic**: Call RPG, COBOL, or CL programs through SQL—no rewrites needed
   </Card>
 </CardGroup>
 
-### Example: SQL Query → MCP Tool
+**The MCP server's job**: Turn these SQL capabilities into discoverable tools that AI agents can use.
 
-Here's how a simple SQL query becomes an AI-usable tool:
+<Tip>
+**You're not building new infrastructure**—you're exposing what's already there. A SQL query that checks system status becomes a tool AI agents can discover and call. No REST endpoints to maintain, no data to sync, no middleware to deploy.
+</Tip>
+
+### Example: Exposing QSYS2 Services to AI
+
+Let's see how an **existing IBM i service** becomes an AI tool. No new infrastructure—just a YAML definition that exposes what's already there.
+
+**Step 1: The SQL Service (Already Exists on IBM i)**
+
+```sql
+-- QSYS2.ACTIVE_JOB_INFO is a built-in IBM i service
+-- It's already running, already optimized, already secured
+SELECT job_name, user_name, cpu_used, elapsed_time
+FROM qsys2.active_job_info
+WHERE job_status = 'ACTIVE'
+ORDER BY cpu_used DESC
+FETCH FIRST 20 ROWS ONLY
+```
+
+**Step 2: Make It an MCP Tool (YAML Definition)**
 
 ```yaml
-# YAML Configuration (tools/my-tools.yaml)
+# tools/system-monitoring.yaml
 tools:
   get_active_jobs:
     source: ibmi-system
-    description: "List currently active jobs with CPU usage"
+    description: "List currently active jobs with CPU usage from QSYS2.ACTIVE_JOB_INFO"
     statement: |
       SELECT job_name, user_name, cpu_used, elapsed_time
       FROM qsys2.active_job_info
@@ -86,20 +151,14 @@ tools:
     parameters: []
 ```
 
-**What the MCP server does:**
+**Step 3: AI Agents Discover It Automatically**
 
-1. ✅ **Reads** the YAML configuration at startup
-2. ✅ **Registers** `get_active_jobs` as an available tool
-3. ✅ **Validates** incoming requests against the schema
-4. ✅ **Executes** SQL safely with parameter binding
-5. ✅ **Formats** results as structured JSON for the AI agent
-
-**What AI agents see:**
+When the server starts, it registers this tool. AI agents see:
 
 ```json
 {
   "name": "get_active_jobs",
-  "description": "List currently active jobs with CPU usage",
+  "description": "List currently active jobs with CPU usage from QSYS2.ACTIVE_JOB_INFO",
   "inputSchema": {
     "type": "object",
     "properties": {},
@@ -108,7 +167,38 @@ tools:
 }
 ```
 
-The AI agent can now discover this tool, understand what it does, and call it naturally during conversations.
+**Step 4: AI Agents Use It Naturally**
+
+```
+User: "Show me the top CPU-consuming jobs"
+
+AI Agent: [Calls get_active_jobs tool]
+
+Result:
+{
+  "rows": [
+    {
+      "JOB_NAME": "QZDASOINIT",
+      "USER_NAME": "QTCP",
+      "CPU_USED": 45231,
+      "ELAPSED_TIME": 3600000
+    },
+    {
+      "JOB_NAME": "QSYSARB",
+      "USER_NAME": "QSYS",
+      "CPU_USED": 12450,
+      "ELAPSED_TIME": 86400000
+    }
+  ],
+  "rowCount": 2
+}
+
+AI: "The QZDASOINIT job under QTCP is using the most CPU at 45,231 milliseconds..."
+```
+
+<Note>
+**What just happened**: You exposed an existing IBM i service (QSYS2.ACTIVE_JOB_INFO) to AI agents using a simple YAML file. The SQL service was already there, already secured, already optimized. The MCP server just made it discoverable and callable through a standardized protocol.
+</Note>
 
 ---
 
@@ -122,7 +212,7 @@ graph TB
     B -->|Validate Parameters| C{Valid?}
     C -->|No| D[Return Error]
     C -->|Yes| E[Bind Parameters]
-    E -->|Execute SQL| F[DB2 for i]
+    E -->|Execute SQL| F[Db2 for i]
     F -->|Result Set| G[Format Response]
     G -->|Structured Data| A
 
@@ -148,7 +238,7 @@ graph TB
   </Step>
 
   <Step title="Database Execution">
-    SQL executes against DB2 for i using authenticated user's authorities
+    SQL executes against Db2 for i using authenticated user's authorities
   </Step>
 
   <Step title="Result Formatting">
@@ -264,137 +354,6 @@ npx ibmi-mcp-server --tools tools/ --toolsets performance,security
 
 ---
 
-## Repository Structure
-
-Understanding the codebase organization helps you find what you need:
-
-```
-ibmi-mcp-server/
-├── server/              # Core MCP server implementation
-│   ├── src/
-│   │   ├── index.ts              # Entry point
-│   │   ├── mcp-server/
-│   │   │   ├── server.ts         # Server initialization
-│   │   │   └── tools/            # TypeScript tool implementations
-│   │   └── utils/                # Shared utilities
-│   └── package.json
-│
-├── tools/               # YAML SQL tool configurations
-│   ├── sample/          # Demo tools (SAMPLE schema)
-│   ├── performance/     # System monitoring
-│   ├── security/        # Security analysis
-│   ├── sys-admin/       # System administration
-│   └── developer/       # Development tools
-│
-├── agents/              # Example AI agent implementations
-│   └── building-agents.mdx
-│
-├── apps/                # Additional applications
-│   └── docker-compose/  # Container deployment
-│
-└── docs/                # Documentation (you are here)
-```
-
-<Tip>
-**Where to start:**
-- Want to create SQL tools? Look in `tools/`
-- Need to understand server code? Check `server/src/`
-- Building agents? See `agents/`
-- Deploying with Docker? Visit `apps/docker-compose/`
-</Tip>
-
----
-
-## Key Features
-
-The server includes production-ready features for enterprise IBM i environments:
-
-<AccordionGroup>
-  <Accordion title="Parameter Validation" icon="shield-check">
-    **Automatic validation** of all tool inputs:
-    - Type checking (string, integer, float, boolean, array)
-    - Range constraints (min/max values)
-    - Length limits (minLength/maxLength)
-    - Pattern matching (regex validation)
-    - Enum restrictions (fixed value lists)
-
-    Invalid inputs are rejected before SQL execution.
-  </Accordion>
-
-  <Accordion title="SQL Security" icon="lock">
-    **Multiple security layers:**
-    - Parameter binding prevents SQL injection
-    - IBM i authority checking enforced
-    - Audit logging for compliance
-    - Row limits prevent runaway queries
-    - Connection pooling isolates users
-
-    Your IBM i security model remains intact.
-  </Accordion>
-
-  <Accordion title="Result Formatting" icon="table">
-    **Flexible output formats:**
-    - Markdown tables (default, LLM-friendly)
-    - ASCII tables (plain text compatible)
-    - Grid tables (Unicode box-drawing)
-    - Compact tables (minimal spacing)
-    - JSON (programmatic access)
-
-    Configure per-tool for optimal AI consumption.
-  </Accordion>
-
-  <Accordion title="Observability" icon="chart-line">
-    **Production monitoring:**
-    - OpenTelemetry integration (traces, metrics)
-    - Structured JSON logging
-    - Request context tracking
-    - Performance metrics
-    - Error categorization
-
-    Integrate with your existing monitoring systems.
-  </Accordion>
-
-  <Accordion title="Multi-Environment" icon="network-wired">
-    **Flexible deployment:**
-    - Development: STDIO with local config
-    - Staging: HTTP with test database
-    - Production: HTTP with full security
-    - Docker: Container-based deployment
-
-    Environment variables control all settings.
-  </Accordion>
-</AccordionGroup>
-
----
-
-## Why This Architecture Works for IBM i
-
-The SQL-as-tools approach is particularly well-suited for IBM i because:
-
-<CardGroup cols={2}>
-  <Card title="Leverages DB2 Strength" icon="database">
-    IBM i's database is one of its strongest features. SQL tools expose this power directly to AI agents without additional abstraction layers.
-  </Card>
-
-  <Card title="Respects Security Model" icon="shield-alt">
-    SQL executes with the authenticated user's authorities. Object-level security, special authorities, and audit trails all work as designed.
-  </Card>
-
-  <Card title="Uses QSYS2 Services" icon="cog">
-    IBM i's QSYS2 schema provides rich system information. SQL tools make these services immediately available to AI agents for monitoring and analysis.
-  </Card>
-
-  <Card title="Maintains Performance" icon="gauge-high">
-    Connection pooling, row limits, and optimized queries ensure AI workloads don't impact production systems. You control resource usage.
-  </Card>
-</CardGroup>
-
-<Note>
-**Data-in-Place Architecture**: Traditional AI integrations often require copying data out of IBM i (ETL processes, data lakes, etc.). This architecture keeps data where it belongs—in DB2 for i—while making it accessible to AI agents through controlled, secure SQL operations.
-</Note>
-
----
-
 ## Next Steps
 
 <CardGroup cols={2}>
@@ -413,5 +372,5 @@ The SQL-as-tools approach is particularly well-suited for IBM i because:
 </CardGroup>
 
 <Note>
-**Architecture Philosophy**: Keep it simple. SQL queries are something IBM i professionals already understand. By turning these into MCP tools with minimal configuration, we enable rapid development of AI-accessible operations without requiring new programming paradigms or extensive training.
+**Architecture Philosophy**: Leverage what exists. IBM i's SQL interface, QSYS2 services, and Db2 optimization are production-proven. Rather than building new infrastructure, this server exposes these existing capabilities to AI agents through a standardized protocol. You write YAML definitions for SQL you already know—the server handles discovery, validation, and formatting for AI consumption.
 </Note>

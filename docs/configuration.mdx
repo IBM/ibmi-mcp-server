@@ -3,29 +3,80 @@ title: "Configuration Reference"
 description: "Complete guide to configuring the IBM i MCP Server with environment variables, authentication modes, and deployment options."
 ---
 
-# Configuration Reference
-
 The IBM i MCP Server is configured through environment variables that control transport, authentication, logging, and IBM i connection settings. This guide covers all configuration options with examples and best practices.
 
 <Warning>
 Always use a `.env` file for local development and secure environment variable management in production. Never commit sensitive credentials to version control.
 </Warning>
 
+---
+
+## Minimal Working Configuration
+
+**Start here** if you're setting up for the first time. This minimal configuration is sufficient to get the server running:
+
+```bash
+# Required: IBM i Connection
+DB2i_HOST=your-ibmi-system.com
+DB2i_USER=your-username
+DB2i_PASS=your-password
+DB2i_PORT=8076
+
+# Default SQL tools
+TOOLS_YAML_PATH=tools
+
+# Recommended: Basic Server Settings
+MCP_TRANSPORT_TYPE=http
+MCP_HTTP_PORT=3010
+MCP_LOG_LEVEL=info
+```
+
+<Accordion title="What do these variables do?">
+
+| Variable | Purpose | When to Change |
+|----------|---------|----------------|
+| `DB2i_HOST` | IBM i hostname where Mapepire runs | Always set to your IBM i system |
+| `DB2i_USER` | IBM i user profile | Set to your credentials |
+| `DB2i_PASS` | IBM i password | Set to your credentials |
+| `DB2i_PORT` | Mapepire daemon port | Only if you changed Mapepire's default |
+| `TOOLS_YAML_PATH` | Location of SQL tool definitions | Change if using custom tools |
+| `MCP_TRANSPORT_TYPE` | How clients connect (http or stdio) | Use `http` for most cases |
+| `MCP_HTTP_PORT` | Port for HTTP server | Change if 3010 is in use |
+| `MCP_LOG_LEVEL` | Logging detail | Use `debug` for troubleshooting |
+
+</Accordion>
+
+<Info>
+**What's next?** This minimal config gets you started. Add [authentication](#authentication-configuration), [observability](#observability--monitoring), and [SQL tools configuration](#sql-tools-configuration) as your needs grow.
+</Info>
+
+---
+
 ## Quick Setup
 
-Create your configuration file:
+Create your configuration file from the template:
 
 ```bash
 cp .env.example .env
 ```
 
-<Info>
-For a step-by-step walkthrough of basic configuration, see the [Quick Start Guide](/quickstart). For production deployment considerations, refer to the [Production Deployment](/deployment/production) guide.
-</Info>
+Then edit `.env` with your IBM i connection details using the minimal configuration above.
 
-## Core Configuration
+<Tip>
+For a step-by-step walkthrough, see the [Quick Start Guide](/quickstart). For production deployment, refer to the [Production Deployment](/deployment/production) guide.
+</Tip>
+
+---
+
+## Core Server Configuration
+
+Below is the reference for core server configuration options. Each section includes detailed explanations, examples, and guidance on when to use specific settings.
+
+---
 
 ### Server Transport
+
+**How clients connect to your MCP server.** The transport type determines whether clients connect via standard input/output (stdio) for local processes or HTTP for remote/web-based connections. Most production deployments use HTTP transport for flexibility and multi-client support.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -57,6 +108,8 @@ For a step-by-step walkthrough of basic configuration, see the [Quick Start Guid
 
 ### Session Management (HTTP Only)
 
+**Control how HTTP connections maintain state.** Session modes determine whether the server maintains persistent connections (stateful) or treats each request independently (stateless). The `auto` mode intelligently detects client capabilities and chooses the optimal strategy.
+
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
 | `MCP_SESSION_MODE` | Session handling mode | `auto` | `stateless`, `stateful`, `auto` |
@@ -70,7 +123,80 @@ For a step-by-step walkthrough of basic configuration, see the [Quick Start Guid
 
 ## Authentication Configuration
 
-### Authentication Modes
+### Choosing an Authentication Mode
+
+**Which auth mode should you use?** Select based on your deployment scenario:
+
+<AccordionGroup>
+  <Accordion title="Development & Testing → Use 'none'" icon="flask">
+    **No authentication, shared credentials**
+
+    **Benefits:**
+    - Quick setup for local development
+    - Ideal for testing and prototyping
+    - No additional configuration required
+
+    **Limitations:**
+    - **Never use in production environments**
+    - No per-user tracking or authorities
+    - Security risk for networked deployments
+
+    **Setup:** Simply set `MCP_AUTH_MODE=none` in your `.env` file
+  </Accordion>
+
+  <Accordion title="Production with Multiple Users → Use 'ibmi'" icon="users">
+    **Per-user IBM i authentication with RSA encryption**
+
+    **Benefits:**
+    - Each user connects with their own IBM i credentials
+    - Respects individual IBM i object authorities
+    - Full audit trail per user
+    - Enterprise-grade security
+
+    **Requirements:**
+    - RSA keypair generation (public/private keys)
+    - IBM i HTTP authentication endpoints enabled
+    - Per-user credential management
+
+    **Setup:** Requires `IBMI_AUTH_PRIVATE_KEY_PATH`, `IBMI_AUTH_PUBLIC_KEY_PATH`, and `IBMI_HTTP_AUTH_ENABLED=true`
+  </Accordion>
+
+  <Accordion title="Custom SSO / Identity Provider → Use 'oauth'" icon="building">
+    **External OAuth/OIDC authentication**
+
+    **Benefits:**
+    - Integrate with existing enterprise auth systems
+    - Support for SSO (Single Sign-On)
+    - Centralized identity management
+    - Industry-standard OAuth 2.0 / OIDC protocols
+
+    **Requirements:**
+    - OAuth provider configuration (issuer URL, audience)
+    - Token validation infrastructure
+    - External identity provider setup
+
+    **Setup:** Configure `OAUTH_ISSUER_URL` and `OAUTH_AUDIENCE` for your identity provider
+  </Accordion>
+
+  <Accordion title="Custom Token System → Use 'jwt'" icon="key">
+    **JSON Web Token authentication**
+
+    **Benefits:**
+    - Custom authentication logic and workflows
+    - Token-based stateless auth
+    - Flexible integration with existing systems
+    - Control over token generation and validation
+
+    **Requirements:**
+    - You manage token generation and signing
+    - Shared secret key (minimum 32 characters)
+    - Custom token issuance logic
+
+    **Setup:** Set `MCP_AUTH_SECRET_KEY` with a secure secret (min 32 chars)
+  </Accordion>
+</AccordionGroup>
+
+### Authentication Mode Configuration
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
@@ -126,24 +252,157 @@ For a step-by-step walkthrough of basic configuration, see the [Quick Start Guid
 | `IBMI_AUTH_PRIVATE_KEY_PATH` | Path to RSA private key | (none) | `secrets/private.pem` |
 | `IBMI_AUTH_PUBLIC_KEY_PATH` | Path to RSA public key | (none) | `secrets/public.pem` |
 
-<Warning>
-**Security Requirements for IBM i Auth**:
-- Generate RSA keypair: `openssl genpkey -algorithm RSA -out secrets/private.pem -pkeyopt rsa_keygen_bits:2048`
-- Use HTTPS in production (`IBMI_AUTH_ALLOW_HTTP=false`)
-- Secure file permissions on key files
-</Warning>
+### Setting Up RSA Encryption Keys
+
+**IBM i authentication requires RSA keypairs to protect credentials during transmission.** The authentication flow uses RSA and AES encryption to securely exchange IBM i credentials between clients and the server.
+
+<Steps>
+  <Step title="Create Secrets Directory">
+    Create a dedicated directory for storing encryption keys:
+
+    ```bash
+    mkdir -p secrets
+    ```
+
+    <Tip>
+    Store the `secrets/` directory outside of version control. Add it to your `.gitignore` file.
+    </Tip>
+  </Step>
+
+  <Step title="Generate RSA Private Key">
+    Generate a 2048-bit RSA private key:
+
+    ```bash
+    openssl genpkey -algorithm RSA \
+      -out secrets/private.pem \
+      -pkeyopt rsa_keygen_bits:2048
+    ```
+
+    **What this does:**
+    - Creates a new RSA private key with 2048-bit encryption strength
+    - Saves it to `secrets/private.pem`
+    - This key will be used by the server to decrypt credentials sent by clients
+  </Step>
+
+  <Step title="Extract Public Key">
+    Extract the corresponding public key from the private key:
+
+    ```bash
+    openssl rsa -pubout \
+      -in secrets/private.pem \
+      -out secrets/public.pem
+    ```
+
+    **What this does:**
+    - Derives the public key from your private key
+    - Saves it to `secrets/public.pem`
+    - Clients use this public key to encrypt credentials before sending them to the server
+  </Step>
+
+  <Step title="Set Secure File Permissions">
+    Restrict access to your private key:
+
+    ```bash
+    # Make private key readable only by owner
+    chmod 600 secrets/private.pem
+
+    # Public key can be more permissive
+    chmod 644 secrets/public.pem
+    ```
+
+    <Warning>
+    **Critical Security Step**: The private key (`private.pem`) must be protected. Anyone with access to this file can decrypt client credentials.
+    </Warning>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Add the keypair paths to your `.env` file:
+
+    ```bash
+    # IBM i Authentication Keys
+    IBMI_AUTH_KEY_ID=production
+    IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+    IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+    ```
+
+    **Key Configuration:**
+    - `IBMI_AUTH_KEY_ID`: Identifier for this keypair (used for key rotation)
+    - `IBMI_AUTH_PRIVATE_KEY_PATH`: Path to your private key file
+    - `IBMI_AUTH_PUBLIC_KEY_PATH`: Path to your public key file
+  </Step>
+</Steps>
+
+**How the Encryption Works:**
+
+1. **Client requests public key** from server (`/api/v1/auth/public-key`)
+2. **Client generates** a random AES-256-GCM session key
+3. **Client encrypts** IBM i credentials with the session key
+4. **Client encrypts** the session key with the server's RSA public key
+5. **Server decrypts** the session key using its RSA private key
+6. **Server decrypts** the credentials using the session key
+7. **Server authenticates** against IBM i and issues an access token
+
+<Note>
+**Key Rotation**: To rotate keys, generate a new keypair with a different `IBMI_AUTH_KEY_ID`. The server can support multiple keypairs simultaneously, allowing gradual migration without service interruption.
+</Note>
+
+**Security Best Practices:**
+
+<AccordionGroup>
+  <Accordion title="Production Deployment" icon="shield-check">
+    - **Always use HTTPS**: Set `IBMI_AUTH_ALLOW_HTTP=false`
+    - **Rotate keys regularly**: Generate new keypairs every 90-180 days
+    - **Use strong key sizes**: 2048-bit minimum, 4096-bit recommended for high-security environments
+    - **Monitor key access**: Enable file auditing on the `secrets/` directory
+    - **Backup keys securely**: Store encrypted backups in a secrets management system
+  </Accordion>
+
+  <Accordion title="File Permissions" icon="lock">
+    - **Private key**: `chmod 600 secrets/private.pem` (owner read/write only)
+    - **Public key**: `chmod 644 secrets/public.pem` (world-readable is safe)
+    - **Secrets directory**: `chmod 700 secrets/` (owner access only)
+    - **Owner**: Ensure files are owned by the service account running the MCP server
+  </Accordion>
+
+  <Accordion title="Version Control" icon="code-branch">
+    - **Never commit keys**: Add `secrets/` to `.gitignore`
+    - **Never commit `.env`**: Environment files often contain paths to secrets
+    - **Use environment-specific keys**: Different keypairs for dev/staging/production
+    - **Document setup process**: Include key generation in deployment documentation
+  </Accordion>
+
+  <Accordion title="Secrets Management" icon="vault">
+    For production environments, consider using a secrets management system:
+    - **AWS Secrets Manager**: Store keys in encrypted AWS vault
+    - **HashiCorp Vault**: Centralized secrets management with audit logs
+    - **Azure Key Vault**: Microsoft's cloud-based secrets storage
+    - **Kubernetes Secrets**: For containerized deployments
+
+    Update `IBMI_AUTH_PRIVATE_KEY_PATH` to reference the mounted secret location.
+  </Accordion>
+</AccordionGroup>
 
 ## IBM i Database Connection
 
+**Connect to IBM i DB2 for i databases via Mapepire.** These settings configure the connection to your IBM i system through the Mapepire database server. The server uses these credentials to execute SQL tools and access DB2 for i data. All connections are pooled for efficiency and support both shared (development) and per-user (production) authentication modes.
+
 ### Connection Settings
 
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `DB2i_HOST` | IBM i host (Mapepire daemon) | (none) | `my-ibmi-system.company.com` |
-| `DB2i_USER` | IBM i user profile | (none) | `MYUSER` |
-| `DB2i_PASS` | IBM i user password | (none) | `mypassword` |
-| `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` |
-| `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS verification | `true` | `false` |
+| Variable | Description | Default | Example | Security Impact |
+|----------|-------------|---------|---------|-----------------|
+| `DB2i_HOST` | IBM i host (Mapepire daemon) | (none) | `my-ibmi-system.company.com` | Use hostname, not `127.0.0.1` in Docker |
+| `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Shared credentials (dev only) |
+| `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
+| `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Ensure firewall allows this port |
+| `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
+
+<Warning>
+**Security Alert**: `DB2i_IGNORE_UNAUTHORIZED=true` disables TLS certificate verification, making connections vulnerable to man-in-the-middle attacks.
+
+**Use this setting:**
+- ✅ Development with self-signed Mapepire certificates
+- ❌ Production environments (use proper TLS certificates)
+</Warning>
 
 <Tabs>
   <Tab title="Development">
@@ -176,13 +435,15 @@ For a step-by-step walkthrough of basic configuration, see the [Quick Start Guid
 
 ## SQL Tools Configuration
 
-Control how YAML-based SQL tools are loaded and managed. For detailed information on creating SQL tools, see the [SQL Tools Overview](/sql-tools/overview) and [Building SQL Tools](/sql-tools/building-tools) guides.
+**Load and manage YAML-defined SQL tools.** These settings control how the server discovers, loads, and reloads SQL tool definitions from YAML configuration files. You can load tools from individual files, entire directories, or use glob patterns to organize tools into logical groups (toolsets) for different use cases.
+
+For detailed information on creating SQL tools, see the [SQL Tools Overview](/sql-tools/overview) and [Building SQL Tools](/sql-tools/building-tools) guides.
 
 ### YAML Tool Settings
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `TOOLS_YAML_PATH` | Path to YAML tool definitions | (none) | `prebuiltconfigs` |
+| `TOOLS_YAML_PATH` | Path to YAML tool definitions | (none) | `tools` |
 | `SELECTED_TOOLSETS` | Comma-separated toolset names | (none) | `performance,monitoring` |
 | `YAML_AUTO_RELOAD` | Auto-reload tools when files change | `true` | `false` |
 | `YAML_MERGE_ARRAYS` | Merge arrays when combining files | `true` | `true` |
@@ -194,17 +455,17 @@ Control how YAML-based SQL tools are loaded and managed. For detailed informatio
 
 **Single File**:
 ```bash
-TOOLS_YAML_PATH=prebuiltconfigs/system-tools.yaml
+TOOLS_YAML_PATH=tools/system-tools.yaml
 ```
 
 **Directory (loads all .yaml files)**:
 ```bash
-TOOLS_YAML_PATH=prebuiltconfigs
+TOOLS_YAML_PATH=tools
 ```
 
 **Specific Toolsets**:
 ```bash
-TOOLS_YAML_PATH=prebuiltconfigs
+TOOLS_YAML_PATH=tools
 SELECTED_TOOLSETS=performance,security,monitoring
 ```
 
@@ -217,7 +478,11 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 
 ## Observability & Monitoring
 
+**Track server performance, debug issues, and monitor operations.** Observability features help you understand server behavior through logging, distributed tracing (OpenTelemetry), and performance metrics. These settings are crucial for production deployments and troubleshooting.
+
 ### Server Settings
+
+**Basic server identification and environment configuration.** These variables set the server's identity in logs and telemetry data, control the runtime environment, and determine where log files are stored.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -228,12 +493,16 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 
 ### Logging
 
+**Control log output detail and format.** Logging settings determine how verbose the server's diagnostic output is and whether logs are formatted as human-readable text or structured JSON for log aggregation systems.
+
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
 | `MCP_LOG_LEVEL` | Logging verbosity level | `info` | `debug`, `info`, `warn`, `error` |
 | `LOG_FORMAT` | Log output format | `json` | `json`, `text` |
 
 ### OpenTelemetry
+
+**Enable distributed tracing and metrics collection.** OpenTelemetry (OTel) provides enterprise-grade observability by tracking every request through the system, measuring performance, and exporting telemetry data to monitoring platforms like Jaeger, Zipkin, or cloud providers. Essential for production monitoring and performance optimization.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -270,53 +539,17 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 
 ## External Service Integration
 
+**Connect to external AI and LLM services.** These settings configure integration with third-party services like OpenRouter for accessing multiple LLM providers through a unified API. Useful for building AI agents that leverage the MCP server's tools.
+
 ### OpenRouter
+
+**Access multiple LLM providers through OpenRouter.ai.** OpenRouter provides a unified API for accessing models from OpenAI, Anthropic, Google, Meta, and more. Configure your API key and app details to enable LLM-powered agents that use your MCP tools.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `OPENROUTER_API_KEY` | API key for OpenRouter.ai service | (none) | `sk-or-v1-...` |
 | `OPENROUTER_APP_URL` | Application URL for OpenRouter dashboard | `http://localhost:3000` | `https://myapp.com` |
 | `OPENROUTER_APP_NAME` | Application name for OpenRouter identification | Package name | `ibmi-mcp-server` |
-
-### LLM Defaults
-
-Default parameters for LLM requests (applied when not specified in request):
-
-| Variable | Description | Default | Range | Example |
-|----------|-------------|---------|-------|---------|
-| `LLM_DEFAULT_MODEL` | Default model identifier | `google/gemini-2.5-flash` | - | `anthropic/claude-3.5-sonnet` |
-| `LLM_DEFAULT_TEMPERATURE` | Sampling temperature (randomness) | Provider default | 0.0 - 2.0 | `0.7` |
-| `LLM_DEFAULT_TOP_P` | Nucleus sampling threshold | Provider default | 0.0 - 1.0 | `0.9` |
-| `LLM_DEFAULT_MAX_TOKENS` | Maximum tokens in response | Provider default | 1+ | `4000` |
-| `LLM_DEFAULT_TOP_K` | Top-K sampling (candidates) | Provider default | 0+ | `40` |
-| `LLM_DEFAULT_MIN_P` | Minimum probability threshold | Provider default | 0.0 - 1.0 | `0.05` |
-
-<Accordion title="LLM Configuration Examples">
-
-**Basic OpenRouter Setup**:
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_APP_NAME=ibmi-mcp-server
-OPENROUTER_APP_URL=http://localhost:3000
-```
-
-**Deterministic Responses**:
-```bash
-LLM_DEFAULT_MODEL=anthropic/claude-3.5-sonnet
-LLM_DEFAULT_TEMPERATURE=0.0
-LLM_DEFAULT_MAX_TOKENS=4000
-LLM_DEFAULT_TOP_P=1.0
-```
-
-**Balanced Creative Responses**:
-```bash
-LLM_DEFAULT_MODEL=google/gemini-2.5-flash
-LLM_DEFAULT_TEMPERATURE=0.7
-LLM_DEFAULT_TOP_P=0.9
-LLM_DEFAULT_MAX_TOKENS=2000
-```
-
-</Accordion>
 
 ## Environment-Specific Examples
 
@@ -339,7 +572,7 @@ DB2i_PORT=8076
 DB2i_IGNORE_UNAUTHORIZED=true
 
 # Tools
-TOOLS_YAML_PATH=prebuiltconfigs
+TOOLS_YAML_PATH=tools
 YAML_AUTO_RELOAD=true
 
 # Logging
@@ -415,42 +648,6 @@ services:
       - ./secrets:/app/secrets:ro
 ```
 </Accordion>
-
-## Configuration Validation
-
-<CodeGroup>
-```bash Validate Configuration
-# Check configuration without starting server
-npm run validate-config
-
-# List available toolsets
-npm run start:http -- --list-toolsets
-
-# Test connection
-npm run test-connection
-```
-
-```bash Debug Configuration
-# Start with debug logging
-MCP_LOG_LEVEL=debug npm run start:http
-
-# Validate specific toolsets
-npm run start:http -- --toolsets performance --verbose
-```
-</CodeGroup>
-
-## Security Best Practices
-
-<Warning>
-**Production Security Checklist**:
-- ✅ Use HTTPS (`IBMI_AUTH_ALLOW_HTTP=false`)
-- ✅ Secure RSA key files (600 permissions)
-- ✅ Use environment-specific credentials
-- ✅ Enable proper CORS settings
-- ✅ Configure appropriate token expiry
-- ✅ Monitor concurrent sessions
-- ✅ Enable audit logging
-</Warning>
 
 <Tip>
 For additional security considerations and IBM i authority requirements, see the [Authentication](/api/auth-endpoints) and [Production Deployment](/deployment/production) guides.
