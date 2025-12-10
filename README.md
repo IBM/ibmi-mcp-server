@@ -63,32 +63,6 @@ ibmi-mcp-server/
     - [Prerequisites: Local Installation](#prerequisites-local-installation)
     - [Remote Server Setup](#remote-server-setup)
     - [Client Configurations](#client-configurations)
-      - [Option 1: Local Stdio Server (Recommended)](#option-1-local-stdio-server-recommended)
-      - [Option 2: Remote HTTP Server](#option-2-remote-http-server)
-      - [Environment Variable Expansion](#environment-variable-expansion)
-      - [Managing Servers](#managing-servers)
-      - [Local (Stdio)](#local-stdio)
-      - [Remote (HTTP)](#remote-http)
-      - [Configuration File Locations](#configuration-file-locations)
-      - [Option 1: Local Stdio Server](#option-1-local-stdio-server)
-      - [Option 2: Remote HTTP Server](#option-2-remote-http-server-1)
-      - [Secure Credentials with Input Variables](#secure-credentials-with-input-variables)
-      - [Managing Servers](#managing-servers-1)
-      - [Local (Stdio)](#local-stdio-1)
-      - [Remote (HTTP)](#remote-http-1)
-      - [Local (Stdio)](#local-stdio-2)
-      - [Remote (HTTP)](#remote-http-2)
-      - [Local (Stdio)](#local-stdio-3)
-      - [Remote (HTTP)](#remote-http-3)
-      - [Local (Stdio)](#local-stdio-4)
-      - [Remote (HTTP)](#remote-http-4)
-      - [Local (Stdio)](#local-stdio-5)
-      - [Remote (HTTP)](#remote-http-5)
-      - [Local (Stdio)](#local-stdio-6)
-      - [Remote (HTTP)](#remote-http-6)
-      - [Option 1: Manual Configuration](#option-1-manual-configuration)
-      - [Remote (HTTP) with Agno](#remote-http-with-agno)
-      - [Remote (HTTP) with Official MCP SDK](#remote-http-with-official-mcp-sdk)
     - [Troubleshooting](#troubleshooting)
   - [🤖 IBM i Agents](#-ibm-i-agents)
     - [Key Features](#key-features)
@@ -540,7 +514,7 @@ code --add-mcp '{
   "name": "ibmiMcp",
   "type": "stdio",
   "command": "npx",
-  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/prebuiltconfigs"],
+  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
   "env": {
     "DB2i_HOST": "your-ibmi-host.com",
     "DB2i_USER": "your-username",

@@ -26,18 +26,15 @@ pip install ibmi-agent-sdk
 ### Basic Usage - HTTP Transport
 
 ```python
-import asyncio
 from ibmi_agent_sdk.google_adk import load_toolset_tools
 
-async def main():
-    # Load performance monitoring tools
-    toolset = await load_toolset_tools("performance")
-    
-    # Get the tools
-    tools = await toolset.get_tools()
-    print(f"Loaded {len(tools)} tools")
+# Load performance monitoring tools
+toolset = load_toolset_tools("performance")
 
-asyncio.run(main())
+# Get the tools (this is async)
+import asyncio
+tools = asyncio.run(toolset.get_tools())
+print(f"Loaded {len(tools)} tools")
 ```
 
 ### Using Stdio Transport
@@ -45,21 +42,18 @@ asyncio.run(main())
 ```python
 from ibmi_agent_sdk.google_adk import load_toolset_tools
 
-async def main():
-    toolset = await load_toolset_tools(
-        "performance",
-        transport="stdio",
-        command="npx",
-        args=["ibmi-mcp-server"],
-        env={
-            "DB2i_HOST": "your-host.com",
-            "DB2i_USER": "username",
-            "DB2i_PASSWORD": "password",
-            "DB2i_PORT": "8076"
-        }
-    )
-
-asyncio.run(main())
+toolset = load_toolset_tools(
+    "performance",
+    transport="stdio",
+    command="npx",
+    args=["ibmi-mcp-server"],
+    env={
+        "DB2i_HOST": "your-host.com",
+        "DB2i_USER": "username",
+        "DB2i_PASSWORD": "password",
+        "DB2i_PORT": "8076"
+    }
+)
 ```
 
 ## Available Functions
@@ -70,7 +64,7 @@ asyncio.run(main())
 The core function with maximum flexibility:
 
 ```python
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     annotation_filters={"toolsets": ["performance"]},
     transport="streamable_http",  # or "stdio"
     url="http://127.0.0.1:3010/mcp",
@@ -86,38 +80,38 @@ Filter by toolset annotation:
 
 ```python
 # Single toolset
-toolset = await load_toolset_tools("performance")
+toolset = load_toolset_tools("performance")
 
 # Multiple toolsets
-toolset = await load_toolset_tools(["performance", "sys_admin"])
+toolset = load_toolset_tools(["performance", "sys_admin"])
 ```
 
 #### `load_readonly_tools(...)`
 Load only read-only tools:
 
 ```python
-toolset = await load_readonly_tools()
+toolset = load_readonly_tools()
 ```
 
 #### `load_non_destructive_tools(...)`
 Load only non-destructive tools:
 
 ```python
-toolset = await load_non_destructive_tools()
+toolset = load_non_destructive_tools()
 ```
 
 #### `load_closed_world_tools(...)`
 Load only closed-world tools:
 
 ```python
-toolset = await load_closed_world_tools()
+toolset = load_closed_world_tools()
 ```
 
 #### `load_safe_tools(...)`
 Load safe tools (read-only + non-destructive + closed-world):
 
 ```python
-toolset = await load_safe_tools()
+toolset = load_safe_tools()
 ```
 
 ## Filtering
@@ -126,7 +120,7 @@ toolset = await load_safe_tools()
 
 ```python
 # Filter by specific toolsets
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     annotation_filters={"toolsets": ["performance", "sys_admin"]}
 )
 ```
@@ -135,17 +129,17 @@ toolset = await load_filtered_mcp_tools(
 
 ```python
 # Only read-only tools
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     annotation_filters={"readOnlyHint": True}
 )
 
 # Non-destructive tools
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     annotation_filters={"destructiveHint": False}
 )
 
 # Combine multiple filters (AND logic)
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     annotation_filters={
         "toolsets": ["performance"],
         "readOnlyHint": True,
@@ -158,7 +152,7 @@ toolset = await load_filtered_mcp_tools(
 
 ```python
 # Use a custom filter function
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     custom_filter=lambda tool: "system" in tool.name.lower()
 )
 ```
@@ -168,7 +162,7 @@ toolset = await load_filtered_mcp_tools(
 ### HTTP Transport (Default)
 
 ```python
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     transport="streamable_http",
     url="http://127.0.0.1:3010/mcp",
     token="your-bearer-token"  # or set IBMI_MCP_ACCESS_TOKEN env var
@@ -178,7 +172,7 @@ toolset = await load_filtered_mcp_tools(
 ### Stdio Transport
 
 ```python
-toolset = await load_filtered_mcp_tools(
+toolset = load_filtered_mcp_tools(
     transport="stdio",
     command="npx",
     args=["ibmi-mcp-server"],
@@ -197,7 +191,7 @@ toolset = await load_filtered_mcp_tools(
 Enable verbose logging to see filtering details:
 
 ```python
-toolset = await load_toolset_tools(
+toolset = load_toolset_tools(
     "performance",
     debug=True  # Enable verbose output
 )
@@ -257,25 +251,21 @@ import asyncio
 import os
 from ibmi_agent_sdk.google_adk import load_safe_tools
 
-async def main():
-    # Set environment variable for authentication
-    os.environ["IBMI_MCP_ACCESS_TOKEN"] = "your-token"
-    
-    # Load only safe tools (read-only, non-destructive, closed-world)
-    toolset = await load_safe_tools(
-        url="http://127.0.0.1:3010/mcp",
-        debug=True
-    )
-    
-    # Get the tools
-    tools = await toolset.get_tools()
-    
-    print(f"\nLoaded {len(tools)} safe tools:")
-    for tool in tools:
-        print(f"  - {tool.name}: {tool.description}")
+# Set environment variable for authentication
+os.environ["IBMI_MCP_ACCESS_TOKEN"] = "your-token"
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# Load only safe tools (read-only, non-destructive, closed-world)
+toolset = load_safe_tools(
+    url="http://127.0.0.1:3010/mcp",
+    debug=True
+)
+
+# Get the tools (toolset.get_tools() is async, so we need to run it)
+tools = asyncio.run(toolset.get_tools())
+
+print(f"\nLoaded {len(tools)} safe tools:")
+for tool in tools:
+    print(f"  - {tool.name}: {tool.description}")
 ```
 
 ## Environment Variables

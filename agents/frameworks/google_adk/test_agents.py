@@ -30,11 +30,9 @@ logger = logging.getLogger("ibmi_agent_test")
 # Import agent creation functions
 try:
     from src.ibmi_agents.agents.ibmi_agents import (
-        create_performance_agent,
-        create_sysadmin_discovery_agent,
-        create_sysadmin_browse_agent,
-        create_sysadmin_search_agent,
-        chat_with_agent
+        create_agent,
+        chat_with_agent,
+        AVAILABLE_AGENTS
     )
 except ImportError as e:
     logger.error(f"Import error: {str(e)}")
@@ -47,37 +45,32 @@ async def test_agent_creation(agent_type):
     logger.info(f"Testing {agent_type} agent creation...")
     
     try:
-        if agent_type == "performance":
-            agent, toolset = await create_performance_agent()
-        elif agent_type == "sysadmin_discovery":
-            agent, toolset = await create_sysadmin_discovery_agent()
-        elif agent_type == "sysadmin_browse":
-            agent, toolset = await create_sysadmin_browse_agent()
-        elif agent_type == "sysadmin_search":
-            agent, toolset = await create_sysadmin_search_agent()
-        else:
-            logger.error(f"Unknown agent type: {agent_type}")
-            return False
+        # Use the unified create_agent function
+        agent, toolset = create_agent(agent_type)
         
         logger.info(f"✅ Successfully created {agent.name}")
         
         # Clean up toolset
         await toolset.close()
         return True
+    except ValueError as e:
+        logger.error(f"❌ Invalid agent type '{agent_type}': {str(e)}")
+        logger.info(f"Available agent types: {', '.join(AVAILABLE_AGENTS.keys())}")
+        return False
     except Exception as e:
         logger.error(f"❌ Failed to create {agent_type} agent: {str(e)}")
         return False
 
-async def test_chat(query):
-    """Test chatting with a performance agent."""
-    logger.info(f"Testing chat with query: {query}")
+async def test_chat(query, agent_type="performance"):
+    """Test chatting with an agent."""
+    logger.info(f"Testing chat with {agent_type} agent using query: {query}")
     
     try:
-        agent, toolset = await create_performance_agent()
-        logger.info(f"✅ Successfully created agent")
+        agent, toolset = create_agent(agent_type)
+        logger.info(f"✅ Successfully created {agent_type} agent")
         
         logger.info(f"Sending query to agent...")
-        response = await chat_with_agent(agent, query)
+        response = await chat_with_agent(agent, query, agent_type)
         
         logger.info(f"✅ Got response:")
         print("\n" + "="*50)
@@ -93,10 +86,23 @@ async def test_chat(query):
 
 async def main():
     """Main entry point for the test script."""
-    parser = argparse.ArgumentParser(description="Test IBM i agents")
+    parser = argparse.ArgumentParser(
+        description="Test IBM i agents",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Available agent types: {', '.join(AVAILABLE_AGENTS.keys())}
+
+Examples:
+  %(prog)s --test-all
+  %(prog)s --test-agent performance
+  %(prog)s --test-chat "Show me system CPU usage"
+  %(prog)s --test-chat "Check security" --chat-agent security
+        """
+    )
     parser.add_argument("--test-all", action="store_true", help="Test all agent types")
-    parser.add_argument("--test-agent", help="Test a specific agent type (performance, sysadmin_discovery, sysadmin_browse, sysadmin_search)")
+    parser.add_argument("--test-agent", help=f"Test a specific agent type: {', '.join(AVAILABLE_AGENTS.keys())}")
     parser.add_argument("--test-chat", help="Test chatting with a query")
+    parser.add_argument("--chat-agent", default="performance", help="Agent type to use for chat test (default: performance)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     
     args = parser.parse_args()
@@ -118,7 +124,7 @@ async def main():
     
     if args.test_all:
         logger.info("Testing all agent types...")
-        for agent_type in ["performance", "sysadmin_discovery", "sysadmin_browse", "sysadmin_search"]:
+        for agent_type in AVAILABLE_AGENTS.keys():
             if not await test_agent_creation(agent_type):
                 success = False
     
@@ -127,7 +133,7 @@ async def main():
             success = False
     
     if args.test_chat:
-        if not await test_chat(args.test_chat):
+        if not await test_chat(args.test_chat, args.chat_agent):
             success = False
     
     if not (args.test_all or args.test_agent or args.test_chat):

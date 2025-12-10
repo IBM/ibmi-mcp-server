@@ -1,551 +1,409 @@
-# IBM i Agents with Google ADK Framework
+# IBM i MCP Agents: Google ADK
 
-This directory contains the implementation of IBM i agents using the Google ADK framework. These agents provide specialized capabilities for interacting with IBM i systems.
+AI agents for IBM i system administration and monitoring built with Google's Agent Development Kit (ADK) and Model Context Protocol (MCP) tools. This project provides intelligent agents that can analyze IBM i system performance, manage resources, and assist with administrative tasks.
 
-## Quick Start
+## What is this project?
 
-### For Google AI (Simplest - Recommended for Getting Started)
+The IBM i MCP Agents project provides Python-based intelligent agents that leverage MCP tools to perform system administration tasks on IBM i systems using Google's ADK framework.
 
-1. Get an API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Create a `.env` file:
-   ```bash
-   GOOGLE_API_KEY=your_api_key_here
-   IBMI_AGENT_MODEL=gemini-2.0-flash
-   IBMI_MCP_ACCESS_TOKEN=your_mcp_token
-   IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
-   ```
-3. Run: `uv run main.py --agent performance --query "Show me system CPU usage"`
+### Key Features
 
-### For Vertex AI (Enterprise)
+- **Multiple Specialized Agents**: Five purpose-built agents for different IBM i tasks
+- **Multi-Agent Coordination**: Intelligent routing between specialized sub-agents
+- **Multi-Model Support**: Works with Google Gemini, OpenAI, Anthropic, and other providers via LiteLLM
+- **MCP Integration**: Connects to the IBM i MCP Server for system operations
+- **Interactive Web UI**: Built-in ADK Web interface for testing and debugging
+- **Evaluation Framework**: Track and analyze agent performance
 
-1. Set up a [Google Cloud Project](https://console.cloud.google.com/)
-2. Enable [Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com)
-3. Create service account credentials
-4. Configure `.env` with `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, and `GOOGLE_GENAI_USE_VERTEXAI=TRUE`
+### Available Agents
 
-See [detailed setup instructions](#google-cloud--vertex-ai-setup-for-gemini-models) below.
+1. **Performance Agent** - Monitor and analyze system performance metrics (CPU, memory, I/O)
+2. **Security Agent** - Analyze security configurations, vulnerabilities, and compliance
+3. **Discovery Agent** - High-level system discovery, inventory, and service summaries
+4. **Browse Agent** - Detailed exploration of system services by category or schema
+5. **Search Agent** - Find specific services, programs, or system resources
 
-## Available Agents
+## Requirements
 
-- **Performance Agent**: Analyzes IBM i performance metrics and suggests optimizations
-- **System Admin Discovery Agent**: Discovers IBM i services, schemas, and system structure
-- **System Admin Browse Agent**: Explores and navigates IBM i system objects and libraries
-- **System Admin Search Agent**: Searches for specific IBM i objects and provides quick lookups
+- **Python 3.13+** - The project requires Python 3.13 or newer
+- **uv** - Python package manager for installing dependencies ([Install uv](https://astral.sh/uv/))
+- **IBM i MCP Server** - Must be installed and running on your system
+- **API Keys** - For your chosen LLM provider (Google AI, OpenAI, Anthropic, or others)
 
-## Prerequisites
+## Setup Guide
 
-- Python 3.13+
-- Google ADK framework
-- IBM i Agent SDK
-- Access to an IBM i MCP server
+Follow these step-by-step instructions to set up and run the IBM i Google ADK MCP Agents.
 
-## Installation
+### Step 1: Install Prerequisites
 
-### Using uv (Recommended)
-
-[uv](https://docs.astral.sh/uv/) is a fast Python package installer and resolver. It's the recommended way to manage dependencies for this project.
-
-1. Install uv if you haven't already:
-
+**1.1 Install Python 3.13+**
 ```bash
-# On macOS and Linux
+# Check your Python version
+python --version  # or python3 --version
+
+# If you need to install Python 3.13+, visit:
+# https://www.python.org/downloads/
+```
+
+**1.2 Install uv (Python package manager)**
+```bash
+# On macOS and Linux:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# On Windows
+# On Windows (PowerShell):
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Alternative: Install via pip
+pip install uv
 ```
 
-2. Create a virtual environment and install dependencies:
+### Step 2: Set Up the IBM i MCP Server
+
+Ensure you have the IBM i MCP Server installed and running.
+
+> [!NOTE]
+> **Follow the MCP Server installation guide →** [Quickstart Guide](../../../README.md#-quickstart)
+> 
+> **Configure the server →** [Server Configuration Guide](../../../README.md#-configuration)
+
+**2.1 Install dependencies and build the server:**
+```bash
+cd ibmi-mcp-server
+npm install
+npm run build
+```
+
+**2.2 Start the MCP server:**
+```bash
+npx ibmi-mcp-server --transport http --tools ./tools
+```
+
+The server will start on `http://127.0.0.1:3010/mcp` by default.
+
+### Step 3: Configure Environment Variables
+
+Create a `.env` file in the `agents/frameworks/google_adk` directory:
 
 ```bash
-# Navigate to the project directory
 cd agents/frameworks/google_adk
-
-# Create and activate virtual environment with uv
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-uv pip install google-adk ibmi-agent-sdk python-dotenv fastapi
+touch .env
 ```
 
-### Using pip
+**3.1 Choose your model provider:**
 
-Alternatively, you can use pip:
+**Option A: Google AI (Simplest - Recommended)**
 
-```bash
-pip install google-adk ibmi-agent-sdk python-dotenv fastapi
-```
-
-### Environment Setup
-
-#### Basic Configuration
-
-Create a `.env` file in the `agents/frameworks/google_adk` directory with the following variables:
+1. Get an API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Add to your `.env` file:
 
 ```bash
-# IBM i MCP Server Configuration
-IBMI_MCP_ACCESS_TOKEN=your_access_token
-IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
-IBMI_AGENT_LOG_LEVEL=INFO
-```
+# Google AI Configuration
+GOOGLE_API_KEY=your_google_api_key_here
+IBMI_AGENT_MODEL=gemini-2.0-flash-exp
 
-#### Google Cloud / Vertex AI Setup (for Gemini Models)
-
-To use Google's Gemini models, you need to set up either Google AI or Vertex AI. Choose one of the following options:
-
-##### Option 1: Using Google AI (Simpler, API Key Based)
-
-1. **Get a Google API Key**:
-   - Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-   - Sign in with your Google account
-   - Click "Create API Key"
-   - Copy the generated API key
-
-2. **Add to your `.env` file**:
-   ```bash
-   # Google AI Configuration
-   GOOGLE_API_KEY=your_google_api_key_here
-   IBMI_AGENT_MODEL=gemini-2.0-flash
-   ```
-
-##### Option 2: Using Gemini AI (Project-Based)
-
-1. **Create a Google Cloud Project**:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Sign in or create a new Google account
-   - Click on the project selector at the top
-   - Click "New Project"
-   - Enter a project name and click "Create"
-   - Note your project ID (e.g., `my-project-12345`)
-
-2. **Generate an API key**:
-   - Go to [APIs & Services > Credentials](https://console.cloud.google.com/apis/credentials)
-   - Click on "+ Create credentials"
-   - Click on "API key"
-   - Enter a name and configure any restrictions (if required)
-   - Click on "Create" button
-
-3. **Add to your `.env` file**:
-   ```bash
-   # Google AI Configuration
-   GOOGLE_API_KEY=your_google_cloud_api_key_here
-   IBMI_AGENT_MODEL=gemini-2.0-flash
-   ```
-
-4. **Enable the Gemini AI API**:
-   - Go to [APIs & Services > Library](https://console.cloud.google.com/apis/library)
-   - Search for "Gemini API"
-   - Click on "Gemini API"
-   - Click "Enable"
-   - Wait for the API to be enabled (may take a few minutes)
-
-##### Option 3: Using Vertex AI (Enterprise, Project-Based)
-
-1. **Create a Google Cloud Project**:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Sign in or create a new Google account
-   - Click on the project selector at the top
-   - Click "New Project"
-   - Enter a project name and click "Create"
-   - Note your project ID (e.g., `my-project-12345`)
-
-2. **Enable Billing**:
-   - In the Google Cloud Console, go to [Billing](https://console.cloud.google.com/billing)
-   - Link a billing account to your project
-   - Note: Vertex AI requires an active billing account
-
-3. **Enable the Vertex AI API**:
-   - Go to [APIs & Services > Library](https://console.cloud.google.com/apis/library)
-   - Search for "Vertex AI API"
-   - Click on "Vertex AI API"
-   - Click "Enable"
-   - Wait for the API to be enabled (may take a few minutes)
-
-4. **Create Service Account Credentials**:
-   - Go to [IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
-   - Click "Create Service Account"
-   - Enter a name (e.g., `ibmi-agent-service`)
-   - Click "Create and Continue"
-   - Grant the role: "Vertex AI User" (`roles/aiplatform.user`)
-   - Click "Continue" and then "Done"
-   - Click on the created service account
-   - Go to the "Keys" tab
-   - Click "Add Key" > "Create new key"
-   - Choose "JSON" format
-   - Click "Create" - a JSON file will be downloaded
-   - Save this file securely (e.g., `secrets/credentials.json`)
-
-5. **Install Google Cloud CLI** (Optional but recommended):
-   ```bash
-   # macOS
-   curl https://sdk.cloud.google.com | bash
-   exec -l $SHELL
-   
-   # Initialize and authenticate
-   gcloud init
-   gcloud auth application-default login
-   ```
-
-6. **Add to your `.env` file**:
-   ```bash
-   # Vertex AI Configuration
-   GOOGLE_CLOUD_PROJECT=your-project-id
-   GOOGLE_APPLICATION_CREDENTIALS=secrets/credentials.json
-   VERTEX_AI_LOCATION=us-central1
-   GOOGLE_GENAI_USE_VERTEXAI=TRUE
-   IBMI_AGENT_MODEL=gemini-2.0-flash
-   ```
-
-#### Environment Variables Reference
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GOOGLE_CLOUD_PROJECT` | For Vertex AI | - | Your Google Cloud project ID |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Vertex AI | - | Path to service account JSON credentials file |
-| `VERTEX_AI_LOCATION` | No | `us-central1` | Vertex AI region (e.g., `us-central1`, `us-east1`, `europe-west1`) |
-| `GOOGLE_GENAI_USE_VERTEXAI` | No | `FALSE` | Set to `TRUE` to use Vertex AI instead of Google AI |
-| `GOOGLE_API_KEY` | For Google AI | - | Google AI API key (alternative to Vertex AI) |
-| `CHAT_MODEL` | No | - | Alias for `IBMI_AGENT_MODEL` (deprecated, use `IBMI_AGENT_MODEL`) |
-
-#### Supported Gemini Models
-
-- `gemini-2.0-flash` - Fast, efficient model for most tasks
-- `gemini-2.0-pro-exp` - Experimental pro model with enhanced capabilities
-- `gemini-1.5-pro` - Previous generation pro model
-- `gemini-1.5-flash` - Previous generation flash model
-
-#### Complete `.env` Example
-
-```bash
 # IBM i MCP Server
-IBMI_MCP_ACCESS_TOKEN=your_access_token
+IBMI_MCP_ACCESS_TOKEN=your_mcp_token
 IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
+```
 
-# Google Vertex AI (Option 1)
-GOOGLE_CLOUD_PROJECT=my-project-12345
+**Option B: Vertex AI (Enterprise)**
+
+1. Create a [Google Cloud Project](https://console.cloud.google.com/)
+2. Enable [Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com)
+3. Create service account credentials
+4. Add to your `.env` file:
+
+```bash
+# Vertex AI Configuration
+GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_APPLICATION_CREDENTIALS=secrets/credentials.json
 VERTEX_AI_LOCATION=us-central1
 GOOGLE_GENAI_USE_VERTEXAI=TRUE
-IBMI_AGENT_MODEL=gemini-2.0-flash
+IBMI_AGENT_MODEL=gemini-2.0-flash-exp
 
-# OR Google AI (Option 2 & 3 - simpler)
-# GOOGLE_API_KEY=your_google_api_key_here
-# IBMI_AGENT_MODEL=gemini-2.0-flash
-
-# Logging
-IBMI_AGENT_LOG_LEVEL=INFO
+# IBM i MCP Server
+IBMI_MCP_ACCESS_TOKEN=your_mcp_token
+IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
 ```
 
-## Usage
-
-### Command Line Interface
-
-The `main.py` script provides a command-line interface for running the agents.
-
-#### Using uv (Recommended)
+**Option C: OpenAI via LiteLLM**
 
 ```bash
-# Run with uv
-uv run main.py --agent performance --query "Show me system CPU usage"
+# OpenAI Configuration
+OPENAI_API_KEY=your_openai_api_key
+IBMI_AGENT_MODEL=gpt-4o
 
-# Or activate the virtual environment first
+# IBM i MCP Server
+IBMI_MCP_ACCESS_TOKEN=your_mcp_token
+IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
+```
+
+**Option D: Anthropic via LiteLLM**
+
+```bash
+# Anthropic Configuration
+ANTHROPIC_API_KEY=your_anthropic_api_key
+IBMI_AGENT_MODEL=claude-3-5-sonnet-20241022
+
+# IBM i MCP Server
+IBMI_MCP_ACCESS_TOKEN=your_mcp_token
+IBMI_MCP_SERVER_URL=http://127.0.0.1:3010/mcp
+```
+
+### Step 4: Install Dependencies
+
+```bash
+cd agents/frameworks/google_adk
+uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-python main.py --agent performance --query "Show me system CPU usage"
+uv sync
 ```
 
-#### Basic Examples
+### Step 5: Run an Agent
+
+**5.1 Using the ADK Web UI (Recommended):**
 
 ```bash
-# Run a performance agent
-uv run main.py --agent performance --query "Show me system CPU usage"
+cd agents/frameworks/google_adk
+adk web
+```
 
-# Run a system admin discovery agent
-uv run main.py --agent sysadmin_discovery --query "List available schemas"
+This will:
+- Start a local web server
+- Open your browser to the ADK Web UI
+- Load the multi-agent system from `adk_agents/`
 
-# Run a system admin browse agent
-uv run main.py --agent sysadmin_browse --query "Show me objects in QSYS2"
+**5.2 Using the command line:**
 
-# Run a system admin search agent
-uv run main.py --agent sysadmin_search --query "Find all tables with CUSTOMER in the name"
+```bash
+# Run a specific agent with a query
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show me system CPU usage"
 
 # List available agents
-uv run main.py --list-agents
+uv run src/ibmi_agents/agents/ibmi_agents.py --list-agents
 ```
 
-#### Advanced Options
+**5.3 Interact with the agent CLI:**
 
 ```bash
-# Enable verbose output with detailed logging
-uv run main.py --agent performance --query "Show me system CPU usage" --verbose
-
-# Quiet mode - only show final response without logs
-uv run main.py --agent performance --query "Show me system CPU usage" --quiet
-
-# Use a different LLM model
-uv run main.py --agent performance --query "Show me system CPU usage" --model "gpt-4"
-
-# Combine options (note: --verbose and --quiet are mutually exclusive)
-uv run main.py --agent sysadmin_search --query "Find QSYS2" --model "gemini-2.0-flash"
+cd agents/frameworks/google_adk
+adk run adk_agents
 ```
+- Type your questions or requests at the prompt
+- The agent will use IBM i MCP tools to fulfill your requests
+- Type `exit` to end the session
 
-### Programmatic Usage
+## Usage Examples
 
-You can also use the agents programmatically in your Python code:
-
-```python
-import asyncio
-from dotenv import load_dotenv
-from src.ibmi_agents.agents.ibmi_agents import create_performance_agent, chat_with_agent
-
-async def main():
-    # Load environment variables
-    load_dotenv()
-    
-    # Create a performance agent
-    agent = await create_performance_agent()
-    
-    # Chat with the agent
-    response = await chat_with_agent(agent, "Show me system CPU usage")
-    
-    # Print the response
-    print(response)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### Advanced Usage with Google ADK Runner
-
-For more advanced use cases, you can use the Google ADK Runner directly:
-
-```python
-import asyncio
-from dotenv import load_dotenv
-from google.adk.sessions import InMemorySessionService
-from google.adk.runners import Runner
-from google.genai import types
-from src.ibmi_agents.agents.ibmi_agents import create_performance_agent
-
-async def main():
-    # Load environment variables
-    load_dotenv()
-    
-    # Create a session
-    session_service = InMemorySessionService()
-    await session_service.create_session(app_name="my_app", user_id="user123", session_id="session456")
-    
-    # Create an agent
-    agent, toolset = await create_performance_agent()
-    
-    # Create a runner
-    runner = Runner(app_name="my_app", agent=agent, session_service=session_service)
-    
-    # Format the query
-    query = "Show me system CPU usage"
-    content = types.Content(role='user', parts=[types.Part(text=query)])
-    
-    # Run the agent and process events
-    events = runner.run_async(user_id="user123", session_id="session456", new_message=content)
-    async for event in events:
-        if event.is_final_response():
-            final_response = event.content.parts[0].text
-            print(final_response)
-    await toolset.close()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-## Development
-
-### Mock Mode
-
-The agents can run in a mock mode when the required dependencies are not available. This is useful for development and testing without an actual MCP server connection.
-
-### Adding New Agents
-
-To add a new agent:
-
-1. Create a new agent creation function in `src/ibmi_agents/agents/ibmi_agents.py`
-2. Add the agent to the `AVAILABLE_AGENTS` dictionary in `main.py`
-3. Update the documentation to reflect the new agent
-
-## Testing
-
-A test script is provided to verify individual agent implementations.
-
-### Using uv
-
+### Performance Monitoring
 ```bash
-# Test all agent types
-uv run test_agents.py --test-all
-
-# Test a specific agent type
-uv run test_agents.py --test-agent performance
-uv run test_agents.py --test-agent sysadmin_discovery
-uv run test_agents.py --test-agent sysadmin_browse
-uv run test_agents.py --test-agent sysadmin_search
-
-# Test chatting with an agent
-uv run test_agents.py --test-chat "Show me system CPU usage"
-
-# Enable verbose output
-uv run test_agents.py --test-all --verbose
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "What is the current CPU utilization?"
 ```
+Example questions:
+- "Show me system CPU usage"
+- "What are the top 10 CPU consumers?"
+- "Analyze memory pool utilization"
 
-### Using python directly
-
+### Security Analysis
 ```bash
-# Activate virtual environment first
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent security --query "Check system security configuration"
+```
+Example questions:
+- "Analyze system security vulnerabilities"
+- "Check user access controls"
+- "Review security compliance"
 
-# Then run tests
-python test_agents.py --test-all
-python test_agents.py --test-agent performance
-python test_agents.py --test-chat "Show me system CPU usage"
-python test_agents.py --test-all --verbose
+### System Discovery
+```bash
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent discovery --query "List all available schemas"
+```
+Example questions:
+- "Give me an overview of the system services"
+- "What databases are available?"
+- "Show me system categories"
+
+### Detailed Browsing
+```bash
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent browse --query "Navigate to QSYS2 library"
+```
+Example questions:
+- "Show me details about the QSYS library"
+- "Explore the database schemas"
+- "What's in the QTEMP library?"
+
+### System Search
+```bash
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent search --query "Find services related to performance"
+```
+Example questions:
+- "Find all programs named CUST*"
+- "Search for SQL examples with 'CPU'"
+- "Locate file CUSTOMER in any library"
+
+## Advanced Options
+
+### Debug Mode
+Enable verbose output to troubleshoot issues:
+```bash
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show me CPU usage" --verbose
 ```
 
-### What the Tests Cover
+### Quiet Mode
+Only show final response without logs:
+```bash
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show me CPU usage" --quiet
+```
 
-The test script validates:
-- **Agent Creation**: Verifies that each agent type can be instantiated correctly
-- **MCP Connection**: Confirms successful connection to the MCP server
-- **Tool Loading**: Ensures the correct toolset is loaded for each agent
-- **Chat Functionality**: Tests end-to-end query processing with the performance agent
+### Custom Model
+Use a different model:
+```bash
+# Use Gemini 2.5 Flash
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show me CPU usage" --model "gemini-2.5-flash"
 
-Note: The test script focuses on individual agent testing. For multi-agent workflows, see the workflow examples in `src/ibmi_agents/workflows/`.
+# Use OpenAI GPT-4o
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show me CPU usage" --model "gpt-4o"
+
+# Use Anthropic Claude
+uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "Show me CPU usage" --model "claude-3-5-sonnet-20241022"
+```
+
+## Architecture Overview
+
+### How It Works
+
+1. **Agent Selection**: You choose an agent specialized for a specific task (performance, discovery, etc.)
+2. **MCP Connection**: The agent connects to the IBM i MCP Server via HTTP
+3. **Tool Filtering**: Each agent only has access to relevant tools (e.g., performance agent gets performance tools)
+4. **Model Execution**: Gemini model processes requests and generates tool calls
+5. **Multi-Agent Coordination**: The coordinator routes complex queries to appropriate sub-agents
+
+### Supported Models
+
+#### Google Gemini Models
+
+| Model | Description | Best For |
+|-------|-------------|----------|
+| `gemini-3-pro-preview` | Preview of next generation | Advanced capabilities |
+| `gemini-2.5-pro` | State-of-the-art thinking model | Advanced capabilities |
+| `gemini-2.5-flash` | Stable flash model | Production workloads |
+| `gemini-2.0-flash-exp` | Latest experimental flash model | Fast responses, general tasks |
+| `gemini-2.0-pro-exp` | Experimental pro model | Complex reasoning |
+
+#### OpenAI Models and Anthropic Models (via LiteLLM or Vertex AI)
+
+| Model | Description |
+|-------|-------------|
+| `gpt-4o` | Latest GPT-4 Optimized |
+| `claude-3-5-sonnet-20241022` | Latest Claude 3.5 Sonnet |
+
+#### Vertex AI Model Garden
+
+Access additional models through Vertex AI Model Garden:
+- Meta Llama models
+- Mistral models
+- And more
+
+For complete model information, see [Google ADK Models Documentation](https://google.github.io/adk-docs/agents/models/).
+
+## Multi-Agent System
+
+The `adk_agents/` directory contains a sophisticated multi-agent system with a coordinator that intelligently routes queries to specialized sub-agents. See [Multi-Agent System Documentation](./adk_agents/README.md) for details.
 
 ## Troubleshooting
 
 ### IBM i MCP Server Issues
 
-- **Missing IBMI_MCP_ACCESS_TOKEN**: Ensure you have set the access token in your environment variables or .env file
-- **Connection errors**: Verify that the MCP server is running and accessible at the specified URL
-- **Import errors**: Make sure all required dependencies are installed
+**Connection errors:**
+- Verify the MCP server is running: `curl http://127.0.0.1:3010/mcp`
+- Check `IBMI_MCP_ACCESS_TOKEN` is set correctly
+- Ensure the server URL matches your configuration
 
-### Google Cloud / Gemini API Issues
+### Google AI / Vertex AI Issues
 
-#### Authentication Errors
+**API key not valid:**
+- Verify your `GOOGLE_API_KEY` is correct
+- Check the API key is enabled in [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+- Ensure you've enabled the Gemini API
 
-**Error: "API key not valid"**
-- Verify your `GOOGLE_API_KEY` is correct and hasn't expired
-- Check that the API key is enabled in [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-- Ensure you've enabled the Gemini API for your project
+**Permission denied (403):**
+- Verify service account has "Vertex AI User" role
+- Check billing is enabled for your project
+- Ensure Vertex AI API is enabled
 
-**Error: "Could not automatically determine credentials"**
-- For Vertex AI: Ensure `GOOGLE_APPLICATION_CREDENTIALS` points to a valid service account JSON file
-- Check that the file path is correct and the file is readable
-- Verify the service account has the "Vertex AI User" role
-
-**Error: "Permission denied" or "403 Forbidden"**
-- Verify your service account has the correct IAM roles:
-  - `roles/aiplatform.user` (Vertex AI User)
-- Check that billing is enabled for your Google Cloud project
-- Ensure the Vertex AI API is enabled in your project
-
-#### API Configuration Issues
-
-**Error: "API [aiplatform.googleapis.com] not enabled"**
-- Go to [APIs & Services > Library](https://console.cloud.google.com/apis/library)
-- Search for "Vertex AI API" or "Gemini API"
-- Click "Enable" and wait for activation (may take a few minutes)
-
-**Error: "Project not found" or "Invalid project ID"**
-- Verify `GOOGLE_CLOUD_PROJECT` matches your actual project ID (not project name)
-- Check the project ID in [Google Cloud Console](https://console.cloud.google.com/)
-- Ensure you have access to the project
-
-**Error: "Location not supported"**
-- Check that `VERTEX_AI_LOCATION` is a valid region (e.g., `us-central1`, `us-east1`, `europe-west1`)
-- Some models may not be available in all regions
-- Try using `us-central1` as it has the widest model availability
-
-#### Model-Specific Issues
-
-**Error: "Model not found" or "Invalid model name"**
-- Verify the model name in `IBMI_AGENT_MODEL` is correct:
-  - For Google AI: `gemini-2.0-flash`, `gemini-1.5-pro`
-  - For Vertex AI: Same model names work
+**Model not found:**
+- Verify model name in `IBMI_AGENT_MODEL`
 - Check [Google AI Studio](https://aistudio.google.com/) for available models
-- Ensure you're using the correct model naming format
+- For OpenAI/Anthropic: Ensure correct API key is set
+- Try using `gemini-2.0-flash-exp` as a default
 
-**Error: "Quota exceeded" or "Rate limit exceeded"**
-- You've hit API rate limits or quota
-- For Google AI: Check your [quota limits](https://aistudio.google.com/app/apikey)
-- For Vertex AI: Review [quota settings](https://console.cloud.google.com/iam-admin/quotas)
-- Consider upgrading your plan or requesting quota increases
+**Rate limit exceeded (429):**
+- You've hit API rate limits
+- **For Google AI**: Check [quota limits](https://aistudio.google.com/app/apikey)
+- **For Vertex AI**: Review [quota settings](https://console.cloud.google.com/iam-admin/quotas)
+- **For OpenAI**: Check [usage limits](https://platform.openai.com/account/limits)
+- **For Anthropic**: Review [rate limits](https://docs.anthropic.com/claude/reference/rate-limits)
+- **Solutions**:
+  - Wait and retry (rate limits reset over time)
+  - Upgrade your plan for higher limits
+  - Request quota increases from your provider
+  - Switch to a different model or provider
+  - Implement exponential backoff in your code
 
-#### Environment Variable Issues
+**Environment variable not set:**
+- Ensure `.env` file is in `agents/frameworks/google_adk/`
+- Verify variable names are spelled correctly (case-sensitive)
+- Use `--verbose` flag to check if `.env` is being loaded
 
-**Error: "Environment variable not set"**
-- Ensure your `.env` file is in the correct directory (`agents/frameworks/google_adk/`)
-- Verify the `.env` file is being loaded (check with `--verbose` flag)
-- Make sure variable names are spelled correctly (case-sensitive)
+**LiteLLM configuration:**
+- Set `LITELLM_API_KEY` for OpenAI or Anthropic
+- Model names must match provider format:
+  - OpenAI: `gpt-4o`, `gpt-4o-mini`
+  - Anthropic: `claude-3-5-sonnet-20241022`
+- For custom endpoints, see [LiteLLM docs](https://docs.litellm.ai/)
 
-**Switching between Google AI and Vertex AI**
-- To use Google AI (simpler):
-  ```bash
-  GOOGLE_API_KEY=your_key
-  GOOGLE_GENAI_USE_VERTEXAI=FALSE  # or omit this line
-  ```
-- To use Vertex AI (enterprise):
-  ```bash
-  GOOGLE_CLOUD_PROJECT=your-project-id
-  GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
-  GOOGLE_GENAI_USE_VERTEXAI=TRUE
-  ```
+### ADK Web UI Issues
 
-#### Debugging Tips
+**Web UI doesn't load:**
+- Clear browser cache and reload
+- Check browser console for errors (F12 → Console)
+- Ensure `adk web` command is running
+- Verify network connectivity
 
-1. **Enable verbose logging**:
+**Agent not responding:**
+- Check IBM i MCP server is running
+- Verify `IBMI_MCP_ACCESS_TOKEN` is set
+- Review execution traces in the UI
+- Check `.adk/eval_history/` for detailed logs
+
+### Debug Tips
+
+1. **Enable verbose logging:**
    ```bash
-   uv run main.py --agent performance --query "test" --verbose
+   uv run src/ibmi_agents/agents/ibmi_agents.py --agent performance --query "test" --verbose
    ```
 
-2. **Test your Google Cloud setup**:
+2. **Test Google Cloud setup:**
    ```bash
-   # Test gcloud CLI authentication
    gcloud auth application-default print-access-token
-   
-   # Verify project configuration
    gcloud config get-value project
-   
-   # List enabled APIs
-   gcloud services list --enabled
    ```
 
-3. **Verify credentials file**:
+3. **Verify credentials file:**
    ```bash
-   # Check if file exists and is valid JSON
    cat secrets/credentials.json | python -m json.tool
    ```
 
-4. **Test API access directly**:
-   ```python
-   # Test Google AI
-   import google.generativeai as genai
-   genai.configure(api_key="your_api_key")
-   model = genai.GenerativeModel('gemini-2.0-flash')
-   response = model.generate_content("Hello")
-   print(response.text)
-   ```
+For more troubleshooting information, see [Google ADK Troubleshooting](https://google.github.io/adk-docs/agents/models/#troubleshooting).
 
-### General Issues
+## Resources
 
-- **Google ADK errors**: Ensure you have the latest version of Google ADK installed:
-  ```bash
-  uv pip install --upgrade google-adk
-  ```
-
-- **Dependency conflicts**: Try creating a fresh virtual environment:
-  ```bash
-  rm -rf .venv
-  uv venv
-  source .venv/bin/activate
-  uv pip install google-adk ibmi-agent-sdk python-dotenv fastapi
-  ```
+- [Google ADK Documentation](https://google.github.io/adk-docs)
+- [Google ADK Models Guide](https://google.github.io/adk-docs/agents/models/)
+- [ADK Web Interface Guide](https://github.com/google/adk-web)
+- [ADK Evaluation Framework](https://google.github.io/adk-docs/evaluate/)
+- [IBM i MCP Server Documentation](../../../README.md)
+- [MCP Protocol Specification](https://modelcontextprotocol.io/)
+- [Multi-Agent System Implementation](./adk_agents/README.md)
 
 ## License
 

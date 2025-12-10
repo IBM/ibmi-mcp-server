@@ -1,6 +1,6 @@
 # ---- Base Node ----
 # Use a specific Node.js version known to work, Alpine for smaller size
-FROM node:23-alpine AS base
+FROM node:21-alpine AS base
 WORKDIR /usr/src/app
 # NODE_ENV will be set by docker-compose from .env file
 

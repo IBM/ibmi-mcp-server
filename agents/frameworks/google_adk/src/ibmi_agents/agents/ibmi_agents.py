@@ -1,410 +1,201 @@
+#!/usr/bin/env python3
 """
-IBM i Agent Definitions using Google ADK Framework
+IBM i Agent CLI - Google ADK Framework Implementation
 
-This module defines four specialized IBM i system agents:
+This module provides a command-line interface for running IBM i agents
+built with the Google ADK framework. It supports running different types
+of agents for various IBM i system administration and monitoring tasks.
+
+Available Agents:
 - Performance Agent: System performance monitoring and analysis
+- Security Agent: Security analysis and vulnerability detection
 - System Administration Discovery Agent: High-level system discovery and summarization
 - System Administration Browse Agent: Detailed system browsing and exploration
 - System Administration Search Agent: System search and lookup capabilities
 
 Each agent uses Google ADK abstractions for LLMs, MCP tools, and reasoning.
 
+Usage:
+  uv run ibmi_agents.py --agent performance --verbose
+  uv run ibmi_agents.py --agent discovery --model gpt-4
+  uv run ibmi_agents.py --agent browse --query "Show me active jobs"
+  uv run ibmi_agents.py --agent search --query "Find library QSYS2"
+  uv run ibmi_agents.py --agent performance --query "Show CPU usage" --quiet
+  uv run ibmi_agents.py --list-agents
+
+Environment Variables:
+  IBMI_MCP_ACCESS_TOKEN: Required token for MCP server authentication
+  IBMI_MCP_SERVER_URL: Optional URL for MCP server (default: http://127.0.0.1:3010/mcp)
+  IBMI_AGENT_MODEL: Optional LLM model to use (default: gemini-2.5-flash)
+  IBMI_AGENT_LOG_LEVEL: Optional logging level (default: INFO)
+
 Dependencies:
 - google-adk: Google Agent Development Kit
 - ibmi-agent-sdk: IBM i Agent SDK with Google ADK integration
 - python-dotenv: For loading environment variables
-- fastapi: For OpenAPI models
 
 Installation:
     Using uv (recommended):
-        uv pip install google-adk ibmi-agent-sdk python-dotenv fastapi
+        uv add google-adk ibmi-agent-sdk python-dotenv
     
     Using pip:
-        pip install google-adk ibmi-agent-sdk python-dotenv fastapi
+        pip install google-adk ibmi-agent-sdk python-dotenv
 """
 import os
 import asyncio
 import logging
 import sys
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+import argparse
+import uuid
+from pathlib import Path
+from typing import Optional, Dict, Any, Tuple
+
+# Add parent directories to path to allow imports from adk_agents
+current_dir = Path(__file__).resolve().parent
+google_adk_dir = current_dir.parent.parent.parent
+if str(google_adk_dir) not in sys.path:
+    sys.path.insert(0, str(google_adk_dir))
 
 # Import Google ADK dependencies
-from google.adk.agents.llm_agent import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
-from google.adk.models.lite_llm import LiteLlm
-# from google.adk.planners import PlanReActPlanner
-from dotenv import load_dotenv
-from ibmi_agent_sdk.google_adk import load_toolset_tools
-# Handle both direct execution and module import
 try:
-    from .instructions import STATIC_INSTRUCTION, DYNAMIC_INSTRUCTION, GLOBAL_INSTRUCTION, COORDINATOR_STATIC, COORDINATOR_INSTRUCTION
+    from adk_agents.sub_agents.performance_agent import get_performance_agent
+    from adk_agents.sub_agents.security_agent import get_security_agent
+    from adk_agents.sub_agents.sysadmin_search import get_search_agent
+    from adk_agents.sub_agents.sysadmin_browse import get_browse_agent
+    from adk_agents.sub_agents.sysadmin_discover import get_discover_agent
+    from google.adk.agents.llm_agent import LlmAgent
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+    from google.adk.models.lite_llm import LiteLlm
+except ImportError as e:
+    print(f"Error: Missing required dependencies. Run: pip install google-adk ibmi-agent-sdk")
+    print(f"Details: {e}")
+    sys.exit(1)
+
+try:
+    from dotenv import load_dotenv
 except ImportError:
-    from instructions import STATIC_INSTRUCTION, DYNAMIC_INSTRUCTION, GLOBAL_INSTRUCTION, COORDINATOR_STATIC, COORDINATOR_INSTRUCTION
+    print("Warning: python-dotenv not installed. Environment variables must be set manually.")
+    def load_dotenv():
+        pass
 
-# Enable LiteLLM debug mode for development
-# import litellm
-# litellm._turn_on_debug()
+# Logger will be configured by setup_logging()
+logger = logging.getLogger(__name__)
 
-# Define available agent types
-AVAILABLE_AGENTS = [
-    "performance",
-    "sysadmin_discovery",
-    "sysadmin_browse",
-    "sysadmin_search"
-]
-
-# Get model from environment or use default
-def get_model():
-    """
-    Get the model from environment variables or use default.
-    
-    Supports:
-    - Gemini models: "gemini-2.0-flash", "gemini-2.0-pro-exp", etc.
-    - Ollama models: "ollama_chat/gpt-oss:20b", "ollama_chat/granite4:tiny-h", etc.
-    - Watsonx models: "watsonx/meta-llama/llama-3-3-70b-instruct", etc.
-    - Any other LiteLLM-compatible model
-
-    Returns:
-        str or LiteLlm: Model identifier or LiteLlm instance
-    """
-    model_name = os.getenv("IBMI_AGENT_MODEL", "gemini-2.0-flash")
-    
-    # Gemini models can be used directly as strings
-    if "gemini" in model_name:
-        return model_name
-    
-    # Other models need LiteLlm wrapper
-    return LiteLlm(model=model_name)
-
-# ============================================================
-#  HELPER FUNCTIONS
-# ============================================================
-
-def build_toolset_kwargs(debug_filtering: bool = False) -> dict:
-    """
-    Build kwargs for load_toolset_tools based on transport type from environment.
-    
-    Args:
-        debug_filtering: Enable debug output for tool filtering
-        
-    Returns:
-        dict: Kwargs to pass to load_toolset_tools
-        
-    Raises:
-        ValueError: If HTTP transport is selected but token is missing
-    """
-    # Get transport type from environment
-    transport = os.getenv("MCP_TRANSPORT_TYPE", "stdio")
-    
-    # Build base kwargs
-    toolset_kwargs = {
-        "debug": debug_filtering,
-        "transport": transport
+# Define available agent types with descriptions
+AVAILABLE_AGENTS = {
+    "performance": {
+        "create_fn": get_performance_agent,
+        "description": "Analyzes IBM i performance metrics and suggests optimizations"
+    },
+    "security": {
+        "create_fn": get_security_agent,
+        "description": "Analyzes IBM i security configuration and identifies vulnerabilities"
+    },
+    "discovery": {
+        "create_fn": get_discover_agent,
+        "description": "Discovers IBM i services, schemas, and system structure"
+    },
+    "browse": {
+        "create_fn": get_browse_agent,
+        "description": "Explores and navigates IBM i system objects and libraries"
+    },
+    "search": {
+        "create_fn": get_search_agent,
+        "description": "Searches for specific IBM i objects and provides quick lookups"
     }
+}
+
+# ============================================================
+#  CONFIGURATION AND LOGGING
+# ============================================================
+
+def setup_logging(log_level: str = "INFO", quiet: bool = False) -> None:
+    """Configure logging with the specified log level."""
+    if quiet:
+        # In quiet mode, suppress all logging except CRITICAL errors
+        logging.basicConfig(
+            level=logging.CRITICAL,
+            format="%(message)s",
+            handlers=[logging.StreamHandler()]
+        )
+        # Disable specific noisy loggers
+        for logger_name in ["httpx", "httpcore", "google", "google_adk", "google_genai", "litellm", "mcp", "src.ibmi_agents"]:
+            logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+        # Suppress warnings
+        import warnings
+        warnings.filterwarnings("ignore")
+        return
     
-    if transport == "stdio":
-        env = {
-            "DB2i_HOST": os.getenv("DB2i_HOST", ""),
-            "DB2i_USER": os.getenv("DB2i_USER", ""),
-            "DB2i_PASSWORD": os.getenv("DB2i_PASSWORD", ""),
-            "DB2i_PORT": os.getenv("DB2i_PORT", "8076"),
-            "MCP_TRANSPORT_TYPE": transport,
-            "TOOLS_YAML_PATH": os.getenv("TOOLS_YAML_PATH", "tools"),
-            "NODE_OPTIONS": os.getenv("NODE_OPTIONS", "--no-deprecation"),
-        }
-        toolset_kwargs.update({
-            "command": "npx",
-            "args": ["ibmi-mcp-server"],
-            "env": env
-        })
-    elif transport == "http":
-        token = os.getenv("IBMI_MCP_ACCESS_TOKEN")
-        if not token:
-            raise ValueError("IBMI_MCP_ACCESS_TOKEN is required for HTTP transport")
-        toolset_kwargs["token"] = token
-        toolset_kwargs["transport"] = "streamable_http"
+    numeric_level = getattr(logging, log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Invalid log level: {log_level}")
     
-    return toolset_kwargs
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()]
+    )
 
-# ============================================================
-#  PERFORMANCE AGENT
-# ============================================================
 
-async def create_performance_agent(debug_filtering: bool = False):
-    """
-    Create a performance monitoring agent for IBM i systems.
+def load_config() -> Dict[str, Any]:
+    """Load configuration from environment variables."""
+    load_dotenv()
     
-    Args:
-        debug_filtering: Enable debug output for tool filtering
-        
-    Returns:
-        tuple: (LlmAgent, toolset) - The configured agent and its toolset
-        
-    Raises:
-        ValueError: If configuration is invalid
-        ConnectionError: If MCP server connection fails
-    """
-    logger.info("Creating performance agent...")
-    try:
-        # Build toolset kwargs based on transport type
-        toolset_kwargs = build_toolset_kwargs(debug_filtering)
-        toolset = await load_toolset_tools("performance", **toolset_kwargs)
-
-        performance_instruction = """
-            You are an IBM i performance optimization assistant.
-            You specialize in analyzing performance data and providing actionable tuning recommendations.
-
-            ### Tool Focus
-            You have access to performance-focused MCP tools such as:
-            - `system_status`, `system_activity`, and `active_job_info` for workload summaries
-            - `memory_pools`, `temp_storage_buckets`, and `unnamed_temp_storage` for memory diagnostics
-            - `http_server` for HTTP performance
-            - `collection_services` and `collection_categories` for system monitoring insights
-            - `system_values` for performance-related configuration parameters
-
-            Use these tools to analyze CPU, memory, I/O, and subsystem performance.
-            Provide insights on bottlenecks, workload trends, and safe optimization recommendations.
-            """ + DYNAMIC_INSTRUCTION
-
-        return LlmAgent(
-            name="performance_agent",
-            model=get_model(),
-            static_instruction=STATIC_INSTRUCTION,
-            instruction=performance_instruction,
-            global_instruction=GLOBAL_INSTRUCTION,
-            description="Analyzes IBM i performance metrics and suggests optimizations.",
-            tools=[toolset],
-            # output_key="initial_result"
-        ), toolset
-
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create performance agent: {e}")
-        raise ConnectionError(f"Failed to connect to MCP server: {e}")
-
-
-# ============================================================
-#  SYSTEM ADMIN DISCOVERY AGENT
-# ============================================================
-
-async def create_sysadmin_discovery_agent(debug_filtering: bool = False):
-    """
-    Create a system administration discovery agent for IBM i systems.
+    # Check for required environment variables
+    token = os.getenv("IBMI_MCP_ACCESS_TOKEN")
+    if not token:
+        raise ValueError("Missing IBMI_MCP_ACCESS_TOKEN in environment variables")
     
-    Args:
-        debug_filtering: Enable debug output for tool filtering
-        
-    Returns:
-        tuple: (LlmAgent, toolset) - The configured agent and its toolset
-        
-    Raises:
-        ValueError: If configuration is invalid
-        ConnectionError: If MCP server connection fails
-    """
-    logger.info("Creating system admin discovery agent...")
-    try:
-        # Build toolset kwargs based on transport type
-        toolset_kwargs = build_toolset_kwargs(debug_filtering)
-        toolset = await load_toolset_tools("sysadmin_discovery", **toolset_kwargs)
-
-        discovery_instruction = """
-            You are an IBM i system administration discovery assistant.
-            You help administrators explore and summarize the organization of their IBM i environment.
-
-            ### Tool Focus
-            You can use discovery-oriented MCP tools such as:
-            - `list_service_categories` and `count_services_by_schema` to understand service distribution
-            - `count_services_by_sql_object_type` and `list_categories_for_schema` for structural mapping
-            - `describe_sql_object` for object introspection and SQL DDL extraction
-
-            Your purpose is to give administrators a clear overview of system composition,
-            schemas, service categories, and object structures for informed navigation.
-            """ + DYNAMIC_INSTRUCTION
-
-        return LlmAgent(
-            name="sysadmin_discovery_agent",
-            model=get_model(),
-            static_instruction=STATIC_INSTRUCTION,
-            instruction=discovery_instruction,
-            global_instruction=GLOBAL_INSTRUCTION,
-            description="Discovers IBM i services, schemas, and system structure.",
-            tools=[toolset],
-        ), toolset
-
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create sysadmin discovery agent: {e}")
-        raise ConnectionError(f"Failed to connect to MCP server: {e}")
-
-
-# ============================================================
-#  SYSTEM ADMIN BROWSE AGENT
-# ============================================================
-
-async def create_sysadmin_browse_agent(debug_filtering: bool = False):
-    """
-    Create a system administration browse agent for IBM i systems.
-    
-    Args:
-        debug_filtering: Enable debug output for tool filtering
-        
-    Returns:
-        tuple: (LlmAgent, toolset) - The configured agent and its toolset
-        
-    Raises:
-        ValueError: If configuration is invalid
-        ConnectionError: If MCP server connection fails
-    """
-    logger.info("Creating system admin browse agent...")
-    try:
-        # Build toolset kwargs based on transport type
-        toolset_kwargs = build_toolset_kwargs(debug_filtering)
-        toolset = await load_toolset_tools("sysadmin_browse", **toolset_kwargs)
-
-        browse_instruction = """
-            You are an IBM i browsing assistant.
-            You help administrators explore object libraries, schemas, and services in a structured manner.
-
-            ### Tool Focus
-            You use browsing tools such as:
-            - `list_services_by_category` and `list_services_by_schema` to navigate system services
-            - `list_services_by_sql_object_type` to understand service organization by object type
-            - `describe_sql_object` to inspect object structures
-
-            Provide users with hierarchical, intuitive views of IBM i system components and
-            help them understand relationships between libraries, schemas, and services.
-            """ + DYNAMIC_INSTRUCTION
-
-        return LlmAgent(
-            name="sysadmin_browse_agent",
-            model=get_model(),
-            static_instruction=STATIC_INSTRUCTION,
-            instruction=browse_instruction,
-            global_instruction=GLOBAL_INSTRUCTION,
-            description="Explores and navigates IBM i system objects and libraries.",
-            tools=[toolset],
-        ), toolset
-
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create sysadmin browse agent: {e}")
-        raise ConnectionError(f"Failed to connect to MCP server: {e}")
-
-
-# ============================================================
-#  SYSTEM ADMIN SEARCH AGENT
-# ============================================================
-
-async def create_sysadmin_search_agent(debug_filtering: bool = False):
-    """
-    Create a system administration search agent for IBM i systems.
-    
-    Args:
-        debug_filtering: Enable debug output for tool filtering
-        
-    Returns:
-        tuple: (LlmAgent, toolset) - The configured agent and its toolset
-        
-    Raises:
-        ValueError: If configuration is invalid
-        ConnectionError: If MCP server connection fails
-    """
-    logger.info("Creating system admin search agent...")
-    try:
-        # Build toolset kwargs based on transport type
-        toolset_kwargs = build_toolset_kwargs(debug_filtering)
-        toolset = await load_toolset_tools("sysadmin_search", **toolset_kwargs)
-
-        search_instruction = """
-            You are an IBM i search and lookup assistant.
-            You help administrators locate and describe IBM i system services, objects, and examples efficiently.
-
-            ### Tool Focus
-            You use search and metadata lookup tools such as:
-            - `search_services_by_name` and `where_is_service` for locating services
-            - `search_examples_for_keyword` and `get_service_example` to retrieve relevant code examples
-            - `describe_sql_object` for detailed metadata inspection
-
-            Your task is to provide fast, accurate search results with clear context about each service,
-            its schema, and how it fits into the IBM i environment.
-            """ + DYNAMIC_INSTRUCTION
-
-        return LlmAgent(
-            name="sysadmin_search_agent",
-            model=get_model(),
-            static_instruction=STATIC_INSTRUCTION,
-            instruction=search_instruction,
-            global_instruction=GLOBAL_INSTRUCTION,
-            description="Searches for specific IBM i objects and provides quick lookups.",
-            tools=[toolset],
-        ), toolset
-
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create sysadmin search agent: {e}")
-        raise ConnectionError(f"Failed to connect to MCP server: {e}")
+    return {
+        "mcp_token": token,
+        "mcp_server_url": os.getenv("IBMI_MCP_SERVER_URL", "http://127.0.0.1:3010/mcp"),
+        "agent_model": os.getenv("IBMI_AGENT_MODEL", "gemini-2.5-flash"),
+        "log_level": os.getenv("IBMI_AGENT_LOG_LEVEL", "INFO")
+    }
 
 
 # ============================================================
 #  AGENT CREATION FACTORY
 # ============================================================
 
-async def create_agent(agent_type: str, debug_filtering: bool = False):
+def create_agent(agent_type: str, debug_filtering: bool = False) -> Tuple[LlmAgent, Any]:
     """
     Factory function to create an agent of the specified type.
     
     Args:
-        agent_type: Type of agent to create (performance, sysadmin_discovery, etc.)
+        agent_type: Type of agent to create (performance, discovery, etc.)
         debug_filtering: Whether to enable debug output for tool filtering
         
     Returns:
-        LlmAgent: Configured agent of the specified type
+        Tuple[LlmAgent, Any]: Configured agent and its toolset
         
     Raises:
         ValueError: If the agent type is unknown or MCP token is missing
         ConnectionError: If connection to MCP server fails
     """
     if agent_type not in AVAILABLE_AGENTS:
-        raise ValueError(f"Unknown agent type: {agent_type}. Available types: {', '.join(AVAILABLE_AGENTS)}")
+        available = ', '.join(AVAILABLE_AGENTS.keys())
+        raise ValueError(f"Unknown agent type: {agent_type}. Available types: {available}")
     
-    if agent_type == "performance":
-        return await create_performance_agent(debug_filtering)
-    elif agent_type == "sysadmin_discovery":
-        return await create_sysadmin_discovery_agent(debug_filtering)
-    elif agent_type == "sysadmin_browse":
-        return await create_sysadmin_browse_agent(debug_filtering)
-    elif agent_type == "sysadmin_search":
-        return await create_sysadmin_search_agent(debug_filtering)
-    else:
-        raise ValueError(f"Agent type {agent_type} is recognized but not implemented")
+    return AVAILABLE_AGENTS[agent_type]["create_fn"](debug_filtering)
 
 
 # ============================================================
 #  CHAT WITH AGENT
 # ============================================================
 
-async def chat_with_agent(agent: LlmAgent, query: str) -> str:
+async def chat_with_agent(agent: LlmAgent, query: str, agent_name: str, verbose: bool = False, quiet: bool = False) -> str:
     """
     Send a query to an agent and get the response.
     
     Args:
         agent: The LlmAgent to query
         query: The query string to send
+        agent_name: Name of the agent for session identification
+        verbose: Whether to show verbose output
+        quiet: Whether to suppress all non-essential output
         
     Returns:
         str: The agent's response text
@@ -413,30 +204,40 @@ async def chat_with_agent(agent: LlmAgent, query: str) -> str:
         Exception: If the agent fails to process the query
     """
     try:
-        logger.info(f"Sending query to agent: {query}")
+        if not quiet:
+            logger.info(f"Sending query to agent: {query}")
         
         # Create a unique session ID
-        import uuid
         session_id = str(uuid.uuid4())
-        user_id = f"chat_user_{session_id[:8]}"
-        app_name = f"ibmi_agent_chat"
+        user_id = f"cli_user_{session_id[:8]}"
+        app_name = f"ibmi_agent_{agent_name}"
         
         # Set up session service
+        if not quiet:
+            logger.debug("Setting up session service...")
         session_service = InMemorySessionService()
         await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
         
         # Create runner
+        if not quiet:
+            logger.debug("Creating runner...")
         runner = Runner(app_name=app_name, agent=agent, session_service=session_service)
         
         # Format query as Content
         content = types.Content(role='user', parts=[types.Part(text=query)])
         
         # Run the agent
+        if not quiet:
+            logger.debug("Running agent...")
+            print("\nProcessing query, please wait...\n")
+        
         event_generator = runner.run_async(user_id=user_id, session_id=session_id, new_message=content)
         
         # Process events and get final response
         final_response = ""
         async for event in event_generator:
+            if verbose and not quiet:
+                logger.debug(f"Event: {event}")
             if event.is_final_response():
                 final_response = event.content.parts[0].text
                 break
@@ -448,81 +249,149 @@ async def chat_with_agent(agent: LlmAgent, query: str) -> str:
 
 
 # ============================================================
-#  MAIN TEST RUNNER
+#  CLI FUNCTIONS
 # ============================================================
 
-async def main():
-    """Simple test runner for development purposes."""
-    load_dotenv()
-    
-    print("🔄 Initializing IBM i Google ADK Agents...")
+def list_agents() -> None:
+    """Print a list of available agents and their descriptions."""
+    print("\nAvailable IBM i Agents:")
+    print("======================")
+    for agent_name, agent_info in AVAILABLE_AGENTS.items():
+        print(f"- {agent_name}: {agent_info['description']}")
+    print()
 
-    try:
-        # Initialize debug_filtering
-        debug_filtering = False
-        
-        # Parse command line arguments
-        if len(sys.argv) > 1 and sys.argv[1] == "--help":
-            print("\nUsage:")
-            print("  uv run ibmi_agents.py [--agent TYPE] [--debug] [query]")
-            print("\nOptions:")
-            print("  --agent TYPE  Agent type: performance, sysadmin_discovery, sysadmin_browse, sysadmin_search")
-            print("  --debug       Enable debug logging")
-            print("  --help        Show this help message")
-            print("\nExamples:")
-            print("  uv run ibmi_agents.py --agent performance \"Show me system CPU usage\"")
-            print("  uv run ibmi_agents.py --agent sysadmin_search --debug \"Find library QSYS2\"")
-            return
-            
-        # Set debug level if requested
-        if "--debug" in sys.argv:
-            logger.setLevel(logging.DEBUG)
-            debug_filtering = True
-            sys.argv.remove("--debug")
-            
-        # Determine agent type
-        agent_type = "performance"  # Default agent type
-        if "--agent" in sys.argv:
-            idx = sys.argv.index("--agent")
-            if idx + 1 < len(sys.argv):
-                agent_type = sys.argv[idx + 1]
-                sys.argv.remove("--agent")
-                sys.argv.remove(agent_type)
-        
-        # Create the agent
-        print(f"Creating {agent_type} agent...")
-        agent, toolset = await create_agent(agent_type, debug_filtering)
-        print(f"✅ Successfully created {agent.name}")
-        
-        # Process query if provided
-        if len(sys.argv) > 1:
-            query = " ".join(sys.argv[1:])
-            print(f"🔍 Processing query: {query}")
-            response = await chat_with_agent(agent, query)
-            print(f"\n🤖 Response:\n{response}")
+
+async def run_agent(agent_name: str, query: Optional[str], verbose: bool = False, quiet: bool = False) -> None:
+    """Run the specified agent with the given query."""
+    if agent_name not in AVAILABLE_AGENTS:
+        if not quiet:
+            logger.error(f"Unknown agent: {agent_name}")
+            list_agents()
         else:
-            print("\nNo query provided. Use --help for usage information.")
+            print(f"Error: Unknown agent '{agent_name}'")
+        return
+    
+    try:
+        if not quiet:
+            logger.info(f"Creating {agent_name} agent...")
         
-        # Clean up
-        await toolset.close()
+        agent, toolset = create_agent(agent_name, debug_filtering=verbose)
         
-    except ValueError as e:
-        print(f"❌ Configuration error: {str(e)}")
-        print("Make sure you have set the IBMI_MCP_ACCESS_TOKEN environment variable.")
-    except ConnectionError as e:
-        print(f"❌ Connection error: {str(e)}")
-        print("Make sure the MCP server is running and accessible.")
+        try:
+            if not query:
+                if not quiet:
+                    logger.info(f"Agent {agent_name} created successfully. Use --query to interact with it.")
+                return
+            
+            if not quiet:
+                logger.info(f"Running query: {query}")
+            
+            # Run the query
+            final_response = await chat_with_agent(agent, query, agent_name, verbose, quiet)
+            
+            # Display response
+            if quiet:
+                # In quiet mode, only print the final response
+                print(final_response)
+            else:
+                print("\nAgent Response:")
+                print("==============")
+                print(final_response)
+                logger.info("Agent run complete.")
+        finally:
+            # Always close the toolset connection
+            await toolset.close()
+        
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
-        if logger.level <= logging.DEBUG:
+        if quiet:
+            print(f"Error: {str(e)}")
+        else:
+            logger.error(f"Error running agent: {str(e)}", exc_info=verbose)
+            if verbose:
+                import traceback
+                traceback.print_exc()
+
+
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser."""
+    parser = argparse.ArgumentParser(
+        description="IBM i Agent CLI - Interact with IBM i systems using specialized AI agents",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --agent performance --query "Show me system CPU usage"
+  %(prog)s --agent search --query "Find QSYS2 services" --quiet
+  %(prog)s --list-agents
+        """
+    )
+    parser.add_argument("--agent", help="Agent type to run")
+    parser.add_argument("--query", help="Query to send to the agent")
+    
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument("--verbose", action="store_true", help="Enable verbose output with detailed logging")
+    verbosity_group.add_argument("--quiet", action="store_true", help="Quiet mode - only show final response without logs")
+    
+    parser.add_argument("--list-agents", action="store_true", help="List available agents")
+    parser.add_argument("--model", help="Override the LLM model to use")
+    
+    return parser
+
+
+def apply_model_override(model: str, quiet: bool) -> None:
+    """Apply model override to environment."""
+    os.environ["IBMI_AGENT_MODEL"] = model
+    if not quiet:
+        logger.info(f"Using model: {model}")
+
+
+def determine_log_level(verbose: bool, config: Dict[str, Any]) -> str:
+    """Determine the appropriate log level."""
+    return "DEBUG" if verbose else config["log_level"]
+
+
+def handle_error(error: Exception, verbose: bool, quiet: bool) -> None:
+    """Handle and display errors appropriately."""
+    if quiet:
+        print(f"Error: {str(error)}")
+    else:
+        logging.error(f"Error: {str(error)}")
+        if verbose:
             import traceback
             traceback.print_exc()
+    sys.exit(1)
 
-# Standard way to run the main async function
-if __name__ == "__main__":
+
+# ============================================================
+#  MAIN ENTRY POINT
+# ============================================================
+
+async def main() -> None:
+    """Main entry point for the CLI."""
+    parser = create_argument_parser()
+    args = parser.parse_args()
+    
     try:
-        asyncio.run(main())
+        config = load_config()
+        log_level = determine_log_level(args.verbose, config)
+        setup_logging(log_level, quiet=args.quiet)
+        
+        if args.model:
+            apply_model_override(args.model, args.quiet)
+        
+        if args.list_agents:
+            list_agents()
+            return
+        
+        if args.agent:
+            await run_agent(args.agent, args.query, args.verbose, args.quiet)
+            return
+        
+        parser.print_help()
+            
     except Exception as e:
-        print(f"Error running main: {e}")
+        handle_error(e, args.verbose if hasattr(args, 'verbose') else False,
+                    args.quiet if hasattr(args, 'quiet') else False)
 
 
+if __name__ == "__main__":
+    asyncio.run(main())

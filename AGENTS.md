@@ -10,7 +10,7 @@ Runtime bootstraps from `src/index.ts`, wiring the core server in `src/mcp-serve
 
 ## SQL Tooling Workflow
 
-Declare SQL tools in YAML under `prebuiltconfigs/` (`performance.yaml`, `sys-admin.yaml`) with `sources`, `tools`, and `toolsets`. The server hydrates them via `TOOLS_YAML_PATH`, validates queries, and loads requested toolsets (`--toolsets`). Prefer YAML statements for standard IBM i services like `QSYS2.SYSTEM_STATUS`; use dynamic `executeSql` only when strictly necessary and document it. Mirror new toolsets in `docs/` and seed mocks in `tests/fixtures/`.
+Declare SQL tools in YAML under `tools/` (`performance.yaml`, `sys-admin.yaml`) with `sources`, `tools`, and `toolsets`. The server hydrates them via `TOOLS_YAML_PATH`, validates queries, and loads requested toolsets (`--toolsets`). Prefer YAML statements for standard IBM i services like `QSYS2.SYSTEM_STATUS`; use dynamic `executeSql` only when strictly necessary and document it. Mirror new toolsets in `docs/` and seed mocks in `tests/fixtures/`.
 
 ## Authentication & Security
 
