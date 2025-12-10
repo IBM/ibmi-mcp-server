@@ -1,4 +1,4 @@
-# MCP Context Forge - OpenShift Deployment on IBM Power
+# OpenShift Deployment
 
 This directory contains Kubernetes/OpenShift manifests for deploying IBM i MCP Server and MCP Context Forge applications using Kustomize.
 

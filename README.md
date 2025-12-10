@@ -2178,6 +2178,11 @@ Once the MCP server is connect, you can then manage the tools provided by the se
 
 ### Virtual Server Catalog Demo (Comming soon!!)
 
+## Openshift Deployment
+
+OpenShift (both OKD and Red Hat OpenShift Container Platform) adds opinionated security (SCC), integrated routing, and optional build pipelines on top of Kubernetes. Deploying the applications therefore means (1) building or pulling a compatible image, (2) obeying the default restricted-v2 SCC, and (3) exposing the service through a Route instead of an Ingress. The deployment uses `Kustomize` tool to manage the application manifests to simply the process of deploying IBM i MCP Server and MCP Context Forge applications. Following the detailed instructions in this [link](deployment/openshift/apps/openshift/README.md) to deploy the application in OpenShift.
+
+
 ## Architecture Overview
 
 This template is built on a set of architectural principles to ensure modularity, testability, and operational clarity.
