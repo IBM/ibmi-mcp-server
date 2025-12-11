@@ -1,511 +1,376 @@
 ---
 title: "Server Architecture"
-description: "Deep dive into the IBM i MCP Server architecture, including the 'Logic Throws, Handler Catches' pattern, component interactions, and lifecycle management."
+description: "Understand how the IBM i MCP Server transforms SQL queries into AI-accessible tools and integrates with IBM i systems."
 ---
 
-# Server Architecture
+The IBM i MCP Server transforms your existing SQL interface into AI-accessible tools using a standardized protocol. Instead of building new APIs or data pipelines, this server exposes IBM i's rich database services directly to AI agents through the SQL interface you already use.
 
-The IBM i MCP Server follows a carefully designed architecture that ensures modularity, testability, and operational clarity through strict separation of concerns. This guide explores the core architectural patterns and component interactions.
+![alt text](../images/sql-interface.png)
 
-<Note>
-The architecture is built around the **"Logic Throws, Handler Catches"** principle, which forms the foundation of our error-handling and control-flow strategy.
-</Note>
+<Info>
+**Core Innovation**: IBM i already has powerful SQL services (QSYS2, Db2 for i, stored procedures). The MCP server doesn't replace these—it makes them accessible to AI agents through a standardized protocol. No new infrastructure, no data duplication, just a bridge between AI and your existing IBM i capabilities.
+</Info>
 
-## Core Architectural Principles
+**Key Benefits:**
+- ✅ **Zero New Infrastructure**: Uses IBM i's existing SQL interface—no middleware, no ETL
+- ✅ **Standardized Protocol**: MCP is universal—works with Claude, VSCode, Cursor, and 10+ AI clients
+- ✅ **IBM i Native**: Leverages QSYS2 services, Db2 optimization, and existing security model
+- ✅ **Data Stays Put**: AI queries run against live data—no copies, no sync, no staleness
 
-### 1. Logic Throws, Handler Catches
+---
 
-This immutable pattern ensures clean separation between business logic and transport handling:
-
-<Tabs>
-  <Tab title="Logic Layer (logic.ts)">
-    **Responsibilities:**
-    - Execute pure business logic
-    - Remain stateless and self-contained
-    - Terminate by throwing structured `McpError` on failure
-    - Never contain try...catch blocks for response formatting
-
-    ```typescript
-    // Example from catFactFetcher/logic.ts
-    export async function catFactFetcherLogic(
-      params: CatFactFetcherInput,
-    ): Promise<CatFactFetcherResponse> {
-      // Pure business logic execution
-      if (params.message === "fail") {
-        throw new McpError(
-          BaseErrorCode.VALIDATION_ERROR,
-          "Deliberate failure triggered",
-          { toolName: "cat_fact_fetcher" }
-        );
-      }
-      return processedResult;
-    }
-    ```
-  </Tab>
-
-  <Tab title="Handler Layer (registration.ts)">
-    **Responsibilities:**
-    - Interface with transport layer (MCP, HTTP)
-    - Wrap logic calls in try...catch blocks
-    - Format responses using `ErrorHandler`
-    - Manage final response lifecycle
-
-    ```typescript
-    // Example from catFactFetcher/registration.ts
-    async (params: CatFactFetcherInput) => {
-      try {
-        const result = await catFactFetcherLogic(params, context);
-        return {
-          structuredContent: result,
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-        };
-      } catch (error) {
-        const mcpError = ErrorHandler.handleError(error, { context });
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Error: ${mcpError.message}` }]
-        };
-      }
-    }
-    ```
-  </Tab>
-</Tabs>
-
-### 2. Structured Request Context
-
-Every operation maintains traceability through structured logging:
-
-```typescript
-const context = requestContextService.createRequestContext({
-  operation: "HandleToolRequest",
-  toolName: TOOL_NAME,
-  input: params,
-});
-```
-
-## Application Architecture Overview
+## The Architecture in One Picture
 
 ```mermaid
 graph TB
-    subgraph "Entry Point"
-        A[src/index.ts] --> B[initializeAndStartServer]
+    subgraph clients["AI Clients"]
+        direction LR
     end
 
-    subgraph "Server Orchestration"
-        B --> C[src/mcp-server/server.ts]
-        C --> D[createMcpServerInstance]
-        C --> E[startTransport]
+    subgraph mcp["IBM i MCP Server<br/>"]
+        direction TB
+        register["📋 Register SQL tools from YAML"]
+        validate["✓ Validate parameters & security"]
+        format["📊 Format responses for AI"]
     end
 
-    subgraph "Transport Layer"
-        E --> F[stdio Transport]
-        E --> G[HTTP Transport]
-        F --> H[StdioServerTransport]
-        G --> I[StreamableHTTPServerTransport]
+    subgraph ibmi["IBM i<br/>"]
+        direction TB
+        db2["✓ Db2 for i"]
+        qsys2["✓ QSYS2 Services"]
+        security["✓ Security Model"]
+        sprocs["✓ Stored Procedures"]
     end
 
-    subgraph "MCP Core"
-        D --> J[McpServer Instance]
-        J --> K[registerAllResources]
-        J --> L[registerSQLTools]
-        J --> M[registerAllTools]
-    end
+    clients -->|MCP Protocol<br/>| mcp
+    mcp -->|SQL Queries<br/>| ibmi
 
-    subgraph "Tool System"
-        M --> N[Tool Registration]
-        N --> O[Handler Functions]
-        O --> P[Logic Functions]
-    end
+    style clients fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
+    style mcp fill:#fff3e0,stroke:#f57c00,stroke-width:3px,color:#000
+    style ibmi fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#000
 
-    subgraph "IBM i Integration"
-        L --> Q[YAML Configuration]
-        Q --> R[SQL Tool Engine]
-        R --> S[Mapepire/DB2i Connection]
-    end
+    style register fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+    style validate fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+    style format fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
 
-    style A fill:#e1f5fe
-    style J fill:#f3e5f5
-    style P fill:#e8f5e8
-    style S fill:#fff3e0
+    style db2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style qsys2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style security fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style sprocs fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
 ```
-
-## Server Startup Sequence
-
-The application follows a precise startup sequence ensuring all components are properly initialized:
-
-```mermaid
-sequenceDiagram
-    participant Entry as src/index.ts
-    participant Server as server.ts
-    participant MCP as McpServer
-    participant Tools as Tool Registration
-    participant Transport as Transport Layer
-
-    Entry->>Entry: Parse CLI arguments
-    Entry->>Entry: Apply configuration overrides
-    Entry->>Server: initializeAndStartServer()
-
-    Server->>Server: createMcpServerInstance()
-    Server->>MCP: new McpServer(config, capabilities)
-
-    Server->>Tools: registerAllResources(server)
-    Tools-->>MCP: server.registerResource()
-
-    Server->>Tools: registerSQLTools(server)
-    Tools-->>MCP: server.registerTool() [YAML tools]
-
-    Server->>Tools: registerAllTools(server)
-    Tools-->>MCP: server.registerTool() [TypeScript tools]
-
-    Server->>Transport: startTransport()
-    alt HTTP Transport
-        Transport->>Transport: startHttpTransport()
-        Transport-->>Server: HTTP Server instance
-    else STDIO Transport
-        Transport->>Transport: startStdioTransport()
-        Transport-->>Server: McpServer instance
-    end
-
-    Server-->>Entry: Running server instance
-    Entry->>Entry: Setup signal handlers
-```
-
-<Note>
-**Key Architectural Decision**: The startup sequence registers ALL tools during initialization, not on-demand. This ensures consistent tool availability and enables proper error handling during startup rather than runtime failures.
-</Note>
-
-## Tool Execution Flow
-
-Every tool follows the same execution pattern, ensuring consistency and reliability:
-
-```mermaid
-graph TB
-    subgraph "Client Request"
-        A[MCP Client] --> B[Transport Layer]
-    end
-
-    subgraph "MCP Server Processing"
-        B --> C[McpServer.invokeHandler]
-        C --> D[Input Schema Validation]
-        D --> E[Handler Function]
-    end
-
-    subgraph "Handler Layer (registration.ts)"
-        E --> F[Create RequestContext]
-        F --> G[try block starts]
-        G --> H[Call Logic Function]
-        H --> I[Format Success Response]
-
-        G --> J[catch block]
-        J --> K[ErrorHandler.handleError]
-        K --> L[Format Error Response]
-    end
-
-    subgraph "Logic Layer (logic.ts)"
-        H --> M[Pure Business Logic]
-        M --> N{Success?}
-        N -->|Yes| O[Return Result]
-        N -->|No| P[throw McpError]
-
-        O --> I
-        P --> J
-    end
-
-    subgraph "Response Path"
-        I --> Q[CallToolResult]
-        L --> Q
-        Q --> R[Transport Response]
-        R --> S[Client Response]
-    end
-
-    style E fill:#e3f2fd
-    style M fill:#e8f5e8
-    style P fill:#ffebee
-    style K fill:#fff3e0
-```
-
-## Component Architecture
-
-### Tool Development Structure
-
-Each tool follows a mandated three-file structure that enforces the architectural patterns:
-
-```mermaid
-graph LR
-    subgraph "Tool Directory: src/mcp-server/tools/toolName/"
-        A[index.ts<br/>Barrel Export] --> B[registration.ts<br/>Handler Layer]
-        B --> C[logic.ts<br/>Business Logic]
-    end
-
-    subgraph "External Dependencies"
-        C --> D[External APIs]
-        C --> E[Database Services]
-        C --> F[Utility Functions]
-    end
-
-    subgraph "Core Infrastructure"
-        B --> G[ErrorHandler]
-        B --> H[RequestContext]
-        B --> I[MCP Server]
-    end
-
-    style A fill:#f0f0f0
-    style B fill:#e3f2fd
-    style C fill:#e8f5e8
-    style G fill:#fff3e0
-```
-
-### SQL Tools Architecture
-
-IBM i-specific SQL tools use a YAML-driven approach for rapid development:
-
-```mermaid
-graph TB
-    subgraph "YAML Configuration"
-        A[prebuiltconfigs/*.yaml] --> B[ToolProcessor]
-        B --> C[Schema Generation]
-        B --> D[Tool Registration]
-    end
-
-    subgraph "Runtime Execution"
-        E[Client Request] --> F[YAML Tool Handler]
-        F --> G[Parameter Validation]
-        G --> H[SQL Security Check]
-        H --> I[YamlSqlExecutor]
-    end
-
-    subgraph "IBM i Integration"
-        I --> J[Connection Pool Manager]
-        J --> K[Mapepire Client]
-        K --> L[DB2i Database]
-    end
-
-    subgraph "Response Processing"
-        L --> M[Result Formatting]
-        M --> N[Security Audit]
-        N --> O[Response Delivery]
-    end
-
-    style A fill:#fff8e1
-    style E fill:#e3f2fd
-    style L fill:#e8f5e8
-    style N fill:#ffebee
-```
-
-## Error Handling Architecture
-
-The error handling system provides comprehensive coverage while maintaining system stability:
-
-```mermaid
-graph TB
-    subgraph "Error Sources"
-        A[Logic Layer Errors] --> E[McpError Thrown]
-        B[External API Failures] --> E
-        C[Database Errors] --> E
-        D[Validation Failures] --> E
-    end
-
-    subgraph "Error Processing"
-        E --> F[Handler Catch Block]
-        F --> G[ErrorHandler.handleError]
-        G --> H[Error Classification]
-        G --> I[Structured Logging]
-        G --> J[Error Formatting]
-    end
-
-    subgraph "Error Response"
-        J --> K[CallToolResult with isError]
-        K --> L[Transport Layer]
-        L --> M[Client Error Response]
-    end
-
-    subgraph "System Protection"
-        G --> N[Rate Limiting]
-        G --> O[Circuit Breaker]
-        G --> P[Graceful Degradation]
-    end
-
-    style E fill:#ffebee
-    style G fill:#fff3e0
-    style N fill:#f3e5f5
-```
-
-## Authentication & Security Architecture
-
-The server supports multiple authentication modes with integrated IBM i security:
-
-```mermaid
-graph TB
-    subgraph "Authentication Modes"
-        A[MCP_AUTH_MODE=none] --> E[No Authentication]
-        B[MCP_AUTH_MODE=jwt] --> F[JWT Validation]
-        C[MCP_AUTH_MODE=oauth] --> G[OAuth/OIDC]
-        D[MCP_AUTH_MODE=ibmi] --> H[IBM i HTTP Auth]
-    end
-
-    subgraph "IBM i Authentication Flow"
-        H --> I[RSA Key Pair]
-        I --> J[Encrypted Credential Exchange]
-        J --> K[IBM i User Profile Validation]
-        K --> L[Authority Checking]
-    end
-
-    subgraph "Authorization Layer"
-        F --> M[Scope Validation]
-        G --> M
-        L --> N[IBM i Authority Integration]
-        M --> O[Tool Access Control]
-        N --> O
-    end
-
-    subgraph "Audit & Compliance"
-        O --> P[Audit Logging]
-        P --> Q[Security Events]
-        Q --> R[Compliance Reporting]
-    end
-
-    style H fill:#e8f5e8
-    style K fill:#fff3e0
-    style P fill:#f3e5f5
-```
-
-## Transport Layer Architecture
-
-The server supports both development and production transport modes:
-
-<Tabs>
-  <Tab title="STDIO Transport">
-    **Use Cases:**
-    - CLI tools and MCP Inspector
-    - Direct process communication
-    - Development and testing
-
-    ```mermaid
-    graph LR
-        A[MCP Client Process] <--> B[stdin/stdout]
-        B <--> C[StdioServerTransport]
-        C <--> D[McpServer Instance]
-        D <--> E[Tool Handlers]
-    ```
-  </Tab>
-
-  <Tab title="HTTP Transport">
-    **Use Cases:**
-    - Web applications and REST APIs
-    - Production deployments
-    - Load balancing and scaling
-
-    ```mermaid
-    graph LR
-        A[HTTP Client] --> B[HTTP Request]
-        B --> C[StreamableHTTPServerTransport]
-        C --> D[Session Management]
-        D --> E[McpServer Instance]
-        E --> F[Tool Handlers]
-        F --> G[Server-Sent Events]
-        G --> H[HTTP Response]
-    ```
-  </Tab>
-</Tabs>
-
-## Observability & Monitoring
-
-The architecture includes comprehensive observability features:
-
-```mermaid
-graph TB
-    subgraph "Request Tracing"
-        A[RequestContext Creation] --> B[Unique Request ID]
-        B --> C[Context Propagation]
-        C --> D[Structured Logging]
-    end
-
-    subgraph "OpenTelemetry Integration"
-        D --> E[Trace Collection]
-        E --> F[Metrics Aggregation]
-        F --> G[OTLP Export]
-    end
-
-    subgraph "Monitoring Outputs"
-        G --> H[Jaeger Tracing]
-        G --> I[Prometheus Metrics]
-        G --> J[Custom Dashboards]
-    end
-
-    subgraph "Operational Intelligence"
-        D --> K[Error Rate Monitoring]
-        D --> L[Performance Metrics]
-        D --> M[Business Intelligence]
-    end
-
-    style A fill:#e8f5e8
-    style E fill:#e3f2fd
-    style K fill:#fff3e0
-```
-
-## Best Practices & Patterns
-
-<AccordionGroup>
-  <Accordion title="Tool Development Guidelines" icon="code">
-    - **Logic Purity**: Keep business logic functions pure and stateless
-    - **Error Throwing**: Always throw `McpError` for failures in logic layer
-    - **Handler Wrapping**: Every logic call must be wrapped in try...catch in handlers
-    - **Context Propagation**: Pass `RequestContext` through the entire call stack
-    - **Schema Validation**: Define comprehensive Zod schemas for inputs and outputs
-  </Accordion>
-
-  <Accordion title="YAML SQL Tool Patterns" icon="database">
-    - **Parameter Security**: Use parameter binding to prevent SQL injection
-    - **Authority Checking**: Include appropriate IBM i authority requirements
-    - **Result Limiting**: Always include row limits for large result sets
-    - **Audit Logging**: Mark sensitive operations with `security.audit: true`
-    - **Performance Consideration**: Design queries for production system impact
-  </Accordion>
-
-  <Accordion title="Error Handling Standards" icon="exclamation-triangle">
-    - **Structured Errors**: Always use `McpError` with appropriate error codes
-    - **Context Inclusion**: Include relevant context in error details
-    - **No Silent Failures**: Every error must be logged and handled
-    - **Graceful Degradation**: Provide meaningful fallback behaviors
-    - **Client Communication**: Return user-friendly error messages
-  </Accordion>
-
-  <Accordion title="Security Implementation" icon="shield-check">
-    - **Input Validation**: Validate all inputs with Zod schemas
-    - **Authorization Checks**: Verify scope requirements for sensitive operations
-    - **IBM i Integration**: Leverage IBM i's built-in security model
-    - **Audit Trails**: Maintain comprehensive audit logs
-    - **Credential Management**: Use environment variables for sensitive data
-  </Accordion>
-</AccordionGroup>
-
-## Integration Points
-
-The architecture provides multiple integration points for extending functionality:
 
 <CardGroup cols={2}>
-  <Card title="Custom SQL Tools" icon="wrench" href="/sql-tools/building-tools">
-    Extend functionality with YAML SQL configurations for IBM i database operations
+  <Card title="What's New" icon="plus">
+    **MCP Server** (middle layer) and **YAML tool definitions**
+
+    This is the only new infrastructure you deploy
   </Card>
-  <Card title="Agent Development" icon="robot" href="/agents/building-agents">
-    Build AI agents that understand the server architecture and IBM i concepts
+  <Card title="What's Reused" icon="recycle">
+    **Everything else**: SQL interface, Db2, QSYS2, security, stored procedures
+
+    All your existing IBM i capabilities
   </Card>
-  <Card title="Authentication Providers" icon="key" href="/api/auth-endpoints">
-    Implement custom authentication modes and IBM i security integration
+</CardGroup>
+
+---
+
+## What is an MCP Server?
+
+An **MCP (Model Context Protocol) server** is a standardized interface that connects AI agents to external systems. Instead of building custom integrations for each AI platform, MCP provides a universal protocol that works across Claude, VSCode, Cursor, and other AI tools.
+
+**The MCP server handles four responsibilities:**
+
+1. **Tool Registration** - Advertises available operations to AI agents
+2. **Request Validation** - Ensures parameters are correct and safe
+3. **Execution** - Runs operations against your systems
+4. **Response Formatting** - Returns structured results AI agents understand
+
+Think of it as translating between "AI language" (tool calls, structured data) and "IBM i language" (SQL queries, result sets).
+
+---
+
+## SQL as MCP Tools: Exposing IBM i's Existing Capabilities
+
+**The key insight**: IBM i already has everything AI agents need—DB2 for i, QSYS2 system services, performance views, security tables. The MCP server simply makes these **existing SQL interfaces** accessible to AI through standardized tool definitions.
+
+### Why SQL is Perfect for IBM i AI Tools
+
+IBM i's SQL interface is uniquely powerful because it provides:
+
+<CardGroup cols={2}>
+  <Card title="QSYS2 System Services" icon="server">
+    **Already on your system**: 500+ views and functions for monitoring jobs, performance, security, and system health—no installation required
   </Card>
-  <Card title="Production Deployment" icon="chart-line" href="/deployment/production">
-    Connect observability data to enterprise monitoring and alerting systems
+  <Card title="Db2 for i Optimization" icon="gauge-high">
+    **Production-ready performance**: Query optimizer, connection pooling, result caching all work out of the box
+  </Card>
+  <Card title="Native Security Model" icon="shield-check">
+    **Built-in authority checking**: Object-level permissions, special authorities, and audit trails just work
+  </Card>
+  <Card title="Stored Procedures" icon="code">
+    **Existing business logic**: Call RPG, COBOL, or CL programs through SQL—no rewrites needed
+  </Card>
+</CardGroup>
+
+**The MCP server's job**: Turn these SQL capabilities into discoverable tools that AI agents can use.
+
+<Tip>
+**You're not building new infrastructure**—you're exposing what's already there. A SQL query that checks system status becomes a tool AI agents can discover and call. No REST endpoints to maintain, no data to sync, no middleware to deploy.
+</Tip>
+
+### Example: Exposing QSYS2 Services to AI
+
+Let's see how an **existing IBM i service** becomes an AI tool. No new infrastructure—just a YAML definition that exposes what's already there.
+
+**Step 1: The SQL Service (Already Exists on IBM i)**
+
+```sql
+-- QSYS2.ACTIVE_JOB_INFO is a built-in IBM i service
+-- It's already running, already optimized, already secured
+SELECT job_name, user_name, cpu_used, elapsed_time
+FROM qsys2.active_job_info
+WHERE job_status = 'ACTIVE'
+ORDER BY cpu_used DESC
+FETCH FIRST 20 ROWS ONLY
+```
+
+**Step 2: Make It an MCP Tool (YAML Definition)**
+
+```yaml
+# tools/system-monitoring.yaml
+tools:
+  get_active_jobs:
+    source: ibmi-system
+    description: "List currently active jobs with CPU usage from QSYS2.ACTIVE_JOB_INFO"
+    statement: |
+      SELECT job_name, user_name, cpu_used, elapsed_time
+      FROM qsys2.active_job_info
+      WHERE job_status = 'ACTIVE'
+      ORDER BY cpu_used DESC
+      FETCH FIRST 20 ROWS ONLY
+    parameters: []
+```
+
+**Step 3: AI Agents Discover It Automatically**
+
+When the server starts, it registers this tool. AI agents see:
+
+```json
+{
+  "name": "get_active_jobs",
+  "description": "List currently active jobs with CPU usage from QSYS2.ACTIVE_JOB_INFO",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}
+```
+
+**Step 4: AI Agents Use It Naturally**
+
+```
+User: "Show me the top CPU-consuming jobs"
+
+AI Agent: [Calls get_active_jobs tool]
+
+Result:
+{
+  "rows": [
+    {
+      "JOB_NAME": "QZDASOINIT",
+      "USER_NAME": "QTCP",
+      "CPU_USED": 45231,
+      "ELAPSED_TIME": 3600000
+    },
+    {
+      "JOB_NAME": "QSYSARB",
+      "USER_NAME": "QSYS",
+      "CPU_USED": 12450,
+      "ELAPSED_TIME": 86400000
+    }
+  ],
+  "rowCount": 2
+}
+
+AI: "The QZDASOINIT job under QTCP is using the most CPU at 45,231 milliseconds..."
+```
+
+<Note>
+**What just happened**: You exposed an existing IBM i service (QSYS2.ACTIVE_JOB_INFO) to AI agents using a simple YAML file. The SQL service was already there, already secured, already optimized. The MCP server just made it discoverable and callable through a standardized protocol.
+</Note>
+
+---
+
+## How Requests Flow Through the Server
+
+Understanding the request flow helps explain how SQL tools maintain security while providing flexibility:
+
+```mermaid
+graph TB
+    A[AI Agent] -->|Request Tool| B[MCP Server]
+    B -->|Validate Parameters| C{Valid?}
+    C -->|No| D[Return Error]
+    C -->|Yes| E[Bind Parameters]
+    E -->|Execute SQL| F[Db2 for i]
+    F -->|Result Set| G[Format Response]
+    G -->|Structured Data| A
+
+    style A fill:#e3f2fd
+    style B fill:#e8f5e8
+    style F fill:#fff3e0
+    style D fill:#ffebee
+```
+
+### Step-by-Step Flow
+
+<Steps>
+  <Step title="Tool Request">
+    AI agent identifies a need (e.g., "show me active jobs") and calls the `get_active_jobs` tool
+  </Step>
+
+  <Step title="Parameter Validation">
+    Server validates all parameters against defined constraints (type, range, pattern, etc.)
+  </Step>
+
+  <Step title="SQL Security">
+    Parameters are safely bound to SQL using prepared statements—SQL injection is impossible
+  </Step>
+
+  <Step title="Database Execution">
+    SQL executes against Db2 for i using authenticated user's authorities
+  </Step>
+
+  <Step title="Result Formatting">
+    Results formatted as markdown tables and structured JSON for AI consumption
+  </Step>
+</Steps>
+
+<Note>
+**Parameter Binding Security**: Parameter binding is the key security feature. Instead of concatenating user input into SQL strings (dangerous), parameters are bound separately by the database driver. The SQL structure cannot be modified, preventing injection attacks entirely.
+</Note>
+
+---
+
+## Server Components
+
+The server is organized into clear functional areas:
+
+### 1. Tool Registry
+
+**What it does:** Manages all available tools and their schemas
+
+**Two types of tools:**
+- **SQL Tools** (YAML-defined) - IBM i database operations
+- **TypeScript Tools** (code-based) - Custom logic and external integrations
+
+**Tool discovery:**
+```bash
+# AI agents can list all available tools
+GET /mcp/tools/list
+
+# Response includes tool names, descriptions, and schemas
+{
+  "tools": [
+    {"name": "get_active_jobs", "description": "List currently active jobs..."},
+    {"name": "system_status", "description": "Get system performance metrics..."}
+  ]
+}
+```
+
+### 2. YAML Tool Engine
+
+**What it does:** Converts YAML configurations into executable SQL tools
+
+**Process:**
+1. **Load** YAML files from configured directories
+2. **Parse** tool definitions and parameter schemas
+3. **Generate** validation logic from parameter constraints
+4. **Register** tools with the MCP server
+5. **Execute** SQL safely when tools are called
+
+**Configuration flexibility:**
+```bash
+# Load specific YAML file
+npx ibmi-mcp-server --tools tools/my-tools.yaml
+
+# Load entire directory
+npx ibmi-mcp-server --tools tools/
+
+# Load specific toolsets only
+npx ibmi-mcp-server --tools tools/ --toolsets performance,security
+```
+
+### 3. Connection Management
+
+**What it does:** Maintains secure, efficient database connections
+
+**Features:**
+- Connection pooling for performance
+- Automatic reconnection on failures
+- Per-user connection isolation (HTTP auth mode)
+- Credential encryption (IBM i auth)
+
+**Two authentication modes:**
+
+<Tabs>
+  <Tab title="Shared Connection (STDIO)">
+    **Best for:** Development, CLI tools, single-user scenarios
+
+    ```bash
+    # All operations use same DB2i user
+    DB2i_HOST=ibmi-system.com
+    DB2i_USER=MCPUSER
+    DB2i_PASS=password
+    ```
+  </Tab>
+
+  <Tab title="Per-User Connection (HTTP)">
+    **Best for:** Production, web apps, multi-user scenarios
+
+    ```bash
+    # Each user authenticates individually
+    MCP_AUTH_MODE=ibmi
+    IBMI_HTTP_AUTH_ENABLED=true
+
+    # User JSMITH → Connects as JSMITH to DB2i
+    # User AADAMS → Connects as AADAMS to DB2i
+    ```
+  </Tab>
+</Tabs>
+
+### 4. Transport Layer
+
+**What it does:** Handles communication between AI agents and the server
+
+**Two transport modes:**
+
+| Transport | Use Case | Protocol | Port |
+|-----------|----------|----------|------|
+| **STDIO** | Development, CLI tools | stdin/stdout | N/A |
+| **HTTP** | Production, web apps | HTTP/SSE | 3010 |
+
+**STDIO** is simpler (direct process communication), while **HTTP** enables remote access, load balancing, and web integration.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build SQL Tools" icon="hammer" href="/sql-tools/building-tools">
+    Create your first YAML SQL tool in minutes
+  </Card>
+  <Card title="Complete Example" icon="book-open" href="/sql-tools/building-tools#complete-example-employee-information-tools">
+    Study the comprehensive employee-info.yaml example
+  </Card>
+  <Card title="Client Integration" icon="plug" href="/clients/overview">
+    Connect Claude, VSCode, or other MCP clients
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Review all available environment variables
   </Card>
 </CardGroup>
 
 <Note>
-For complete configuration details including environment variables for each architectural component, see the [Configuration Reference](/configuration).
-</Note>
-
-<Note>
-**Architectural Philosophy**: The "Logic Throws, Handler Catches" pattern ensures that business logic remains testable and pure, while handlers manage the complexity of transport protocols and error formatting. This separation enables reliable unit testing and makes the system easier to maintain and extend.
-</Note>
-
-<Note>
-This architecture has been battle-tested in enterprise IBM i environments and follows industry best practices for production MCP server deployment. The modular design ensures that each component can be developed, tested, and maintained independently while working together as a cohesive system.
+**Architecture Philosophy**: Leverage what exists. IBM i's SQL interface, QSYS2 services, and Db2 optimization are production-proven. Rather than building new infrastructure, this server exposes these existing capabilities to AI agents through a standardized protocol. You write YAML definitions for SQL you already know—the server handles discovery, validation, and formatting for AI consumption.
 </Note>

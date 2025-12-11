@@ -1,0 +1,839 @@
+---
+title: "Parameter Examples Guide"
+description: "Practical examples and patterns for using parameters in SQL tools with validation, constraints, and best practices."
+---
+
+<Info>
+**Official Schema**: See the [JSON Schema definition](https://github.com/IBM/ibmi-mcp-server/blob/main/server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json) for parameter specifications.
+</Info>
+
+This guide provides practical examples for using parameters in SQL tools. Parameters make tools dynamic and reusable by accepting inputs that are validated and safely bound to SQL statements.
+
+## Quick Reference
+
+**All parameter types and their constraints:**
+
+| Type | Constraints | Use Cases |
+|------|-------------|-----------|
+| `string` | `minLength`, `maxLength`, `pattern`, `enum` | Library names, object names, search patterns |
+| `integer` | `minimum`, `maximum`, `enum` | Row limits, IDs, counts, numeric filters |
+| `float` | `min`, `max`, `enum` | Percentages, thresholds, measurements |
+| `boolean` | None | Flags, enable/disable options |
+| `array` | `minLength`, `maxLength`, `itemType` | Multiple filters, batch operations, IN clauses |
+
+**Common parameter properties:**
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `name` | ✅ Yes | Parameter name used in SQL (`:parameter_name`) |
+| `type` | ✅ Yes | One of: `string`, `integer`, `float`, `boolean`, `array` |
+| `description` | Recommended | AI-facing description with usage guidance |
+| `required` | No | Whether parameter must be provided (default: true unless `default` set) |
+| `default` | No | Default value when parameter is not provided |
+
+---
+
+## String Parameters
+
+String parameters accept text values with optional length, pattern, and enum constraints.
+
+### Basic String
+
+**Use case:** Simple text input without validation
+
+```yaml
+parameters:
+  - name: search_term
+    type: string
+    description: "Search term to find in service names. Example: 'ACTIVE_JOB'"
+    required: true
+```
+
+**SQL usage:**
+```sql
+WHERE service_name LIKE '%' || :search_term || '%'
+```
+
+**Tool call:**
+```json
+{
+  "name": "search_services",
+  "arguments": {
+    "search_term": "ACTIVE_JOB"
+  }
+}
+```
+
+---
+
+### String with Length Constraints
+
+**Use case:** Enforce minimum/maximum length (e.g., IBM i object names)
+
+```yaml
+parameters:
+  - name: object_name
+    type: string
+    description: "IBM i object name (1-10 characters). Example: 'CUSTFILE', 'MYLIB'"
+    required: true
+    minLength: 1
+    maxLength: 10
+```
+
+**Validation:**
+- ✅ `"CUSTFILE"` - Valid (8 characters)
+- ❌ `""` - Error: Too short (0 < 1)
+- ❌ `"VERYLONGOBJECTNAME"` - Error: Too long (18 > 10)
+
+---
+
+### String with Pattern (Regex)
+
+**Use case:** Enforce specific format (e.g., IBM i naming conventions)
+
+```yaml
+parameters:
+  - name: library_name
+    type: string
+    description: "IBM i library name (uppercase alphanumeric, starts with letter). Example: 'APPLIB', 'MYLIB'"
+    required: true
+    pattern: "^[A-Z][A-Z0-9_]*$"
+    maxLength: 10
+```
+
+**Common patterns:**
+```yaml
+# IBM i library/object name
+pattern: "^[A-Z][A-Z0-9_]*$"
+
+# Employee ID (6 digits)
+pattern: "^[0-9]{6}$"
+
+# Email address
+pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+
+# Phone number (US format)
+pattern: "^\\d{3}-\\d{3}-\\d{4}$"
+```
+
+**Validation:**
+- ✅ `"MYLIB"` - Valid
+- ✅ `"APP_LIB"` - Valid
+- ❌ `"mylib"` - Error: Doesn't match pattern (lowercase)
+- ❌ `"123LIB"` - Error: Doesn't match pattern (starts with number)
+
+---
+
+### String with Enum
+
+**Use case:** Restrict to specific allowed values
+
+```yaml
+parameters:
+  - name: object_type
+    type: string
+    description: "IBM i object type to filter by"
+    required: true
+    enum: ["*FILE", "*PGM", "*SRVPGM", "*DTAARA"]
+    default: "*FILE"
+```
+
+**Validation:**
+- ✅ `"*FILE"` - Valid
+- ✅ `"*PGM"` - Valid
+- ❌ `"*TABLE"` - Error: Not in enum list
+
+**SQL usage:**
+```sql
+WHERE object_type = :object_type
+```
+
+<Tip>
+**AI Agent Benefit**: Enum parameters are automatically described to AI agents as "Must be one of: '*FILE', '*PGM', '*SRVPGM', '*DTAARA'" which helps them select valid values.
+</Tip>
+
+---
+
+### Optional String
+
+**Use case:** Allow filtering that can be skipped
+
+```yaml
+parameters:
+  - name: user_filter
+    type: string
+    description: "Optional user name filter. Leave empty to show all users."
+    required: false
+```
+
+**SQL usage with NULL handling:**
+```sql
+WHERE (:user_filter IS NULL OR user_name = :user_filter)
+```
+
+**Tool calls:**
+```json
+// With filter
+{"user_filter": "JSMITH"}
+
+// Without filter (shows all)
+{"user_filter": null}
+// or omit entirely: {}
+```
+
+---
+
+## Integer Parameters
+
+Integer parameters accept whole numbers with optional min/max constraints.
+
+### Basic Integer
+
+**Use case:** Row limits, counts, IDs
+
+```yaml
+parameters:
+  - name: limit
+    type: integer
+    description: "Maximum number of rows to return (1-100)"
+    default: 10
+    minimum: 1
+    maximum: 100
+```
+
+**SQL usage:**
+```sql
+FETCH FIRST :limit ROWS ONLY
+```
+
+**Validation:**
+- ✅ `10` - Valid
+- ✅ `100` - Valid (at maximum)
+- ❌ `0` - Error: Below minimum
+- ❌ `150` - Error: Above maximum
+- ❌ `"10"` - Error: Must be integer, not string
+
+---
+
+### Pagination Parameters
+
+**Use case:** Page number and size for result pagination
+
+```yaml
+parameters:
+  - name: page_size
+    type: integer
+    description: "Number of results per page (1-100)"
+    default: 25
+    minimum: 1
+    maximum: 100
+
+  - name: page_number
+    type: integer
+    description: "Page number to retrieve (starts at 1)"
+    default: 1
+    minimum: 1
+```
+
+**SQL usage:**
+```sql
+LIMIT :page_size OFFSET (:page_number - 1) * :page_size
+```
+
+**Tool call:**
+```json
+{
+  "page_size": 25,
+  "page_number": 2  // Gets rows 26-50
+}
+```
+
+---
+
+### Integer with Enum
+
+**Use case:** Specific numeric choices
+
+```yaml
+parameters:
+  - name: priority
+    type: integer
+    description: "Priority level (1=High, 2=Medium, 3=Low)"
+    enum: [1, 2, 3]
+    default: 2
+```
+
+---
+
+## Float Parameters
+
+Float parameters accept decimal numbers for percentages, thresholds, and measurements.
+
+### Basic Float
+
+**Use case:** Percentage multiplier, threshold value
+
+```yaml
+parameters:
+  - name: performance_multiplier
+    type: float
+    description: "Performance rating multiplier for bonus calculation (0.0-0.3)"
+    required: true
+    min: 0.0
+    max: 0.3
+    default: 0.1
+```
+
+**SQL usage:**
+```sql
+SELECT
+  employee_id,
+  salary,
+  salary * :performance_multiplier AS bonus
+FROM employees
+```
+
+**Tool call:**
+```json
+{
+  "performance_multiplier": 0.15  // 15% bonus
+}
+```
+
+**Validation:**
+- ✅ `0.1` - Valid
+- ✅ `0.25` - Valid
+- ❌ `0.5` - Error: Exceeds maximum (0.5 > 0.3)
+- ❌ `-0.1` - Error: Below minimum
+
+---
+
+### Threshold Example
+
+```yaml
+parameters:
+  - name: cpu_threshold
+    type: float
+    description: "CPU usage threshold percentage (0.0-100.0)"
+    min: 0.0
+    max: 100.0
+    default: 80.0
+```
+
+**SQL usage:**
+```sql
+WHERE cpu_utilization >= :cpu_threshold
+```
+
+---
+
+## Boolean Parameters
+
+Boolean parameters accept true/false values for flags and options.
+
+### Basic Boolean
+
+**Use case:** Include/exclude certain data
+
+```yaml
+parameters:
+  - name: include_completed
+    type: boolean
+    description: "Include completed projects (true) or only active projects (false)"
+    default: true
+```
+
+**SQL usage:**
+```sql
+WHERE (:include_completed = 1 OR end_date IS NULL)
+```
+
+<Note>
+**Boolean to SQL**: Booleans are passed as `1` (true) or `0` (false) in SQL. Use `= 1` or `= 0` in WHERE clauses.
+</Note>
+
+**Tool calls:**
+```json
+// Show all projects
+{"include_completed": true}
+
+// Show only active projects
+{"include_completed": false}
+```
+
+---
+
+### Boolean Flag Examples
+
+```yaml
+# Case-sensitive search
+- name: case_sensitive
+  type: boolean
+  description: "Perform case-sensitive search (true) or case-insensitive (false)"
+  default: false
+
+# Include inactive records
+- name: show_inactive
+  type: boolean
+  description: "Include inactive records in results"
+  default: false
+
+# Verbose output
+- name: detailed
+  type: boolean
+  description: "Include detailed information in results"
+  default: false
+```
+
+**SQL with boolean:**
+```sql
+WHERE
+  CASE
+    WHEN :case_sensitive = 1
+      THEN name = :search_term
+    ELSE
+      UPPER(name) = UPPER(:search_term)
+  END
+```
+
+---
+
+## Array Parameters
+
+Array parameters accept lists of values, commonly used with SQL IN clauses.
+
+### Basic Array
+
+**Use case:** Filter by multiple values
+
+```yaml
+parameters:
+  - name: project_ids
+    type: array
+    itemType: string
+    description: "List of project IDs to search for. Example: ['MA2100', 'AD3100', 'PL2100']"
+    required: true
+    minLength: 1
+    maxLength: 10
+```
+
+**SQL usage:**
+```sql
+WHERE project_id IN (:project_ids)
+```
+
+**Tool call:**
+```json
+{
+  "project_ids": ["MA2100", "AD3100", "PL2100"]
+}
+```
+
+<Warning>
+**Array Format**: Arrays must be JSON arrays (`["A", "B"]`), NOT strings (`"('A', 'B')"`) or SQL syntax.
+</Warning>
+
+**Validation:**
+- ✅ `["MA2100"]` - Valid (1 item, within minLength)
+- ✅ `["MA2100", "AD3100", "PL2100"]` - Valid (3 items)
+- ❌ `[]` - Error: Below minLength (0 < 1)
+- ❌ `["A", "B", ... "K"]` (11 items) - Error: Exceeds maxLength
+
+---
+
+### Array with Different Item Types
+
+**Integer array:**
+```yaml
+- name: employee_ids
+  type: array
+  itemType: integer
+  description: "List of employee IDs"
+  minLength: 1
+  maxLength: 50
+```
+
+**Tool call:**
+```json
+{"employee_ids": [1001, 1002, 1003]}
+```
+
+**Boolean array:**
+```yaml
+- name: status_flags
+  type: array
+  itemType: boolean
+  description: "List of status flags"
+```
+
+**Tool call:**
+```json
+{"status_flags": [true, false, true]}
+```
+
+---
+
+## Validation and Error Handling
+
+### Validation Process
+
+Parameters are validated in this order:
+
+1. **Type Check** - Ensure value matches declared type
+2. **Required Check** - Ensure required parameters are provided
+3. **Constraint Check** - Validate min/max, length, pattern, enum
+4. **SQL Binding** - Safely bind validated parameters to SQL
+
+### Common Validation Errors
+
+<AccordionGroup>
+  <Accordion title="Type Mismatch" icon="exclamation-triangle">
+    **Error:** `Expected integer, got string for parameter 'limit'`
+
+    **Cause:** Passing wrong type
+
+    ```json
+    // ❌ Wrong
+    {"limit": "10"}
+
+    // ✅ Correct
+    {"limit": 10}
+    ```
+  </Accordion>
+
+  <Accordion title="Missing Required Parameter" icon="circle-xmark">
+    **Error:** `Required parameter 'employee_id' is missing`
+
+    **Cause:** Not providing a required parameter
+
+    ```yaml
+    parameters:
+      - name: employee_id
+        type: string
+        required: true  # Must be provided
+    ```
+
+    ```json
+    // ❌ Missing required parameter
+    {}
+
+    // ✅ Provided
+    {"employee_id": "000010"}
+    ```
+  </Accordion>
+
+  <Accordion title="Constraint Violation" icon="ban">
+    **Error:** `String length 18 exceeds maximum 10 for parameter 'library_name'`
+
+    **Cause:** Value violates constraint
+
+    ```yaml
+    parameters:
+      - name: library_name
+        type: string
+        maxLength: 10
+    ```
+
+    ```json
+    // ❌ Too long
+    {"library_name": "VERYLONGLIBRARYNAME"}
+
+    // ✅ Valid
+    {"library_name": "MYLIB"}
+    ```
+  </Accordion>
+
+  <Accordion title="Pattern Mismatch" icon="code">
+    **Error:** `Value does not match pattern '^[A-Z][A-Z0-9_]*$' for parameter 'library_name'`
+
+    **Cause:** Value doesn't match regex pattern
+
+    ```yaml
+    parameters:
+      - name: library_name
+        type: string
+        pattern: "^[A-Z][A-Z0-9_]*$"
+    ```
+
+    ```json
+    // ❌ Doesn't match (lowercase)
+    {"library_name": "mylib"}
+
+    // ✅ Matches
+    {"library_name": "MYLIB"}
+    ```
+  </Accordion>
+
+  <Accordion title="Enum Violation" icon="list">
+    **Error:** `Value must be one of: *FILE, *PGM, *SRVPGM for parameter 'object_type'`
+
+    **Cause:** Value not in enum list
+
+    ```yaml
+    parameters:
+      - name: object_type
+        type: string
+        enum: ["*FILE", "*PGM", "*SRVPGM"]
+    ```
+
+    ```json
+    // ❌ Not in list
+    {"object_type": "*TABLE"}
+
+    // ✅ Valid
+    {"object_type": "*FILE"}
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Best Practices
+
+### 1. Write AI-Friendly Descriptions
+
+The `description` field is shown to AI agents. Make it helpful:
+
+```yaml
+# ✅ Good - includes examples and format
+description: "Employee ID (6 digits). Example: '000010', '000250'"
+
+# ❌ Vague
+description: "Employee ID"
+```
+
+### 2. Use Appropriate Constraints
+
+Match constraints to your data requirements:
+
+```yaml
+# IBM i library name
+- name: library
+  type: string
+  pattern: "^[A-Z][A-Z0-9_]*$"
+  maxLength: 10
+
+# Row limit
+- name: limit
+  type: integer
+  minimum: 1
+  maximum: 1000
+  default: 50
+
+# Search term (at least 2 characters to avoid broad searches)
+- name: search
+  type: string
+  minLength: 2
+  maxLength: 100
+```
+
+### 3. Provide Sensible Defaults
+
+For optional parameters, include defaults:
+
+```yaml
+- name: page_size
+  type: integer
+  default: 25
+  minimum: 1
+  maximum: 100
+
+- name: include_inactive
+  type: boolean
+  default: false
+```
+
+### 4. Use Enums for Fixed Choices
+
+When values are limited, use enums:
+
+```yaml
+# Status values
+- name: status
+  type: string
+  enum: ["ACTIVE", "INACTIVE", "PENDING"]
+  default: "ACTIVE"
+
+# Priority levels
+- name: priority
+  type: integer
+  enum: [1, 2, 3]
+  default: 2
+```
+
+### 5. Handle Optional Parameters in SQL
+
+Use NULL checks for optional parameters:
+
+```sql
+-- Optional string filter
+WHERE (:user_filter IS NULL OR user_name = :user_filter)
+
+-- Optional integer threshold
+WHERE (:min_salary IS NULL OR salary >= :min_salary)
+
+-- Optional boolean flag with special value
+WHERE (:department_id = '*ALL' OR department = :department_id)
+```
+
+---
+
+## Security: Parameter Binding
+
+<Warning>
+**Critical**: Parameters are automatically bound using prepared statements. This prevents SQL injection attacks. NEVER concatenate parameters into SQL strings.
+</Warning>
+
+**✅ Safe (parameter binding):**
+```yaml
+statement: |
+  SELECT * FROM employees
+  WHERE employee_id = :employee_id
+```
+
+**❌ Dangerous (string concatenation):**
+```yaml
+# DO NOT DO THIS
+statement: |
+  SELECT * FROM employees
+  WHERE employee_id = '${employee_id}'
+```
+
+**How parameter binding works:**
+
+1. SQL statement is prepared with placeholders: `SELECT * FROM employees WHERE employee_id = ?`
+2. Parameters are validated against constraints
+3. Parameters are bound separately from the SQL structure
+4. Database executes the prepared statement with bound parameters
+
+This ensures the SQL structure cannot be modified by user input, preventing injection attacks entirely.
+
+---
+
+## Complete Examples
+
+### Example 1: Employee Search Tool
+
+```yaml
+tools:
+  search_employees:
+    source: ibmi-sample
+    description: "Search for employees by name with pagination"
+    parameters:
+      - name: name_search
+        type: string
+        description: "Name to search for (partial match, minimum 2 characters). Example: 'Smith', 'John'"
+        required: true
+        minLength: 2
+        maxLength: 50
+
+      - name: page_size
+        type: integer
+        description: "Number of results per page (1-100)"
+        default: 25
+        minimum: 1
+        maximum: 100
+
+      - name: page_number
+        type: integer
+        description: "Page number to retrieve (starts at 1)"
+        default: 1
+        minimum: 1
+
+    statement: |
+      SELECT empno, firstnme, lastname, job, workdept
+      FROM SAMPLE.EMPLOYEE
+      WHERE UPPER(firstnme) LIKE UPPER('%' || :name_search || '%')
+         OR UPPER(lastname) LIKE UPPER('%' || :name_search || '%')
+      ORDER BY lastname, firstnme
+      LIMIT :page_size OFFSET (:page_number - 1) * :page_size
+```
+
+### Example 2: Project Team Finder
+
+```yaml
+tools:
+  find_project_team:
+    source: ibmi-sample
+    description: "Find all employees working on specific projects"
+    parameters:
+      - name: project_ids
+        type: array
+        itemType: string
+        description: "List of project IDs. Example: ['MA2100', 'AD3100']"
+        required: true
+        minLength: 1
+        maxLength: 10
+
+      - name: include_completed
+        type: boolean
+        description: "Include employees with completed assignments (true) or only active assignments (false)"
+        default: false
+
+    statement: |
+      SELECT E.empno, E.firstnme, E.lastname, EPA.projno, EPA.emstdate, EPA.emendate
+      FROM SAMPLE.EMPPROJACT EPA
+      JOIN SAMPLE.EMPLOYEE E ON EPA.empno = E.empno
+      WHERE EPA.projno IN (:project_ids)
+        AND (:include_completed = 1 OR EPA.emendate IS NULL)
+      ORDER BY EPA.projno, E.lastname
+```
+
+### Example 3: System Monitoring Tool
+
+```yaml
+tools:
+  monitor_cpu_usage:
+    source: ibmi-system
+    description: "Monitor jobs exceeding CPU threshold"
+    parameters:
+      - name: cpu_threshold
+        type: float
+        description: "CPU usage threshold in milliseconds (minimum to report)"
+        default: 1000.0
+        min: 0.0
+
+      - name: limit
+        type: integer
+        description: "Maximum number of jobs to return (1-500)"
+        default: 50
+        minimum: 1
+        maximum: 500
+
+      - name: job_type
+        type: string
+        description: "Job type filter"
+        enum: ["BATCH", "INTERACTIVE", "AUTOSTART", "*ALL"]
+        default: "*ALL"
+
+    statement: |
+      SELECT job_name, user_name, cpu_used, job_type, job_status
+      FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) A
+      WHERE cpu_used >= :cpu_threshold
+        AND (:job_type = '*ALL' OR job_type = :job_type)
+      ORDER BY cpu_used DESC
+      FETCH FIRST :limit ROWS ONLY
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools Reference" icon="wrench" href="/sql-tools/tools">
+    Complete tool configuration reference
+  </Card>
+  <Card title="Building SQL Tools" icon="hammer" href="/sql-tools/building-tools">
+    Step-by-step guide to creating tools
+  </Card>
+  <Card title="Sources Reference" icon="database" href="/sql-tools/sources">
+    Database connection configuration
+  </Card>
+  <Card title="Toolsets Reference" icon="layer-group" href="/sql-tools/toolsets">
+    Organizing tools into groups
+  </Card>
+</CardGroup>
+
+<Note>
+**Parameter Design Philosophy**: Good parameters make tools flexible without sacrificing safety. Use constraints to enforce data quality, provide defaults for convenience, and write clear descriptions to guide AI agents in using your tools correctly.
+</Note>

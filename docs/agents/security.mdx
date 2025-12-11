@@ -1,0 +1,700 @@
+---
+title: "Security Best Practices"
+description: "Comprehensive security guide for deploying IBM i agents in production environments with proper access controls and audit trails."
+---
+
+# Security Best Practices for IBM i Agents
+
+This guide covers security best practices for deploying AI agents that interact with IBM i systems, ensuring proper access controls, audit trails, and compliance with enterprise security policies.
+
+## Security Principles
+
+### Defense in Depth
+
+Apply multiple layers of security controls:
+
+<Steps>
+  <Step title="IBM i Authority Model">
+    MCP server user profile has specific object authorities
+  </Step>
+
+  <Step title="Tool Filtering">
+    Agents limited to specific toolsets via FilteredMCPTools
+  </Step>
+
+  <Step title="Annotation-Based Access">
+    Read-only vs destructive operation filtering
+  </Step>
+
+  <Step title="Network Security">
+    HTTPS-only connections with proper SSL/TLS
+  </Step>
+
+  <Step title="Audit Logging">
+    Comprehensive logging of all agent operations
+  </Step>
+</Steps>
+
+---
+
+## IBM i Authority Model Integration
+
+### User Profile Configuration
+
+The MCP server connects to IBM i with a specific user profile that determines access:
+
+```yaml
+# MCP server configuration
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}      # This user's authorities apply
+    password: ${DB2i_PASS}
+    port: 8076
+```
+
+**Authority requirements:**
+
+<AccordionGroup>
+  <Accordion title="Read-Only Monitoring" icon="eye">
+    Minimum authorities for safe monitoring agents:
+
+    ```bash
+    # Object authorities needed
+    *PUBLIC authority to QSYS2 views:
+    - ACTIVE_JOB_INFO
+    - MEMORY_POOL_INFO
+    - SYSTEM_STATUS_INFO
+    - SERVICE_PROGRAM_INFO
+    # etc.
+
+    # No special authorities required
+    # No *ALLOBJ authority needed
+    ```
+
+    **Use case:** Performance monitoring, discovery, browse agents
+  </Accordion>
+
+  <Accordion title="System Administration" icon="screwdriver-wrench">
+    Enhanced authorities for administrative tasks:
+
+    ```bash
+    # Special authorities (use sparingly)
+    *JOBCTL   # Job management
+    *SPLCTL   # Spool file control
+    *SAVSYS   # Save system authority
+
+    # Object authorities
+    Authority to specific libraries and objects
+    ```
+
+    **Use case:** Job control agents, backup automation
+  </Accordion>
+
+  <Accordion title="Security Audit" icon="shield-check">
+    Audit-specific authorities:
+
+    ```bash
+    # Special authority
+    *AUDIT    # Required for security auditing
+
+    # Object authorities
+    QAUDJRN   # Audit journal access
+    Security-related system services
+    ```
+
+    **Use case:** Security compliance agents, audit reporting
+  </Accordion>
+</AccordionGroup>
+
+### Least Privilege Principle
+
+Create dedicated user profiles for MCP server:
+
+```bash
+# Create dedicated MCP user profile
+CRTUSRPRF USRPRF(MCPMONITOR)
+  PASSWORD(*NONE)  # Use service account password policy
+  USRCLS(*USER)    # Regular user class
+  SPCAUT(*NONE)    # No special authorities
+  TEXT('MCP Server - Read-Only Monitoring')
+
+# Grant specific object authorities
+GRTOBJAUT OBJ(QSYS2/*ALL) OBJTYPE(*FILE)
+  USER(MCPMONITOR) AUT(*USE)  # Read-only access
+
+# Test authorities
+DSPUSRAUT USER(MCPMONITOR)
+```
+
+---
+
+## Tool Filtering Security
+
+### Read-Only Agent Pattern
+
+Enforce read-only operations at multiple levels:
+
+```python
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+# Layer 1: Toolset filtering (only safe toolsets)
+# Layer 2: MCP annotations (readOnlyHint=True)
+# Layer 3: Tool configuration (readOnly: true in YAML)
+readonly_tools = FilteredMCPTools(
+    url="https://mcp.example.com:3010/mcp",  # HTTPS only
+    annotation_filters={
+        "toolsets": ["performance", "sysadmin_discovery"],
+        "readOnlyHint": True,         # MCP standard annotation
+        "destructiveHint": False      # Exclude destructive ops
+    },
+    debug_filtering=False  # Disable debug in production
+)
+
+agent = Agent(
+    name="Read-Only Monitor",
+    tools=[readonly_tools],
+    instructions=[
+        "You are a READ-ONLY IBM i monitoring assistant.",
+        "",
+        "SECURITY CONSTRAINTS:",
+        "- You can ONLY read and analyze data",
+        "- You CANNOT modify any system settings",
+        "- You CANNOT execute destructive operations",
+        "- You CANNOT create, update, or delete objects",
+        "",
+        "If a user requests a modification:",
+        "1. Explain that you are read-only",
+        "2. Describe the steps a user with proper authority should take",
+        "3. Recommend contacting an administrator"
+    ]
+)
+```
+
+### Toolset Security Boundaries
+
+Define clear security boundaries per toolset:
+
+| Toolset | Risk Level | Security Controls |
+|---------|-----------|-------------------|
+| `performance` | Low | Read-only views, no modifications |
+| `sysadmin_discovery` | Low | Metadata only, no data access |
+| `sysadmin_browse` | Low | Service browsing, no execution |
+| `sysadmin_search` | Low | Search only, no modifications |
+| `job_control` | High | Requires special authorities, audit logging |
+| `config_management` | Critical | Restricted to specific admins only |
+
+```python
+# Low-risk toolsets: Safe for general use
+safe_toolsets = ["performance", "sysadmin_discovery", "sysadmin_browse"]
+
+# High-risk toolsets: Require additional controls
+controlled_toolsets = ["job_control", "config_management"]
+
+# Create safe agent
+safe_agent = Agent(
+    tools=[FilteredMCPTools(
+        annotation_filters={
+            "toolsets": safe_toolsets,
+            "readOnlyHint": True
+        }
+    )]
+)
+```
+
+---
+
+## Network Security
+
+### HTTPS-Only Connections
+
+Enforce encrypted connections in production:
+
+```python
+# ✅ Production: HTTPS only
+production_tools = FilteredMCPTools(
+    url="https://mcp.example.com:3010/mcp",  # HTTPS
+    annotation_filters={"toolsets": ["performance"]}
+)
+
+# ❌ Development only: HTTP acceptable
+dev_tools = FilteredMCPTools(
+    url="http://localhost:3010/mcp",  # HTTP - dev only
+    annotation_filters={"toolsets": ["performance"]}
+)
+```
+
+### SSL/TLS Configuration
+
+Configure proper certificates on the MCP server:
+
+```bash
+# MCP server with SSL
+npx ibmi-mcp-server \
+  --tools tools/production-tools.yaml \
+  --port 3010 \
+  --ssl-cert /path/to/cert.pem \
+  --ssl-key /path/to/key.pem
+```
+
+**Certificate requirements:**
+- Valid SSL certificate from trusted CA
+- Not self-signed in production
+- Regular certificate rotation
+- Strong cipher suites only
+
+### Firewall Configuration
+
+Restrict MCP server access:
+
+```bash
+# Allow only from agent server
+iptables -A INPUT -p tcp --dport 3010 \
+  -s 10.0.1.100 -j ACCEPT  # Agent server IP
+
+# Deny all other connections
+iptables -A INPUT -p tcp --dport 3010 -j DROP
+```
+
+---
+
+## Authentication and Authorization
+
+### API Key Management
+
+Secure OpenAI API key storage:
+
+```python
+import os
+from agno.models.openai import OpenAIChat
+
+# ✅ Good: Environment variable
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY environment variable not set")
+
+model = OpenAIChat(id="gpt-4o")
+
+# ❌ Bad: Hardcoded key
+model = OpenAIChat(
+    id="gpt-4o",
+    api_key="sk-hardcoded-key-bad"  # Never do this
+)
+```
+
+**Key rotation policy:**
+```bash
+# Rotate OpenAI API keys quarterly
+# Update environment variable
+export OPENAI_API_KEY="new-key"
+
+# Restart agent service
+systemctl restart ibmi-agent.service
+```
+
+### MCP Server Authentication
+
+Add authentication to MCP server endpoints:
+
+```typescript
+// MCP server with authentication middleware
+app.use("/mcp", authenticate, mcpHandler);
+
+function authenticate(req, res, next) {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+
+  if (!isValidToken(token)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  next();
+}
+```
+
+```python
+# Agent with authentication headers
+tools = FilteredMCPTools(
+    url="https://mcp.example.com:3010/mcp",
+    annotation_filters={"toolsets": ["performance"]},
+    headers={
+        "Authorization": f"Bearer {os.getenv('MCP_TOKEN')}"
+    }
+)
+```
+
+---
+
+## Audit Logging
+
+### Comprehensive Logging
+
+Log all agent operations for audit:
+
+```python
+import logging
+from datetime import datetime
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/ibmi-agents/audit.log'),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger("agent.audit")
+
+class AuditedAgent:
+    """Agent wrapper with audit logging."""
+
+    def __init__(self, agent: Agent, user_id: str):
+        self.agent = agent
+        self.user_id = user_id
+
+    async def arun(self, message: str) -> str:
+        """Execute agent with audit logging."""
+
+        # Log request
+        logger.info("Agent request", extra={
+            "user_id": self.user_id,
+            "agent_name": self.agent.name,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        try:
+            # Execute agent
+            response = await self.agent.arun(message)
+
+            # Log success
+            logger.info("Agent response", extra={
+                "user_id": self.user_id,
+                "agent_name": self.agent.name,
+                "status": "success",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+            return response
+
+        except Exception as e:
+            # Log failure
+            logger.error("Agent error", extra={
+                "user_id": self.user_id,
+                "agent_name": self.agent.name,
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            raise
+```
+
+### Tool Usage Tracking
+
+Track which tools are used:
+
+```python
+from agno.agent import Agent
+
+class ToolTrackingAgent(Agent):
+    """Agent with tool usage tracking."""
+
+    async def arun(self, message: str) -> str:
+        # Execute normally
+        response = await super().arun(message)
+
+        # Log tools used
+        if hasattr(self, "run_response"):
+            tools_used = [
+                call.function.name
+                for call in self.run_response.messages
+                if hasattr(call, "function")
+            ]
+
+            logger.info("Tools executed", extra={
+                "agent_name": self.name,
+                "tools": tools_used,
+                "count": len(tools_used)
+            })
+
+        return response
+```
+
+### Audit Log Analysis
+
+Query audit logs for security review:
+
+```bash
+# Find all destructive operation attempts
+grep "destructiveHint.*True" /var/log/ibmi-agents/audit.log
+
+# User activity summary
+grep "user_id" /var/log/ibmi-agents/audit.log | \
+  awk '{print $5}' | sort | uniq -c | sort -rn
+
+# Failed authentication attempts
+grep "Unauthorized" /var/log/ibmi-agents/audit.log
+```
+
+---
+
+## Data Privacy
+
+### Sensitive Data Handling
+
+Protect sensitive information:
+
+```python
+import re
+from typing import str
+
+def sanitize_output(text: str) -> str:
+    """Remove sensitive data from agent outputs."""
+
+    # Redact potential passwords
+    text = re.sub(
+        r'password["\s:=]+[\w@#$%^&*]+',
+        'password=***REDACTED***',
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # Redact API keys
+    text = re.sub(
+        r'(api[_-]?key["\s:=]+)[\w-]+',
+        r'\1***REDACTED***',
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # Redact IBM i user profiles in passwords context
+    text = re.sub(
+        r'(user|username)["\s:=]+(\w+)',
+        r'\1=***REDACTED***',
+        text,
+        flags=re.IGNORECASE
+    )
+
+    return text
+
+class SecureAgent(Agent):
+    """Agent with output sanitization."""
+
+    async def arun(self, message: str) -> str:
+        response = await super().arun(message)
+        return sanitize_output(response)
+```
+
+### Memory Data Retention
+
+Implement data retention policies:
+
+```python
+import sqlite3
+from datetime import datetime, timedelta
+
+def cleanup_old_sessions(db_file: str, retention_days: int = 90):
+    """Remove sessions older than retention period."""
+
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+
+    cutoff_date = datetime.now() - timedelta(days=retention_days)
+
+    # Delete old sessions
+    cursor.execute("""
+        DELETE FROM agent_sessions
+        WHERE created_at < ?
+    """, (cutoff_date,))
+
+    # Delete associated memories
+    cursor.execute("""
+        DELETE FROM agent_memory
+        WHERE session_id NOT IN (SELECT id FROM agent_sessions)
+    """)
+
+    conn.commit()
+    rows_deleted = cursor.rowcount
+    conn.close()
+
+    logger.info(f"Cleanup: Deleted {rows_deleted} old records")
+
+# Schedule cleanup
+import schedule
+schedule.every().day.at("02:00").do(
+    cleanup_old_sessions,
+    db_file="tmp/agent.db",
+    retention_days=90
+)
+```
+
+---
+
+## Security Checklist
+
+<AccordionGroup>
+  <Accordion title="Infrastructure Security" icon="server">
+    - [ ] MCP server uses HTTPS with valid SSL certificate
+    - [ ] Firewall rules restrict MCP server access
+    - [ ] Network segmentation isolates IBM i systems
+    - [ ] VPN required for remote agent access
+    - [ ] SSL/TLS 1.2+ minimum version enforced
+  </Accordion>
+
+  <Accordion title="Access Control" icon="lock">
+    - [ ] Dedicated IBM i user profile for MCP server
+    - [ ] Least privilege authorities assigned
+    - [ ] FilteredMCPTools limits toolsets per agent
+    - [ ] Read-only annotations enforced for safe agents
+    - [ ] No destructive operations in monitoring agents
+  </Accordion>
+
+  <Accordion title="Authentication" icon="key">
+    - [ ] OpenAI API keys stored in environment variables
+    - [ ] MCP server requires authentication tokens
+    - [ ] API key rotation policy implemented
+    - [ ] No credentials in code or configuration files
+    - [ ] Secrets management system in use
+  </Accordion>
+
+  <Accordion title="Audit & Logging" icon="file-lines">
+    - [ ] Comprehensive audit logging enabled
+    - [ ] Tool usage tracking implemented
+    - [ ] User attribution for all operations
+    - [ ] Log retention policy defined (90+ days)
+    - [ ] Regular log analysis for security events
+  </Accordion>
+
+  <Accordion title="Data Protection" icon="database">
+    - [ ] Sensitive data sanitized in outputs
+    - [ ] Agent memory data retention policy
+    - [ ] Database files in protected directories
+    - [ ] Backup encryption enabled
+    - [ ] GDPR/compliance requirements met
+  </Accordion>
+
+  <Accordion title="Operational Security" icon="shield">
+    - [ ] Debug mode disabled in production
+    - [ ] Health checks monitor security components
+    - [ ] Incident response plan documented
+    - [ ] Security updates applied regularly
+    - [ ] Penetration testing completed
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Incident Response
+
+### Security Event Detection
+
+Monitor for suspicious activity:
+
+```python
+import logging
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+class SecurityMonitor:
+    """Detect suspicious agent activity."""
+
+    def __init__(self):
+        self.failed_attempts = defaultdict(list)
+        self.destructive_attempts = []
+
+    def log_request(self, user_id: str, message: str, tools_used: list[str]):
+        """Log and analyze request for security concerns."""
+
+        now = datetime.now()
+
+        # Track destructive operation attempts
+        destructive_tools = [t for t in tools_used if "delete" in t.lower() or "drop" in t.lower()]
+        if destructive_tools:
+            self.destructive_attempts.append({
+                "user_id": user_id,
+                "timestamp": now,
+                "tools": destructive_tools,
+                "message": message
+            })
+            logging.warning(f"Destructive operation attempt by {user_id}: {destructive_tools}")
+
+        # Track repeated failures (potential brute force)
+        self.failed_attempts[user_id] = [
+            ts for ts in self.failed_attempts[user_id]
+            if now - ts < timedelta(hours=1)
+        ]
+
+        if len(self.failed_attempts[user_id]) > 10:
+            logging.error(f"Multiple failures detected for user {user_id}")
+            # Trigger alert or block user
+
+# Use in agent wrapper
+monitor = SecurityMonitor()
+
+async def monitored_agent_run(agent, user_id, message):
+    tools_used = []
+    try:
+        response = await agent.arun(message)
+        # Extract tools from response
+        monitor.log_request(user_id, message, tools_used)
+        return response
+    except Exception as e:
+        monitor.log_request(user_id, message, [])
+        raise
+```
+
+### Alert Configuration
+
+Configure security alerts:
+
+```python
+import smtplib
+from email.message import EmailMessage
+
+def send_security_alert(subject: str, body: str):
+    """Send security alert email."""
+
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg["Subject"] = f"[SECURITY ALERT] {subject}"
+    msg["From"] = "ibmi-agents@example.com"
+    msg["To"] = "security-team@example.com"
+
+    with smtplib.SMTP("smtp.example.com") as smtp:
+        smtp.send_message(msg)
+
+# Trigger on security events
+if destructive_attempt_detected:
+    send_security_alert(
+        "Destructive Operation Attempted",
+        f"User {user_id} attempted destructive operation: {details}"
+    )
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Advanced Configuration" icon="cog" href="/agents/agno/advanced-config">
+    Production deployment and monitoring configuration
+  </Card>
+  <Card title="MCP Server Security" icon="server" href="/configuration#security">
+    Secure MCP server configuration
+  </Card>
+  <Card title="IBM i Security Guide" icon="book" href="https://www.ibm.com/docs/en/i">
+    IBM i security documentation
+  </Card>
+  <Card title="Agent Patterns" icon="diagram-project" href="/agents/agno/agent-patterns">
+    Secure agent architectural patterns
+  </Card>
+</CardGroup>
+
+<Warning>
+**Production Security**: Never deploy agents to production without:
+1. HTTPS-only MCP connections with valid certificates
+2. Read-only tool filtering for monitoring agents
+3. Comprehensive audit logging
+4. IBM i user profile with least-privilege authorities
+5. Regular security reviews and penetration testing
+</Warning>

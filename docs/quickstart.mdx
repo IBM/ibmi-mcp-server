@@ -3,21 +3,75 @@ title: "Quick Start Guide"
 description: "Get your IBM i MCP Server running in under 15 minutes with step-by-step setup instructions."
 ---
 
-# Quick Start Guide
-
 Get your IBM i MCP Server up and running in under 15 minutes. This guide walks you through installation, configuration, and your first successful tool execution.
 
-<Note>
-**Prerequisites**: You'll need access to an IBM i system with appropriate database authorities and Node.js 18+ installed on your development machine.
-</Note>
+---
+
+## Before You Begin
+
+Complete these prerequisites before starting the installation:
+
+<Steps>
+  <Step title="Verify Node.js Installation">
+    Ensure Node.js 18 or higher is installed on your development machine:
+
+    ```bash
+    node --version
+    # Should show v18.0.0 or higher
+    ```
+
+    **Don't have Node.js?** Download from [nodejs.org](https://nodejs.org/)
+  </Step>
+
+  <Step title="Install Mapepire on IBM i">
+    Mapepire must be running on your IBM i system before proceeding.
+
+    **Not installed yet?** Follow the [Setup Mapepire guide](/setup-mapepire) (takes ~10 minutes)
+
+    **Already installed?** Verify it's running:
+    ```bash
+    # On IBM i
+    sc check mapepire
+    # Should show "running"
+    ```
+
+    **Note the port**: Default is 8076—you'll need this for configuration.
+  </Step>
+
+  <Step title="Gather IBM i Credentials">
+    You'll need:
+    - IBM i hostname or IP address
+    - User profile with database authorities
+    - User password
+    - Access to QSYS2 system services (verify with your system administrator)
+  </Step>
+
+  <Step title="Set Aside Time">
+    Plan for 15-20 minutes of uninterrupted setup time.
+  </Step>
+</Steps>
+
+<Success>
+✓ **Ready to proceed?** All prerequisites met? Continue to installation.
+</Success>
+
+---
 
 ## Step 1: Installation
+
+<Note>
+**Repository Structure**: The IBM i MCP Server follows a modular architecture:
+- `server/` - MCP server implementation (main package)
+- `tools/` - SQL tool YAML configurations
+- `agents/` - Agent implementations and examples
+- `apps/` - Deployment configurations (Docker, Gateway, n8n)
+</Note>
 
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/IBM/ibmi-mcp.git
-cd ibmi-mcp
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server/
 npm install
 ```
 
@@ -30,6 +84,17 @@ npm run build
 <Tip>
 Use `npm run rebuild` for a clean install if you encounter any issues.
 </Tip>
+
+<Success>
+✓ **Verify the build succeeded:**
+- No error messages in the output
+- `dist/` directory was created
+- `dist/index.js` exists
+
+**Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
+</Success>
+
+---
 
 ## Step 2: Configuration
 
@@ -58,17 +123,69 @@ MCP_HTTP_PORT=3010
 Replace the connection values with your actual IBM i system credentials. The user profile must have appropriate authorities for database operations.
 </Warning>
 
-<Note>
-**Need to set up Mapepire?** If you don't have Mapepire running on your IBM i system yet, follow our [Setup Mapepire guide](/setup-mapepire) to install and configure the database connectivity layer.
-</Note>
+<Warning>
+**Mapepire is Required**: Before proceeding, you must have Mapepire running on your IBM i system. Mapepire is a modern database server for IBM i that provides SQL query execution over WebSocket connections, optimized for AI agent workloads. If you haven't installed it yet, follow our [Setup Mapepire guide](/setup-mapepire) to install and configure it. Default port: **8076**.
+</Warning>
+
+<Success>
+✓ **Verify your configuration:**
+- `.env` file exists in the root directory
+- `DB2i_HOST` is set to your IBM i hostname (not `127.0.0.1` if running in Docker)
+- `DB2i_USER` and `DB2i_PASS` are valid IBM i credentials
+- `DB2i_PORT` matches your Mapepire port (default: 8076)
+
+**Having connection issues?** See the [troubleshooting section](#troubleshooting) below.
+</Success>
+
+---
 
 ## Step 3: Start the Server
 
-Launch the MCP server in HTTP mode:
+Choose the transport mode based on how you'll connect clients:
 
-```bash
-npm run start:http
-```
+<Tabs>
+  <Tab title="HTTP Transport (Recommended)">
+    **Choose this if you want to:**
+    - Connect from web applications or remote machines
+    - Use Claude Desktop, VSCode, or Cursor
+    - Deploy in production environments
+    - Have multiple concurrent clients
+
+    ```bash
+    npm run start:http
+    ```
+
+    **Session Modes (HTTP Only)**:
+    - `auto` (default): Automatically detects client capabilities ← **Start with this**
+    - `stateful`: Maintains persistent sessions with connection state
+    - `stateless`: Each request is independent, no session state
+
+    Set via environment: `MCP_SESSION_MODE=stateful npm run start:http`
+  </Tab>
+
+  <Tab title="Stdio Transport">
+    **Choose this if you want to:**
+    - Use MCP Inspector for testing
+    - Connect from CLI tools on the same machine
+    - Test in development before HTTP deployment
+
+    ```bash
+    npm run start:stdio
+    ```
+
+    **Note**: Most production deployments use HTTP transport.
+  </Tab>
+</Tabs>
+
+**Available CLI Options**:
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--tools <path>` | Override YAML tools path | `--tools ./my-configs` |
+| `--toolsets <list>` | Load specific toolsets only | `--toolsets performance,security` |
+| `--transport <type>` | Force transport type | `--transport http` |
+| `--help` | Show help information | `--help` |
+| `--list-toolsets` | List available toolsets | `--list-toolsets` |
 
 You should see output similar to:
 
@@ -77,90 +194,220 @@ You should see output similar to:
   Transport: http
   Host: 127.0.0.1:3010
   Endpoint: http://127.0.0.1:3010/mcp
+  Tools loaded: 12
 ```
 
 <Success>
-Your IBM i MCP Server is now running and ready to accept connections!
+✓ **Verify the server started successfully:**
+- See "Server ready!" message
+- HTTP endpoint is displayed (or "Stdio ready" for stdio mode)
+- Number of tools loaded shown (should be > 0)
+- No error messages about Mapepire connection
+- Server process remains running (doesn't exit immediately)
+
+**Server not starting?** Check:
+1. Mapepire is running on IBM i: `sc check mapepire`
+2. Firewall allows connection to port 8076
+3. IBM i credentials are correct in `.env`
+4. No other process is using port 3010 (HTTP mode)
 </Success>
 
-## Step 4: Test with MCP Inspector
+---
 
-The easiest way to test your server is with the MCP Inspector tool.
+## Step 4: Test with Sample MCP Client
 
-Create the inspector configuration:
+Now that your server is running, test it with the included Python client script to verify connectivity and tool execution.
 
-```bash
-cp template_mcp.json mcp.json
-```
+### Install uv (Python Package Manager)
 
-Edit `mcp.json` with your connection details:
-
-```json
-{
-  "mcpServers": {
-    "default-server": {
-      "command": "node",
-      "args": ["dist/index.js"],
-      "env": {
-        "TOOLS_YAML_PATH": "tools",
-        "DB2i_HOST": "your-ibmi-host",
-        "DB2i_USER": "your-username",
-        "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
-      }
-    }
-  }
-}
-```
-
-Start the MCP Inspector:
+If you don't have `uv` installed:
 
 ```bash
-npm run mcp-inspector
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Open the URL shown in your browser (typically `http://localhost:6274`).
+<Note>
+**Why uv?** [uv](https://github.com/astral-sh/uv) is a fast Python package manager that handles virtual environments and dependencies automatically. It's the recommended way to run the client examples.
+</Note>
 
-## Step 5: Execute Your First Tool
+### Run the MCP Client Script
 
-In the MCP Inspector:
+In a **new terminal window** (keep the server running in the first terminal):
 
-1. **View Available Tools**: You should see several IBM i tools like `system_status`, `active_job_info`, etc.
+```bash
+# Navigate to the client directory
+cd client
 
-2. **Execute a Tool**: Click on `system_status` and then "Execute Tool"
-
-3. **View Results**: You should see IBM i system performance data returned as JSON
-
-<Accordion title="Example system_status output">
-```json
-{
-  "content": [
-    {
-      "type": "text",
-      "text": "System Status Results: {\n  \"SYSTEM_NAME\": \"YOURSYSTEM\",\n  \"CURRENT_TIMESTAMP\": \"2024-01-15-10.30.45.123456\",\n  \"CPU_UTILIZATION\": 15.2,\n  \"MEMORY_USED_MB\": 8192,\n  \"DISK_UTILIZATION\": 45.8\n}"
-    }
-  ]
-}
+# Install dependencies and run the test client
+uv run mcp_client.py
 ```
+
+You should see output like this:
+
+```
+================================================================================
+AVAILABLE TOOLS
+================================================================================
+ 1. system_activity
+    └─ Get real-time IBM i system activity metrics
+ 2. active_jobs
+    └─ List currently active jobs on the IBM i system
+ 3. database_tables
+    └─ List database tables in a schema
+ ... (more tools)
+
+================================================================================
+SYSTEM ACTIVITY RESULT
+================================================================================
+
+✓ Query executed successfully in 145ms
+  SQL: SELECT * FROM QSYS2.SYSTEM_ACTIVITY_INFO
+
+  Results (1 row(s)):
+  ----------------------------------------------------------------------------
+  SYSTEM_NAME                   : YOURSYSTEM
+  CURRENT_TIMESTAMP             : 2024-12-10-15:30:45.123456
+  CPU_UTILIZATION               : 15.2
+  MEMORY_USED_MB                : 8192
+  ACTIVE_JOBS                   : 542
+  ----------------------------------------------------------------------------
+```
+
+<Success>
+✓ **Verify your connection works:**
+- List of available tools displayed
+- `system_activity` tool executed successfully
+- Real data from your IBM i system returned
+- No connection errors or timeouts
+
+**Not seeing data?** Check:
+1. MCP server is still running (check first terminal)
+2. Server started on port 3010 (matches script's `localhost:3010`)
+3. No firewall blocking local connections
+4. Server logs show the incoming request
+</Success>
+
+<Accordion title="What does this script do?">
+The `mcp_client.py` script:
+1. Connects to your running MCP server at `http://localhost:3010/mcp`
+2. Lists all available tools (SQL tools loaded from your YAML configs)
+3. Executes the `system_activity` tool (a pre-built IBM i monitoring query)
+4. Formats and displays the results
+
+**Source**: View the script at `client/mcp_client.py` to see the MCP client SDK in action.
 </Accordion>
 
-## Step 6: Build an Agent
+---
 
-Test with the included Python agent examples:
+## Step 5: Run an AI Agent (Optional)
+
+Now that you've verified the MCP server works, try the included AI agent that can answer natural language questions about your IBM i system.
+
+### Configure API Key
+
+The agent uses an LLM to understand your questions and call the appropriate MCP tools. You'll need an API key:
+
+<Tabs>
+  <Tab title="OpenAI (Recommended)">
+    Create a `.env` file in the `client/` directory:
+
+    ```bash
+    # From the client directory
+    echo "OPENAI_API_KEY=your-openai-api-key-here" > .env
+    ```
+
+    **Get your API key**: Visit [OpenAI API Keys](https://platform.openai.com/api-keys)
+  </Tab>
+
+  <Tab title="Ollama (Local)">
+    Install and run Ollama locally:
+
+    ```bash
+    # Install Ollama (macOS)
+    brew install ollama
+
+    # Start Ollama and pull a model
+    ollama run qwen2.5
+    ```
+
+    No API key needed—Ollama runs locally.
+  </Tab>
+</Tabs>
+
+### Run the Agent
+
+Ask natural language questions about your IBM i system:
 
 ```bash
-cd agents
+# With OpenAI
+uv run agent.py -p "What is my system status?" --model-id "openai:gpt-4o"
 
-# Install dependencies and run an agent
-uv run agent.py -p "What is my system status?"
+# With local Ollama
+uv run agent.py -p "What is my system status?" --model-id "ollama:qwen2.5"
+
+# Or use the default prompt
+uv run agent.py
 ```
 
-The agent will connect to your running server and execute the `system_status` tool, returning a natural language summary of your IBM i system performance.
+**Example interaction**:
+```
+You: What is my system status?
+
+Agent: Your IBM i system "YOURSYSTEM" is running normally with:
+- CPU utilization at 15.2%
+- 8GB of memory in use
+- 542 active jobs
+- System is responsive and healthy
+```
+
+<Tip>
+The agent automatically:
+1. Analyzes your natural language question
+2. Selects the appropriate MCP tool(s) to call
+3. Executes the tool(s) on your IBM i system
+4. Synthesizes the results into a natural language response
+
+**Try different questions**: "Show me active jobs", "What tables are in QIWS?", "Check system performance"
+</Tip>
+
+<Card title="Build Production Agents" icon="rocket" href="/agents/overview">
+  **Ready for more?** Explore our **Agent Integrations** documentation to build production-ready agents with Agno, Google ADK, or LangChain. Learn about FilteredMCPTools, specialized agent patterns, persistent memory, and multi-agent architectures.
+</Card>
+
+---
+
+## 🎉 Congratulations!
+
+You've successfully set up the IBM i MCP Server! Here's what you accomplished:
+
+<Steps>
+  <Step title="✅ Server Installed">
+    Built and configured the MCP server with IBM i connection
+  </Step>
+  <Step title="✅ Connection Verified">
+    Connected to Mapepire and your IBM i database
+  </Step>
+  <Step title="✅ Tools Tested">
+    Listed and executed SQL tools via the MCP client
+  </Step>
+  <Step title="✅ Agent Ready (Optional)">
+    Ran an AI agent that understands natural language queries
+  </Step>
+</Steps>
+
+Your MCP server is now ready for:
+- **Connecting AI clients** (Claude Desktop, VSCode, Cursor)
+- **Creating custom SQL tools** for your specific use cases
+- **Building specialized agents** for IBM i administration and monitoring
+
+---
 
 ## Next Steps
 
 <CardGroup cols={2}>
+  <Card title="Client Integration" icon="plug" href="/clients/overview">
+    Connect the server to Claude Desktop, VSCode, Cursor, and 10+ other MCP clients
+  </Card>
   <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
     Learn how to create custom SQL operations using YAML configurations
   </Card>
@@ -169,9 +416,6 @@ The agent will connect to your running server and execute the `system_status` to
   </Card>
   <Card title="Agent Development" icon="robot" href="/agents/building-agents">
     Build sophisticated AI agents that understand IBM i concepts
-  </Card>
-  <Card title="Production Deployment" icon="server" href="/deployment/production">
-    Deploy to production with authentication and monitoring
   </Card>
 </CardGroup>
 
@@ -199,15 +443,44 @@ The agent will connect to your running server and execute the `system_status` to
   </Accordion>
 
   <Accordion title="Tools Not Loading" icon="">
-    - Check that `tools/` directory exists
+    - Check that `prebuiltconfigs/` directory exists
     - Verify your YAML tool configurations are valid
     - Use `--list-toolsets` to see available tools:
     ```bash
     npm run start:http -- --list-toolsets
     ```
   </Accordion>
+
+  <Accordion title="Client Script Fails (mcp_client.py)" icon="">
+    **Connection refused or timeout:**
+    - Ensure MCP server is running: check for "Server ready!" message
+    - Verify server is on port 3010 (or update script if using different port)
+    - Server must use HTTP transport (not stdio)
+
+    **uv command not found:**
+    ```bash
+    # Install uv
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # Restart terminal or reload shell
+    source ~/.bashrc  # or ~/.zshrc
+    ```
+
+    **Python version error:**
+    - Client requires Python 3.13+ (check pyproject.toml)
+    - Install Python 3.13: `brew install python@3.13` (macOS)
+    - Or use `uv python install 3.13`
+
+    **Dependencies fail to install:**
+    ```bash
+    # Clear uv cache and retry
+    cd client
+    rm -rf .venv
+    uv sync
+    ```
+  </Accordion>
 </AccordionGroup>
 
 <Info>
-**Completion Time**: This quickstart should take 10-15 minutes depending on your IBM i system response times. If you encounter issues, check the [configuration guide](/configuration) or review the troubleshooting section above.
+**Completion Time**: This quickstart should take 20-30 minutes including the optional agent setup. Most time is spent waiting for installations and builds. If you encounter issues, check the [configuration guide](/configuration) or review the troubleshooting section above.
 </Info>

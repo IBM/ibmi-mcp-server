@@ -3,39 +3,65 @@ title: "SQL Tools Overview"
 description: "Learn how YAML-defined SQL tools enable rapid development of IBM i database operations without writing TypeScript code."
 ---
 
-# SQL Tools Overview
+The IBM i MCP Server's SQL Tools system allows you to create powerful database operations using simple YAML configurations. Define SQL queries in YAML files, and the server automatically converts them into AI-accessible tools with parameter validation, security controls, and response formatting.
 
-The IBM i MCP Server's SQL Tools system allows you to create powerful database operations using simple YAML configurations. This approach enables rapid development of IBM i-specific tools without requiring TypeScript programming skills.
+**No TypeScript required** - SQL professionals can build sophisticated IBM i tools using familiar SQL syntax and simple YAML structure.
 
-<Note>
-**YAML SQL Tools vs. TypeScript Tools**: While TypeScript tools offer maximum flexibility, YAML SQL tools provide a faster path to creating database operations with built-in security, parameter validation, and IBM i integration.
-</Note>
+---
 
-## Why YAML SQL Tools?
+## Pre-Built Tool Categories
 
-For IBM i environments, most AI agent interactions involve querying database tables, views, and system services. YAML SQL tools are specifically designed for this use case:
+The `tools/` directory contains pre-built tool configurations organized by category:
 
-<CardGroup cols={2}>
-  <Card title="Rapid Development" icon="rocket">
-    Create new tools in minutes using familiar SQL statements and simple parameter definitions
+| Directory | Category | Description | Key Tools |
+|-----------|----------|-------------|-----------|
+| [**sample/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/sample) | Sample Data | Demonstration tools using IBM i SAMPLE schema (employee, department, project data) | Employee lookup, department analysis, project management |
+| [**sys-admin/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/sys-admin) | System Administration | High-level system service discovery and metadata exploration | Service catalogs, schema browsing, example queries |
+| [**security/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/security) | Security Analysis | Library list security assessment and vulnerability detection | Library list configuration, authority checks, security analysis |
+| [**performance/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/performance) | Performance Monitoring | System performance metrics and resource utilization | System status, active jobs, memory pools, HTTP server stats |
+| [**developer/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/developer) | Development Tools | Object statistics and dependency analysis for developers | Recently used objects, stale object detection, dependency tracking |
+
+<Tip>
+**List Available Toolsets:**
+```bash
+npx ibmi-mcp-server --list-toolsets --tools tools
+```
+</Tip>
+
+---
+
+## YAML File Format
+
+SQL tools are defined in YAML files with three main sections:
+
+<CardGroup cols={3}>
+  <Card title="Sources" icon="database" href="/sql-tools/sources">
+    **Database connections**
+
+    Define IBM i system connections with credentials, ports, and connection options
+
+    [Sources Reference →](/sql-tools/sources)
   </Card>
-  <Card title="Built-in Security" icon="shield-check">
-    Automatic SQL injection protection, parameter validation, and authority checking
+  <Card title="Tools" icon="wrench" href="/sql-tools/tools">
+    **SQL operations**
+
+    Individual queries with parameters, validation, and security controls
+
+    [Tools Reference →](/sql-tools/tools)
   </Card>
-  <Card title="IBM i Integration" icon="database">
-    Native support for QSYS2 services, system catalogs, and IBM i SQL features
-  </Card>
-  <Card title="Zero Code Required" icon="edit">
-    No TypeScript knowledge needed - everything is configured in YAML
+  <Card title="Toolsets" icon="layer-group" href="/sql-tools/toolsets">
+    **Logical groups**
+
+    Organize related tools for discovery and selective loading
+
+    [Toolsets Reference →](/sql-tools/toolsets)
   </Card>
 </CardGroup>
 
-## YAML Tool Structure
-
-Every YAML configuration file follows a consistent structure that defines sources, tools, and toolsets:
+### Basic Structure
 
 ```yaml
-# Database connection configurations
+# 1. Sources - Database connections
 sources:
   ibmi-system:
     host: ${DB2i_HOST}
@@ -43,7 +69,7 @@ sources:
     password: ${DB2i_PASS}
     port: 8076
 
-# Individual SQL operations
+# 2. Tools - SQL operations
 tools:
   system_status:
     source: ibmi-system
@@ -52,566 +78,233 @@ tools:
       SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS()) X
     parameters: []
 
-# Logical groupings of related tools
+# 3. Toolsets - Logical groupings
 toolsets:
-  performance:
+  performance_monitoring:
+    title: "Performance Monitoring"
+    description: "System performance and resource tools"
     tools: [system_status]
 ```
 
 <Note>
-**Architecture Decision**: The YAML approach separates data access configuration from application code, making it easier for IBM i professionals to create and maintain database tools while ensuring security and consistency.
+**Why YAML?** Separating SQL definitions from application code enables SQL professionals to build and maintain tools without TypeScript knowledge while ensuring security through parameter validation and prepared statements.
 </Note>
 
-## Component Breakdown
+## Key Concepts
 
-### Sources
+### Sources - Database Connections
 
-Sources define database connections with environment variable support for secure credential management:
-
-<Tabs>
-  <Tab title="Basic Connection">
-    ```yaml
-    sources:
-      ibmi-system:
-        host: ${DB2i_HOST}
-        user: ${DB2i_USER}
-        password: ${DB2i_PASS}
-        port: 8076
-        ignore-unauthorized: true  # For development only
-    ```
-  </Tab>
-
-  <Tab title="Multiple Environments">
-    ```yaml
-    sources:
-      production:
-        host: ${PROD_DB2i_HOST}
-        user: ${PROD_DB2i_USER}
-        password: ${PROD_DB2i_PASS}
-        port: 8076
-        ignore-unauthorized: false
-
-      development:
-        host: ${DEV_DB2i_HOST}
-        user: ${DEV_DB2i_USER}
-        password: ${DEV_DB2i_PASS}
-        port: 8076
-        ignore-unauthorized: true
-    ```
-  </Tab>
-
-  <Tab title="Advanced Options">
-    ```yaml
-    sources:
-      secure-system:
-        host: ${DB2i_HOST}
-        user: ${DB2i_USER}
-        password: ${DB2i_PASS}
-        port: 8076
-        ignore-unauthorized: false
-        connectionTimeout: 30000
-        requestTimeout: 60000
-        keepAlive: true
-    ```
-  </Tab>
-</Tabs>
-
-### Tools
-
-Tools are individual SQL operations that AI agents can execute. Each tool includes metadata, parameters, and the SQL statement:
+Define reusable connection configurations with environment variables for security:
 
 ```yaml
-tools:
-  active_job_info:
-    source: ibmi-system
-    description: "Find the top CPU consumers in specific subsystems"
-    parameters:
-      - name: limit
-        type: integer
-        default: 10
-        description: "Number of top CPU consumers to return"
-        minimum: 1
-        maximum: 100
-    statement: |
-      SELECT CPU_TIME, A.* FROM
-      TABLE(QSYS2.ACTIVE_JOB_INFO(SUBSYSTEM_LIST_FILTER => 'QUSRWRK,QSYSWRK')) A
-      ORDER BY CPU_TIME DESC
-      FETCH FIRST :limit ROWS ONLY
-```
-
-### Tool Parameters
-
-Parameters provide type-safe input validation and enable dynamic SQL execution:
-
-<AccordionGroup>
-  <Accordion title="String Parameters" icon="text">
-    ```yaml
-    parameters:
-      - name: library_name
-        type: string
-        required: true
-        pattern: "^[A-Z][A-Z0-9_]*$"
-        maxLength: 10
-        description: "IBM i library name (uppercase alphanumeric)"
-    ```
-
-    **Features:**
-    - Pattern validation with regex
-    - Length constraints
-    - Required/optional flags
-    - Default values
-  </Accordion>
-
-  <Accordion title="Integer Parameters" icon="calculator">
-    ```yaml
-    parameters:
-      - name: max_rows
-        type: integer
-        default: 50
-        minimum: 1
-        maximum: 1000
-        description: "Maximum number of rows to return"
-    ```
-
-    **Features:**
-    - Range validation (min/max)
-    - Default values
-    - Automatic type conversion
-  </Accordion>
-
-  <Accordion title="Enum Parameters" icon="list">
-    ```yaml
-    parameters:
-      - name: object_type
-        type: string
-        enum: ["*PGM", "*FILE", "*SRVPGM", "*DTAARA"]
-        default: "*FILE"
-        description: "IBM i object type filter"
-    ```
-
-    **Features:**
-    - Controlled value lists
-    - Default selection
-    - AI-friendly descriptions
-  </Accordion>
-
-  <Accordion title="Optional Parameters" icon="info">
-    ```yaml
-    parameters:
-      - name: user_filter
-        type: string
-        required: false
-        description: "Optional user name filter"
-    ```
-
-    **SQL Usage:**
-    ```sql
-    WHERE (:user_filter IS NULL OR user_name = :user_filter)
-    ```
-
-    **Features:**
-    - NULL handling in SQL
-    - Conditional filtering
-    - Optional validation
-  </Accordion>
-</AccordionGroup>
-
-### Toolsets
-
-Toolsets organize related tools into logical groups that can be deployed together:
-
-```yaml
-toolsets:
-  performance_monitoring:
-    title: "Performance Monitoring"
-    description: "Tools for monitoring IBM i system performance"
-    tools:
-      - system_status
-      - active_job_info
-      - memory_pools
-      - http_server
-
-  system_administration:
-    title: "System Administration"
-    description: "Administrative tools for system management"
-    tools:
-      - describe_object
-      - list_services_by_category
-      - search_services_by_name
-```
-
-## Security Features
-
-YAML SQL tools include comprehensive security features designed for enterprise environments:
-
-### SQL Injection Protection
-
-All parameters are bound using prepared statements, preventing SQL injection attacks:
-
-```yaml
-# Safe parameter binding
-statement: |
-  SELECT * FROM library_list
-  WHERE library_name = :library_name
-  AND object_type = :object_type
-
-# Parameters are automatically escaped and bound
-parameters:
-  - name: library_name
-    type: string
-    pattern: "^[A-Z][A-Z0-9_]*$"
-```
-
-### Security Configuration
-
-Tools can include security metadata for enhanced protection:
-
-```yaml
-tools:
-  execute_sql:
-    # ... basic configuration
-    security:
-      readOnly: true
-      audit: true
-      maxQueryLength: 15000
-      forbiddenKeywords: ["DROP", "DELETE", "UPDATE", "TRUNCATE"]
-      scopes: ["system:read"]
-```
-
-<Warning>
-**Security Best Practice**: Always mark potentially sensitive operations with `security.audit: true` to ensure comprehensive audit logging for compliance and security monitoring.
-</Warning>
-
-### Authority Integration
-
-The MCP server integrates with IBM i's security model:
-
-- **User Authentication**: All queries execute with authenticated user credentials
-- **Object Authority**: Respects IBM i object-level permissions
-- **Special Authority**: Honors special authorities like `*ALLOBJ` and `*AUDIT`
-- **Program Adoption**: Supports adopted authority for stored procedures
-
-
-
-## Tool Discovery and Organization
-
-The YAML system supports sophisticated tool organization for complex environments:
-
-### Domain Classification
-
-```yaml
-tools:
-  system_performance:
-    domain: monitoring
-    category: performance
-    # ... rest of configuration
-
-  user_management:
-    domain: security
-    category: administration
-    # ... rest of configuration
-```
-
-### Metadata Enhancement
-
-```yaml
-tools:
-  inventory_analysis:
-    metadata:
-      title: "Inventory Analysis Report"
-      version: "2.1.0"
-      author: "IBM i Development Team"
-      keywords: ["inventory", "analysis", "reporting"]
-      lastUpdated: "2024-01-15"
-```
-
-### Environment-Specific Tools
-
-```yaml
-tools:
-  production_health_check:
-    source: production-system
-    environment: production
-    security:
-      scopes: ["production:read"]
-      audit: true
-
-  development_sandbox:
-    source: development-system
-    environment: development
-    security:
-      scopes: ["development:admin"]
-```
-
-## Configuration Management
-
-### File Organization
-
-```
-prebuiltconfigs/
-├── performance.yaml      # System performance tools
-├── sys-admin.yaml        # Administrative tools
-├── business-logic.yaml   # Custom business tools
-└── security.yaml         # Security and audit tools
-```
-
-### Environment Variables
-
-All connection details and sensitive information use environment variables:
-
-```yaml
-sources:
-  primary:
-    host: ${DB2i_HOST}
-    user: ${DB2i_USER}
-    password: ${DB2i_PASS}
-    port: ${DB2i_PORT:8076}           # Default port
-    ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}
-```
-
-### Toolset Selection
-
-Control which tools are loaded using environment configuration:
-
-```bash
-# Load specific toolsets
-SELECTED_TOOLSETS=performance,monitoring
-TOOLS_YAML_PATH=prebuiltconfigs
-
-# Load all toolsets from directory
-TOOLS_YAML_PATH=prebuiltconfigs
-
-# Load single file
-TOOLS_YAML_PATH=prebuiltconfigs/performance.yaml
-```
-
-## Complete YAML Configuration Example
-
-Here's a complete YAML configuration that demonstrates real-world usage patterns with tools from the prebuilt configurations:
-
-```yaml
-# Connection configuration
 sources:
   ibmi-system:
     host: ${DB2i_HOST}
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
     port: 8076
-    ignore-unauthorized: true
+```
 
-# SQL Tools with various parameter types and complexity
+**Key features:**
+- Environment variable substitution for credentials
+- Multiple environment support (dev, test, prod)
+- Connection pooling and timeouts
+- SSL/TLS configuration
+
+<Card title="Complete Sources Reference" icon="database" href="/sql-tools/sources">
+  Learn about all source configuration options, security best practices, and troubleshooting →
+</Card>
+
+---
+
+### Tools - SQL Operations
+
+Individual SQL queries with parameter validation and security controls:
+
+```yaml
 tools:
-  # Simple tool with no parameters
-  system_status:
-    source: ibmi-system
-    description: "Overall system performance statistics with CPU, memory, and I/O metrics"
-    statement: |
-      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(
-        RESET_STATISTICS=>'YES',
-        DETAILED_INFO=>'ALL'
-      )) X
-
-  # Tool with integer parameter and validation
   active_job_info:
     source: ibmi-system
-    description: "Find the top CPU consumers with filtering options"
+    description: "Find top CPU consumers"
     parameters:
       - name: limit
         type: integer
         default: 10
         minimum: 1
         maximum: 100
-        description: "Number of top CPU consumers to return"
     statement: |
-      SELECT CPU_TIME, JOB_NAME, SUBSYSTEM_NAME, JOB_TYPE, 
-             AUTHORIZATION_NAME, FUNCTION, JOB_STATUS
+      SELECT CPU_TIME, JOB_NAME FROM
+      TABLE(QSYS2.ACTIVE_JOB_INFO()) A
+      ORDER BY CPU_TIME DESC
+      FETCH FIRST :limit ROWS ONLY
+```
+
+**Parameter types:**
+- **String** - Pattern validation, length constraints, enums
+- **Integer** - Range validation, defaults
+- **Float** - Decimal numbers for calculations
+- **Boolean** - True/false flags
+- **Array** - Lists of values for IN clauses
+
+<Card title="Complete Tools Reference" icon="wrench" href="/sql-tools/tools">
+  Explore all tool configuration options, parameter types, security features, and examples →
+</Card>
+
+---
+
+### Toolsets - Logical Organization
+
+Group related tools for discovery and selective loading:
+
+```yaml
+toolsets:
+  performance_monitoring:
+    title: "Performance Monitoring"
+    description: "System performance and resource tools"
+    tools:
+      - system_status
+      - active_job_info
+      - memory_pools
+```
+
+**Organization strategies:**
+- By functional domain (monitoring, security, reporting)
+- By business process (onboarding, payroll, inventory)
+- By user role (developer, DBA, auditor)
+- By environment (production, development, testing)
+
+<Card title="Complete Toolsets Reference" icon="layer-group" href="/sql-tools/toolsets">
+  Learn about toolset organization, selective loading, and best practices →
+</Card>
+
+---
+
+## Security & Validation
+
+### Automatic Security
+
+- **SQL Injection Protection** - All parameters use prepared statements
+- **Type Validation** - Parameters validated against defined schemas
+- **IBM i Authorities** - Queries respect object-level permissions
+- **Audit Logging** - Optional detailed execution logs
+
+### Security Configuration
+
+Mark sensitive tools for enhanced protection:
+
+```yaml
+security:
+  readOnly: true
+  audit: true
+  requiredAuthority: "*AUDIT"
+  scopes: ["security:read"]
+  warning: "Accesses sensitive data"
+```
+
+---
+
+## Loading and Configuration
+
+### Load Specific Toolsets
+
+```bash
+# Load single toolset
+npx ibmi-mcp-server --tools tools/ --toolsets performance_monitoring
+
+# Load multiple toolsets
+npx ibmi-mcp-server --tools tools/ --toolsets performance_monitoring,security_audit
+```
+
+### Environment Variables
+
+```bash
+# Development environment
+DB2i_HOST=ibmi-dev.local
+DB2i_USER=DEVUSER
+DB2i_PASS=DevPassword
+
+# Load specific toolsets
+SELECTED_TOOLSETS=development_full,testing_validation
+```
+
+---
+
+## Complete Example
+
+A simple but complete YAML configuration:
+
+```yaml
+# 1. Define database connection
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+
+# 2. Create SQL tools
+tools:
+  system_status:
+    source: ibmi-system
+    description: "Overall system performance metrics"
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS()) X
+    parameters: []
+
+  active_job_info:
+    source: ibmi-system
+    description: "Find top CPU consumers"
+    parameters:
+      - name: limit
+        type: integer
+        default: 10
+        minimum: 1
+        maximum: 100
+    statement: |
+      SELECT CPU_TIME, JOB_NAME, USER_NAME
       FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) A
       ORDER BY CPU_TIME DESC
       FETCH FIRST :limit ROWS ONLY
 
-  # Tool with multiple parameters including enum and required fields
-  describe_object:
-    source: ibmi-system
-    description: "Generate DDL definition for database objects"
-    parameters:
-      - name: name
-        type: string
-        required: true
-        description: "The name of the object"
-      - name: library
-        type: string
-        required: true
-        default: "QSYS2"
-        description: "The library containing the object"
-      - name: type
-        type: string
-        default: "TABLE"
-        enum: ["TABLE", "VIEW", "INDEX", "PROCEDURE", "FUNCTION", "ALIAS"]
-        description: "The type of database object"
-    statement: |
-      CALL QSYS2.GENERATE_SQL(
-        DATABASE_OBJECT_NAME => :name,
-        DATABASE_OBJECT_LIBRARY_NAME => :library,
-        DATABASE_OBJECT_TYPE => :type,
-        CREATE_OR_REPLACE_OPTION => '1',
-        STATEMENT_FORMATTING_OPTION => '0'
-      )
-
-  # Tool with string parameter and pattern matching
-  list_services_by_category:
-    source: ibmi-system
-    description: "Browse IBM i services for a specific category"
-    parameters:
-      - name: category
-        type: string
-        required: true
-        description: "Service category name (e.g., 'Performance', 'System Administration')"
-    statement: |
-      SELECT service_schema_name,
-             service_name,
-             sql_object_type,
-             earliest_possible_release,
-             latest_db2_group_level
-      FROM qsys2.services_info
-      WHERE service_category = :category
-      ORDER BY service_schema_name, service_name
-
-  # Tool with optional parameter handling
-  search_services_by_name:
-    source: ibmi-system
-    description: "Search for services by name pattern with optional case-insensitive matching"
-    parameters:
-      - name: search_term
-        type: string
-        required: true
-        description: "Search term to match against service names"
-      - name: case_sensitive
-        type: string
-        default: "NO"
-        enum: ["YES", "NO"]
-        description: "Whether search should be case sensitive"
-    statement: |
-      SELECT service_schema_name,
-             service_name,
-             service_category,
-             sql_object_type,
-             system_object_name
-      FROM qsys2.services_info
-      WHERE CASE 
-        WHEN :case_sensitive = 'YES' THEN service_name LIKE '%' CONCAT :search_term CONCAT '%'
-        ELSE UPPER(service_name) LIKE '%' CONCAT UPPER(:search_term) CONCAT '%'
-      END
-      ORDER BY service_schema_name, service_name
-      FETCH FIRST 50 ROWS ONLY
-
-# Logical groupings of tools
+# 3. Organize into toolsets
 toolsets:
   performance_monitoring:
     title: "Performance Monitoring"
-    description: "Tools for monitoring IBM i system performance and resource utilization"
+    description: "System performance and resource tools"
     tools:
       - system_status
       - active_job_info
-
-  system_administration:
-    title: "System Administration"  
-    description: "Administrative tools for managing IBM i database objects and services"
-    tools:
-      - describe_object
-      - list_services_by_category
-      - search_services_by_name
 ```
-
-**Key Features Demonstrated:**
-
-- **Multiple Parameter Types**: String, integer, enum parameters with validation
-- **Parameter Validation**: Required fields, defaults, min/max values, enum options
-- **Complex SQL**: Table functions, stored procedure calls, conditional logic
-- **IBM i Integration**: QSYS2 system services and proper IBM i SQL syntax
-- **Toolset Organization**: Logical grouping of related tools for agent filtering
-- **Real-world Usage**: Based on actual prebuilt configurations used in production
-
-## Best Practices
-
-<AccordionGroup>
-  <Accordion title="SQL Statement Guidelines" icon="code">
-    - Use IBM i system services (QSYS2 views/procedures) when available
-    - Include appropriate row limiting (`FETCH FIRST n ROWS ONLY`)
-    - Handle NULL parameters with conditional logic
-    - Use descriptive column aliases for better AI understanding
-    - Consider performance impact on production systems
-  </Accordion>
-
-  <Accordion title="Parameter Design" icon="settings">
-    - Provide clear, AI-friendly parameter descriptions
-    - Use appropriate validation (patterns, ranges, enums)
-    - Set sensible defaults for optional parameters
-    - Follow IBM i naming conventions
-    - Include examples in descriptions when helpful
-  </Accordion>
-
-  <Accordion title="Security Considerations" icon="shield">
-    - Always use parameter binding (never string concatenation)
-    - Mark sensitive operations with `security.audit: true`
-    - Use read-only flags where appropriate
-    - Include authority requirements in descriptions
-    - Test with least-privileged users
-  </Accordion>
-
-  <Accordion title="Documentation Standards" icon="book">
-    - Write descriptions for the AI agent audience
-    - Include business context in tool descriptions
-    - Specify units for numeric values
-    - Document any special authority requirements
-    - Provide usage examples and common scenarios
-  </Accordion>
-</AccordionGroup>
-
-## Integration with MCP Agents
-
-YAML SQL tools seamlessly integrate with MCP agents, providing:
-
-- **Automatic Schema Generation**: Parameters become typed inputs for agents
-- **Response Formatting**: Results are automatically formatted for agent consumption
-- **Error Handling**: Comprehensive error messages help agents understand issues
-- **Tool Discovery**: Agents can enumerate and understand available tools
 
 <Note>
-To understand how to build agents that effectively use SQL tools, see the [Agent Development Guide](/agents/building-agents). For server architecture details, review the [Server Architecture](/concepts/architecture) documentation.
+**Complete Examples**: See the [Building SQL Tools](/sql-tools/building-tools) guide for the comprehensive `employee-info.yaml` example that demonstrates all parameter types and SQL patterns in a production-ready configuration.
 </Note>
 
-```mermaid
-graph LR
-    A[YAML Configuration] --> B[Schema Generation]
-    B --> C[MCP Tool Registration]
-    C --> D[Agent Discovery]
-    D --> E[Tool Execution]
-    E --> F[Formatted Response]
-
-    style A fill:#fff8e1
-    style C fill:#e3f2fd
-    style F fill:#e8f5e8
-```
+---
 
 ## Next Steps
 
-Ready to create your own SQL tools?
+<CardGroup cols={3}>
+  <Card title="Sources Reference" icon="database" href="/sql-tools/sources">
+    Database connection configuration
+  </Card>
+  <Card title="Tools Reference" icon="wrench" href="/sql-tools/tools">
+    SQL tool definitions and parameters
+  </Card>
+  <Card title="Toolsets Reference" icon="layer-group" href="/sql-tools/toolsets">
+    Organizing tools into groups
+  </Card>
+</CardGroup>
 
 <CardGroup cols={2}>
-  <Card title="Building Tools" icon="hammer" href="/sql-tools/building-tools">
-    Step-by-step guide to creating custom YAML SQL tools
+  <Card title="Building SQL Tools" icon="hammer" href="/sql-tools/building-tools">
+    Step-by-step guide with complete examples
   </Card>
-  <Card title="Testing & Development" icon="flask" href="/sql-tools/testing">
-    Learn how to test and debug your SQL tools effectively
-  </Card>
-  <Card title="Examples & Use Cases" icon="lightbulb" href="/sql-tools/examples">
-    Explore real-world examples and common usage patterns
-  </Card>
-  <Card title="Configuration Reference" icon="book" href="/configuration">
-    Complete reference for environment variables and settings
+  <Card title="Configuration Guide" icon="gear" href="/configuration">
+    Server configuration and environment variables
   </Card>
 </CardGroup>
 
 <Note>
-**Design Philosophy**: YAML SQL tools democratize AI agent development for IBM i environments by enabling database professionals to create sophisticated tools using their existing SQL expertise, while the MCP server handles all the complexity of agent integration, security, and protocol management.
+**Design Philosophy**: YAML SQL tools democratize AI agent development for IBM i environments. SQL professionals build sophisticated tools using familiar SQL syntax, while the MCP server handles AI integration, security, parameter validation, and protocol management automatically.
 </Note>
