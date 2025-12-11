@@ -333,6 +333,32 @@ For HTTP remote connections, you need to:
 
 > **⚠️ Production Note:** Replace `http://localhost:3010` with your production endpoint URL and ensure HTTPS is enabled (`IBMI_AUTH_ALLOW_HTTP=false`).
 
+In production environments, it is strongly recommended to deploy the MCP server behind a reverse proxy server such as Nginx, HAProxy, or Caddy. The reverse proxy server can provide TLS/SSL termination for the MCP server to handle HTTPS connections and SSL/TLS certificate management. Below is an example of an Nginx configuration. You may need to adjust it according to your specific networking configuration and security requirements.
+
+```
+pid /run/nginx.pid;
+events {}
+http {
+    server {
+        listen 443 ssl;
+        ssl_certificate <path_to_certificate>;
+        ssl_certificate_key <path_to_privatekey>;
+        ssl_protocols TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_session_cache shared:SSL:50m;
+        ssl_prefer_server_ciphers on;
+        # This is needed for getting access token when IBM i HTTP authentication enabled with HTTPS only
+        proxy_set_header X-Forwarded-Proto https;
+        location / {
+            proxy_pass http://mcp_server;
+        }
+    }
+    upstream mcp_server {
+        server 127.0.0.1:3010;
+    }
+}
+```
+
 ---
 
 ### Client Configurations
