@@ -418,8 +418,8 @@ services:
       - YAML_AUTO_RELOAD=true
       - TOOLS_YAML_PATH=/usr/src/app/tools
     volumes:
-      - ../../tools:/usr/src/app/tools:rw  # Mount tools configurations with read-write for auto-reload
-      - ../../secrets:/usr/src/app/secrets:ro  # Mount secrets directory as read-only
+      - ../../tools:/usr/src/app/tools:rw,Z  # Mount tools configurations with read-write for auto-reload
+      - ../../secrets:/usr/src/app/secrets:ro,Z  # Mount secrets directory as read-only
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
       interval: 30s

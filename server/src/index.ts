@@ -20,6 +20,7 @@ import {
   logOperationStart,
   logOperationSuccess,
 } from "@/utils/internal/logging-helpers.js";
+import { logger } from "@/utils/internal/logger.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import http from "http";
 import { statSync, existsSync } from "fs";
@@ -37,22 +38,22 @@ import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
  * This command parses the YAML tools configuration and displays a formatted list of all toolsets
  */
 async function listToolsetsCommand(): Promise<void> {
-  console.log("\n📦 Available Toolsets\n");
+  logger.info("\n📦 Available Toolsets\n");
 
   try {
     // Apply CLI overrides to get the correct tools path
     applyCliOverrides(cliArgs);
 
     if (!config.toolsYamlPath) {
-      console.error("❌ No YAML tools configuration found.");
-      console.error(
+      logger.error("❌ No YAML tools configuration found.");
+      logger.error(
         "   Use --tools <path> to specify YAML tools configuration or set TOOLS_YAML_PATH environment variable.\n",
       );
       return;
     }
 
-    console.log(`📁 Configuration: ${config.toolsYamlPath}`);
-    console.log("");
+    logger.info(`📁 Configuration: ${config.toolsYamlPath}`);
+    logger.info("");
 
     // Create a context for this operation
     const context = requestContextService.createRequestContext({
@@ -82,14 +83,14 @@ async function listToolsetsCommand(): Promise<void> {
         );
       }
     } else {
-      console.error(`❌ Path does not exist: ${config.toolsYamlPath}`);
+      logger.error(`❌ Path does not exist: ${config.toolsYamlPath}`);
       return;
     }
 
     if (!configResult.success || !configResult.config) {
-      console.error("❌ Failed to parse YAML configuration:");
+      logger.error("❌ Failed to parse YAML configuration:");
       if (configResult.errors) {
-        configResult.errors.forEach((error) => console.error(`   ${error}`));
+        configResult.errors.forEach((error) => logger.error(`   ${error}`));
       }
       return;
     }
@@ -97,20 +98,20 @@ async function listToolsetsCommand(): Promise<void> {
     const yamlConfig = configResult.config;
 
     // Display global tools section
-    console.log("🌍 Global Tools (automatically added to all toolsets):");
-    console.log(`   • ${GLOBAL_TOOLS}`);
-    console.log("");
+    logger.info("🌍 Global Tools (automatically added to all toolsets):");
+    logger.info(`   • ${GLOBAL_TOOLS}`);
+    logger.info("");
 
     if (!yamlConfig.toolsets || Object.keys(yamlConfig.toolsets).length === 0) {
-      console.log("ℹ️  No toolsets found in YAML configuration.");
-      console.log(
+      logger.info("ℹ️  No toolsets found in YAML configuration.");
+      logger.info(
         "   Individual tools may be available without being organized into toolsets.\n",
       );
       return;
     }
 
     // Display toolsets information
-    console.log(`Found ${Object.keys(yamlConfig.toolsets).length} toolsets:\n`);
+    logger.info(`Found ${Object.keys(yamlConfig.toolsets).length} toolsets:\n`);
 
     for (const [toolsetName, toolsetConfig] of Object.entries(
       yamlConfig.toolsets,
@@ -121,38 +122,38 @@ async function listToolsetsCommand(): Promise<void> {
       const globalToolCount = GLOBAL_TOOLS.length;
       const totalToolCount = toolsetToolCount;
 
-      console.log(`🔧 ${toolsetName}`);
+      logger.info(`🔧 ${toolsetName}`);
 
       if (toolsetConfig.title && toolsetConfig.title !== toolsetName) {
-        console.log(`   Title: ${toolsetConfig.title}`);
+        logger.info(`   Title: ${toolsetConfig.title}`);
       }
 
       if (toolsetConfig.description) {
-        console.log(`   Description: ${toolsetConfig.description}`);
+        logger.info(`   Description: ${toolsetConfig.description}`);
       }
 
-      console.log(
+      logger.info(
         `   Tools: ${totalToolCount} tools (${toolsetToolCount} specific + ${globalToolCount} global)`,
       );
 
       if (toolsetToolCount > 0) {
-        console.log(`   Specific tools: ${toolsetConfig.tools.join(", ")}`);
+        logger.info(`   Specific tools: ${toolsetConfig.tools.join(", ")}`);
       }
 
-      console.log("");
+      logger.info("");
     }
 
-    console.log("💡 Usage examples:");
-    console.log(
+    logger.info("💡 Usage examples:");
+    logger.info(
       `   npx ibmi-mcp-server --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets).slice(0, 2).join(",")}`,
     );
-    console.log(
+    logger.info(
       `   npm run start:http -- --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets)[0]}`,
     );
-    console.log("");
+    logger.info("");
   } catch (error) {
-    console.error("❌ Error listing toolsets:");
-    console.error(
+    logger.error("❌ Error listing toolsets:");
+    logger.error(
       `   ${error instanceof Error ? error.message : String(error)}`,
     );
   }
@@ -175,26 +176,26 @@ if (cliArgs.listToolsets) {
 
 // Handle any parsing errors
 if (cliArgs.errors && cliArgs.errors.length > 0) {
-  console.error("CLI Argument Errors:");
-  cliArgs.errors.forEach((error) => console.error(`  ✘ ${error}`));
+  logger.error("CLI Argument Errors:");
+  cliArgs.errors.forEach((error) => logger.error(`  ✘ ${error}`));
   process.exit(1);
 }
 
 // Show warnings but continue execution
 if (cliArgs.warnings && cliArgs.warnings.length > 0) {
-  console.warn("CLI Argument Warnings:");
-  cliArgs.warnings.forEach((warning) => console.warn(`  ⚠ ${warning}`));
+  logger.warning("CLI Argument Warnings:");
+  cliArgs.warnings.forEach((warning) => logger.warning(`  ⚠ ${warning}`));
 }
 
 // Validate tools path if provided
 if (cliArgs.tools) {
   const validation = validateToolsPath(cliArgs.tools);
   if (!validation.valid) {
-    console.error(`Tools path validation failed: ${validation.message}`);
+    logger.error(`Tools path validation failed: ${validation.message}`);
     process.exit(1);
   }
   if (validation.message) {
-    console.log(`ℹ ${validation.message}`);
+    logger.info(`ℹ ${validation.message}`);
   }
 }
 
@@ -203,14 +204,14 @@ applyCliOverrides(cliArgs);
 
 // Log overrides if provided
 if (cliArgs.tools) {
-  console.log(`ℹ Using tools path: ${config.toolsYamlPath}`);
+  logger.info(`ℹ Using tools path: ${config.toolsYamlPath}`);
 }
 if (cliArgs.transport) {
-  console.info(`Using MCP transport type: ${config.mcpTransportType}`);
+  logger.info(`ℹ Using MCP transport type: ${config.mcpTransportType}`);
 }
 
 if (cliArgs.toolsets && cliArgs.toolsets.length > 0) {
-  console.info(`Using toolsets: ${cliArgs.toolsets.join(", ")}`);
+  logger.info(`ℹ Using toolsets: ${cliArgs.toolsets.join(", ")}`);
 }
 
 let mcpStdioServer: McpServer | undefined;

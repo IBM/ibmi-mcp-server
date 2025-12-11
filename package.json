@@ -1,6 +1,6 @@
 {
   "name": "ibmi-mcp-monorepo",
-  "version": "1.9.1",
+  "version": "1.0.0",
   "description": "IBM i MCP Server - Monorepo containing server, tools, agents, and deployment configurations",
   "private": true,
   "type": "module",
@@ -14,7 +14,8 @@
   "homepage": "https://github.com/IBM/ibmi-mcp-server.git#readme",
   "scripts": {
     "install": "cd server && npm install",
-    "build": "cd server && npm run build && npm link",
+    "build": "cd server && npm run build",
+    "build:link": "cd server && npm run build && npm link",
     "rebuild": "cd server && npm run rebuild",
     "start": "npx ibmi-mcp-server --transport stdio",
     "start:http": "npx ibmi-mcp-server --transport http",
@@ -30,7 +31,12 @@
     "docker:up": "cd apps/docker && docker-compose up -d",
     "docker:down": "cd apps/docker && docker-compose down",
     "docker:logs": "cd apps/docker && docker-compose logs -f",
-    "list-toolsets": "cd server && npm run list-toolsets -- --tools ../tools"
+    "list-toolsets": "cd server && npm run list-toolsets -- --tools ../tools",
+    "release": "cd server && npm run release",
+    "release:minor": "cd server && npm run release:minor",
+    "release:major": "cd server && npm run release:major",
+    "release:patch": "cd server && npm run release:patch",
+    "release:first": "cd server && npm run release:first"
   },
   "keywords": [
     "ibm-i",

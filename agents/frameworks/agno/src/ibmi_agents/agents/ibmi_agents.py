@@ -2,381 +2,417 @@
 IBM i Specialized Agents Collection
 
 This module defines a collection of specialized agno agents using FilteredMCPTools
-for different IBM i system administration and monitoring tasks. Each agent is 
+for different IBM i system administration and monitoring tasks. Each agent is
 configured with specific toolsets based on the prebuiltconfigs.
 
 Available agents:
 - Performance Agent: System performance monitoring and analysis
 - SysAdmin Discovery Agent: High-level system discovery and summarization
-- SysAdmin Browse Agent: Detailed system browsing and exploration  
+- SysAdmin Browse Agent: Detailed system browsing and exploration
 - SysAdmin Search Agent: System search and lookup capabilities
 """
 
+from textwrap import dedent
+from typing import Optional, Union
+
 from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.models.ollama import Ollama
-from agno.db.sqlite import SqliteDb
-from dotenv import load_dotenv
+from agno.models.base import Model
+from agno.tools.reasoning import ReasoningTools
 
-from ibmi_agent_sdk.agno import FilteredMCPTools
+from ibmi_agent_sdk import FilteredMCPTools
 
-# Load environment variables
-load_dotenv()
+from .agent_ids import AgentID
+from .base_agent import create_ibmi_agent
+from .utils import get_model
 
-# Shared database instance for all agents
-# Using a single database instance ensures consistent ID across all agents
-_shared_db = None
-
-def get_shared_db() -> SqliteDb:
-    """
-    Get or create the shared database instance for all agents.
-
-    This ensures all agents use the same database instance with a consistent ID,
-    preventing database ID conflicts in AgentOS.
-
-    Returns:
-        Shared SqliteDb instance
-    """
-    global _shared_db
-    if _shared_db is None:
-        _shared_db = SqliteDb(
-            db_file="tmp/ibmi_agents.db",
-            memory_table="agent_memory",
-            session_table="agent_sessions",
-            metrics_table="agent_metrics",
-            eval_table="agent_evals",
-            knowledge_table="agent_knowledge"
-        )
-    return _shared_db
 
 # Default MCP connection settings
 DEFAULT_MCP_URL = "http://127.0.0.1:3010/mcp"
 DEFAULT_TRANSPORT = "streamable-http"
 
-# Performance Monitoring Agent
-def create_performance_agent(
-    model_id: str = "gpt-4o",
+
+def get_performance_agent(
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str = DEFAULT_MCP_URL,
     transport: str = DEFAULT_TRANSPORT,
     debug_filtering: bool = False,
-    **kwargs
+    debug_mode: bool = False,
+    enable_reasoning: bool = True,
 ) -> Agent:
     """
     Create an IBM i Performance Monitoring Agent.
-    
+
     This agent specializes in system performance analysis, monitoring CPU, memory,
     I/O metrics, and providing insights on system resource utilization.
-    
+
     Args:
-        model_id: OpenAI model to use (default: gpt-4o)
+        model: Model specification in format "provider:model_id":
+               - OpenAI: "openai:gpt-4o", "openai:gpt-4o-mini"
+               - Anthropic: "anthropic:claude-sonnet-4", "anthropic:claude-opus-4"
+               - Ollama: "ollama:llama3.2", "ollama:mistral"
+               - Or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
-        **kwargs: Additional agent configuration options
-        
+        debug_filtering: Enable debug output for tool filtering
+        debug_mode: Enable debug mode for the agent
+        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+
     Returns:
         Configured Agent instance for performance monitoring
     """
+    # Convert model string to Model instance using get_model utility
+    model = get_model(model)
+
     performance_tools = FilteredMCPTools(
         url=mcp_url,
         transport=transport,
         annotation_filters={"toolsets": ["performance"]},
-        debug_filtering=debug_filtering
-    )
-    
-    return Agent(
-        name="IBM i Performance Monitor",
-        model=OpenAIChat(id=model_id),
-        instructions=[
-            "You are a specialized IBM i performance monitoring assistant.",
-            "You have access to comprehensive performance monitoring tools including:",
-            "- System status and activity monitoring",
-            "- Memory pool analysis", 
-            "- Temporary storage tracking",
-            "- HTTP server performance metrics",
-            "- Active job analysis and CPU consumption tracking",
-            "- System value monitoring",
-            "- Collection Services configuration",
-            "",
-            "Your role is to:",
-            "- Monitor and analyze system performance metrics",
-            "- Identify performance bottlenecks and resource constraints", 
-            "- Provide actionable recommendations for optimization",
-            "- Explain performance data in business terms",
-            "- Help troubleshoot performance-related issues",
-            "",
-            "Always explain what metrics you're checking and why they're important.",
-            "Provide context for normal vs. concerning values when analyzing data.",
-            "Focus on actionable insights rather than just presenting raw data."
-        ],
-        db=get_shared_db(),
-        tools=[performance_tools],
-        markdown=True,
-        enable_agentic_memory=True,
-        enable_user_memories=True,
-        search_knowledge=True,
-        add_history_to_context=True,
-        read_chat_history=True,
-        **kwargs
+        debug_filtering=debug_filtering,
     )
 
-# System Administration Discovery Agent  
-def create_sysadmin_discovery_agent(
-    model_id: str = "gpt-4o",
+    # Build tools list
+    tools_list = [performance_tools]
+    if enable_reasoning:
+        tools_list.append(ReasoningTools(add_instructions=True))
+
+    return create_ibmi_agent(
+        id=AgentID.IBMI_PERFORMANCE_MONITOR,
+        name="IBM i Performance Monitor",
+        model=model,
+        # Tools available to the agent
+        tools=tools_list,
+        # Description of the agent
+        description=dedent("""\
+            You are an IBM i Performance Monitoring Assistant specializing in system performance analysis and optimization.
+
+            You help administrators monitor CPU, memory, I/O metrics, and provide actionable insights on system resource utilization.
+        """),
+        # Instructions for the agent
+        instructions=dedent("""\
+            Your mission is to provide comprehensive performance monitoring and analysis for IBM i systems. Follow these steps:
+
+            1. **Performance Assessment**
+            - Use available tools to gather system status and activity data
+            - Monitor memory pool utilization and temporary storage
+            - Analyze HTTP server performance metrics
+            - Track active jobs and CPU consumption patterns
+            - Review system values and Collection Services configuration
+
+            2. **Analysis & Insights** (Use reasoning tools when enabled)
+            - Use think() to structure your analysis approach
+            - Identify performance bottlenecks and resource constraints
+            - Compare current metrics against normal operating ranges (use reasoning to compare)
+            - Use analyze() to examine patterns and correlations in metrics
+            - Explain what each metric means and why it's important
+            - Provide context for when values are concerning vs. normal
+
+            3. **Recommendations**
+            - Use reasoning tools to evaluate multiple solutions
+            - Deliver actionable optimization recommendations with priority levels
+            - Explain performance data in business terms
+            - Focus on insights rather than just presenting raw numbers
+            - Help troubleshoot performance-related issues systematically
+            - Provide step-by-step remediation plans
+
+            4. **Communication**
+            - Always explain what metrics you're checking and why
+            - Structure responses for both quick understanding and detailed analysis
+            - Use clear, non-technical language when explaining to non-experts
+            - Show your reasoning process for complex diagnostics
+
+            Additional Information:
+            - You are interacting with the user_id: {current_user_id}
+            - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
+        """),
+        debug_mode=debug_mode,
+    )
+
+
+def get_sysadmin_discovery_agent(
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str = DEFAULT_MCP_URL,
     transport: str = DEFAULT_TRANSPORT,
     debug_filtering: bool = False,
-    **kwargs
+    debug_mode: bool = False,
+    enable_reasoning: bool = True,
 ) -> Agent:
     """
     Create an IBM i System Administration Discovery Agent.
-    
+
     This agent specializes in high-level system discovery, providing summaries
     and counts of system services and components.
-    
+
     Args:
-        model_id: OpenAI model to use (default: gpt-4o)
+        model: Model specification in format "provider:model_id":
+               - OpenAI: "openai:gpt-4o", "openai:gpt-4o-mini"
+               - Anthropic: "anthropic:claude-sonnet-4", "anthropic:claude-opus-4"
+               - Ollama: "ollama:llama3.2", "ollama:mistral"
+               - Or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
-        **kwargs: Additional agent configuration options
-        
+        debug_filtering: Enable debug output for tool filtering
+        debug_mode: Enable debug mode for the agent
+        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+
     Returns:
         Configured Agent instance for system discovery
     """
+    # Convert model string to Model instance using get_model utility
+    model = get_model(model)
+
     discovery_tools = FilteredMCPTools(
         url=mcp_url,
         transport=transport,
         annotation_filters={"toolsets": ["sysadmin_discovery"]},
-        debug_filtering=debug_filtering
-    )
-    
-    return Agent(
-        name="IBM i SysAdmin Discovery",
-        model=OpenAIChat(id=model_id),
-        instructions=[
-            "You are a specialized IBM i system administration discovery assistant.",
-            "You help administrators get high-level overviews and summaries of system components.",
-            "",
-            "Your discovery tools include:",
-            "- Service category listings and counts",
-            "- Schema-based service summaries", 
-            "- SQL object type categorization",
-            "- Cross-referencing capabilities",
-            "",
-            "Your role is to:",
-            "- Provide high-level system overviews and inventories",
-            "- Help administrators understand the scope and organization of system services",
-            "- Summarize system components by category, schema, and type",
-            "- Identify patterns and relationships in system organization",
-            "",
-            "Focus on providing clear, organized summaries that help administrators",
-            "understand what's available on their system and how it's organized.",
-            "Use counts and categorizations to give context about system complexity."
-        ],
-        db=get_shared_db(),
-        tools=[discovery_tools],
-        markdown=True,
-        enable_agentic_memory=True,
-        enable_user_memories=True,
-        search_knowledge=True,
-        add_history_to_context=True,
-        read_chat_history=True,
-        **kwargs
+        debug_filtering=debug_filtering,
     )
 
-# System Administration Browse Agent
-def create_sysadmin_browse_agent(
-    model_id: str = "gpt-4o",
+    # Build tools list
+    tools_list = [discovery_tools]
+    if enable_reasoning:
+        tools_list.append(ReasoningTools(add_instructions=True))
+
+    return create_ibmi_agent(
+        id=AgentID.IBMI_SYSADMIN_DISCOVERY,
+        name="IBM i SysAdmin Discovery",
+        model=model,
+        # Tools available to the agent
+        tools=tools_list,
+        # Description of the agent
+        description=dedent("""\
+            You are an IBM i System Administration Discovery Assistant specializing in high-level system analysis.
+
+            You help administrators understand the scope and organization of system services through summaries and inventories.
+        """),
+        # Instructions for the agent
+        instructions=dedent("""\
+            Your mission is to provide comprehensive system discovery and overview capabilities for IBM i systems. Follow these steps:
+
+            1. **System Discovery**
+            - Generate service category listings and counts
+            - Provide schema-based service summaries (QSYS2, SYSTOOLS, etc.)
+            - Categorize services by SQL object types (VIEW, PROCEDURE, FUNCTION)
+            - Enable cross-referencing capabilities across system components
+
+            2. **Inventory & Organization**
+            - Deliver high-level system overviews and inventories
+            - Help administrators understand what's available on their system
+            - Summarize components by category, schema, and type
+            - Use counts and categorizations to convey system complexity
+
+            3. **Pattern Recognition**
+            - Identify patterns and relationships in system organization
+            - Highlight logical groupings and dependencies
+            - Show how components relate to each other
+
+            4. **Communication**
+            - Provide clear, organized summaries
+            - Use structured formats for easy scanning
+            - Give context about what the numbers mean
+            - Suggest logical next steps for exploration
+
+            Additional Information:
+            - You are interacting with the user_id: {current_user_id}
+            - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
+        """),
+        debug_mode=debug_mode,
+    )
+
+
+def get_sysadmin_browse_agent(
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str = DEFAULT_MCP_URL,
     transport: str = DEFAULT_TRANSPORT,
     debug_filtering: bool = False,
-    **kwargs
+    debug_mode: bool = False,
+    enable_reasoning: bool = True,
 ) -> Agent:
     """
     Create an IBM i System Administration Browse Agent.
-    
+
     This agent specializes in detailed browsing and exploration of system services,
     allowing deep dives into specific categories, schemas, and object types.
-    
+
     Args:
-        model_id: OpenAI model to use (default: gpt-4o)
+        model: Model specification in format "provider:model_id":
+               - OpenAI: "openai:gpt-4o", "openai:gpt-4o-mini"
+               - Anthropic: "anthropic:claude-sonnet-4", "anthropic:claude-opus-4"
+               - Ollama: "ollama:llama3.2", "ollama:mistral"
+               - Or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
-        **kwargs: Additional agent configuration options
-        
+        debug_filtering: Enable debug output for tool filtering
+        debug_mode: Enable debug mode for the agent
+        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+
     Returns:
         Configured Agent instance for system browsing
     """
+    # Convert model string to Model instance using get_model utility
+    model = get_model(model)
+
     browse_tools = FilteredMCPTools(
         url=mcp_url,
         transport=transport,
         annotation_filters={"toolsets": ["sysadmin_browse"]},
-        debug_filtering=debug_filtering
-    )
-    
-    return Agent(
-        name="IBM i SysAdmin Browser",
-        model=OpenAIChat(id=model_id),
-        instructions=[
-            "You are a specialized IBM i system administration browsing assistant.",
-            "You help administrators explore and examine system services in detail.",
-            "",
-            "Your browsing tools include:",
-            "- Listing services by specific categories",
-            "- Exploring services within specific schemas (QSYS2, SYSTOOLS, etc.)",
-            "- Filtering services by SQL object type (VIEW, PROCEDURE, FUNCTION, etc.)",
-            "- Detailed service metadata and compatibility information",
-            "",
-            "Your role is to:",
-            "- Help administrators explore specific areas of interest in depth",
-            "- Provide detailed listings and metadata for system services",
-            "- Explain service compatibility and release requirements",
-            "- Guide users through logical browsing paths",
-            "",
-            "Focus on helping users navigate and understand the details of what they find.",
-            "Explain technical concepts like SQL object types and release compatibility.",
-            "Suggest related services or logical next steps in their exploration."
-        ],
-        db=get_shared_db(),
-        tools=[browse_tools],
-        markdown=True,
-        enable_agentic_memory=True,
-        enable_user_memories=True,
-        search_knowledge=True,
-        add_history_to_context=True,
-        read_chat_history=True,
-        **kwargs
+        debug_filtering=debug_filtering,
     )
 
-# System Administration Search Agent
-def create_sysadmin_search_agent(
-    model_id: str = "gpt-4o",
+    # Build tools list
+    tools_list = [browse_tools]
+    if enable_reasoning:
+        tools_list.append(ReasoningTools(add_instructions=True))
+
+    return create_ibmi_agent(
+        id=AgentID.IBMI_SYSADMIN_BROWSE,
+        name="IBM i SysAdmin Browser",
+        model=model,
+        # Tools available to the agent
+        tools=tools_list,
+        # Description of the agent
+        description=dedent("""\
+            You are an IBM i System Administration Browse Assistant specializing in detailed system exploration.
+
+            You help administrators explore and examine system services in depth across categories, schemas, and object types.
+        """),
+        # Instructions for the agent
+        instructions=dedent("""\
+            Your mission is to provide detailed browsing and exploration capabilities for IBM i system services. Follow these steps:
+
+            1. **Detailed Browsing**
+            - List services by specific categories
+            - Explore services within specific schemas (QSYS2, SYSTOOLS, etc.)
+            - Filter services by SQL object type (VIEW, PROCEDURE, FUNCTION, etc.)
+            - Provide detailed service metadata and compatibility information
+
+            2. **Deep Exploration**
+            - Help administrators explore specific areas of interest in depth
+            - Provide comprehensive listings with metadata for system services
+            - Explain service compatibility and release requirements
+            - Guide users through logical browsing paths
+
+            3. **Technical Guidance**
+            - Explain technical concepts like SQL object types
+            - Clarify release compatibility and version requirements
+            - Describe service capabilities and use cases
+            - Provide context for service relationships
+
+            4. **Navigation Support**
+            - Suggest related services based on current exploration
+            - Recommend logical next steps in their browsing journey
+            - Help users understand the details of what they find
+            - Create coherent exploration narratives
+
+            Additional Information:
+            - You are interacting with the user_id: {current_user_id}
+            - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
+        """),
+        debug_mode=debug_mode,
+    )
+
+
+def get_sysadmin_search_agent(
+    model: Union[str, Model] = "openai:gpt-4o",
     mcp_url: str = DEFAULT_MCP_URL,
     transport: str = DEFAULT_TRANSPORT,
     debug_filtering: bool = False,
-    **kwargs
+    debug_mode: bool = False,
+    enable_reasoning: bool = True,
 ) -> Agent:
     """
     Create an IBM i System Administration Search Agent.
-    
+
     This agent specializes in searching and lookup capabilities, helping users
     find specific services, examples, and usage patterns.
-    
+
     Args:
-        model_id: OpenAI model to use (default: gpt-4o)
+        model: Model specification in format "provider:model_id":
+               - OpenAI: "openai:gpt-4o", "openai:gpt-4o-mini"
+               - Anthropic: "anthropic:claude-sonnet-4", "anthropic:claude-opus-4"
+               - Ollama: "ollama:llama3.2", "ollama:mistral"
+               - Or a pre-configured Model instance
         mcp_url: MCP server URL
         transport: MCP transport type
-        **kwargs: Additional agent configuration options
-        
+        debug_filtering: Enable debug output for tool filtering
+        debug_mode: Enable debug mode for the agent
+        enable_reasoning: Enable reasoning tools for structured analysis (default: True)
+
     Returns:
         Configured Agent instance for system search
     """
+    # Convert model string to Model instance using get_model utility
+    model = get_model(model)
+
     search_tools = FilteredMCPTools(
         url=mcp_url,
         transport=transport,
         annotation_filters={"toolsets": ["sysadmin_search"]},
-        debug_filtering=debug_filtering
+        debug_filtering=debug_filtering,
     )
-    
-    return Agent(
+
+    # Build tools list
+    tools_list = [search_tools]
+    if enable_reasoning:
+        tools_list.append(ReasoningTools(add_instructions=True))
+
+    return create_ibmi_agent(
+        id=AgentID.IBMI_SYSADMIN_SEARCH,
         name="IBM i SysAdmin Search",
-        model=OpenAIChat(id=model_id),
-        instructions=[
-            "You are a specialized IBM i system administration search assistant.",
-            "You help administrators find specific services, examples, and usage information.",
-            "",
-            "Your search capabilities include:",
-            "- Case-insensitive service name searching",
-            "- Locating services across all schemas",
-            "- Searching example code and usage patterns", 
-            "- Retrieving specific service examples and documentation",
-            "",
-            "Your role is to:",
-            "- Help users find specific services they're looking for",
-            "- Locate usage examples and code snippets",
-            "- Provide exact service locations and metadata",
-            "- Search through documentation and examples for keywords",
-            "",
-            "Focus on helping users find exactly what they're looking for quickly.",
-            "When showing examples, explain the context and provide usage guidance.",
-            "If multiple matches are found, help users understand the differences.",
-            "Suggest related searches or alternative terms when searches yield few results."
-        ],
-        db=get_shared_db(),
-        tools=[search_tools],
-        markdown=True,
-        enable_agentic_memory=True,
-        enable_user_memories=True,
-        search_knowledge=True,
-        add_history_to_context=True,
-        read_chat_history=True,
-        **kwargs
+        model=model,
+        # Tools available to the agent
+        tools=tools_list,
+        # Description of the agent
+        description=dedent("""\
+            You are an IBM i System Administration Search Assistant specializing in finding specific services and usage information.
+
+            You help administrators quickly locate services, examples, and documentation across the system.
+        """),
+        # Instructions for the agent
+        instructions=dedent("""\
+            Your mission is to provide powerful search and lookup capabilities for IBM i system services. Follow these steps:
+
+            1. **Comprehensive Search**
+            - Perform case-insensitive service name searches
+            - Locate services across all schemas
+            - Search through example code and usage patterns
+            - Retrieve specific service examples and documentation
+
+            2. **Targeted Results**
+            - Help users find exactly what they're looking for quickly
+            - Provide exact service locations and metadata
+            - Search through documentation and examples for keywords
+            - Filter results to most relevant matches
+
+            3. **Result Interpretation**
+            - When showing examples, explain the context and provide usage guidance
+            - If multiple matches are found, help users understand the differences
+            - Clarify which result best matches their needs
+            - Provide additional context for understanding results
+
+            4. **Search Optimization**
+            - Suggest related searches or alternative terms when searches yield few results
+            - Offer refined search strategies if initial searches are too broad
+            - Help users learn effective search patterns
+            - Guide users to related or similar services
+
+            Additional Information:
+            - You are interacting with the user_id: {current_user_id}
+            - The user's name might be different from the user_id, you may ask for it if needed and add it to your memory if they share it with you.\
+        """),
+        debug_mode=debug_mode,
     )
 
-# Agent Collection and Management
-AVAILABLE_AGENTS = {
-    "performance": create_performance_agent,
-    "discovery": create_sysadmin_discovery_agent,
-    "browse": create_sysadmin_browse_agent,
-    "search": create_sysadmin_search_agent,
-}
 
-def create_agent(agent_type: str, **kwargs) -> Agent:
-    """
-    Create an agent of the specified type.
-    
-    Args:
-        agent_type: Type of agent to create ("performance", "discovery", "browse", "search")
-        **kwargs: Additional configuration options passed to the agent constructor
-        
-    Returns:
-        Configured Agent instance
-        
-    Raises:
-        ValueError: If agent_type is not recognized
-    """
-    if agent_type not in AVAILABLE_AGENTS:
-        available = ", ".join(AVAILABLE_AGENTS.keys())
-        raise ValueError(f"Unknown agent type '{agent_type}'. Available types: {available}")
-    
-    return AVAILABLE_AGENTS[agent_type](**kwargs)
+# Legacy factory function names for backward compatibility
+create_performance_agent = get_performance_agent
+create_sysadmin_discovery_agent = get_sysadmin_discovery_agent
+create_sysadmin_browse_agent = get_sysadmin_browse_agent
+create_sysadmin_search_agent = get_sysadmin_search_agent
 
-def list_available_agents() -> dict:
-    """
-    Get information about all available agent types.
-    
-    Returns:
-        Dictionary mapping agent types to their descriptions
-    """
-    return {
-        "performance": "System performance monitoring and analysis",
-        "discovery": "High-level system discovery and summarization", 
-        "browse": "Detailed system browsing and exploration",
-        "search": "System search and lookup capabilities"
-    }
 
-# Example usage and testing
-if __name__ == "__main__":
-    import asyncio
-    
-    async def test_agents():
-        """Test all agent types with a simple query."""
-        print("=== Testing IBM i Specialized Agents ===\n")
-        
-        for agent_type in AVAILABLE_AGENTS.keys():
-            print(f"Testing {agent_type} agent...")
-            try:
-                agent = create_agent(agent_type, debug_filtering=True)
-                print(f"✓ {agent.name} created successfully")
-                print(f"  Tools: {len(agent.tools[0].functions) if agent.tools and hasattr(agent.tools[0], 'functions') else 'N/A'}")
-                
-                # Test a simple query
-                async with agent.tools[0]:
-                    print(f"  MCP Tools initialized: {len(agent.tools[0].functions)} functions available")
-                    
-            except Exception as e:
-                print(f"✗ Failed to create {agent_type} agent: {e}")
-            
-            print()
-    
-    # Run the tests
-    asyncio.run(test_agents())
+# Agent instances for direct import (optional)
+# These will connect to localhost MCP server by default
+performance_agent = get_performance_agent()
+discovery_agent = get_sysadmin_discovery_agent()
+browse_agent = get_sysadmin_browse_agent()
+search_agent = get_sysadmin_search_agent()

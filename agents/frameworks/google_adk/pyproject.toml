@@ -6,12 +6,13 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "asyncio>=4.0.0",
-    "google-adk[eval]>=1.17.0",
+    "google-adk[eval]>=1.19.0",
     "litellm<=1.76.3",
     "pydantic>=2.12.3",
     "python-dotenv>=1.2.1",
     "ibmi-agent-sdk",
     "ibm-watsonx-ai>=1.4.1",
+    "pytest>=8.4.2",
 ]
 
 [tool.poetry.dependencies]

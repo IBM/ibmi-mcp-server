@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "agno-docs": {
-      "url": "https://docs.agno.com/mcp",
-      "type": "http"
-    }
-  }
-}

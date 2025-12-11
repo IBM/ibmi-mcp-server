@@ -1,31 +1,50 @@
-name: Publish Package to npm
+name: Publish Package
+
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 jobs:
-  build-and-publish:
+  publish:
     runs-on: ubuntu-latest
+    environment: Release
     permissions:
-      contents: read
+      id-token: write  # Required for npm provenance
+
     steps:
+      # 1. Checkout repository
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # 2. Setup Node.js with npm registry
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
-          registry-url: "https://registry.npmjs.org"
-          cache: "npm"
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
 
+      # 3. Install dependencies (server directory)
       - name: Install dependencies
+        working-directory: ./server
         run: npm ci
 
+      # 4. Run validation (prepublishOnly will run again, but be explicit)
+      - name: Run tests and checks
+        working-directory: ./server
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+
+      # 5. Build the package
       - name: Build
+        working-directory: ./server
         run: npm run build
 
+      # 6. Publish to npm
       - name: Publish to npm
-        run: npm publish
+        working-directory: ./server
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

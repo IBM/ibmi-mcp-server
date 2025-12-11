@@ -202,3 +202,5 @@ secrets/
 *.pem
 
 specs/
+*.evalset_result.json
+*.evalset.json
