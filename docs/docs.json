@@ -61,7 +61,7 @@
             ]
           },
           {
-            "group": "agno Framework",
+            "group": "Agno Framework",
             "pages": [
               "agents/agno/getting-started",
               "agents/agno/filtered-mcp-tools",

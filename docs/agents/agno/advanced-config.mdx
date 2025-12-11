@@ -1,17 +1,15 @@
 ---
 title: "Advanced Configuration"
-description: "Advanced agno features for production IBM i agents including memory, evaluation, debugging, and deployment."
+description: "Advanced Agno features for production IBM i agents including memory, evaluation, debugging, and deployment."
 ---
 
-# Advanced Agent Configuration
-
-This guide covers advanced agno features for building production-ready IBM i agents with persistent memory, evaluation frameworks, debugging capabilities, and secure deployment.
+This guide covers advanced Agno features for building production-ready IBM i agents with persistent memory, evaluation frameworks, debugging capabilities, and secure deployment.
 
 ## Persistent Memory Configuration
 
 ### SQLite Storage Backend
 
-agno uses SQLite for persistent agent storage:
+Agno uses SQLite for persistent agent storage:
 
 ```python
 from agno.storage import SqliteDb

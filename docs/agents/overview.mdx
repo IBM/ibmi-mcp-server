@@ -3,9 +3,31 @@ title: "Agent Development Overview"
 description: "Introduction to building AI agents for IBM i systems using MCP toolset filtering and specialized agent architectures."
 ---
 
-# Building AI Agents for IBM i
-
 AI agents provide intelligent automation and assistance for IBM i system administration through natural language interfaces. This guide covers building agents that leverage the MCP (Model Context Protocol) server's SQL tools and toolset filtering capabilities.
+
+## Available Framework Integrations
+
+Choose from these pre-built agent integrations to get started quickly:
+
+<CardGroup cols={3}>
+  <Card title="Agno Framework" icon="python" href="https://github.com/IBM/ibmi-mcp-server/tree/main/agents/frameworks/agno">
+    Python-based agents with AgentOS, persistent memory, and evaluation framework. **Recommended for getting started.**
+  </Card>
+  <Card title="Google ADK" icon="google" href="https://github.com/IBM/ibmi-mcp-server/tree/main/agents/frameworks/google_adk">
+    Agents built with Google's Agent Development Kit. Supports both Google AI and Vertex AI.
+  </Card>
+  <Card title="LangChain" icon="link" href="https://github.com/IBM/ibmi-mcp-server/tree/main/agents/frameworks/langchain">
+    LangGraph-based agents with state management and workflow orchestration.
+  </Card>
+</CardGroup>
+
+Each integration includes:
+- **Specialized agents** for performance, discovery, browsing, and search
+- **Complete setup guides** with environment configuration
+- **Example queries** demonstrating agent capabilities
+- **FilteredMCPTools integration** for toolset filtering
+
+---
 
 ## What Are IBM i Agents?
 
@@ -17,7 +39,7 @@ IBM i agents are AI-powered assistants that:
 - **Respect IBM i security** by honoring user authorities and read-only constraints
 
 <Note>
-**Framework Focus**: This documentation currently focuses on **[agno](https://docs.agno.com/introduction)**, a modern Python AI agent framework. Documentation for LangChain and LangGraph integration will be added in future releases.
+**Framework Focus**: This documentation currently focuses on **[Agno](https://docs.agno.com/introduction)**, a modern Python AI agent framework. Documentation for LangChain and LangGraph integration will be added in future releases.
 </Note>
 
 ---
@@ -63,17 +85,17 @@ Rather than creating one large agent with access to all tools, the IBM i MCP ser
 
 ## Available Frameworks
 
-### agno (Current Focus)
+### Agno (Current Focus)
 
-[agno](https://docs.agno.com/introduction) is a modern Python framework for building AI agents with:
+[Agno](https://docs.agno.com/introduction) is a modern Python framework for building AI agents with:
 
 - **FilteredMCPTools** - Annotation-based tool filtering for specialized agents
 - **AgentOS** - Multi-agent deployment and management
 - **Persistent memory** - SQLite-backed conversation and knowledge storage
 - **Evaluation framework** - Built-in testing and reliability metrics
 
-<Card title="Get Started with agno" icon="rocket" href="/agents/agno/getting-started">
-  Start building IBM i agents with agno framework
+<Card title="Get Started with Agno" icon="rocket" href="/agents/agno/getting-started">
+  Start building IBM i agents with Agno framework
 </Card>
 
 ### Future Framework Support
@@ -116,7 +138,7 @@ Ready to build your first IBM i agent? Follow this path:
 graph TB
     subgraph agents["AI Agent Layer"]
         direction TB
-        agent["🤖 AI Agent<br/><small>agno/LangChain/LangGraph</small>"]
+        agent["🤖 AI Agent<br/><small>Agno/LangChain/LangGraph</small>"]
         nl["💬 Natural language interface"]
         memory["🧠 Persistent memory & context"]
     end
@@ -219,7 +241,7 @@ Based on the prebuilt configurations, these toolsets are available for agent fil
 3. **Configure FilteredMCPTools** - Set up annotation filters for tool selection
 4. **Write agent instructions** - Guide the agent on how to use tools effectively
 5. **Add persistent memory** - Enable context retention across conversations
-6. **Test and evaluate** - Use agno's evaluation framework to verify reliability
+6. **Test and evaluate** - Use Agno's evaluation framework to verify reliability
 7. **Deploy** - Run as standalone service or integrate into AgentOS
 
 ---
@@ -260,7 +282,7 @@ IBM i agents should respect the platform's robust security model:
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Get Started with agno" icon="rocket" href="/agents/agno/getting-started">
+  <Card title="Get Started with Agno" icon="rocket" href="/agents/agno/getting-started">
     Set up your development environment and run example agents
   </Card>
   <Card title="FilteredMCPTools Guide" icon="filter" href="/agents/agno/filtered-mcp-tools">
