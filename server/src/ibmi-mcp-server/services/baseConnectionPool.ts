@@ -6,7 +6,7 @@
  */
 
 import pkg, { BindingValue, QueryResult, DaemonServer } from "@ibm/mapepire-js";
-const { Pool, getCertificate } = pkg;
+const { Pool, getRootCertificate } = pkg;
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
   requestContextService,
@@ -79,8 +79,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     // Get SSL certificate if needed
     if (!(config.ignoreUnauthorized ?? true)) {
       logger.debug(context, "Fetching SSL certificate for secure connection");
-      const ca = await getCertificate(server);
-      server.ca = ca.raw;
+      server.ca = await getRootCertificate(server);
     }
 
     return server;
