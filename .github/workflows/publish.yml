@@ -27,7 +27,10 @@ jobs:
       # 3. Install dependencies (server directory)
       - name: Install dependencies
         working-directory: ./server
-        run: npm ci
+        run: |
+          # Clean install to handle platform-specific optional dependencies
+          rm -rf node_modules
+          npm install --prefer-offline
 
       # 4. Run validation (prepublishOnly will run again, but be explicit)
       - name: Run tests and checks
