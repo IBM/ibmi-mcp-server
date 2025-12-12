@@ -7,11 +7,12 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-^5.8.3-blue?style=flat-square)](https://www.typescriptlang.org/)
 [![Model Context Protocol SDK](https://img.shields.io/badge/MCP%20SDK-^1.17.1-green?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
 [![MCP Spec Version](https://img.shields.io/badge/MCP%20Spec-2025--06--18-lightgrey?style=flat-square)](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/changelog.mdx)
-[![Version](https://img.shields.io/badge/Version-1.9.1-blue?style=flat-square)](./CHANGELOG.md)
 [![Coverage](https://img.shields.io/badge/Coverage-64.67%25-brightgreen?style=flat-square)](./vitest.config.ts)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-green?style=flat-square)](https://github.com/IBM/ibmi-mcp-server.git)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/IBM/ibmi-mcp-server)
+![NPM Version](https://img.shields.io/npm/v/%40ibm%2Fibmi-mcp-server)
+
 
 **📚 [Documentation](https://ibm-d95bab6e.mintlify.app/) | ⚠️ Docs are under active development**
 ![alt text](docs/images/logo-2.png)
@@ -19,108 +20,59 @@
 
 ---
 
+## Overview
 
-## 📁 Repository Structure
+The **IBM i MCP Server** enables AI agents to interact with IBM i systems through the Model Context Protocol (MCP). It provides secure, SQL-based access to Db2 for i databases, allowing AI applications like Claude, VSCode Copilot, Bob, and custom agents to query system information, monitor performance, and execute database operations.
 
-Here is an overview of the repository structure:
+![MCP Architecture](docs/images/mcp-arch.png)
 
-```
-ibmi-mcp-server/
-├── server/          ← MCP server implementation (main package)
-├── tools/           ← SQL tool YAML configurations
-├── agents/          ← Agent implementations and examples
-└── apps/            ← Deployment configurations (Docker, Gateway, n8n)
-```
+> **How it works:** AI clients connect via MCP → Server executes YAML-defined SQL tools → Results stream back to the AI agent through Mapepire.
 
-### Quick Navigation
+### 📁 Repository Structure
 
-- **[Server Documentation](./server/README.md)** - MCP server setup, development, and API
-- **[Tools Documentation](./tools/README.md)** - SQL tool configuration guide
-- **[Agents Documentation](./agents/README.md)** - Agent development and examples
-- **[Deployment Guide](./apps/README.md)** - Docker, Gateway, and n8n setup
+| Directory | Purpose | Documentation |
+|-----------|---------|---------------|
+| **`server/`** | MCP server implementation (TypeScript) | [Server README](./server/README.md) |
+| **`tools/`** | YAML-based SQL tool configurations | [Tools Guide](./tools/README.md) |
+| **`agents/`** | AI agent examples and integrations | [Agents Guide](./agents/README.md) |
+| **`deployment/`** | Docker, Podman, OpenShift configs | [Deployment Guide](deployment/README.md) |
 
 ---
 <details>
 <summary><strong>📋 Table of Contents</strong></summary>
 
 - [ibmi-mcp-server (⚠️ Under Active Development)](#ibmi-mcp-server-️-under-active-development)
-  - [📁 Repository Structure](#-repository-structure)
-    - [Quick Navigation](#quick-navigation)
+  - [Overview](#overview)
+    - [📁 Repository Structure](#-repository-structure)
   - [📡 Setup Mapepire](#-setup-mapepire)
     - [What is Mapepire?](#what-is-mapepire)
     - [Why Mapepire Enables AI and MCP Workloads](#why-mapepire-enables-ai-and-mcp-workloads)
     - [Installation](#installation)
   - [⚡ Quickstart](#-quickstart)
-    - [1. Installation](#1-installation)
-    - [2. Build the Project](#2-build-the-project)
-    - [3. Create Server .env File](#3-create-server-env-file)
-    - [4. Running the Server](#4-running-the-server)
-    - [5. Run Example Agent](#5-run-example-agent)
-      - [Run the Example Scripts:](#run-the-example-scripts)
-      - [Run the example Agent:](#run-the-example-agent)
-    - [6. Running Tests](#6-running-tests)
+    - [Create Configuration File](#create-configuration-file)
+    - [Set Configuration Path](#set-configuration-path)
+    - [Run the Server](#run-the-server)
+    - [Verify Server is Running](#verify-server-is-running)
+    - [Test with Python Client (Optional)](#test-with-python-client-optional)
+  - [🎯 What's Next?](#-whats-next)
+  - [CLI Reference](#cli-reference)
+    - [Basic Usage](#basic-usage)
+    - [Available Options](#available-options)********
   - [🔌 Installing in MCP Clients](#-installing-in-mcp-clients)
     - [Prerequisites: Local Installation](#prerequisites-local-installation)
     - [Remote Server Setup](#remote-server-setup)
     - [Client Configurations](#client-configurations)
-    - [Troubleshooting](#troubleshooting)
-  - [🤖 IBM i Agents](#-ibm-i-agents)
-    - [Key Features](#key-features)
-    - [Getting Started](#getting-started)
-  - [⚙️ Configuration](#️-configuration)
-    - [General Authentication](#general-authentication)
-    - [JWT Authentication](#jwt-authentication)
-    - [OAuth Authentication](#oauth-authentication)
-    - [IBM i HTTP Authentication](#ibm-i-http-authentication)
-    - [Tool Loading](#tool-loading)
-    - [Configuration Merging](#configuration-merging)
-    - [OpenRouter](#openrouter)
-    - [LLM Defaults](#llm-defaults)
-    - [Configuration Best Practices](#configuration-best-practices)
-  - [🔐 IBM i HTTP Authentication (Beta)](#-ibm-i-http-authentication-beta)
-    - [Authentication Flow](#authentication-flow)
-    - [Configuration](#configuration)
-    - [Getting Access Tokens](#getting-access-tokens)
-      - [Option 1: Using the Token Script (Recommended)](#option-1-using-the-token-script-recommended)
-      - [Sequence Overview](#sequence-overview)
-    - [Client Integration](#client-integration)
-    - [Security Considerations](#security-considerations)
-    - [Authentication Endpoints](#authentication-endpoints)
   - [🧩 SQL Tool Configuration](#-sql-tool-configuration)
     - [Sources](#sources)
     - [Tools](#tools)
     - [Toolsets](#toolsets)
-  - [🚀 Running the Server (Development)](#-running-the-server-development)
-    - [Transport Modes](#transport-modes)
-      - [HTTP Transport (Recommended for Development)](#http-transport-recommended-for-development)
-      - [Stdio Transport (for CLI tools and MCP Inspector)](#stdio-transport-for-cli-tools-and-mcp-inspector)
-    - [Session Modes (HTTP Only)](#session-modes-http-only)
-    - [CLI Options](#cli-options)
-    - [Common Development Scenarios](#common-development-scenarios)
-    - [Development Tips](#development-tips)
-    - [Troubleshooting](#troubleshooting-1)
+  - [🤖 IBM i Agents](#-ibm-i-agents)
+  - [⚙️ Configuration](#️-configuration)
+  - [🔐 IBM i HTTP Authentication (Beta)](#-ibm-i-http-authentication-beta)
+  - [🛠️ Running the Server (Development)](#️-running-the-server-development)
   - [🕵️‍♂️ MCP Inspector](#️️-mcp-inspector)
-  - [Docker \& Podman Deployment](#docker--podman-deployment)
-    - [Prerequisites](#prerequisites)
-      - [Docker](#docker)
-      - [Podman (Alternative to Docker)](#podman-alternative-to-docker)
-      - [Build MCP Gateway Image](#build-mcp-gateway-image)
-      - [Configure MCP environment](#configure-mcp-environment)
-    - [Quick Start with Docker](#quick-start-with-docker)
-    - [Quick Start with Podman](#quick-start-with-podman)
-    - [Container Architecture](#container-architecture)
-    - [🔧 Service Management](#-service-management)
-      - [Start Services](#start-services)
-      - [Stop Services](#stop-services)
-      - [View Logs](#view-logs)
-      - [Rebuild Services](#rebuild-services)
-    - [MCP Gateway UI:](#mcp-gateway-ui)
-    - [Virtual Server Catalog Demo (Comming soon!!)](#virtual-server-catalog-demo-comming-soon)
-  - [Architecture Overview](#architecture-overview)
-    - [Key Features](#key-features-1)
-    - [Project Structure](#project-structure)
-    - [Extending the System](#extending-the-system)
-    - [The "Logic Throws, Handler Catches" Pattern](#the-logic-throws-handler-catches-pattern)
+  - [Deployment](#deployment)
+  - [🏗️ Built With MCP TypeScript Template](#️-built-with-mcp-typescript-template)
   - [📜 License](#-license)
 
 </details>
@@ -172,116 +124,178 @@ sc start mapepire
 
 ## ⚡ Quickstart
 
-### 1. Installation
+Get started with the IBM i MCP Server using the official npm package.
 
-Clone the repository and install dependencies:
+### Create Configuration File
 
-```bash
-git clone https://github.com/IBM/ibmi-mcp-server.git
-cd ibmi-mcp-server/
-npm install
-```
-
-### 2. Build the Project
+Create a `.env` file with your IBM i connection details:
 
 ```bash
-npm run build
-# Or use 'npm run rebuild' for a clean install
-```
-
-### 3. Create Server .env File
-
-```bash
-cp .env.example .env
-```
-
-Fill out the Db2 for i connection details in the `.env` file:
-
-```bash
+# Create .env file
+cat > .env << 'EOF'
 # IBM i DB2 for i Connection Settings
-# Required for YAML SQL tools to connect to IBM i systems
-DB2i_HOST=
-DB2i_USER=
-DB2i_PASS=
+DB2i_HOST=your-ibmi-host.com
+DB2i_USER=your-username
+DB2i_PASS=your-password
 DB2i_PORT=8076
 DB2i_IGNORE_UNAUTHORIZED=true
+
+# MCP Server Settings
+MCP_TRANSPORT_TYPE=http
+MCP_HTTP_PORT=3010
+MCP_LOG_LEVEL=info
+
+# Tools Configuration
+TOOLS_YAML_PATH=./tools
+EOF
 ```
 
-> **📖 Configuration Guide:** See the complete [Configuration](#⚙️-configuration) section for all available settings, including [IBM i Database Connection](#🗄️-ibm-i-database-connection), [Authentication](#🔐-authentication--authorization), [HTTP Transport](#🌐-http-transport-settings), and more.
+> **📖 Configuration Guide:** See the complete [Configuration](#⚙️-configuration) section for all available settings.
 
-### 4. Running the Server
+### Set Configuration Path
 
-Once built, you can start the server in different transport modes: `http` or `stdio`. 
-
-- **Via Stdio (Default):**
-  ```bash
-  npx ibmi-mcp-server --transport stdio --tools ./tools
-  ```
-- **Via Streamable HTTP:**
-
-  ```bash
-  npx ibmi-mcp-server --transport http --tools ./tools
-  ```
-
-  > By Default, the server registers SQL tools stored in the `tools` directory. This path is set in the `.env` file (`TOOLS_YAML_PATH`). You can override the SQL tools path using the CLI
-
-### 5. Run Example Agent
-
-Make sure that the server is running in `http` mode:
+Point the server to your configuration file using the `MCP_SERVER_CONFIG` environment variable:
 
 ```bash
-npx ibmi-mcp-server --transport http --tools ./tools
+# Set configuration file path
+export MCP_SERVER_CONFIG=.env
 ```
 
-#### Run the Example Scripts:
-In another terminal, navigate to the `client/` directory and follow the setup instructions in the [README](client/README.md).
+> **Note:** CLI arguments override settings in the configuration file.
 
+### Run the Server
 
-Run an example MCP Client script to list available tools:
+Start the server using the official npm package:
 
 ```bash
+# Using npx (recommended - always gets latest version)
+npx @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
+```
+
+The server will:
+- Load configuration from `.env` (via `MCP_SERVER_CONFIG`)
+- Connect to your IBM i system
+- Start on `http://localhost:3010/mcp`
+- Load SQL tools from the `tools` directory
+
+**Common Options:**
+
+```bash
+# Specify custom tools path
+npx @ibm/ibmi-mcp-server@latest --transport http --tools ./my-tools
+
+# Use stdio transport (for MCP clients)
+npx @ibm/ibmi-mcp-server@latest --transport stdio --tools ./tools
+
+# Load specific toolsets only
+npx @ibm/ibmi-mcp-server@latest --transport http --toolsets performance,security
+```
+
+### Verify Server is Running
+
+Test the server endpoint:
+
+```bash
+# Check health
+curl http://localhost:3010/healthz
+
+# List available tools (requires running server)
+curl -X POST http://localhost:3010/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}'
+```
+
+### Test with Python Client (Optional)
+
+Install and run the example Python client:
+
+```bash
+# Navigate to client directory
 cd client/
+
+# Install dependencies with uv
+uv sync
+
+# List available tools
 uv run mcp_client.py
-```
 
-List Configured tool annotations and server resources:
-
-```bash
-cd client/
-
-# See a list of configured tools:
-uv run list_tool_annotations.py
-
-# see a list of server resources:
-uv run list_toolset_resources.py
-```
-
-> Note: `list_tool_annotations.py` and `list_toolset_resources.py` DO NOT require and OpenAI API Key 
-
-#### Run the example Agent:
-
-```bash
-cd client/
-export OPENAI_API_KEY=your_open_ai_key
+# Run agent with LLM (requires API key)
+export OPENAI_API_KEY=your-api-key
 uv run agent.py -p "What is my system status?"
 ```
 
-### 6. Running Tests
+> **📖 Client Documentation:** See [client/README.md](client/README.md) for detailed setup instructions.
 
-This template uses [Vitest](https://vitest.dev/) for testing, with a strong emphasis on **integration testing** to ensure all components work together correctly.
+---
 
-- **Run all tests once:**
-  ```bash
-  npm test
-  ```
-- **Run tests in watch mode:**
-  ```bash
-  npm run test:watch
-  ```
-- **Run tests and generate a coverage report:**
-  ```bash
-  npm run test:coverage
-  ```
+## 🎯 What's Next?
+
+Choose your path based on what you want to accomplish:
+
+| Path | Guide | Description |
+|------|-------|-------------|
+| **MCP Client Integration** | [Installing in MCP Clients](#-installing-in-mcp-clients) | Connect to Claude Desktop, VSCode, Cursor, and other MCP clients |
+| **Custom SQL Tools** | [SQL Tool Configuration](#-sql-tool-configuration) | Create YAML-based SQL tools for your IBM i use cases |
+| **Server Configuration** | [Configuration Guide](#️-configuration) | Explore authentication, transport modes, and environment variables |
+| **Production Deployment** | [Deployment Options](deployment/README.md) | Deploy with Docker, Podman, or OpenShift |
+| **AI Agent Development** | [IBM i Agents](#-ibm-i-agents) | Build custom AI agents that interact with IBM i systems |
+| **Development & Contributing** | [Running the Server (Development)](#-running-the-server-development) | Build from source, run tests, and contribute |
+
+---
+
+## CLI Reference
+
+The IBM i MCP Server provides a command-line interface with flexible options for running and configuring the server.
+
+### Basic Usage
+
+```bash
+npx @ibm/ibmi-mcp-server@latest -y [options]
+```
+
+> **Note:** The `-y` flag automatically accepts the npm package installation prompt.
+
+### Available Options
+
+| Option | Description |
+|--------|-------------|
+| `--tools <path>` | Path to YAML tools (file, directory, or glob pattern) |
+| `--toolsets <list>` | Comma-separated list of toolsets to load |
+| `--list-toolsets` | List all available toolsets and exit |
+| `--transport <type>` | Transport type: `stdio` (default) or `http` |
+| `--help` | Show help message |
+
+<details>
+<summary><strong>Common Examples</strong></summary>
+
+**Run server with stdio transport (for MCP clients):**
+```bash
+npx @ibm/ibmi-mcp-server@latest -y --transport stdio --tools ./tools
+```
+
+**Run HTTP server for testing:**
+```bash
+npx @ibm/ibmi-mcp-server@latest -y --transport http --tools ./tools
+```
+
+**Load specific toolsets only:**
+```bash
+npx @ibm/ibmi-mcp-server@latest -y --toolsets performance,security
+```
+
+**List available toolsets:**
+```bash
+npx @ibm/ibmi-mcp-server@latest -y --list-toolsets --tools ./tools
+```
+
+**Use custom tools directory:**
+```bash
+npx @ibm/ibmi-mcp-server@latest -y --tools /absolute/path/to/custom-tools
+```
+
+</details>
+
+---
 
 ## 🔌 Installing in MCP Clients
 
@@ -289,18 +303,15 @@ This server can be integrated into any MCP-compatible client using either **loca
 
 ### Prerequisites: Local Installation
 
-For local development, install the server globally using `npm link`:
+The server is available as an npm package and can be used directly with `npx`:
 
 ```bash
-# From the ibmi-mcp-server directory
-npm install
-npm run build
-npm link
+# Test the server is available
+npx @ibm/ibmi-mcp-server@latest -y --help
 ```
 
-This makes the `ibmi-mcp-server` command available globally on your machine. After linking, you can use `npx ibmi-mcp-server` in any client configuration.
-
-> **Note:** `TOOLS_YAML_PATH` must be an **absolute path** to your tools configuration directory (e.g., `/full/path/to/tools`).
+> **Note:** The `-y` flag automatically accepts the npm package installation prompt.
+> `TOOLS_YAML_PATH` must be an **absolute path** to your tools configuration directory (e.g., `/full/path/to/tools`).
 
 ### Remote Server Setup
 
@@ -379,7 +390,7 @@ claude mcp add ibmi-mcp \
   --env DB2i_PASS=your-password \
   --env DB2i_PORT=8076 \
   --env MCP_TRANSPORT_TYPE=stdio \
-  -- npx ibmi-mcp-server --tools /absolute/path/to/tools
+  -- npx @ibm/ibmi-mcp-server@latest -y --transport stdio --tools /absolute/path/to/tools
 ```
 
 **Using `.mcp.json`:**
@@ -388,13 +399,12 @@ claude mcp add ibmi-mcp \
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
         "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio",
         "NODE_OPTIONS": "--no-deprecation"
       }
     }
@@ -435,13 +445,12 @@ Claude Code supports environment variable expansion in `.mcp.json` files, allowi
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "${IBMI_TOOLS_PATH}"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "${IBMI_TOOLS_PATH}"],
       "env": {
         "DB2i_HOST": "${DB2i_HOST}",
         "DB2i_USER": "${DB2i_USER}",
         "DB2i_PASS": "${DB2i_PASS}",
-        "DB2i_PORT": "${DB2i_PORT:-8076}",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "${DB2i_PORT:-8076}"
       }
     }
   }
@@ -484,13 +493,12 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -540,13 +548,12 @@ code --add-mcp '{
   "name": "ibmiMcp",
   "type": "stdio",
   "command": "npx",
-  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+  "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
   "env": {
     "DB2i_HOST": "your-ibmi-host.com",
     "DB2i_USER": "your-username",
     "DB2i_PASS": "your-password",
-    "DB2i_PORT": "8076",
-    "MCP_TRANSPORT_TYPE": "stdio"
+    "DB2i_PORT": "8076"
   }
 }'
 ```
@@ -558,13 +565,12 @@ code --add-mcp '{
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -629,13 +635,12 @@ VSCode supports input variables to avoid hardcoding sensitive credentials:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "${input:db2iHost}",
         "DB2i_USER": "${input:db2iUser}",
         "DB2i_PASS": "${input:db2iPass}",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -666,13 +671,12 @@ Add to Cursor settings or `.cursor/mcp.json`:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -711,13 +715,12 @@ Add to Windsurf configuration:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -756,13 +759,12 @@ Configure in Roo Code settings:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -799,13 +801,12 @@ Configure in Roo Code settings:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
         "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio",
         "NODE_OPTIONS": "--no-deprecation"
       }
     }
@@ -848,13 +849,12 @@ Add local MCP servers using "type": "local" within the MCP object. Multiple MCP 
     "ibmi-mcp": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "command": ["npx", "@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "environment": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       },
       "enabled": true
     }
@@ -902,13 +902,12 @@ Configure in Gemini CLI settings:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -957,13 +956,12 @@ Cline supports MCP servers through both the marketplace and manual configuration
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--transport", "stdio", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "8076"
       }
     }
   }
@@ -1083,44 +1081,66 @@ if __name__ == "__main__":
 
 ---
 
-### Troubleshooting
+## 🧩 SQL Tool Configuration
 
-**Connection Issues:**
-- Verify `npm link` was successful: `which ibmi-mcp-server`
-- Check that `TOOLS_YAML_PATH` is an absolute path
-- Ensure IBM i credentials are correct
+The primary way to configure tools used by this MCP server is through `tools.yaml` files (see `tools/` for examples). There are 3 main sections to each yaml file: `sources`, `tools`, and `toolsets`. Below is a breakdown of each section.
 
-**MCP Server Errors:**
-If using `npx ibmi-mcp-server` does not work, use node directly:
+### Sources
 
-```json
-{
-  "mcpServers": {
-    "ibmi-mcp": {
-      "command": "node",
-      "args": ["/absolute/path/to/ibmi-mcp-server/server/dist/index.js", "--tools", "/absolute/path/to/tools"],
-      "env": {
-        "DB2i_HOST": "your-ibmi-host.com",
-        "DB2i_USER": "your-username",
-        "DB2i_PASS": "your-password",
-        "DB2i_PORT": "8076",
-        "MCP_TRANSPORT_TYPE": "stdio",
-        "NODE_OPTIONS": "--no-deprecation"
-      }
-    }
-  }
-}
+The sources section of your `tools.yaml` defines the data sources the MCP server has access to:
+
+```yaml
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
 ```
 
-**Authentication Failures (Remote):**
-- Confirm server is running with `IBMI_HTTP_AUTH_ENABLED=true`
-- Verify token is valid: `echo $IBMI_MCP_ACCESS_TOKEN`
-- Check server logs for authentication errors
+> [!NOTE]
+> The environment variables `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` can be set in the server `.env` file. See [Configuration](#️-configuration) for all available settings.
 
-**Tool Loading Errors:**
-- Validate YAML configuration: `npm run validate -- --config tools`
-- Check file permissions on tools directory
-- Review server startup logs for parsing errors
+### Tools
+
+The tools section of your `tools.yaml` defines the actions your agent can take: what kind of tool it is, which source(s) it affects, what parameters it uses, etc.
+
+```yaml
+tools:
+  system_status:
+    source: ibmi-system
+    description: "Overall system performance statistics with CPU, memory, and I/O metrics"
+    parameters: []
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(RESET_STATISTICS=>'YES',DETAILED_INFO=>'ALL')) X
+```
+
+### Toolsets
+
+The toolsets section of your `tools.yaml` allows you to define groups of tools that you want to be able to load together. This can be useful for defining different sets for different agents or different applications.
+
+```yaml
+toolsets:
+  performance:
+    tools:
+      - system_status
+      - system_activity
+      - remote_connections
+      - memory_pools
+      - temp_storage_buckets
+      - unnamed_temp_storage
+      - http_server
+      - system_values
+      - collection_services
+      - collection_categories
+      - active_job_info
+```
+
+> [!TIP]
+> **Advanced Tool Configuration:** For detailed documentation on creating custom SQL tools, parameter validation, advanced queries, and more, see [tools/README.md](tools/README.md).
+
+---
 
 ## 🤖 IBM i Agents
 
@@ -1764,67 +1784,66 @@ When enabled (`IBMI_HTTP_AUTH_ENABLED=true`), the server provides these endpoint
 | -------------- | ------ | ------------------------------------------------------------ |
 | `/api/v1/auth` | POST   | Authenticate with IBM i credentials and receive Bearer token |
 
-## 🧩 SQL Tool Configuration
 
-The Primary way to confgure tools used by this MCP server is through `tools.yaml` files (see `tools/` for examples). There are 3 main sections to each yaml file: `sources`, `tools`, and `toolsets`. Below is a breakdown of each section
 
-### Sources
+## 🛠️ Running the Server (Development)
 
-The sources section of your `tools.yaml` defines the data sources the MCP server has access to
+For development and contributions, you can build and run the server from source.
 
-```yaml
-sources:
-  ibmi-system:
-    host: ${DB2i_HOST}
-    user: ${DB2i_USER}
-    password: ${DB2i_PASS}
-    port: 8076
-    ignore-unauthorized: true
+### Building from Source
+
+**1. Clone and Install:**
+
+```bash
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server
+npm install
 ```
 
-> [!NOTE]
-> The environment variables `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` can be set in the server `.env` file. see [Configuration](#⚙️-configuration)
+**2. Build the Project:**
 
-### Tools
+```bash
+# Build TypeScript to JavaScript
+npm run build
 
-The tools section of your tools.yaml defines the actions your agent can take: what kind of tool it is, which source(s) it affects, what parameters it uses, etc.
-
-```yaml
-tools:
-  system_status:
-    source: ibmi-system
-    description: "Overall system performance statistics with CPU, memory, and I/O metrics"
-    parameters: []
-    statement: |
-      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(RESET_STATISTICS=>'YES',DETAILED_INFO=>'ALL')) X
+# Or clean rebuild
+npm run rebuild
 ```
 
-### Toolsets
+**3. Configure Environment:**
 
-The toolsets section of your `tools.yaml` allows you to define groups of tools that you want to be able to load together. This can be useful for defining different sets for different agents or different applications.
+```bash
+# Copy example configuration
+cp .env.example .env
 
-```yaml
-toolsets:
-  performance:
-    tools:
-      - system_status
-      - system_activity
-      - remote_connections
-      - memory_pools
-      - temp_storage_buckets
-      - unnamed_temp_storage
-      - http_server
-      - system_values
-      - collection_services
-      - collection_categories
-      - active_job_info
+# Edit with your IBM i connection details
+code .env
 ```
 
-More documentation on SQL tools coming soon!
+**4. Run Development Server:**
 
-## 🚀 Running the Server (Development)
+```bash
+# Start in HTTP mode
+npm run start:http
 
-The server supports multiple transport modes and session configurations for different development scenarios. Use the appropriate startup command based on your needs.
+# Start in stdio mode
+npm run start:stdio
+```
+
+**5. Run Tests:**
+
+```bash
+# Run all tests
+npm test
+
+# Run in watch mode
+npm run test:watch
+
+# Generate coverage report
+npm run test:coverage
+```
+
+---
 
 ### Transport Modes
 
@@ -1964,15 +1983,13 @@ Here are the steps to run the MCP Inspector:
      "mcpServers": {
        "default-server": {
          "command": "node",
-         "args": ["dist/index.js"],
+         "args": ["dist/index.js", "--transport", "stdio", "--tools", "tools"],
          "env": {
-           "TOOLS_YAML_PATH": "tools",
            "NODE_OPTIONS": "--no-deprecation",
            "DB2i_HOST": "<DB2i_HOST>",
            "DB2i_USER": "<DB2i_USER>",
            "DB2i_PASS": "<DB2i_PASS>",
-           "DB2i_PORT": "<DB2i_PORT>",
-           "MCP_TRANSPORT_TYPE": "stdio"
+           "DB2i_PORT": "<DB2i_PORT>"
          }
        }
      }
@@ -2004,276 +2021,68 @@ Here are the steps to run the MCP Inspector:
    - Test queries against the server
    - Debug issues with tool execution
 
-## Docker & Podman Deployment
+---
 
-The project includes a comprehensive `docker-compose.yml` that sets up the complete MCP gateway with the IBM i MCP Server.
+## Deployment
 
-ContextForge MCP Gateway is a feature-rich gateway, proxy and MCP Registry that federates MCP and REST services - unifying discovery, auth, rate-limiting, observability, virtual servers, multi-transport protocols, and an optional Admin UI into one clean endpoint for your AI clients.
+For production deployments with Docker, Podman, or OpenShift, see the [Deployment Guide](deployment/README.md).
 
-Read more about it [here](https://github.com/IBM/mcp-context-forge).
+---
 
-### Prerequisites
+## 🏗️ Built With MCP TypeScript Template
 
-Choose one of the following container platforms:
+This server was built using the [MCP TypeScript Template](https://github.com/cyanheads/mcp-ts-template), a production-ready foundation for building Model Context Protocol servers.
 
-#### Docker
+### Template Features Used
 
-- **Docker Desktop** (macOS/Windows): [Download here](https://www.docker.com/products/docker-desktop/)
-- **Docker Engine** (Linux): [Installation guide](https://docs.docker.com/engine/install/)
+The template provided essential infrastructure that accelerated development:
 
-#### Podman (Alternative to Docker)
+- **🔌 Transport Layer** - Pre-built stdio and HTTP (Hono) transports with session management
+- **🔭 Observability** - OpenTelemetry integration for distributed tracing and metrics
+- **🔒 Security** - Authentication middleware (JWT, OAuth, custom), input sanitization, rate limiting
+- **⚙️ Error Handling** - Structured error categorization with `BaseErrorCode` and centralized `ErrorHandler`
+- **📊 Type Safety** - TypeScript + Zod validation throughout the stack
+- **🧪 Testing Infrastructure** - Vitest integration with coverage reporting
 
-- **Podman Desktop** (macOS/Windows): [Download here](https://podman-desktop.io/)
-- **Podman CLI** (Linux): [Installation guide](https://podman.io/docs/installation)
-- **podman-compose**: `pip install podman-compose`
+### Why This Template?
 
-#### Build MCP Gateway Image
+The MCP TypeScript Template provided a solid architectural foundation that allowed us to focus on IBM i-specific functionality rather than building MCP infrastructure from scratch. Key benefits:
 
-The `docker-compose.yml` uses a local build of the MCP Gateway image. To build it, clone the MCP Gateway repository and build the image:
+1. **Production-Ready Patterns**: "Logic Throws, Handler Catches" pattern ensures consistent error handling
+2. **Modular Design**: Clear separation between core logic, handlers, and transports
+3. **Enterprise Features**: Built-in observability, security, and performance monitoring
+4. **Developer Experience**: Hot reloading, structured logging, and comprehensive tooling
 
-```bash
-git clone https://github.com/IBM/mcp-context-forge.git
-cd mcp-context-forge
+### Customizations for IBM i
 
-# Build image using Docker
-make docker-prod
+While the template provided the foundation, we added IBM i-specific capabilities:
 
-# Or build image using Podman
-make podman-prod
-```
-This will create a local image named `localhost/mcpgateway/mcpgateway` that the `docker-compose.yml` can use. More details on building the MCP Gateway image can be found in the [MCP Gateway Docs](https://ibm.github.io/mcp-context-forge/deployment/).
+- **Mapepire Integration** - WebSocket-based Db2 for i connectivity
+- **SQL YAML Tool Configuration** - Declarative SQL tool definitions with merge capabilities
+- **IBM i HTTP Authentication** - RSA/AES encrypted credential flow with connection pooling
+- **SQL Tool Execution** - Parameterized query execution with result formatting
+- **Toolset Management** - Dynamic tool loading and filtering by toolset
 
-#### Configure MCP environment
+### Get Started with the Template
 
-Create a `.env` file in the `ibmi-mcp-server` directory with your IBM i connection details:
-
-```bash
-cd ibmi-mcp-server/
-cp .env.example .env
-# Edit .env with your IBM i connection details
-code .env
-```
-
-make sure to set the follow variables in your `.env` file:
-
-```ini
-# IBM i connection details
-DB2i_HOST="your_host"
-DB2i_USER="your_user"
-DB2i_PASS="your_pass"
-
-# MCP Auth mode
-MCP_AUTH_MODE=ibmi
-
-# IBM i HTTP authentication settings
-IBMI_AUTH_KEY_ID=development
-IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
-IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
-
-# Enable IBM i HTTP authentication endpoints (requires MCP_AUTH_MODE=ibmi)
-IBMI_HTTP_AUTH_ENABLED=true
-
-# Allow HTTP requests for authentication (development only, use HTTPS in production)
-IBMI_AUTH_ALLOW_HTTP=true
-```
-
-> Note: You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](#ibm-i-http-authentication-beta) section for instructions.
-
-Once you have your `.env` file configured, you can start the complete stack using Docker or Podman.
-
-
-### Quick Start with Docker
-
-1. **Start the complete stack:**
-
-   ```bash
-   # Start all services in background
-   docker-compose up -d
-
-   # Or start specific services
-   docker-compose up -d gateway ibmi-mcp-server postgres redis
-   ```
-
-2. **Verify services are running:**
-   ```bash
-   docker-compose ps
-   ```
-
-### Quick Start with Podman
-
-1. **Start the complete stack:**
-
-   ```bash
-   # Start all services in background
-   podman compose up -d
-
-   # Or start specific services
-   podman compose up -d gateway ibmi-mcp-server postgres redis
-   ```
-
-2. **Verify services are running:**
-   ```bash
-   podman compose ps
-   ```
-
-### Container Architecture
-
-The docker-compose setup includes these services:
-
-| Service             | Port | Description                    | Access URL             |
-| ------------------- | ---- | ------------------------------ | ---------------------- |
-| **gateway**         | 4444 | MCP Context Forge main API     | http://localhost:4444  |
-| **ibmi-mcp-server** | 3010 | IBM i SQL tools MCP server     | http://localhost:3010  |
-| **postgres**        | -    | PostgreSQL database (internal) | -                      |
-| **redis**           | 6379 | Cache service                  | redis://localhost:6379 |
-| **pgadmin**         | 5050 | Database admin UI              | http://localhost:5050  |
-| **redis_insight**   | 5540 | Cache admin UI                 | http://localhost:5540  |
-
-### 🔧 Service Management
-
-#### Start Services
+If you're building your own MCP server, check out the template:
 
 ```bash
-# Docker
-docker-compose up -d                    # Start all services
-docker-compose up -d gateway            # Start specific service
-docker-compose up --no-deps gateway     # Start without dependencies
-
-# Podman
-podman compose up -d                    # Start all services
-podman compose up -d gateway            # Start specific service
-podman compose up --no-deps gateway     # Start without dependencies
+# Use the template to create your own MCP server
+npx degit cyanheads/mcp-ts-template my-mcp-server
+cd my-mcp-server
+npm install
+npm run build
 ```
 
-#### Stop Services
+> [!TIP]
+> **Template Documentation:** The MCP TypeScript Template includes comprehensive guides for:
+> - Creating custom tools and resources
+> - Implementing authentication strategies
+> - Configuring observability and monitoring
+> - Deploying to production environments
 
-```bash
-# Docker
-docker-compose down                     # Stop all services
-docker-compose stop gateway             # Stop specific service
-
-# Podman
-podman compose down                     # Stop all services
-podman compose stop gateway             # Stop specific service
-```
-
-#### View Logs
-
-```bash
-# Docker
-docker-compose logs -f gateway          # Follow gateway logs
-docker-compose logs --tail=100 ibmi-mcp-server
-
-# Podman
-podman compose logs -f gateway          # Follow gateway logs
-podman compose logs --tail=100 ibmi-mcp-server
-```
-
-#### Rebuild Services
-
-```bash
-# Docker
-docker-compose build ibmi-mcp-server    # Rebuild specific service
-docker-compose up --build -d            # Rebuild and restart all
-
-# Podman
-podman compose build ibmi-mcp-server    # Rebuild specific service
-podman compose up --build -d            # Rebuild and restart all
-```
-
-### MCP Gateway UI:
-
-![alt text](docs/images/image.png)
-
-After the Containers are up and running, you can access the MCP Context Forge UI at http://localhost:4444
-
-Enter the demo credentials:
-
-- User: `admin`
-- Password: `changeme`
-
-To Configure the IBM i MCP server is the admin ui, navigate to the "Gateways/MCP Servers" tab. and enter the mcp server endpoint:
-
-- IBM i mcp server endpoint: `http://ibmi-mcp-server:3010`
-
-![alt text](docs/images/image-1.png)
-
-Once the MCP server is connect, you can then manage the tools provided by the server:
-
-![alt text](docs/images/image-2.png)
-
-### Virtual Server Catalog Demo (Comming soon!!)
-
-## Openshift Deployment
-
-OpenShift (both OKD and Red Hat OpenShift Container Platform) adds opinionated security (SCC), integrated routing, and optional build pipelines on top of Kubernetes. Deploying the applications therefore means (1) building or pulling a compatible image, (2) obeying the default restricted-v2 SCC, and (3) exposing the service through a Route instead of an Ingress. The deployment uses `Kustomize` tool to manage the application manifests to simply the process of deploying IBM i MCP Server and MCP Context Forge applications. Following the detailed instructions in this [link](deployment/openshift/apps/openshift/README.md) to deploy the application in OpenShift.
-
-
-## Architecture Overview
-
-This template is built on a set of architectural principles to ensure modularity, testability, and operational clarity.
-
-- **Core Server (`src/mcp-server/server.ts`)**: The central point where tools and resources are registered. It uses a `ManagedMcpServer` wrapper to provide enhanced introspection capabilities. It acts the same way as the native McpServer, but with additional features like introspection and enhanced error handling.
-- **Transports (`src/mcp-server/transports/`)**: The transport layer connects the core server to the outside world. It supports both `stdio` for direct process communication and a streamable **Hono**-based `http` server.
-- **"Logic Throws, Handler Catches"**: This is the immutable cornerstone of our error-handling strategy.
-  - **Core Logic (`logic.ts`)**: This layer is responsible for pure, self-contained business logic. It **throws** a structured `McpError` on any failure.
-  - **Handlers (`registration.ts`)**: This layer interfaces with the server, invokes the core logic, and **catches** any errors. It is the exclusive location where errors are processed and formatted into a final response.
-- **Structured, Traceable Operations**: Every operation is traced from initiation to completion via a `RequestContext` that is passed through the entire call stack, ensuring comprehensive and structured logging.
-
-### Key Features
-
-| Feature Area                | Description                                                                                                                                          | Key Components / Location                                            |
-| :-------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------- |
-| **🔌 MCP Server**           | A functional server with example tools and resources. Supports `stdio` and a **Streamable HTTP** transport built with [**Hono**](https://hono.dev/). | `src/mcp-server/`, `src/mcp-server/transports/`                      |
-| **🔭 Observability**        | Built-in **OpenTelemetry** for distributed tracing and metrics. Auto-instrumentation for core modules and custom tracing for all tool executions.    | `src/utils/telemetry/`                                               |
-| **🚀 Production Utilities** | Logging, Error Handling, ID Generation, Rate Limiting, Request Context tracking, Input Sanitization.                                                 | `src/utils/`                                                         |
-| **🔒 Type Safety/Security** | Strong type checking via TypeScript & Zod validation. Built-in security utilities (sanitization, auth middleware for HTTP).                          | Throughout, `src/utils/security/`, `src/mcp-server/transports/auth/` |
-| **⚙️ Error Handling**       | Consistent error categorization (`BaseErrorCode`), detailed logging, centralized handling (`ErrorHandler`).                                          | `src/utils/internal/errorHandler.ts`, `src/types-global/`            |
-| **📚 Documentation**        | Comprehensive `README.md`, structured JSDoc comments, API references.                                                                                | `README.md`, Codebase, `tsdoc.json`, `docs/api-references/`          |
-| **🕵️ Interaction Logging**  | Captures raw requests and responses for all external LLM provider interactions to a dedicated `interactions.log` file for full traceability.         | `src/utils/internal/logger.ts`                                       |
-| **🤖 Agent Ready**          | Includes a [.clinerules](./.clinerules/clinerules.md) developer cheatsheet tailored for LLM coding agents.                                           | `.clinerules/`                                                       |
-| **🛠️ Utility Scripts**      | Scripts for cleaning builds, setting executable permissions, generating directory trees, and fetching OpenAPI specs.                                 | `scripts/`                                                           |
-| **🧩 Services**             | Reusable modules for LLM (OpenRouter) and data storage (DuckDB) integration, with examples.                                                          | `src/services/`, `src/storage/duckdbExample.ts`                      |
-| **🧪 Integration Testing**  | Integrated with Vitest for fast and reliable integration testing. Includes example tests for core logic and a coverage reporter.                     | `vitest.config.ts`, `tests/`                                         |
-| **⏱️ Performance Metrics**  | Built-in utility to automatically measure and log the execution time and payload size of every tool call.                                            | `src/utils/internal/performance.ts`                                  |
-
-
-### Project Structure
-
-- **`src/mcp-server/`**: Contains the core MCP server, tools, resources, and transport handlers.
-- **`src/config/`**: Handles loading and validation of environment variables.
-- **`src/services/`**: Reusable modules for integrating with external services (DuckDB, OpenRouter).
-- **`src/types-global/`**: Defines shared TypeScript interfaces and type definitions.
-- **`src/utils/`**: Core utilities (logging, error handling, security, etc.).
-- **`src/index.ts`**: The main entry point that initializes and starts the server.
-
-**Explore the full structure yourself:**
-
-See the current file tree in [docs/tree.md](docs/tree.md) or generate it dynamically:
-
-```bash
-npm run tree
-```
-
-### Extending the System
-
-The template enforces a strict, modular pattern for adding new tools and resources, as mandated by the [Architectural Standard](./.clinerules/clinerules.md). The `echoTool` (`src/mcp-server/tools/echoTool/`) serves as the canonical example.
-
-### The "Logic Throws, Handler Catches" Pattern
-
-This is the cornerstone of the architecture:
-
-1.  **`logic.ts`**: This file contains the pure business logic.
-    - It defines the Zod schemas for input and output, which serve as the single source of truth for the tool's data contract.
-    - The core logic function is pure: it takes validated parameters and a request context, and either returns a result or **throws** a structured `McpError`.
-    - It **never** contains `try...catch` blocks for formatting a final response.
-
-2.  **`registration.ts`**: This file is the "handler" that connects the logic to the MCP server.
-    - It imports the schemas and logic function from `logic.ts`.
-    - It calls `server.registerTool()`, providing the tool's metadata and the runtime handler.
-    - The runtime handler **always** wraps the call to the logic function in a `try...catch` block. This is the **only** place where errors are caught, processed by the `ErrorHandler`, and formatted into a standardized error response.
-
-This pattern ensures that core logic remains decoupled, pure, and easily testable, while the registration layer handles all transport-level concerns, side effects, and response formatting.
+---
 
 ## 📜 License
 
