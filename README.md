@@ -50,10 +50,11 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
     - [Installation](#installation)
   - [⚡ Quickstart](#-quickstart)
     - [1. Create Configuration File](#1-create-configuration-file)
-    - [2. Set Configuration Path](#2-set-configuration-path)
-    - [3. Run the Server](#3-run-the-server)
-    - [4. Verify Server is Running](#4-verify-server-is-running)
-    - [5. Test with Python Client (Optional)](#5-test-with-python-client-optional)
+    - [2. Create a Simple SQL Tool](#2-create-a-simple-sql-tool)
+    - [3. Set Configuration Path](#3-set-configuration-path)
+    - [4. Run the Server](#4-run-the-server)
+    - [5. Verify Server is Running](#5-verify-server-is-running)
+    - [6. Test with Python Client (Optional)](#6-test-with-python-client-optional)
   - [🎯 What's Next?](#-whats-next)
   - [CLI Reference](#cli-reference)
   - [🔌 Installing in MCP Clients](#-installing-in-mcp-clients)
@@ -126,7 +127,6 @@ Get started with the IBM i MCP Server using the official npm package.
 Create a `.env` file with your IBM i connection details:
 
 ```bash
-# Create .env file
 cat > .env << 'EOF'
 # IBM i DB2 for i Connection Settings
 DB2i_HOST=your-ibmi-host.com
@@ -147,7 +147,124 @@ EOF
 
 > **📖 Configuration Guide:** See the complete [Configuration](#⚙️-configuration) section for all available settings.
 
-### 2. Set Configuration Path
+### 2. Create a Simple SQL Tool
+
+Create a `tools` directory and a basic tool configuration file:
+
+```bash
+mkdir -p tools
+```
+
+<details>
+<summary><strong>📄 Click to copy: tools/quickstart.yaml</strong></summary>
+
+```yaml
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  system_status:
+    source: ibmi-system
+    description: "Overall system performance statistics with CPU, memory, and I/O metrics"
+    parameters: []
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(RESET_STATISTICS=>'YES',DETAILED_INFO=>'ALL')) X
+
+  system_activity:
+    source: ibmi-system
+    description: "Current system activity information including active jobs and resource utilization"
+    parameters: []
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_ACTIVITY_INFO())
+
+  active_job_info:
+    source: ibmi-system
+    description: "Find the top 10 consumers of CPU in the QUSRWRK and QSYSWRK subsystems"
+    parameters:
+      - name: limit
+        type: integer
+        default: 10
+        description: "Number of top CPU consumers to return"
+    statement: |
+      SELECT CPU_TIME, A.* FROM
+      TABLE(QSYS2.ACTIVE_JOB_INFO(SUBSYSTEM_LIST_FILTER => 'QUSRWRK,QSYSWRK')) A
+      ORDER BY CPU_TIME DESC
+      FETCH FIRST :limit ROWS ONLY
+
+toolsets:
+  performance:
+    tools:
+      - system_status
+      - system_activity
+      - active_job_info
+```
+
+</details>
+
+Create the file:
+
+```bash
+cat > tools/quickstart.yaml << 'EOF'
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  system_status:
+    source: ibmi-system
+    description: "Overall system performance statistics with CPU, memory, and I/O metrics"
+    parameters: []
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(RESET_STATISTICS=>'YES',DETAILED_INFO=>'ALL')) X
+
+  system_activity:
+    source: ibmi-system
+    description: "Current system activity information including active jobs and resource utilization"
+    parameters: []
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_ACTIVITY_INFO())
+
+  active_job_info:
+    source: ibmi-system
+    description: "Find the top 10 consumers of CPU in the QUSRWRK and QSYSWRK subsystems"
+    parameters:
+      - name: limit
+        type: integer
+        default: 10
+        description: "Number of top CPU consumers to return"
+    statement: |
+      SELECT CPU_TIME, A.* FROM
+      TABLE(QSYS2.ACTIVE_JOB_INFO(SUBSYSTEM_LIST_FILTER => 'QUSRWRK,QSYSWRK')) A
+      ORDER BY CPU_TIME DESC
+      FETCH FIRST :limit ROWS ONLY
+
+toolsets:
+  performance:
+    tools:
+      - system_status
+      - system_activity
+      - active_job_info
+EOF
+```
+
+This creates three tools:
+- **`system_status`** - System performance metrics
+- **`system_activity`** - Current activity information
+- **`active_job_info`** - Top CPU consumers (with customizable limit parameter)
+
+> [!NOTE] 
+> **📖 More Tools:** The repository includes many ready-to-use tools in the [`tools/`](tools/) directory covering performance monitoring, security, job management, and more. See [SQL Tool Configuration](#-sql-tool-configuration) to create your own custom tools.
+
+### 3. Set Configuration Path
 
 Point the server to your configuration file using the `MCP_SERVER_CONFIG` environment variable:
 
@@ -158,35 +275,24 @@ export MCP_SERVER_CONFIG=.env
 
 > **Note:** CLI arguments override settings in the configuration file.
 
-### 3. Run the Server
+### 4. Run the Server
 
-Start the server using the official npm package:
+Start the server in HTTP mode with your new tools:
 
 ```bash
-# Using npx (recommended - always gets latest version)
-npx @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
+# Start the server with HTTP transport
+npx @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quckstart.yaml
 ```
 
 The server will:
 - Load configuration from `.env` (via `MCP_SERVER_CONFIG`)
-- Connect to your IBM i system
+- Connect to your IBM i system via Mapepire
 - Start on `http://localhost:3010/mcp`
-- Load SQL tools from the `tools` directory
+- Load the SQL tools from `tools/quickstart.yaml`
 
-**Common Options:**
 
-```bash
-# Specify custom tools path
-npx @ibm/ibmi-mcp-server@latest --transport http --tools ./my-tools
 
-# Use stdio transport (for MCP clients)
-npx @ibm/ibmi-mcp-server@latest --transport stdio --tools ./tools
-
-# Load specific toolsets only
-npx @ibm/ibmi-mcp-server@latest --transport http --toolsets performance,security
-```
-
-### 4. Verify Server is Running
+### 5. Verify Server is Running
 
 Test the server endpoint:
 
@@ -200,7 +306,7 @@ curl -X POST http://localhost:3010/mcp \
   -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}'
 ```
 
-### 5. Test with Python Client (Optional)
+### 6. Test with Python Client (Optional)
 
 Install and run the example Python client:
 
@@ -220,6 +326,9 @@ uv run agent.py -p "What is my system status?"
 ```
 
 > **📖 Client Documentation:** See [client/README.md](client/README.md) for detailed setup instructions.
+
+> [!TIP]
+> **Explore More SQL Tools:** The `tools/` directory contains many ready-to-use SQL tool configurations for common IBM i tasks. Browse the collection and customize them for your needs. See the [Tools Guide](./tools/README.md) for more details.
 
 ---
 
