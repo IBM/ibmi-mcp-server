@@ -1,5 +1,73 @@
 # IBM i MCP Server
 
+<details>
+
+<summary><strong>Table of Contents</strong></summary>
+
+- [IBM i MCP Server](#ibm-i-mcp-server)
+  - [⚡ Quickstart](#-quickstart)
+    - [1. Create Configuration File](#1-create-configuration-file)
+    - [2. Create a Simple SQL Tool](#2-create-a-simple-sql-tool)
+    - [3. Set Configuration Path](#3-set-configuration-path)
+    - [4. Run the Server](#4-run-the-server)
+    - [5. Verify Server is Running](#5-verify-server-is-running)
+    - [6. Test with Python Client (Optional)](#6-test-with-python-client-optional)
+  - [🎯 What's Next?](#-whats-next)
+  - [CLI Reference](#cli-reference)
+    - [Basic Usage](#basic-usage)
+    - [Available Options](#available-options)
+  - [🔌 Installing in MCP Clients](#-installing-in-mcp-clients)
+    - [Prerequisites: Local Installation](#prerequisites-local-installation)
+    - [Remote Server Setup](#remote-server-setup)
+    - [Client Configurations](#client-configurations)
+  - [🧩 SQL Tool Configuration](#-sql-tool-configuration)
+    - [Sources](#sources)
+    - [Tools](#tools)
+    - [Toolsets](#toolsets)
+  - [🤖 IBM i Agents](#-ibm-i-agents)
+    - [Key Features](#key-features)
+    - [Getting Started](#getting-started)
+  - [⚙️ Configuration](#️-configuration)
+    - [General Authentication](#general-authentication)
+    - [JWT Authentication](#jwt-authentication)
+    - [OAuth Authentication](#oauth-authentication)
+    - [IBM i HTTP Authentication](#ibm-i-http-authentication)
+    - [Tool Loading](#tool-loading)
+    - [Configuration Merging](#configuration-merging)
+    - [OpenRouter](#openrouter)
+    - [LLM Defaults](#llm-defaults)
+    - [Configuration Best Practices](#configuration-best-practices)
+  - [🔐 IBM i HTTP Authentication (Beta)](#-ibm-i-http-authentication-beta)
+    - [Authentication Flow](#authentication-flow)
+    - [Configuration](#configuration)
+    - [Getting Access Tokens](#getting-access-tokens)
+      - [Option 1: Using the Token Script (Recommended)](#option-1-using-the-token-script-recommended)
+      - [Sequence Overview](#sequence-overview)
+    - [Client Integration](#client-integration)
+    - [Security Considerations](#security-considerations)
+    - [Authentication Endpoints](#authentication-endpoints)
+  - [🛠️ Running the Server (Development)](#️-running-the-server-development)
+    - [Building from Source](#building-from-source)
+    - [Transport Modes](#transport-modes)
+      - [HTTP Transport (Recommended for Development)](#http-transport-recommended-for-development)
+      - [Stdio Transport (for CLI tools and MCP Inspector)](#stdio-transport-for-cli-tools-and-mcp-inspector)
+    - [Session Modes (HTTP Only)](#session-modes-http-only)
+    - [CLI Options](#cli-options)
+    - [Common Development Scenarios](#common-development-scenarios)
+    - [Development Tips](#development-tips)
+    - [Troubleshooting](#troubleshooting)
+  - [🕵️‍♂️ MCP Inspector](#️️-mcp-inspector)
+  - [Deployment](#deployment)
+  - [🏗️ Built With MCP TypeScript Template](#️-built-with-mcp-typescript-template)
+    - [Template Features Used](#template-features-used)
+    - [Why This Template?](#why-this-template)
+    - [Customizations for IBM i](#customizations-for-ibm-i)
+    - [Get Started with the Template](#get-started-with-the-template)
+
+</details>
+
+---
+
 ## ⚡ Quickstart
 
 Get started with the IBM i MCP Server using the official npm package.
