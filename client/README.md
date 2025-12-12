@@ -23,7 +23,7 @@ Ensure the IBM i MCP server is running:
 ```bash
 # From the main project directory
 cd ibmi-mcp-server
-npm run start:http
+npx @ibm/ibmi-mcp-server@latest -y --transport http --tools ./tools
 ```
 
 ### 3. Run MCP Client Script
