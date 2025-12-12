@@ -239,7 +239,7 @@ Choose your path based on what you want to accomplish:
 | **Server Configuration** | [Configuration Guide](#️-configuration) | Explore authentication, transport modes, and environment variables |
 | **Production Deployment** | [Deployment Options](deployment/README.md) | Deploy with Docker, Podman, or OpenShift |
 | **AI Agent Development** | [IBM i Agents](#-ibm-i-agents) | Build custom AI agents that interact with IBM i systems |
-| **Development & Contributing** | [Running the Server (Development)](#-running-the-server-development) | Build from source, run tests, and contribute |
+| **Development & Contributing** | [Running the Server (Development)](#️-running-the-server-development) | Build from source, run tests, and contribute |
 
 ---
 
