@@ -1,0 +1,103 @@
+---
+title: "Cursor"
+description: "Configure IBM i MCP Server with Cursor AI-first code editor"
+---
+
+# Cursor Integration
+
+Cursor is an AI-first code editor with native MCP support. It provides seamless integration with MCP servers for enhanced AI capabilities.
+
+<Note>
+**Platform Support**: macOS, Linux, Windows
+**Transport Modes**: Stdio (local) and HTTP (remote)
+**Configuration**: `.cursor/mcp.json` or Cursor settings
+</Note>
+
+## Local (Stdio) Setup
+
+**Configuration file**: Add to Cursor settings or `.cursor/mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+<Warning>
+The `--tools` path must be an **absolute path**.
+</Warning>
+
+## Remote (HTTP) Setup
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "http://localhost:3010/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+## Testing the Connection
+
+1. Restart Cursor after configuration
+2. Open the AI chat panel
+3. Ask "What tools are available?"
+4. Test with "Show me the IBM i system status"
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server Not Appearing">
+    - Verify JSON syntax in configuration file
+    - Restart Cursor completely
+    - Check that `npx ibmi-mcp-server` works from terminal
+    - Ensure all paths are absolute
+  </Accordion>
+
+  <Accordion title="Authentication Failed">
+    - Verify server is running with authentication enabled
+    - Check token hasn't expired
+    - Get fresh token: `node get-access-token.js --verbose`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create custom SQL tools
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Explore all configuration options
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Basic server setup guide
+  </Card>
+  <Card title="Other Clients" icon="grid" href="/clients/overview">
+    Explore other MCP clients
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Cursor MCP Documentation](https://docs.cursor.com/context/model-context-protocol)
+- [IBM i MCP Quick Start](/quickstart)
+- [Configuration Reference](/configuration)

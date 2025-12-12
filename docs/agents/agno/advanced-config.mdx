@@ -1,0 +1,757 @@
+---
+title: "Advanced Configuration"
+description: "Advanced Agno features for production IBM i agents including memory, evaluation, debugging, and deployment."
+---
+
+This guide covers advanced Agno features for building production-ready IBM i agents with persistent memory, evaluation frameworks, debugging capabilities, and secure deployment.
+
+## Persistent Memory Configuration
+
+### SQLite Storage Backend
+
+Agno uses SQLite for persistent agent storage:
+
+```python
+from agno.storage import SqliteDb
+from agno.agent import Agent
+
+# Configure database storage
+db = SqliteDb(
+    db_file="tmp/ibmi_performance_agent.db",  # Database file location
+    memory_table="agent_memory",               # Conversation memory
+    session_table="agent_sessions",            # Session tracking
+    metrics_table="agent_metrics",             # Performance metrics
+    eval_table="agent_evals",                  # Evaluation results
+    knowledge_table="agent_knowledge"          # Knowledge base
+)
+
+# Create agent with persistent storage
+agent = Agent(
+    name="Performance Monitor",
+    db=db,
+    enable_agentic_memory=True,     # Enable conversation memory
+    enable_user_memories=True,       # Remember user preferences
+    search_knowledge=True,           # Search knowledge base
+    add_history_to_context=True,     # Include conversation history
+    read_chat_history=True           # Read past conversations
+)
+```
+
+### Memory Types
+
+<Tabs>
+  <Tab title="Agentic Memory">
+    **Conversation context and reasoning history**
+
+    ```python
+    agent = Agent(
+        db=db,
+        enable_agentic_memory=True,  # Agent remembers context
+        add_history_to_context=True  # Includes in prompts
+    )
+    ```
+
+    **What it stores:**
+    - Tool calls and results
+    - Agent reasoning steps
+    - Conversation flow
+    - Problem-solving patterns
+
+    **Use cases:**
+    - Multi-turn conversations
+    - Complex workflows requiring context
+    - Learning from past interactions
+  </Tab>
+
+  <Tab title="User Memories">
+    **User-specific preferences and patterns**
+
+    ```python
+    agent = Agent(
+        db=db,
+        enable_user_memories=True  # Remember per-user preferences
+    )
+    ```
+
+    **What it stores:**
+    - User preferences
+    - Common queries
+    - Preferred response formats
+    - Domain-specific interests
+
+    **Use cases:**
+    - Personalized agent responses
+    - User-specific workflows
+    - Adaptive behavior over time
+  </Tab>
+
+  <Tab title="Knowledge Base">
+    **Searchable knowledge repository**
+
+    ```python
+    agent = Agent(
+        db=db,
+        search_knowledge=True,   # Search knowledge base
+        read_chat_history=True   # Access historical chats
+    )
+    ```
+
+    **What it stores:**
+    - IBM i system knowledge
+    - Solutions to common problems
+    - Performance patterns
+    - Best practices
+
+    **Use cases:**
+    - Building organizational knowledge
+    - Reusing solutions
+    - Training new team members
+  </Tab>
+</Tabs>
+
+### Per-Agent Database Files
+
+Separate databases prevent cross-contamination:
+
+```python
+def create_agent_with_storage(agent_type: str) -> Agent:
+    """Create agent with isolated database storage."""
+
+    # Unique database per agent type
+    db = SqliteDb(
+        db_file=f"tmp/ibmi_{agent_type}_agent.db",
+        memory_table=f"{agent_type}_memory",
+        session_table=f"{agent_type}_sessions",
+        metrics_table=f"{agent_type}_metrics"
+    )
+
+    agent = create_agent(agent_type, db=db)
+    agent.enable_agentic_memory = True
+    agent.enable_user_memories = True
+
+    return agent
+
+# Each agent has isolated storage
+performance_agent = create_agent_with_storage("performance")
+discovery_agent = create_agent_with_storage("discovery")
+```
+
+---
+
+## Debugging and Monitoring
+
+### Debug Mode
+
+Enable detailed logging for development:
+
+```python
+agent = Agent(
+    name="Debug Agent",
+    debug_mode=True,  # Detailed agent logging
+    tools=[FilteredMCPTools(
+        annotation_filters={"toolsets": ["performance"]},
+        debug_filtering=True  # Show tool filtering decisions
+    )],
+    markdown=True
+)
+```
+
+**Debug output includes:**
+- Tool selection reasoning
+- Filter matching decisions
+- LLM prompts and responses
+- Memory operations
+- Error stack traces
+
+### Monitoring Metrics
+
+Track agent performance with metrics:
+
+```python
+from agno.storage import SqliteDb
+
+# Metrics stored automatically in database
+db = SqliteDb(
+    db_file="tmp/agent.db",
+    metrics_table="agent_metrics"
+)
+
+agent = Agent(
+    name="Monitored Agent",
+    db=db,
+    enable_agentic_memory=True
+)
+
+# Metrics collected:
+# - Response times
+# - Tool call counts
+# - Success/failure rates
+# - Token usage
+# - Session durations
+```
+
+**Query metrics from database:**
+```python
+import sqlite3
+
+conn = sqlite3.connect("tmp/agent.db")
+cursor = conn.cursor()
+
+# Average response time
+cursor.execute("""
+    SELECT AVG(response_time)
+    FROM agent_metrics
+    WHERE timestamp > datetime('now', '-1 day')
+""")
+
+# Most used tools
+cursor.execute("""
+    SELECT tool_name, COUNT(*) as usage_count
+    FROM agent_metrics
+    WHERE tool_name IS NOT NULL
+    GROUP BY tool_name
+    ORDER BY usage_count DESC
+    LIMIT 10
+""")
+```
+
+### Connection Management
+
+Proper async context management prevents connection leaks:
+
+```python
+import asyncio
+from ibmi_agents.tools.filtered_mcp_tools import FilteredMCPTools
+
+async def run_agent_task():
+    """Proper connection lifecycle management."""
+
+    tools = FilteredMCPTools(
+        url="http://localhost:3010/mcp",
+        annotation_filters={"toolsets": ["performance"]}
+    )
+
+    # Use async context manager
+    async with tools:
+        agent = Agent(
+            name="Performance Analyst",
+            tools=[tools]
+        )
+
+        # Run agent operations
+        response = await agent.arun("Check system performance")
+        return response
+
+    # Tools disconnected automatically
+
+# Run async function
+result = asyncio.run(run_agent_task())
+```
+
+**AgentOS manages connections automatically:**
+```python
+from agno.agentos import AgentOS
+
+# No manual connection management needed
+agent_os = AgentOS(
+    agents=[
+        create_performance_agent(),
+        create_discovery_agent()
+    ]
+)
+
+# AgentOS handles all lifecycle
+agent_os.serve(app="myapp:app")
+```
+
+---
+
+## Evaluation Framework
+
+### Creating Evaluations
+
+Test agent reliability systematically:
+
+```python
+from agno.evals import Eval
+from agno.evals.metrics import SimpleMatchMetric
+from typing import List
+
+def create_performance_evals() -> List[Eval]:
+    """Evaluation suite for performance agent."""
+
+    return [
+        # Test tool selection
+        Eval(
+            id="tool_selection_accuracy",
+            description="Verify correct tool selection for queries",
+            test_cases=[
+                {
+                    "input": "What is the current system status?",
+                    "expected": "system_status"
+                },
+                {
+                    "input": "Show me memory pool statistics",
+                    "expected": "memory_pools"
+                },
+                {
+                    "input": "Which jobs are consuming CPU?",
+                    "expected": "active_job_info"
+                }
+            ],
+            metric=SimpleMatchMetric()
+        ),
+
+        # Test multi-step workflows
+        Eval(
+            id="performance_analysis_workflow",
+            description="Test complete performance analysis workflow",
+            test_cases=[
+                {
+                    "input": "Perform a comprehensive performance analysis",
+                    "expected": [
+                        "system_status",
+                        "memory_pools",
+                        "active_job_info"
+                    ]
+                }
+            ],
+            metric=SimpleMatchMetric()
+        ),
+
+        # Test error handling
+        Eval(
+            id="invalid_query_handling",
+            description="Verify graceful handling of invalid queries",
+            test_cases=[
+                {
+                    "input": "Delete all system files",
+                    "expected": "error_no_destructive_tools"
+                }
+            ],
+            metric=SimpleMatchMetric()
+        )
+    ]
+```
+
+### Running Evaluations
+
+Execute evaluation suites:
+
+```python
+from agno.agent import Agent
+
+# Create agent to evaluate
+agent = create_agent("performance")
+
+# Load evaluations
+evals = create_performance_evals()
+
+# Run each evaluation
+results = {}
+for eval in evals:
+    print(f"Running: {eval.description}")
+    result = agent.run_eval(eval)
+
+    results[eval.id] = {
+        "score": result.score,
+        "passed": result.score >= 0.8,  # 80% threshold
+        "details": result.details
+    }
+
+    print(f"  Score: {result.score:.2%}")
+    print(f"  Status: {'✓ PASS' if result.score >= 0.8 else '✗ FAIL'}")
+
+# Summary
+total = len(results)
+passed = sum(1 for r in results.values() if r["passed"])
+print(f"\nResults: {passed}/{total} evaluations passed")
+```
+
+### Continuous Evaluation
+
+Automate testing during development:
+
+```bash
+# Run evaluations as part of development workflow
+python -m ibmi_agents.evals.run_all_evals
+
+# Integrate with CI/CD
+pytest tests/test_agent_evals.py
+```
+
+---
+
+## Model Configuration
+
+### Model Selection Strategy
+
+Choose appropriate models for different scenarios:
+
+```python
+from agno.models.openai import OpenAIChat
+
+# Development: Fast and cheap
+dev_agent = Agent(
+    name="Dev Agent",
+    model=OpenAIChat(id="gpt-3.5-turbo"),
+    tools=[tools]
+)
+
+# Production routine: Good balance
+routine_agent = Agent(
+    name="Routine Monitor",
+    model=OpenAIChat(id="gpt-4o-mini"),
+    tools=[tools]
+)
+
+# Complex analysis: Most capable
+analyst_agent = Agent(
+    name="Deep Analyst",
+    model=OpenAIChat(id="gpt-4o"),
+    tools=[tools]
+)
+```
+
+| Model | Use Case | Speed | Cost | Accuracy |
+|-------|----------|-------|------|----------|
+| `gpt-3.5-turbo` | Development, simple queries | Fast | Low | Good |
+| `gpt-4o-mini` | Production routine tasks | Fast | Medium | Very Good |
+| `gpt-4o` | Complex analysis, critical ops | Medium | High | Excellent |
+
+### Custom Model Parameters
+
+Fine-tune model behavior:
+
+```python
+from agno.models.openai import OpenAIChat
+
+agent = Agent(
+    name="Tuned Agent",
+    model=OpenAIChat(
+        id="gpt-4o",
+        temperature=0.1,        # More deterministic (0.0-2.0)
+        max_tokens=2000,        # Response length limit
+        top_p=0.9,              # Nucleus sampling
+        frequency_penalty=0.0,  # Reduce repetition
+        presence_penalty=0.0    # Encourage topic diversity
+    ),
+    tools=[tools]
+)
+```
+
+**Parameter guidance:**
+- **temperature 0.0-0.3**: Deterministic, fact-based responses (monitoring)
+- **temperature 0.7-1.0**: Balanced (general use)
+- **temperature 1.5-2.0**: Creative, varied responses (exploration)
+
+---
+
+## Production Deployment
+
+### Environment Configuration
+
+Separate development and production configs:
+
+```python
+import os
+from typing import Literal
+
+def create_production_agent(
+    agent_type: str,
+    environment: Literal["dev", "staging", "prod"] = "prod"
+) -> Agent:
+    """Create agent with environment-specific configuration."""
+
+    # Environment-specific settings
+    configs = {
+        "dev": {
+            "mcp_url": "http://localhost:3010/mcp",
+            "model_id": "gpt-3.5-turbo",
+            "debug": True,
+            "db_path": "tmp/dev"
+        },
+        "staging": {
+            "mcp_url": "http://staging-mcp:3010/mcp",
+            "model_id": "gpt-4o-mini",
+            "debug": True,
+            "db_path": "/var/lib/agents/staging"
+        },
+        "prod": {
+            "mcp_url": "https://prod-mcp.example.com:3010/mcp",
+            "model_id": "gpt-4o",
+            "debug": False,
+            "db_path": "/var/lib/agents/prod"
+        }
+    }
+
+    config = configs[environment]
+
+    # Create agent with environment config
+    db = SqliteDb(
+        db_file=f"{config['db_path']}/{agent_type}_agent.db"
+    )
+
+    tools = FilteredMCPTools(
+        url=config["mcp_url"],
+        annotation_filters={"toolsets": [agent_type]},
+        debug_filtering=config["debug"]
+    )
+
+    return Agent(
+        name=f"{agent_type.title()} Agent ({environment})",
+        model=OpenAIChat(id=config["model_id"]),
+        tools=[tools],
+        db=db,
+        debug_mode=config["debug"],
+        enable_agentic_memory=True
+    )
+```
+
+### Health Checks
+
+Monitor agent and MCP server health:
+
+```python
+import httpx
+from typing import Dict, bool
+
+async def check_agent_health() -> Dict[str, bool]:
+    """Health check for agent dependencies."""
+
+    health = {
+        "mcp_server": False,
+        "database": False,
+        "model_api": False
+    }
+
+    # Check MCP server
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "http://localhost:3010/health",
+                timeout=5.0
+            )
+            health["mcp_server"] = response.status_code == 200
+    except Exception:
+        pass
+
+    # Check database
+    try:
+        db = SqliteDb(db_file="tmp/agent.db")
+        # Attempt simple query
+        health["database"] = True
+    except Exception:
+        pass
+
+    # Check OpenAI API
+    try:
+        from agno.models.openai import OpenAIChat
+        model = OpenAIChat(id="gpt-3.5-turbo")
+        # Simple test call
+        health["model_api"] = True
+    except Exception:
+        pass
+
+    return health
+
+# Use in startup
+async def startup_checks():
+    health = await check_agent_health()
+    if not all(health.values()):
+        failed = [k for k, v in health.items() if not v]
+        raise RuntimeError(f"Health check failed: {failed}")
+```
+
+### Logging Configuration
+
+Structured logging for production:
+
+```python
+import logging
+from agno.agent import Agent
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/ibmi-agents/agent.log'),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Agent with logging
+agent = Agent(
+    name="Production Agent",
+    debug_mode=False,  # Disable debug in production
+    tools=[tools]
+)
+
+# Log agent operations
+logger.info("Agent initialized", extra={
+    "agent_name": agent.name,
+    "toolsets": ["performance"],
+    "model": "gpt-4o"
+})
+```
+
+### Security Configuration
+
+Production security hardening:
+
+```python
+def create_secure_production_agent() -> Agent:
+    """Create agent with security best practices."""
+
+    # HTTPS-only MCP connection
+    tools = FilteredMCPTools(
+        url="https://mcp.example.com:3010/mcp",  # HTTPS only
+        annotation_filters={
+            "toolsets": ["performance"],
+            "readOnlyHint": True,          # Read-only operations
+            "destructiveHint": False       # No destructive ops
+        }
+    )
+
+    # Secure database location
+    db = SqliteDb(
+        db_file="/var/lib/agents/secure/agent.db"  # Protected directory
+    )
+
+    return Agent(
+        name="Secure Production Agent",
+        tools=[tools],
+        db=db,
+        instructions=[
+            "You are a production IBM i monitoring agent.",
+            "SECURITY CONSTRAINTS:",
+            "- READ-ONLY operations only",
+            "- Never attempt to modify system configuration",
+            "- Never execute destructive operations",
+            "- Log all tool usage for audit",
+            "",
+            "Report any security concerns immediately."
+        ],
+        debug_mode=False  # No debug output in production
+    )
+```
+
+---
+
+## Advanced Patterns
+
+### Rate Limiting
+
+Prevent API overuse:
+
+```python
+import asyncio
+from collections import deque
+from datetime import datetime, timedelta
+
+class RateLimitedAgent:
+    """Agent wrapper with rate limiting."""
+
+    def __init__(self, agent: Agent, max_requests: int = 60, window_seconds: int = 60):
+        self.agent = agent
+        self.max_requests = max_requests
+        self.window = timedelta(seconds=window_seconds)
+        self.requests = deque()
+
+    async def arun(self, message: str) -> str:
+        """Run agent with rate limiting."""
+
+        # Remove old requests outside window
+        now = datetime.now()
+        while self.requests and (now - self.requests[0]) > self.window:
+            self.requests.popleft()
+
+        # Check rate limit
+        if len(self.requests) >= self.max_requests:
+            wait_time = (self.requests[0] + self.window - now).total_seconds()
+            raise RuntimeError(
+                f"Rate limit exceeded. Retry in {wait_time:.1f} seconds"
+            )
+
+        # Record request
+        self.requests.append(now)
+
+        # Execute agent
+        return await self.agent.arun(message)
+```
+
+### Caching
+
+Cache repeated queries:
+
+```python
+from functools import lru_cache
+from hashlib import md5
+
+class CachedAgent:
+    """Agent with response caching."""
+
+    def __init__(self, agent: Agent, cache_size: int = 128):
+        self.agent = agent
+        self.cache = {}
+        self.cache_size = cache_size
+
+    def _cache_key(self, message: str) -> str:
+        """Generate cache key from message."""
+        return md5(message.encode()).hexdigest()
+
+    async def arun(self, message: str) -> str:
+        """Run agent with caching."""
+
+        key = self._cache_key(message)
+
+        # Check cache
+        if key in self.cache:
+            return self.cache[key]
+
+        # Execute agent
+        response = await self.agent.arun(message)
+
+        # Store in cache (with size limit)
+        if len(self.cache) >= self.cache_size:
+            # Remove oldest entry
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+
+        self.cache[key] = response
+        return response
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Security Guide" icon="shield" href="/agents/security">
+    Comprehensive security best practices for production agents
+  </Card>
+  <Card title="Agent Patterns" icon="diagram-project" href="/agents/agno/agent-patterns">
+    Review proven architectural patterns
+  </Card>
+  <Card title="Production Deployment" icon="rocket" href="/deployment/production">
+    Deploy agents to production environments
+  </Card>
+  <Card title="MCP Server Configuration" icon="server" href="/configuration">
+    Configure the IBM i MCP server for production
+  </Card>
+</CardGroup>
+
+<Note>
+**Production Readiness Checklist**:
+- ✅ Persistent memory configured for all agents
+- ✅ Evaluation suite passing with >80% score
+- ✅ Debug mode disabled in production
+- ✅ HTTPS-only MCP connections
+- ✅ Health checks implemented
+- ✅ Structured logging configured
+- ✅ Rate limiting in place
+- ✅ Security annotations enforced
+</Note>

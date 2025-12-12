@@ -1,0 +1,229 @@
+---
+title: "Cline"
+description: "Configure IBM i MCP Server with Cline VSCode extension"
+---
+
+# Cline Integration
+
+Cline is a VSCode extension that brings AI-powered development capabilities with MCP server support. It can be configured through both the marketplace and manual configuration.
+
+<Note>
+**Platform**: VSCode Extension
+**Transport Modes**: Stdio (local) and HTTP (remote)
+**Prerequisites**: [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) installed in VSCode
+</Note>
+
+## Installation
+
+Install Cline from the VSCode marketplace:
+
+1. Open VSCode
+2. Go to Extensions (Cmd/Ctrl+Shift+X)
+3. Search for "Cline"
+4. Click Install
+
+## Local (Stdio) Setup
+
+**Step 1: Open Cline configuration**
+
+1. Open **Cline** in VSCode
+2. Click the hamburger menu icon (☰) → **MCP Servers**
+3. Choose **Local Servers** tab
+4. Click **Edit Configuration**
+
+**Step 2: Add configuration**
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+<Warning>
+The `--tools` path must be an **absolute path**.
+</Warning>
+
+**Step 3: Save and restart**
+
+Save the configuration and restart Cline to load the new server.
+
+## Remote (HTTP) Setup
+
+**Step 1: Start remote server**
+```bash
+# On server machine
+npm run start:http
+```
+
+**Step 2: Obtain access token**
+```bash
+node get-access-token.js --verbose
+```
+
+**Step 3: Open Cline configuration**
+
+1. Open **Cline**
+2. Click the hamburger menu icon (☰) → **MCP Servers**
+3. Choose **Remote Servers** tab
+4. Click **Edit Configuration**
+
+**Step 4: Add remote server**
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "http://localhost:3010/mcp",
+      "type": "streamableHttp",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+<Note>
+Cline uses `"type": "streamableHttp"` for HTTP connections (not just `"http"`).
+</Note>
+
+## Testing the Connection
+
+After configuration:
+
+1. Open Cline panel in VSCode
+2. Check that the MCP server appears in the server list
+3. Ask "What tools are available?"
+4. Test with "Show me the IBM i system status"
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server Not Appearing">
+    **Solutions**:
+    - Verify JSON syntax in configuration
+    - Restart VSCode (not just Cline)
+    - Check that `npx ibmi-mcp-server` works from terminal
+    - Ensure all paths are absolute
+    - Check VSCode Output panel for errors
+  </Accordion>
+
+  <Accordion title="Connection Failed">
+    **Solutions**:
+    - Verify IBM i credentials are correct
+    - Check Mapepire is running: `sc check mapepire`
+    - Test connectivity: `ping your-ibmi-host`
+    - Ensure port 8076 is accessible
+  </Accordion>
+
+  <Accordion title="Authentication Failed (Remote)">
+    **Solutions**:
+    - Verify server is running: `curl http://localhost:3010/mcp`
+    - Check token hasn't expired
+    - Get fresh token: `node get-access-token.js --verbose`
+    - Ensure `streamableHttp` type is used (not just `http`)
+  </Accordion>
+
+  <Accordion title="Tools Not Loading">
+    **Solutions**:
+    - Verify tools path exists and is absolute
+    - Check YAML files are valid: `npm run validate -- --config tools`
+    - Review Cline logs for tool loading errors
+    - Ensure user has database authorities
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Configuration
+
+### Multiple Environments
+
+Configure different servers for dev and production:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-dev": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "env": {
+        "DB2i_HOST": "dev-ibmi.company.com",
+        "DB2i_USER": "DEVUSER",
+        "DB2i_PASS": "devpass",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    },
+    "ibmi-prod": {
+      "url": "https://prod-mcp.company.com/mcp",
+      "type": "streamableHttp",
+      "headers": {
+        "Authorization": "Bearer PROD_TOKEN"
+      }
+    }
+  }
+}
+```
+
+### Custom Toolsets
+
+Load specific toolsets for focused workflows:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-performance": {
+      "command": "npx",
+      "args": [
+        "ibmi-mcp-server",
+        "--tools", "/path/to/tools",
+        "--toolsets", "performance,security"
+      ],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+## MCP Marketplace
+
+Cline also supports discovering MCP servers through the [Cline MCP Marketplace](https://cline.bot/mcp-marketplace), though manual configuration provides more flexibility for custom setups.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create custom SQL tools
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Explore all configuration options
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration#ibm-i-authentication-settings">
+    Set up secure authentication
+  </Card>
+  <Card title="Other Clients" icon="grid" href="/clients/overview">
+    Explore other MCP clients
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Cline MCP Documentation](https://docs.cline.bot/mcp/mcp-overview)
+- [Cline MCP Marketplace](https://cline.bot/mcp-marketplace)
+- [IBM i MCP Quick Start](/quickstart)
+- [VSCode Extension](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev)

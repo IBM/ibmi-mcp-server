@@ -8,7 +8,7 @@
     "light": "#4285F4",
     "dark": "#1e3a8a"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "",
   "navigation": {
     "tabs": [
       {
@@ -32,17 +32,48 @@
           },
           {
             "group": "SQL Tools System",
+            "expanded": true,
             "pages": [
               "sql-tools/overview",
-              "sql-tools/building-tools"
+              {
+                "group": "Tool Reference",
+                "expanded": false,
+                "pages": [
+                  "sql-tools/sources",
+                  "sql-tools/tools",
+                  "sql-tools/toolsets"
+                ]
+              },
+              "sql-tools/building-tools",
+              "sql-tools/parameter-guide",
+              "sql-tools/output-formats"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Agent Integrations",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "agents/overview"
             ]
           },
           {
-            "group": "Agent Development",
+            "group": "Agno Framework",
             "pages": [
-              "agents/building-agents"
+              "agents/agno/getting-started",
+              "agents/agno/filtered-mcp-tools",
+              "agents/agno/agent-patterns",
+              "agents/agno/advanced-config"
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
           {
             "group": "Deployment",
             "pages": [
@@ -51,18 +82,18 @@
         ]
       },
       {
-        "tab": "API Reference",
+        "tab": "MCP Client Integrations",
         "groups": [
           {
-            "group": "MCP Protocol",
+            "group": "Client Setup",
             "pages": [
-              "api/mcp-endpoints"
-            ]
-          },
-          {
-            "group": "Authentication",
-            "pages": [
-              "api/auth-endpoints"
+              "clients/overview",
+              "clients/claude-desktop",
+              "clients/claude-code",
+              "clients/vscode",
+              "clients/cursor",
+              "clients/gemini-cli",
+              "clients/cline"
             ]
           }
         ]
@@ -98,7 +129,7 @@
     "primary": {
       "type": "button",
       "label": "Get Started",
-      "href": "https://docs.ibmi-mcp-server.com/quickstart"
+      "href": "https://ibm-d95bab6e.mintlify.app/quickstart"
     }
   },
   "contextual": {

@@ -205,5 +205,8 @@ specs/
 *.evalset_result.json
 *.evalset.json
 
-# tools directory used for openshift deployment
-deployment/openshift/apps/openshift/ibmi-mcp-server/tools
+
+# =============================================================================
+#  VSCODE SETTINGS
+# =============================================================================
+.vscode/

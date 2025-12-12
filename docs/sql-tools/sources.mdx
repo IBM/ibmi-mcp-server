@@ -1,0 +1,546 @@
+---
+title: "Sources Reference"
+description: "Complete reference for configuring database connection sources in YAML SQL tools."
+---
+
+<Info>
+**Official Schema**: See the [JSON Schema definition](https://github.com/IBM/ibmi-mcp-server/blob/main/server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json) for the authoritative source configuration specification.
+</Info>
+
+Sources define database connections that your SQL tools use to execute queries against IBM i systems. Each source specifies connection parameters, credentials, and behavior options.
+
+## Quick Reference
+
+**All source configuration fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `host` | string | ✅ Yes | - | IBM i hostname or IP address |
+| `user` | string | ✅ Yes | - | IBM i user profile |
+| `password` | string | ✅ Yes | - | User profile password |
+| `port` | integer | No | `8076` | Mapepire daemon port |
+| `ignore-unauthorized` | boolean | No | `false` | Accept self-signed SSL certs |
+
+---
+
+## Basic Source Configuration
+
+Every YAML file starts with a `sources` section that defines one or more database connections:
+
+```yaml
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+```
+
+<Note>
+**Source Naming**: Choose descriptive source names like `ibmi-production`, `ibmi-dev`, or `ibmi-system`. Tools reference these names in their `source` field to specify which connection to use.
+</Note>
+
+---
+
+## Source Fields Reference
+
+### Required Fields
+
+All sources must include these three fields:
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `host` | string | Hostname or IP address of IBM i system running Mapepire daemon | `${DB2i_HOST}` |
+| `user` | string | IBM i user profile for database authentication | `${DB2i_USER}` |
+| `password` | string | Password for the IBM i user profile | `${DB2i_PASS}` |
+
+<Warning>
+**Security Requirement**: Always use environment variables for credentials. Never hardcode sensitive values in YAML files.
+</Warning>
+
+**Examples:**
+
+<Tabs>
+  <Tab title="Environment Variables (Recommended)">
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+    ```
+
+    **.env file:**
+    ```bash
+    DB2i_HOST=ibmi-prod.example.com
+    DB2i_USER=MCPUSER
+    DB2i_PASS=SecurePassword123
+    ```
+
+    ✅ **Best for**: All environments (development, testing, production)
+
+    ✅ **Security**: Credentials never stored in version control
+  </Tab>
+
+  <Tab title="Direct Values (Development Only)">
+    ```yaml
+    sources:
+      ibmi-dev:
+        host: ibmi-dev.local
+        user: DEVUSER
+        password: DevPassword123
+    ```
+
+    ⚠️ **Use only for**: Local development with test credentials
+
+    ❌ **Never use for**: Production or shared repositories
+  </Tab>
+
+  <Tab title="IP Address">
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}  # Can be IP: 192.168.1.100
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+    ```
+
+    **.env file:**
+    ```bash
+    DB2i_HOST=192.168.1.100
+    DB2i_USER=MCPUSER
+    DB2i_PASS=SecurePassword123
+    ```
+
+    ✅ **Best for**: Systems without DNS resolution
+  </Tab>
+</Tabs>
+
+**Authority Requirements:**
+
+The IBM i user profile must have:
+- Object authority to tables, views, and procedures accessed by tools
+- Special authorities for system services (e.g., `*AUDIT` for security tools)
+- IBM i object-level security applies to all SQL queries
+
+---
+
+### Optional Fields
+
+These fields have sensible defaults and can be omitted for most configurations:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `port` | integer | `8076` | Port number where Mapepire daemon listens |
+| `ignore-unauthorized` | boolean | `false` | Accept self-signed SSL certificates |
+
+**Detailed Configuration:**
+
+<Tabs>
+  <Tab title="Port Configuration">
+    **Default port (8076):**
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        # port: 8076  ← Can be omitted (uses default)
+    ```
+
+    **Custom port:**
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        port: 9000
+    ```
+
+    **Environment variable with default:**
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        port: ${DB2i_PORT:8076}  # Uses 8076 if not set
+    ```
+
+    <Note>
+    The default port 8076 is the standard port for the Mapepire daemon on IBM i systems.
+    </Note>
+  </Tab>
+
+  <Tab title="SSL Configuration">
+    **Production (valid certificates):**
+    ```yaml
+    sources:
+      ibmi-production:
+        host: ${PROD_DB2i_HOST}
+        user: ${PROD_DB2i_USER}
+        password: ${PROD_DB2i_PASS}
+        port: 8076
+        ignore-unauthorized: false  # Require valid certs
+    ```
+
+    **Development (self-signed certificates):**
+    ```yaml
+    sources:
+      ibmi-dev:
+        host: ${DEV_DB2i_HOST}
+        user: ${DEV_DB2i_USER}
+        password: ${DEV_DB2i_PASS}
+        port: 8076
+        ignore-unauthorized: true  # Allow self-signed
+    ```
+
+    **Environment-specific:**
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        port: 8076
+        ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}
+    ```
+
+    <Warning>
+    **Production Security**: Only use `ignore-unauthorized: true` in development. Production must use valid SSL certificates with `ignore-unauthorized: false`.
+    </Warning>
+  </Tab>
+</Tabs>
+
+---
+
+## Environment Variables
+
+Use environment variables to externalize sensitive configuration and support multiple environments:
+
+### Basic Pattern
+
+```yaml
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+```
+
+**.env file:**
+```bash
+DB2i_HOST=ibmi-prod.example.com
+DB2i_USER=MCPUSER
+DB2i_PASS=SecurePassword123
+```
+
+### Default Values
+
+Provide fallback values for optional settings:
+
+```yaml
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: ${DB2i_PORT:8076}                           # Defaults to 8076
+    ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}  # Defaults to false
+```
+
+<Note>
+**Syntax**: `${VARIABLE_NAME:default_value}` - Use `:` to specify default values that apply when the environment variable is not set.
+</Note>
+
+---
+
+## Multiple Sources
+
+Define multiple sources for different environments, systems, or use cases:
+
+### Multi-Environment Setup
+
+```yaml
+sources:
+  production:
+    host: ${PROD_DB2i_HOST}
+    user: ${PROD_DB2i_USER}
+    password: ${PROD_DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: false
+    connectionTimeout: 30000
+    requestTimeout: 120000
+
+  development:
+    host: ${DEV_DB2i_HOST}
+    user: ${DEV_DB2i_USER}
+    password: ${DEV_DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true  # Self-signed certs OK in dev
+    connectionTimeout: 10000
+    requestTimeout: 60000
+
+  testing:
+    host: ${TEST_DB2i_HOST}
+    user: ${TEST_DB2i_USER}
+    password: ${TEST_DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+    connectionTimeout: 15000
+    requestTimeout: 30000
+```
+
+**Tool Usage:**
+```yaml
+tools:
+  production_health_check:
+    source: production  # Uses production source
+    description: "Production system health metrics"
+    # ... rest of configuration
+
+  development_sandbox:
+    source: development  # Uses development source
+    description: "Development environment testing"
+    # ... rest of configuration
+```
+
+### Multi-System Setup
+
+Connect to multiple IBM i systems in a single configuration:
+
+```yaml
+sources:
+  primary-ibmi:
+    host: ${PRIMARY_DB2i_HOST}
+    user: ${PRIMARY_DB2i_USER}
+    password: ${PRIMARY_DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: false
+
+  secondary-ibmi:
+    host: ${SECONDARY_DB2i_HOST}
+    user: ${SECONDARY_DB2i_USER}
+    password: ${SECONDARY_DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: false
+
+  reporting-ibmi:
+    host: ${REPORTING_DB2i_HOST}
+    user: ${REPORTING_DB2i_USER}
+    password: ${REPORTING_DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: false
+```
+
+---
+
+## Complete Configuration Examples
+
+### Development Configuration
+
+```yaml
+sources:
+  ibmi-dev:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+```
+
+**.env:**
+```bash
+DB2i_HOST=ibmi-dev.local
+DB2i_USER=DEVUSER
+DB2i_PASS=DevPassword123
+```
+
+### Production Configuration
+
+```yaml
+sources:
+  ibmi-production:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: false
+```
+
+**.env:**
+```bash
+DB2i_HOST=ibmi-prod.example.com
+DB2i_USER=MCPUSER
+DB2i_PASS=SecureProductionPassword
+```
+
+### Custom Port Configuration
+
+```yaml
+sources:
+  ibmi-custom:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 9000  # Custom Mapepire port
+    ignore-unauthorized: false
+```
+
+---
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Environment Variables" icon="shield-check">
+    **Always use environment variables for:**
+    - Hostnames
+    - User profiles
+    - Passwords
+    - Ports (if non-standard)
+
+    **Never hardcode:**
+    ```yaml
+    # ❌ BAD - Hardcoded credentials
+    sources:
+      ibmi-system:
+        host: ibmi-prod.example.com
+        user: ADMIN
+        password: Password123
+
+    # ✅ GOOD - Environment variables
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+    ```
+  </Accordion>
+
+  <Accordion title="Credential Rotation" icon="rotate">
+    **Regular rotation strategy:**
+
+    1. **Update .env file** with new credentials
+    2. **Restart MCP server** to apply changes
+    3. **Test connection** with simple tool
+    4. **Update production** after successful testing
+
+    **Automated rotation:**
+    - Use secrets management systems (Vault, AWS Secrets Manager)
+    - Configure automatic credential refresh
+    - Monitor for rotation failures
+  </Accordion>
+
+  <Accordion title="SSL/TLS Configuration" icon="lock">
+    **Production requirements:**
+    - Valid SSL certificates from trusted CA
+    - `ignore-unauthorized: false` enforced
+    - Regular certificate renewal
+    - Strong cipher suites
+
+    **Development exceptions:**
+    - Self-signed certificates allowed
+    - `ignore-unauthorized: true` for testing only
+    - Never deploy to production with this setting
+  </Accordion>
+
+  <Accordion title="File Permissions" icon="file-lock">
+    **Protect YAML configuration files:**
+    ```bash
+    # Restrict to owner read/write only
+    chmod 600 my-tools.yaml
+
+    # Protect .env files
+    chmod 600 .env
+
+    # Never commit to version control
+    echo ".env" >> .gitignore
+    echo "*.yaml" >> .gitignore  # If contains secrets
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection Refused" icon="wifi-slash">
+    **Symptom:** `ECONNREFUSED` or "Connection refused" errors
+
+    **Solutions:**
+    1. Verify Mapepire daemon is running on IBM i:
+       ```bash
+       netstat -an | grep 8076
+       ```
+    2. Check firewall rules allow connections
+    3. Verify hostname resolves correctly:
+       ```bash
+       ping ${DB2i_HOST}
+       ```
+    4. Test port connectivity:
+       ```bash
+       telnet ${DB2i_HOST} 8076
+       ```
+  </Accordion>
+
+  <Accordion title="Authentication Failures" icon="user-xmark">
+    **Symptom:** "Invalid credentials" or "User not authorized" errors
+
+    **Solutions:**
+    1. Verify environment variables are set:
+       ```bash
+       echo $DB2i_USER
+       echo $DB2i_HOST
+       ```
+    2. Test credentials directly on IBM i
+    3. Check user profile status (not disabled/expired)
+    4. Verify user has database authorities
+  </Accordion>
+
+  <Accordion title="Timeout Errors" icon="clock">
+    **Symptom:** "Request timeout" or "Connection timeout" errors
+
+    **Solutions:**
+    1. Increase `requestTimeout` for long-running queries
+    2. Increase `connectionTimeout` for slow networks
+    3. Optimize SQL queries to run faster
+    4. Check network latency between server and IBM i
+  </Accordion>
+
+  <Accordion title="SSL Certificate Errors" icon="certificate">
+    **Symptom:** "Certificate verification failed" or "Self-signed certificate" errors
+
+    **Solutions:**
+    1. **Development:** Set `ignore-unauthorized: true`
+    2. **Production:** Install valid SSL certificates on IBM i
+    3. Update certificate trust store if needed
+    4. Verify certificate has not expired
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools Reference" icon="wrench" href="/sql-tools/tools">
+    Learn about tool definitions and configuration
+  </Card>
+  <Card title="Toolsets Reference" icon="layer-group" href="/sql-tools/toolsets">
+    Organize tools into logical groups
+  </Card>
+  <Card title="Building SQL Tools" icon="hammer" href="/sql-tools/building-tools">
+    Step-by-step guide to creating custom tools
+  </Card>
+  <Card title="Configuration Guide" icon="gear" href="/configuration">
+    Complete server configuration reference
+  </Card>
+</CardGroup>
+
+<Note>
+**Source Design Philosophy**: Sources represent database connections, not business logic. Keep source configurations simple, secure, and environment-specific. Use environment variables for all sensitive data and support multiple environments with distinct source names.
+</Note>

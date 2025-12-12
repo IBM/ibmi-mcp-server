@@ -1,0 +1,738 @@
+---
+title: "Tools Reference"
+description: "Complete reference for defining SQL tools including parameters, validation, security, and response formatting."
+---
+
+<Info>
+**Official Schema**: See the [JSON Schema definition](https://github.com/IBM/ibmi-mcp-server/blob/main/server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json) for the authoritative tool configuration specification.
+</Info>
+
+Tools are individual SQL operations that AI agents can discover and execute. Each tool encapsulates a SQL statement, parameter definitions, validation rules, and execution metadata.
+
+## Tool Structure
+
+Every tool definition follows this structure:
+
+```yaml
+tools:
+  tool_name:
+    source: ibmi-system
+    description: "What this tool does and when to use it"
+    statement: |
+      SELECT * FROM qsys2.system_status_info
+    parameters: []
+    security: {}
+    metadata: {}
+```
+
+---
+
+## Required Fields
+
+All SQL tools must include these fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool_name` | string (YAML key) | Unique identifier for the tool, used by AI agents to call it |
+| `source` | string | Name of the database connection source (from `sources` section) |
+| `description` | string | Clear explanation of what the tool does, for AI agent consumption |
+| `statement` | string | SQL query to execute when the tool is called |
+
+---
+
+### Field Details
+
+<Tabs>
+  <Tab title="tool_name">
+    **Unique identifier for the tool**
+
+    The tool name is the YAML key and must be unique across all tools.
+
+    **Naming conventions:**
+    - Use lowercase with underscores: `get_active_jobs`
+    - Be descriptive: `find_employees_by_department` not `emp_search`
+    - Prefix by domain if needed: `perf_system_status`, `sec_audit_trail`
+
+    ```yaml
+    # ✅ Good names
+    tools:
+      get_employee_details:
+      find_employees_by_department:
+      calculate_employee_bonus:
+
+    # ❌ Avoid
+    tools:
+      emp:
+      query1:
+      temp_tool:
+    ```
+  </Tab>
+
+  <Tab title="source">
+    **Database connection reference**
+
+    References a source name defined in the `sources` section.
+
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        # ...
+
+    tools:
+      system_status:
+        source: ibmi-system  # Must match source key
+        description: "Get system performance metrics"
+        # ...
+    ```
+
+    <Note>
+    **Source Reference**: The source name must match a key in the `sources` section. Each tool can only use one source - if you need to query multiple systems, create separate tools.
+    </Note>
+  </Tab>
+
+  <Tab title="description">
+    **Tool purpose and usage**
+
+    Clear, concise explanation written for AI agent consumption.
+
+    **Best practices:**
+    - **Be specific**: "List active jobs sorted by CPU usage" not "Show jobs"
+    - **Include context**: "Get employee details including department and manager information"
+    - **Mention limitations**: "Returns maximum of 100 rows"
+    - **Note requirements**: "Requires *AUDIT special authority"
+
+    ```yaml
+    # ✅ Good descriptions
+    description: "Get system performance metrics including CPU usage, memory, and active jobs"
+    description: "Find employees by department code (A00, B01, etc.) with salary information"
+    description: "Search for IBM i services by name pattern with optional case-insensitive matching"
+
+    # ❌ Avoid vague descriptions
+    description: "Gets data"
+    description: "Employee tool"
+    description: "System query"
+    ```
+  </Tab>
+
+  <Tab title="statement">
+    **SQL query to execute**
+
+    The SQL statement executed when the tool is called. Use pipe `|` for multiline.
+
+    ```yaml
+    statement: |
+      SELECT job_name, user_name, cpu_used, elapsed_time
+      FROM qsys2.active_job_info
+      WHERE job_status = 'ACTIVE'
+      ORDER BY cpu_used DESC
+      FETCH FIRST :limit ROWS ONLY
+    ```
+
+    **SQL requirements:**
+    - Must be valid IBM i SQL (Db2 for i syntax)
+    - Use `:parameter_name` syntax for parameter binding
+    - Include `FETCH FIRST n ROWS ONLY` for result limiting
+    - Test SQL independently before adding to tool
+
+    <Warning>
+    **Parameter Binding**: ALWAYS use parameter binding (`:parameter_name`) for dynamic values. NEVER use string concatenation - this prevents SQL injection attacks and ensures proper type handling.
+    </Warning>
+  </Tab>
+</Tabs>
+
+---
+
+## Parameters
+
+Parameters define dynamic inputs for SQL tools. Each parameter specifies type, validation rules, and usage information.
+
+<Card title="Complete Parameter Guide" icon="book-open" href="/sql-tools/parameter-guide">
+  **See the full Parameter Guide** for detailed examples of all parameter types, validation patterns, and best practices for building SQL tools with parameters.
+</Card>
+
+### Parameter Structure
+
+```yaml
+parameters:
+  - name: employee_id
+    type: string
+    description: "Employee ID (6 digits)"
+    required: true
+    pattern: "^[0-9]{6}$"
+```
+
+### Parameter Types
+
+<Tabs>
+  <Tab title="String">
+    **Text values with validation**
+
+    ```yaml
+    parameters:
+      - name: library_name
+        type: string
+        description: "IBM i library name (uppercase alphanumeric)"
+        required: true
+        pattern: "^[A-Z][A-Z0-9_]*$"
+        minLength: 1
+        maxLength: 10
+        default: "QSYS2"
+    ```
+
+    **Validation options:**
+    - `pattern` - Regular expression for validation
+    - `minLength` - Minimum string length
+    - `maxLength` - Maximum string length
+    - `enum` - Fixed list of allowed values
+    - `default` - Default value if not provided
+
+    **Example with enum:**
+    ```yaml
+    parameters:
+      - name: object_type
+        type: string
+        enum: ["*PGM", "*FILE", "*SRVPGM", "*DTAARA"]
+        default: "*FILE"
+        description: "IBM i object type filter"
+    ```
+  </Tab>
+
+  <Tab title="Integer">
+    **Whole number values with range validation**
+
+    ```yaml
+    parameters:
+      - name: max_rows
+        type: integer
+        description: "Maximum number of rows to return"
+        required: false
+        minimum: 1
+        maximum: 1000
+        default: 50
+    ```
+
+    **Validation options:**
+    - `minimum` - Minimum value (inclusive)
+    - `maximum` - Maximum value (inclusive)
+    - `default` - Default value if not provided
+
+    **Usage in SQL:**
+    ```sql
+    FETCH FIRST :max_rows ROWS ONLY
+    ```
+  </Tab>
+
+  <Tab title="Float">
+    **Decimal number values**
+
+    ```yaml
+    parameters:
+      - name: performance_multiplier
+        type: float
+        description: "Performance rating multiplier (0.0-0.3)"
+        required: true
+        min: 0.0
+        max: 0.3
+        default: 0.1
+    ```
+
+    **Validation options:**
+    - `min` - Minimum value (inclusive)
+    - `max` - Maximum value (inclusive)
+    - `default` - Default value if not provided
+
+    **Usage in SQL:**
+    ```sql
+    SELECT salary * :performance_multiplier AS bonus
+    FROM employee
+    ```
+  </Tab>
+
+  <Tab title="Boolean">
+    **True/false values**
+
+    ```yaml
+    parameters:
+      - name: include_completed
+        type: boolean
+        description: "Include completed projects (true) or only active (false)"
+        default: true
+    ```
+
+    **Usage in SQL:**
+    ```sql
+    WHERE (:include_completed = 1 OR end_date IS NULL)
+    ```
+
+    <Note>
+    **SQL Conversion**: Boolean parameters are passed as `1` (true) or `0` (false) to SQL. Use `= 1` or `= 0` in WHERE clauses.
+    </Note>
+  </Tab>
+
+  <Tab title="Array">
+    **Lists of values**
+
+    ```yaml
+    parameters:
+      - name: project_ids
+        type: array
+        itemType: string
+        description: "List of project IDs to search for"
+        required: true
+        minLength: 1
+        maxLength: 10
+    ```
+
+    **Validation options:**
+    - `itemType` - Type of array elements (string, integer, float, boolean)
+    - `minLength` - Minimum array length
+    - `maxLength` - Maximum array length
+
+    **Usage in SQL:**
+    ```sql
+    WHERE project_id IN (:project_ids)
+    ```
+
+    **MCP call format:**
+    ```json
+    {
+      "name": "find_projects",
+      "arguments": {
+        "project_ids": ["MA2100", "AD3100", "PL2100"]
+      }
+    }
+    ```
+
+    <Warning>
+    **Array Format**: Arrays must be passed as JSON arrays (`["A", "B"]`), not strings or SQL syntax (`('A', 'B')`).
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Optional Parameters
+
+Parameters without `required: true` or with `default` values are optional:
+
+```yaml
+parameters:
+  - name: user_filter
+    type: string
+    required: false
+    description: "Optional user name filter"
+```
+
+**SQL handling for optional parameters:**
+```sql
+WHERE (:user_filter IS NULL OR user_name = :user_filter)
+```
+
+---
+
+## Security Configuration
+
+Add security controls to tools for enhanced protection:
+
+```yaml
+tools:
+  execute_dynamic_sql:
+    source: ibmi-system
+    description: "Execute dynamic SQL with safety controls"
+    statement: |
+      SELECT * FROM user_profiles WHERE user_name = :user_name
+    security:
+      readOnly: true
+      maxQueryLength: 15000
+      forbiddenKeywords: ["DROP", "DELETE", "UPDATE", "TRUNCATE"]
+```
+
+### Security Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `readOnly` | boolean | `true` | Restrict to read-only operations (SELECT queries) |
+| `maxQueryLength` | number | `10000` | Maximum SQL query length in characters |
+| `forbiddenKeywords` | array | `[]` | Additional forbidden SQL keywords beyond defaults |
+
+<Tabs>
+  <Tab title="readOnly">
+    **Mark tools as read-only (SELECT queries only):**
+
+    ```yaml
+    security:
+      readOnly: true  # Enforce SELECT-only operations
+    ```
+
+    <Note>
+    **Best Practice**: Mark all tools that don't modify data as `readOnly: true`. This provides clear documentation and can be used for access control.
+    </Note>
+
+    **Default:** `true` (for safety - tools are read-only by default)
+  </Tab>
+
+  <Tab title="maxQueryLength">
+    **Limit SQL statement length to prevent abuse:**
+
+    ```yaml
+    security:
+      maxQueryLength: 15000  # Limit statement to 15KB
+    ```
+
+    **Default:** `10000` characters
+
+    **Use case:** Prevents excessively long or complex queries that could impact performance
+  </Tab>
+
+  <Tab title="forbiddenKeywords">
+    **Block specific SQL keywords:**
+
+    ```yaml
+    security:
+      forbiddenKeywords: ["DROP", "DELETE", "UPDATE", "TRUNCATE", "ALTER"]
+    ```
+
+    **Default:** `[]` (empty - uses built-in defaults)
+
+    **Use case:** Useful for `execute_sql` tools that accept dynamic SQL. Prevents destructive operations while allowing flexible queries.
+
+    <Note>
+    These keywords are added to the default forbidden list. The server has built-in protections against destructive operations.
+    </Note>
+  </Tab>
+</Tabs>
+
+---
+
+## Response Formatting
+
+Control how tool results are formatted for AI agents:
+
+### responseFormat
+
+**Type:** `string`
+
+**Options:** `json` (default), `markdown`
+
+```yaml
+tools:
+  markdown_report:
+    source: ibmi-system
+    description: "Generate formatted system report"
+    responseFormat: markdown
+    statement: |
+      SELECT
+        '# System Status Report' AS header,
+        '## CPU: ' || cpu_utilization || '%' AS cpu,
+        '## Memory: ' || ROUND((used_memory * 100.0 / total_memory), 2) || '%' AS memory
+      FROM TABLE(QSYS2.SYSTEM_STATUS()) X
+```
+
+**Response types:**
+- **json** - Structured data (default, best for AI processing)
+- **markdown** - Formatted text with markdown syntax
+
+---
+
+## Metadata
+
+Add descriptive metadata for tool organization and discovery:
+
+```yaml
+tools:
+  inventory_analysis:
+    source: ibmi-system
+    description: "Comprehensive inventory analysis report"
+    statement: |
+      SELECT * FROM inventory_summary
+    metadata:
+      title: "Inventory Analysis Report"
+      version: "2.1.0"
+      author: "IBM i Development Team"
+      keywords: ["inventory", "analysis", "reporting"]
+      lastUpdated: "2024-01-15"
+      domain: business
+      category: reporting
+      environment: production
+```
+
+### Metadata Fields
+
+<AccordionGroup>
+  <Accordion title="title" icon="heading">
+    Human-readable title for the tool
+  </Accordion>
+
+  <Accordion title="version" icon="code-branch">
+    Semantic version for tracking tool changes
+  </Accordion>
+
+  <Accordion title="author" icon="user-pen">
+    Individual or team responsible for the tool
+  </Accordion>
+
+  <Accordion title="keywords" icon="tags">
+    Search keywords for tool discovery
+  </Accordion>
+
+  <Accordion title="lastUpdated" icon="calendar">
+    Date of last modification (ISO format)
+  </Accordion>
+
+  <Accordion title="domain" icon="layer-group">
+    Business domain classification (monitoring, security, business, etc.)
+  </Accordion>
+
+  <Accordion title="category" icon="folder">
+    Functional category within domain
+  </Accordion>
+
+  <Accordion title="environment" icon="server">
+    Target environment (production, development, testing)
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Complete Tool Examples
+
+### Simple Query (No Parameters)
+
+```yaml
+tools:
+  system_status:
+    source: ibmi-system
+    description: "Overall system performance statistics with CPU, memory, and I/O metrics"
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS(
+        RESET_STATISTICS=>'YES',
+        DETAILED_INFO=>'ALL'
+      )) X
+    parameters: []
+```
+
+### String Parameter with Validation
+
+```yaml
+tools:
+  get_employee_details:
+    source: ibmi-sample
+    description: "Retrieve detailed employee information including department and manager"
+    statement: |
+      SELECT
+        E.EMPNO,
+        E.FIRSTNME,
+        E.LASTNAME,
+        E.JOB,
+        E.SALARY,
+        D.DEPTNAME,
+        M.LASTNAME AS MGR_LASTNAME
+      FROM SAMPLE.EMPLOYEE E
+      LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+      LEFT JOIN SAMPLE.EMPLOYEE M ON D.MGRNO = M.EMPNO
+      WHERE E.EMPNO = :employee_id
+    parameters:
+      - name: employee_id
+        type: string
+        description: "Employee ID (e.g., '000010') - Must be 6 digits"
+        required: true
+        pattern: "^[0-9]{6}$"
+```
+
+### Multiple Parameters with Different Types
+
+```yaml
+tools:
+  search_employees:
+    source: ibmi-sample
+    description: "Search for employees by name with pagination"
+    statement: |
+      SELECT
+        E.EMPNO,
+        E.FIRSTNME,
+        E.LASTNAME,
+        E.JOB,
+        E.WORKDEPT,
+        D.DEPTNAME
+      FROM SAMPLE.EMPLOYEE E
+      LEFT JOIN SAMPLE.DEPARTMENT D ON E.WORKDEPT = D.DEPTNO
+      WHERE UPPER(E.FIRSTNME) LIKE UPPER('%' || :name_search || '%')
+      OR UPPER(E.LASTNAME) LIKE UPPER('%' || :name_search || '%')
+      ORDER BY E.LASTNAME, E.FIRSTNME
+      LIMIT :page_size OFFSET (:page_number - 1) * :page_size
+    parameters:
+      - name: name_search
+        type: string
+        description: "Name to search for (partial match)"
+        required: true
+        minLength: 2
+      - name: page_size
+        type: integer
+        description: "Number of results per page"
+        default: 10
+        minimum: 1
+        maximum: 100
+      - name: page_number
+        type: integer
+        description: "Page number (starting from 1)"
+        default: 1
+        minimum: 1
+```
+
+### Tool with Security Configuration
+
+```yaml
+tools:
+  user_profile_audit:
+    source: ibmi-system
+    description: "Audit user profile security settings (requires *AUDIT authority)"
+    statement: |
+      SELECT
+        user_profile_name,
+        status,
+        previous_signon,
+        days_until_password_expires,
+        user_class_name,
+        group_profile_name
+      FROM qsys2.user_info
+      WHERE user_profile_name = :user_profile
+    parameters:
+      - name: user_profile
+        type: string
+        required: true
+        pattern: "^[A-Z][A-Z0-9_]*$"
+        maxLength: 10
+        description: "User profile name to audit"
+    security:
+      readOnly: true
+      audit: true
+      requiredAuthority: "*AUDIT"
+      scopes: ["security:audit"]
+      warning: "Accesses sensitive user profile information. Requires *AUDIT authority."
+```
+
+### Array Parameter Tool
+
+```yaml
+tools:
+  find_project_team_members:
+    source: ibmi-sample
+    description: "Find all employees working on specific projects"
+    statement: |
+      SELECT
+        E.EMPNO,
+        E.FIRSTNME,
+        E.LASTNAME,
+        E.JOB,
+        EPA.PROJNO,
+        EPA.EMSTDATE AS PROJECT_START_DATE
+      FROM SAMPLE.EMPPROJACT EPA
+      JOIN SAMPLE.EMPLOYEE E ON EPA.EMPNO = E.EMPNO
+      WHERE EPA.PROJNO IN (:project_ids)
+      ORDER BY EPA.PROJNO, E.LASTNAME
+    parameters:
+      - name: project_ids
+        type: array
+        itemType: string
+        description: "List of project IDs (e.g., ['MA2100', 'AD3100'])"
+        required: true
+        minLength: 1
+        maxLength: 10
+```
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="SQL Statement Design" icon="database">
+    **Optimization:**
+    - Always include `FETCH FIRST n ROWS ONLY` to limit results
+    - Use `LEFT JOIN` instead of `INNER JOIN` when relationships are optional
+    - Add `ORDER BY` for consistent result ordering
+    - Use column aliases for better AI understanding
+
+    **Example:**
+    ```sql
+    SELECT
+      job_name AS "Job Name",
+      user_name AS "User",
+      cpu_used AS "CPU Time (ms)"
+    FROM qsys2.active_job_info
+    WHERE job_status = 'ACTIVE'
+    ORDER BY cpu_used DESC
+    FETCH FIRST 100 ROWS ONLY
+    ```
+  </Accordion>
+
+  <Accordion title="Parameter Validation" icon="shield-check">
+    **Always validate:**
+    - String patterns for IBM i names: `^[A-Z][A-Z0-9_]*$`
+    - String lengths: `maxLength: 10` for library names
+    - Integer ranges: `minimum: 1, maximum: 1000`
+    - Required vs optional: Mark appropriately
+
+    **Example:**
+    ```yaml
+    parameters:
+      - name: library
+        type: string
+        required: true
+        pattern: "^[A-Z][A-Z0-9_]*$"
+        maxLength: 10
+        description: "IBM i library name (uppercase, max 10 chars)"
+    ```
+  </Accordion>
+
+  <Accordion title="Description Quality" icon="message">
+    **Write for AI agents:**
+    - Be specific about what data is returned
+    - Mention any special authority requirements
+    - Include parameter examples in descriptions
+    - Note any result limits or performance considerations
+
+    **Good example:**
+    ```yaml
+    description: "List active jobs sorted by CPU usage. Returns top 100 jobs. Requires connection to production system. Results updated every 5 seconds."
+    ```
+  </Accordion>
+
+  <Accordion title="Security Considerations" icon="lock">
+    **Mark sensitive tools:**
+    - Set `audit: true` for all tools accessing user data
+    - Use `readOnly: true` for SELECT-only operations
+    - Document required authorities in `security.requiredAuthority`
+    - Add warnings for potentially destructive operations
+
+    **Example:**
+    ```yaml
+    security:
+      readOnly: true
+      audit: true
+      requiredAuthority: "*SECADM"
+      warning: "Accesses security configuration. Use with caution."
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sources Reference" icon="database" href="/sql-tools/sources">
+    Configure database connection sources
+  </Card>
+  <Card title="Toolsets Reference" icon="layer-group" href="/sql-tools/toolsets">
+    Organize tools into logical groups
+  </Card>
+  <Card title="Building SQL Tools" icon="hammer" href="/sql-tools/building-tools">
+    Step-by-step guide with examples
+  </Card>
+  <Card title="Parameter Validation" icon="check-double" href="/sql-tools/validation">
+    Deep dive into validation rules
+  </Card>
+</CardGroup>
+
+<Note>
+**Tool Design Philosophy**: Effective tools are **discoverable** (clear names and descriptions), **safe** (proper validation and security), and **performant** (optimized SQL with result limits). Write tools for AI agent consumption, not just human readability.
+</Note>

@@ -32,8 +32,8 @@ RUN npm run build
 # Final stage with all dependencies and built code
 FROM base AS runner
 WORKDIR /usr/src/app
-# Copy ALL node_modules from the 'builder' stage (includes dev dependencies)
-COPY --from=builder /usr/src/app/node_modules ./node_modules
+# Copy ALL node_modules from the 'deps' stage (only includes production dependencies)
+COPY --from=deps /usr/src/app/node_modules ./node_modules
 # Copy built application from the 'builder' stage
 COPY --from=builder /usr/src/app/dist ./dist
 # Copy package.json (needed for potential runtime info, like version)

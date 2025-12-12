@@ -1,0 +1,334 @@
+---
+title: "Client Integration Overview"
+description: "Connect the IBM i MCP Server to Claude Desktop, VSCode, Cursor, and 10+ other MCP-compatible clients"
+---
+
+# Client Integration Overview
+
+The IBM i MCP Server can be integrated into any MCP-compatible client using either **local** (stdio) or **remote** (HTTP) connections. This guide provides an overview of supported clients and helps you choose the right integration approach.
+
+<Note>
+**Prerequisites**: Before integrating with clients, ensure you have:
+- IBM i MCP Server installed and built (`npm install && npm run build`)
+- Mapepire running on your IBM i system (see [Setup Mapepire](/setup-mapepire))
+- Your IBM i connection details (host, user, password, port)
+</Note>
+
+## Supported MCP Clients
+
+The IBM i MCP Server works with popular MCP-compatible clients across different platforms:
+
+<CardGroup cols={3}>
+  <Card title="Claude Desktop" icon="desktop" href="/clients/claude-desktop">
+    Official desktop app for macOS and Windows
+  </Card>
+  <Card title="Claude Code" icon="terminal" href="/clients/claude-code">
+    CLI tool with server management commands
+  </Card>
+  <Card title="VSCode" icon="code" href="/clients/vscode">
+    GitHub Copilot Chat integration
+  </Card>
+  <Card title="Cursor" icon="cursor" href="/clients/cursor">
+    AI-first code editor
+  </Card>
+  <Card title="Gemini CLI" icon="sparkles" href="/clients/gemini-cli">
+    Google AI command-line integration
+  </Card>
+  <Card title="Cline" icon="robot" href="/clients/cline">
+    VSCode extension for AI development
+  </Card>
+</CardGroup>
+
+## Transport Modes
+
+The IBM i MCP Server supports two transport protocols:
+
+<Tabs>
+  <Tab title="Stdio (Local)">
+    **Standard Input/Output** - Direct process communication
+
+    **Characteristics**:
+    - Runs locally on your machine
+    - Lower latency
+    - No network configuration needed
+    - Each client spawns its own server process
+
+    **Best for**:
+    - Desktop applications (Claude Desktop, Cursor)
+    - CLI tools (Claude Code)
+    - Development and testing
+    - Single-user scenarios
+
+    **Requirements**:
+    - Server must be installed locally
+    - Absolute path to tools directory
+    - Environment variables in client config
+  </Tab>
+
+  <Tab title="HTTP (Remote)">
+    **HTTP/WebSocket** - Network-based communication
+
+    **Characteristics**:
+    - Runs on a remote server
+    - Shared server instance
+    - Requires authentication (recommended)
+    - Network accessible
+
+    **Best for**:
+    - Team collaboration
+    - Production deployments
+    - Cloud environments
+    - Multiple users sharing resources
+
+    **Requirements**:
+    - Server running with HTTP transport
+    - Network accessibility
+    - Authentication tokens (IBM i auth recommended)
+    - HTTPS for production
+  </Tab>
+</Tabs>
+
+## Client Comparison
+
+| Client | Platform | Stdio | HTTP | Authentication | Notes |
+|--------|----------|:-----:|:----:|:--------------:|-------|
+| **Claude Desktop** | macOS, Windows | ✅ | ✅ | Bearer Token | Official desktop app |
+| **Claude Code** | CLI | ✅ | ✅ | Bearer Token | CLI server management |
+| **VSCode** | Editor | ✅ | ✅ | Bearer Token | Via Copilot Chat |
+| **Cursor** | Editor | ✅ | ✅ | Bearer Token | AI-first code editor |
+| **Gemini CLI** | CLI | ✅ | ✅ | Bearer Token | Google AI integration |
+| **Cline** | VSCode Ext | ✅ | ✅ | Bearer Token | streamableHttp support |
+
+## Setup Prerequisites
+
+### For Local (Stdio) Setup
+
+1. **Install the server globally:**
+   ```bash
+   cd ibmi-mcp-server
+   npm install
+   npm run build
+   npm link
+   ```
+
+2. **Verify installation:**
+   ```bash
+   which ibmi-mcp-server
+   # or
+   npx ibmi-mcp-server --help
+   ```
+
+3. **Note your tools path:**
+   - Must be an **absolute path**
+   - Example: `/Users/yourname/ibmi-mcp-server/tools`
+
+### For Remote (HTTP) Setup
+
+1. **Configure server for HTTP with authentication:**
+   ```bash
+   # In your .env file
+   MCP_TRANSPORT_TYPE=http
+   MCP_AUTH_MODE=ibmi
+   IBMI_HTTP_AUTH_ENABLED=true
+   IBMI_AUTH_ALLOW_HTTP=true  # Development only
+   ```
+
+2. **Generate RSA keypair (for IBM i auth):**
+   ```bash
+   mkdir -p secrets
+   openssl genpkey -algorithm RSA -out secrets/private.pem -pkeyopt rsa_keygen_bits:2048
+   openssl rsa -pubout -in secrets/private.pem -out secrets/public.pem
+   ```
+
+3. **Start the server:**
+   ```bash
+   npm run start:http
+   ```
+
+4. **Obtain access token:**
+   ```bash
+   node get-access-token.js --verbose
+   export IBMI_MCP_ACCESS_TOKEN="your-token-here"
+   ```
+
+## Authentication Methods
+
+<Accordion title="No Authentication (Development Only)">
+```bash
+MCP_AUTH_MODE=none
+```
+
+**Use for**: Local development, testing, trusted networks
+
+**⚠️ Warning**: Never use in production
+</Accordion>
+
+<Accordion title="IBM i HTTP Authentication (Recommended)">
+```bash
+MCP_AUTH_MODE=ibmi
+IBMI_HTTP_AUTH_ENABLED=true
+IBMI_AUTH_KEY_ID=production
+IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+```
+
+**Use for**: Per-user credentials, connection pooling, production
+
+**Features**:
+- Secure RSA+AES encryption
+- Per-user connection pools
+- Token-based access
+- IBM i credential validation
+</Accordion>
+
+<Accordion title="JWT Authentication">
+```bash
+MCP_AUTH_MODE=jwt
+MCP_AUTH_SECRET_KEY=your-secret-key-min-32-chars
+```
+
+**Use for**: Custom authentication systems, token-based auth
+</Accordion>
+
+<Accordion title="OAuth Authentication">
+```bash
+MCP_AUTH_MODE=oauth
+OAUTH_ISSUER_URL=https://your-auth-server.com
+OAUTH_AUDIENCE=ibmi-mcp-server
+```
+
+**Use for**: Enterprise SSO, external identity providers
+</Accordion>
+
+## Common Configuration Patterns
+
+<CodeGroup>
+```json Claude Desktop (Local)
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+```json Claude Desktop (Remote)
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "http://localhost:3010/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+```bash Claude Code (CLI)
+# Add local stdio server
+claude mcp add ibmi-mcp \
+  --env DB2i_HOST=your-ibmi-host.com \
+  --env DB2i_USER=your-username \
+  --env DB2i_PASS=your-password \
+  -- npx ibmi-mcp-server --tools /absolute/path/to/tools
+
+# Add remote HTTP server
+claude mcp add --transport http ibmi-mcp \
+  http://localhost:3010/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+```python Python (Agno)
+import asyncio
+from agno.agent import Agent
+from agno.tools.mcp import MCPTools, StreamableHTTPClientParams
+
+url = "http://localhost:3010/mcp"
+server_params = StreamableHTTPClientParams(
+    url=url,
+    headers={"Authorization": f"Bearer {token}"}
+)
+
+async def main():
+    async with MCPTools(
+        url=url,
+        server_params=server_params,
+        transport="streamable-http"
+    ) as tools:
+        agent = Agent(
+            model="openai:gpt-4o",
+            tools=[tools],
+            name="ibmi-agent"
+        )
+        await agent.aprint_response("What is the system status?")
+```
+</CodeGroup>
+
+## Next Steps
+
+1. **Choose your client** from the list above
+2. **Follow the specific setup guide** for your chosen client
+3. **Configure authentication** if using remote (HTTP) mode
+4. **Test the connection** by listing available tools
+5. **Start building** with SQL tools and agents
+
+<Info>
+For detailed setup instructions, click on any client card above or navigate using the sidebar. Each client has unique configuration requirements and capabilities.
+</Info>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection Refused">
+    - Verify server is running: `ps aux | grep ibmi-mcp-server`
+    - Check `npm link` worked: `which ibmi-mcp-server`
+    - Ensure `TOOLS_YAML_PATH` is an absolute path
+    - Verify IBM i credentials are correct
+  </Accordion>
+
+  <Accordion title="Authentication Failed (Remote)">
+    - Confirm server is running with `IBMI_HTTP_AUTH_ENABLED=true`
+    - Verify token is valid: `echo $IBMI_MCP_ACCESS_TOKEN`
+    - Check server logs for authentication errors
+    - Ensure HTTPS is used in production
+  </Accordion>
+
+  <Accordion title="Tools Not Loading">
+    - Validate YAML configuration: `npm run validate -- --config tools`
+    - Check file permissions on tools directory
+    - Use `--list-toolsets` to see available tools
+    - Review server startup logs for parsing errors
+  </Accordion>
+
+  <Accordion title="npx Command Not Found">
+    Use direct node path instead:
+    ```json
+    {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/ibmi-mcp-server/dist/index.js",
+        "--tools",
+        "/absolute/path/to/tools"
+      ]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Additional Resources
+
+- [Configuration Reference](/configuration) - All environment variables
+- [IBM i Authentication](/configuration#ibm-i-authentication-settings) - Secure token setup
+- [Quick Start Guide](/quickstart) - Basic server setup
+- [SQL Tools](/sql-tools/overview) - Creating custom tools
