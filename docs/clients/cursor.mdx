@@ -22,7 +22,7 @@ Cursor is an AI-first code editor with native MCP support. It provides seamless 
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -68,7 +68,7 @@ The `--tools` path must be an **absolute path**.
   <Accordion title="Server Not Appearing">
     - Verify JSON syntax in configuration file
     - Restart Cursor completely
-    - Check that `npx ibmi-mcp-server` works from terminal
+    - Check that `npx @ibm/ibmi-mcp-server@latest` works from terminal
     - Ensure all paths are absolute
   </Accordion>
 

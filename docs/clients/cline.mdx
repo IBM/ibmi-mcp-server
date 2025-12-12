@@ -38,7 +38,7 @@ Install Cline from the VSCode marketplace:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -115,7 +115,7 @@ After configuration:
     **Solutions**:
     - Verify JSON syntax in configuration
     - Restart VSCode (not just Cline)
-    - Check that `npx ibmi-mcp-server` works from terminal
+    - Check that `npx @ibm/ibmi-mcp-server@latest` works from terminal
     - Ensure all paths are absolute
     - Check VSCode Output panel for errors
   </Accordion>
@@ -156,7 +156,7 @@ Configure different servers for dev and production:
   "mcpServers": {
     "ibmi-dev": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "DEVUSER",
@@ -185,7 +185,7 @@ Load specific toolsets for focused workflows:
     "ibmi-performance": {
       "command": "npx",
       "args": [
-        "ibmi-mcp-server",
+        "@ibm/ibmi-mcp-server@latest", "-y",
         "--tools", "/path/to/tools",
         "--toolsets", "performance,security"
       ],

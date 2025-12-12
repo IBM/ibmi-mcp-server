@@ -329,28 +329,28 @@ Control which toolsets are loaded at server startup:
 
 ```bash
 # No --toolsets parameter loads everything
-npx ibmi-mcp-server --tools tools/my-tools.yaml
+npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml
 ```
 
 ### Load Specific Toolsets
 
 ```bash
 # Load single toolset
-npx ibmi-mcp-server --tools tools/my-tools.yaml --toolsets performance_monitoring
+npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets performance_monitoring
 
 # Load multiple toolsets (comma-separated)
-npx ibmi-mcp-server --tools tools/my-tools.yaml --toolsets performance_monitoring,security_audit
+npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets performance_monitoring,security_audit
 
 # Load from environment variable
 SELECTED_TOOLSETS=employee_information,payroll_processing
-npx ibmi-mcp-server --tools tools/my-tools.yaml --toolsets $SELECTED_TOOLSETS
+npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets $SELECTED_TOOLSETS
 ```
 
 ### List Available Toolsets
 
 ```bash
 # Show all toolsets without starting the server
-npx ibmi-mcp-server --list-toolsets --tools tools/my-tools.yaml
+npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools/my-tools.yaml
 ```
 
 **Output:**
@@ -434,10 +434,10 @@ toolsets:
 **Load all files:**
 ```bash
 # Load entire directory
-npx ibmi-mcp-server --tools tools/
+npx @ibm/ibmi-mcp-server@latest --tools tools/
 
 # Load directory with specific toolsets
-npx ibmi-mcp-server --tools tools/ --toolsets performance_monitoring,security_audit
+npx @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring,security_audit
 ```
 
 ---
@@ -671,7 +671,7 @@ SELECTED_TOOLSETS=production_readonly,system_monitoring
 
 **Start server:**
 ```bash
-npx ibmi-mcp-server --tools tools/ --toolsets $SELECTED_TOOLSETS
+npx @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets $SELECTED_TOOLSETS
 ```
 
 ---

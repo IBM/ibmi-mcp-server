@@ -52,7 +52,7 @@ code --add-mcp '{
   "name": "ibmiMcp",
   "type": "stdio",
   "command": "npx",
-  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+  "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
   "env": {
     "DB2i_HOST": "your-ibmi-host.com",
     "DB2i_USER": "your-username",
@@ -73,7 +73,7 @@ Create or edit `mcp.json`:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -150,7 +150,7 @@ VSCode supports input variables to avoid hardcoding sensitive credentials:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "${input:db2iHost}",
         "DB2i_USER": "${input:db2iUser}",
@@ -205,7 +205,7 @@ After configuration:
 
   <Accordion title="Server Fails to Start">
     **Solutions**:
-    - Verify `npx ibmi-mcp-server` works from terminal
+    - Verify `npx @ibm/ibmi-mcp-server@latest` works from terminal
     - Check all paths are absolute
     - Ensure IBM i credentials are correct
     - Review VSCode Developer Tools: Help → Toggle Developer Tools
@@ -259,7 +259,7 @@ Share MCP configuration with your team via `.vscode/mcp.json`:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "${workspaceFolder}/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "${workspaceFolder}/tools"],
       "env": {
         "DB2i_HOST": "${input:db2iHost}",
         "DB2i_USER": "${input:db2iUser}",
@@ -282,7 +282,7 @@ Configure dev and prod servers:
     "ibmi-dev": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "${input:devUser}",
@@ -312,7 +312,7 @@ Load specific toolsets for different workflows:
       "type": "stdio",
       "command": "npx",
       "args": [
-        "ibmi-mcp-server",
+        "@ibm/ibmi-mcp-server@latest", "-y",
         "--tools", "/path/to/tools",
         "--toolsets", "performance,monitoring"
       ],

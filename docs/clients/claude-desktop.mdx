@@ -50,7 +50,7 @@ Edit `claude_desktop_config.json`:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -134,7 +134,7 @@ Claude Desktop supports environment variable expansion for secure credential man
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "${IBMI_TOOLS_PATH}"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "${IBMI_TOOLS_PATH}"],
       "env": {
         "DB2i_HOST": "${DB2i_HOST}",
         "DB2i_USER": "${DB2i_USER}",
@@ -186,7 +186,7 @@ If configured correctly, Claude should list the IBM i MCP tools and be able to e
 
     **Solutions**:
     - Verify JSON syntax in `claude_desktop_config.json`
-    - Check that `npx ibmi-mcp-server` works from terminal
+    - Check that `npx @ibm/ibmi-mcp-server@latest` works from terminal
     - Ensure absolute paths are used for `--tools`
     - Restart Claude Desktop completely (Cmd+Q / Alt+F4, then relaunch)
     - Check Claude Desktop logs for errors
@@ -237,7 +237,7 @@ Configure multiple server instances for different IBM i systems:
   "mcpServers": {
     "ibmi-dev": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "DEVUSER",
@@ -266,7 +266,7 @@ Load specific toolsets instead of all tools:
     "ibmi-mcp": {
       "command": "npx",
       "args": [
-        "ibmi-mcp-server",
+        "@ibm/ibmi-mcp-server@latest", "-y",
         "--tools", "/absolute/path/to/tools",
         "--toolsets", "performance,security"
       ],

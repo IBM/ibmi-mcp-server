@@ -55,36 +55,86 @@ The MCP Server is a TypeScript implementation that enables AI agents to execute 
 
 ### Quick Start
 
-1. **Install Mapepire** (see [Setup Mapepire](#-setup-mapepire) below)
-2. **Clone Repo:**
+Choose your installation method:
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### **NPM Package (Recommended)**
+
+**Prerequisites:**
+- [Mapepire](#-setup-mapepire) installed on IBM i
+- Node.js 18+ installed
+
+**Steps:**
+
+1. **Create configuration file:**
    ```bash
-    git clone https://github.com/IBM/ibmi-mcp-server.git
-    cd ibmi-mcp-server
+   cat > .env << 'EOF'
+   DB2i_HOST=your-ibmi-host.com
+   DB2i_USER=your-username
+   DB2i_PASS=your-password
+   DB2i_PORT=8076
+   DB2i_IGNORE_UNAUTHORIZED=true
+   EOF
    ```
 
-3. **Create a configuration file:**
+2. **Run the server:**
    ```bash
-    cp .env.example .env
+   export MCP_SERVER_CONFIG=.env
+   npx @ibm/ibmi-mcp-server@latest -y --transport http
    ```
-   fill out Db2 for i Credentials:
-   ```env
-    DB2i_HOST=your-ibmi-host.com
-    DB2i_USER=your-username
-    DB2i_PASS=your-password
-    DB2i_PORT=8076
-    DB2i_IGNORE_UNAUTHORIZED=true
+
+3. **Verify it's running:**
+   ```bash
+   curl http://localhost:3010/healthz
+   ```
+
+> **Benefits:** Always up-to-date, no build required, instant setup
+
+</td>
+<td width="50%" valign="top">
+
+#### **Build from Source**
+
+**Prerequisites:**
+- [Mapepire](#-setup-mapepire) installed on IBM i
+- Node.js 18+ and npm installed
+- Git installed
+
+**Steps:**
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/IBM/ibmi-mcp-server.git
+   cd ibmi-mcp-server
+   ```
+
+2. **Create configuration file:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
+
+3. **Install dependencies and build:**
+   ```bash
+   cd server
+   npm install
+   npm run build
    ```
 
 4. **Run the server:**
    ```bash
-   export MCP_SERVER_CONFIG=.env
-   npx @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
+   export MCP_SERVER_CONFIG=../.env
+   npm run start:http
    ```
 
-5. **Verify it's running:**
-   ```bash
-   curl http://localhost:3010/healthz
-   ```
+> **Benefits:** Latest development features, customization options
+
+</td>
+</tr>
+</table>
 
 ### What You Can Do
 

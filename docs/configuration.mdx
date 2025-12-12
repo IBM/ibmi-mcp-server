@@ -11,6 +11,44 @@ Always use a `.env` file for local development and secure environment variable m
 
 ---
 
+## Loading Your Configuration
+
+Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to point to your configuration file:
+
+<Tabs>
+  <Tab title="NPM Package">
+    ```bash
+    # Point to your .env file
+    export MCP_SERVER_CONFIG=.env
+
+    # Start the server - it will automatically load the config
+    npx @ibm/ibmi-mcp-server@latest -y --transport http
+    ```
+
+    The server loads the file specified by `MCP_SERVER_CONFIG` on startup.
+  </Tab>
+
+  <Tab title="Build from Source">
+    ```bash
+    # Point to your .env file (from repository root)
+    export MCP_SERVER_CONFIG=.env
+
+    # Or use relative path from server directory
+    export MCP_SERVER_CONFIG=../.env
+
+    # Start the server
+    cd server
+    npm run start:http
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+**How it works:** The `MCP_SERVER_CONFIG` environment variable tells the server where to find your configuration file. Without it, you'd need to pass each variable individually as environment variables. CLI arguments (like `--transport http`) override values in the config file.
+</Note>
+
+---
+
 ## Minimal Working Configuration
 
 **Start here** if you're setting up for the first time. This minimal configuration is sufficient to get the server running:
@@ -436,6 +474,13 @@ Below is the reference for core server configuration options. Each section inclu
 ## SQL Tools Configuration
 
 **Load and manage YAML-defined SQL tools.** These settings control how the server discovers, loads, and reloads SQL tool definitions from YAML configuration files. You can load tools from individual files, entire directories, or use glob patterns to organize tools into logical groups (toolsets) for different use cases.
+
+<Warning>
+**Path Requirements:**
+- `TOOLS_YAML_PATH` in `.env` files should use **absolute paths** to avoid issues when the server is started from different directories
+- For relative paths, use the `--tools` CLI argument instead: `npx @ibm/ibmi-mcp-server@latest -y --tools ./tools`
+- CLI arguments override environment variables, so `--tools` always takes precedence over `TOOLS_YAML_PATH`
+</Warning>
 
 For detailed information on creating SQL tools, see the [SQL Tools Overview](/sql-tools/overview) and [Building SQL Tools](/sql-tools/building-tools) guides.
 

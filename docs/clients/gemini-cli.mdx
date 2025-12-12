@@ -39,7 +39,7 @@ Open `~/.gemini/settings.json` and add the following to the `mcpServers` object:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -117,7 +117,7 @@ You can configure multiple MCP servers for different purposes:
   "mcpServers": {
     "ibmi-dev": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "devuser",
@@ -142,7 +142,7 @@ You can configure multiple MCP servers for different purposes:
   <Accordion title="Server Not Found">
     **Solutions**:
     - Verify `~/.gemini/settings.json` exists and has valid JSON
-    - Check that `npx ibmi-mcp-server` works from terminal
+    - Check that `npx @ibm/ibmi-mcp-server@latest` works from terminal
     - Ensure Node.js and npm are in PATH
     - Restart Gemini CLI after configuration changes
   </Accordion>
@@ -174,7 +174,7 @@ Load specific toolsets for focused workflows:
     "ibmi-performance": {
       "command": "npx",
       "args": [
-        "ibmi-mcp-server",
+        "@ibm/ibmi-mcp-server@latest", "-y",
         "--tools", "/path/to/tools",
         "--toolsets", "performance,monitoring"
       ],

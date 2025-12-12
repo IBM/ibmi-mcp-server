@@ -44,7 +44,6 @@
                   "sql-tools/toolsets"
                 ]
               },
-              "sql-tools/building-tools",
               "sql-tools/parameter-guide",
               "sql-tools/output-formats"
             ]

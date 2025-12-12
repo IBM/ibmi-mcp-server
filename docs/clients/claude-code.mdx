@@ -37,14 +37,14 @@ claude mcp add ibmi-mcp \
   --env DB2i_PASS=your-password \
   --env DB2i_PORT=8076 \
   --env MCP_TRANSPORT_TYPE=stdio \
-  -- npx ibmi-mcp-server --tools /absolute/path/to/tools
+  -- npx @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 ```
 
 **Option 2: With environment variable file**
 ```bash
 # Create .env file with credentials first
 claude mcp add ibmi-mcp \
-  -- npx ibmi-mcp-server --tools /absolute/path/to/tools
+  -- npx @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 ```
 
 ### Using Configuration File
@@ -56,7 +56,7 @@ Edit `.mcp.json` in your home directory:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -118,7 +118,7 @@ Claude Code supports environment variable expansion for secure credential manage
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "${IBMI_TOOLS_PATH}"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "${IBMI_TOOLS_PATH}"],
       "env": {
         "DB2i_HOST": "${DB2i_HOST}",
         "DB2i_USER": "${DB2i_USER}",
@@ -178,18 +178,18 @@ When adding servers, you can use various CLI options:
 ```bash
 # With specific toolsets
 claude mcp add ibmi-mcp \
-  -- npx ibmi-mcp-server \
+  -- npx @ibm/ibmi-mcp-server@latest \
      --tools /path/to/tools \
      --toolsets performance,security
 
 # With transport override
 claude mcp add ibmi-mcp \
-  -- npx ibmi-mcp-server \
+  -- npx @ibm/ibmi-mcp-server@latest \
      --transport stdio \
      --tools /path/to/tools
 
 # List available toolsets
-npx ibmi-mcp-server --list-toolsets --tools /path/to/tools
+npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path/to/tools
 ```
 
 ## Troubleshooting
@@ -225,7 +225,7 @@ npx ibmi-mcp-server --list-toolsets --tools /path/to/tools
     **Solutions**:
     - Verify tools path is absolute: `/full/path/to/tools`
     - Check YAML files are valid
-    - Test tools path: `npx ibmi-mcp-server --list-toolsets --tools /path`
+    - Test tools path: `npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path`
     - Check IBM i connection credentials
   </Accordion>
 </AccordionGroup>
@@ -241,7 +241,7 @@ Configure different servers for dev and production:
   "mcpServers": {
     "ibmi-dev": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "DEVUSER",
@@ -267,13 +267,13 @@ Switch between different tool configurations:
 ```bash
 # Add server with custom tools
 claude mcp add ibmi-performance \
-  -- npx ibmi-mcp-server \
+  -- npx @ibm/ibmi-mcp-server@latest \
      --tools /path/to/performance-tools \
      --toolsets monitoring,diagnostics
 
 # Add server with all tools
 claude mcp add ibmi-all \
-  -- npx ibmi-mcp-server \
+  -- npx @ibm/ibmi-mcp-server@latest \
      --tools /path/to/all-tools
 ```
 

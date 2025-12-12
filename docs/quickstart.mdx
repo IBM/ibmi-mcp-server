@@ -59,65 +59,140 @@ Complete these prerequisites before starting the installation:
 
 ## Step 1: Installation
 
-<Note>
-**Repository Structure**: The IBM i MCP Server follows a modular architecture:
-- `server/` - MCP server implementation (main package)
-- `tools/` - SQL tool YAML configurations
-- `agents/` - Agent implementations and examples
-- `apps/` - Deployment configurations (Docker, Gateway, n8n)
-</Note>
+Choose your installation method based on your needs:
 
-Clone the repository and install dependencies:
+<Tabs>
+  <Tab title="NPM Package (Recommended)">
+    **Best for:** Production use, quick setup, always-updated package
 
-```bash
-git clone https://github.com/IBM/ibmi-mcp-server.git
-cd ibmi-mcp-server/
-npm install
-```
+    The official npm package provides instant installation without building from source.
 
-Build the project:
+    ```bash
+    # No installation needed - npx downloads and runs automatically
+    npx @ibm/ibmi-mcp-server@latest -y --help
+    ```
 
-```bash
-npm run build
-```
+    **Benefits:**
+    - ✅ Always up-to-date with latest stable release
+    - ✅ No build step required
+    - ✅ Instant setup in seconds
+    - ✅ Automatic dependency management
+    - ✅ Perfect for CI/CD pipelines
 
-<Tip>
-Use `npm run rebuild` for a clean install if you encounter any issues.
-</Tip>
+    <Note>
+    The `-y` flag automatically accepts the npm package installation prompt. You can omit it if you want to confirm before installation.
+    </Note>
 
-<Success>
-✓ **Verify the build succeeded:**
-- No error messages in the output
-- `dist/` directory was created
-- `dist/index.js` exists
+    <Success>
+    ✓ **Verify the package works:**
+    ```bash
+    npx @ibm/ibmi-mcp-server@latest -y --help
+    ```
 
-**Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
-</Success>
+    You should see the help output with available options.
+    </Success>
+
+    **Next:** Skip to [Step 2: Configuration](#step-2-configuration)
+  </Tab>
+
+  <Tab title="Build from Source">
+    **Best for:** Development, customization, contributing, latest features
+
+    <Note>
+    **Repository Structure**: The IBM i MCP Server follows a modular architecture:
+    - `server/` - MCP server implementation (main package)
+    - `tools/` - SQL tool YAML configurations
+    - `agents/` - Agent implementations and examples
+    - `deployment/` - Deployment configurations (Docker, Gateway, OpenShift)
+    </Note>
+
+    Clone the repository and install dependencies:
+
+    ```bash
+    git clone https://github.com/IBM/ibmi-mcp-server.git
+    cd ibmi-mcp-server/server
+    npm install
+    ```
+
+    Build the project:
+
+    ```bash
+    npm run build
+    ```
+
+    <Tip>
+    Use `npm run rebuild` for a clean install if you encounter any issues.
+    </Tip>
+
+    <Success>
+    ✓ **Verify the build succeeded:**
+    - No error messages in the output
+    - `dist/` directory was created
+    - `dist/index.js` exists
+
+    **Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
+    </Success>
+
+    **Benefits:**
+    - ✅ Access to latest development features
+    - ✅ Ability to modify and customize code
+    - ✅ Contribute back to the project
+    - ✅ Debug and troubleshoot at source level
+  </Tab>
+</Tabs>
 
 ---
 
 ## Step 2: Configuration
 
-Create your environment configuration:
+Create your environment configuration file:
 
-```bash
-cp .env.example .env
-```
+<Tabs>
+  <Tab title="NPM Package">
+    Create a `.env` file in your current directory:
 
-Edit the `.env` file with your IBM i connection details:
+    ```bash
+    cat > .env << 'EOF'
+    # IBM i DB2 for i Connection Settings
+    DB2i_HOST=your-ibmi-host
+    DB2i_USER=your-username
+    DB2i_PASS=your-password
+    DB2i_PORT=8076
+    DB2i_IGNORE_UNAUTHORIZED=true
 
-```bash
-# IBM i DB2 for i Connection Settings
-DB2i_HOST=your-ibmi-host
-DB2i_USER=your-username
-DB2i_PASS=your-password
-DB2i_PORT=8076
-DB2i_IGNORE_UNAUTHORIZED=true
+    # Server Configuration
+    MCP_TRANSPORT_TYPE=http
+    MCP_HTTP_PORT=3010
+    EOF
+    ```
 
-# Server Configuration
-MCP_TRANSPORT_TYPE=http
-MCP_HTTP_PORT=3010
-```
+    Edit the file and replace the placeholder values with your actual IBM i credentials.
+  </Tab>
+
+  <Tab title="Build from Source">
+    Copy the example configuration and edit it:
+
+    ```bash
+    # From ibmi-mcp-server directory
+    cp .env.example .env
+    ```
+
+    Edit the `.env` file with your IBM i connection details:
+
+    ```bash
+    # IBM i DB2 for i Connection Settings
+    DB2i_HOST=your-ibmi-host
+    DB2i_USER=your-username
+    DB2i_PASS=your-password
+    DB2i_PORT=8076
+    DB2i_IGNORE_UNAUTHORIZED=true
+
+    # Server Configuration
+    MCP_TRANSPORT_TYPE=http
+    MCP_HTTP_PORT=3010
+    ```
+  </Tab>
+</Tabs>
 
 <Warning>
 Replace the connection values with your actual IBM i system credentials. The user profile must have appropriate authorities for database operations.
@@ -141,41 +216,41 @@ Replace the connection values with your actual IBM i system credentials. The use
 
 ## Step 3: Start the Server
 
-Choose the transport mode based on how you'll connect clients:
+Start the server in HTTP mode for the best experience with AI clients:
 
 <Tabs>
-  <Tab title="HTTP Transport (Recommended)">
-    **Choose this if you want to:**
-    - Connect from web applications or remote machines
-    - Use Claude Desktop, VSCode, or Cursor
-    - Deploy in production environments
-    - Have multiple concurrent clients
-
+  <Tab title="NPM Package (Recommended)">
     ```bash
+    export MCP_SERVER_CONFIG=.env
+    npx @ibm/ibmi-mcp-server@latest -y --transport http
+    ```
+
+    **Session Modes**:
+    - `auto` (default): Automatically detects client capabilities ← **Start with this**
+    - `stateful`: Maintains persistent sessions with connection state
+    - `stateless`: Each request is independent, no session state
+
+    Set via environment: `MCP_SESSION_MODE=stateful npx @ibm/ibmi-mcp-server@latest -y --transport http`
+  </Tab>
+
+  <Tab title="Build from Source">
+    ```bash
+    # From server/ directory
     npm run start:http
     ```
 
-    **Session Modes (HTTP Only)**:
+    **Session Modes**:
     - `auto` (default): Automatically detects client capabilities ← **Start with this**
     - `stateful`: Maintains persistent sessions with connection state
     - `stateless`: Each request is independent, no session state
 
     Set via environment: `MCP_SESSION_MODE=stateful npm run start:http`
   </Tab>
-
-  <Tab title="Stdio Transport">
-    **Choose this if you want to:**
-    - Use MCP Inspector for testing
-    - Connect from CLI tools on the same machine
-    - Test in development before HTTP deployment
-
-    ```bash
-    npm run start:stdio
-    ```
-
-    **Note**: Most production deployments use HTTP transport.
-  </Tab>
 </Tabs>
+
+<Note>
+**Alternative: Stdio Transport** - For MCP Inspector or CLI tools, use `--transport stdio` (NPM package) or `npm run start:stdio` (build from source). However, HTTP transport is recommended for most use cases.
+</Note>
 
 **Available CLI Options**:
 

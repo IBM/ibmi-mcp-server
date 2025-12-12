@@ -292,13 +292,13 @@ GET /mcp/tools/list
 **Configuration flexibility:**
 ```bash
 # Load specific YAML file
-npx ibmi-mcp-server --tools tools/my-tools.yaml
+npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml
 
 # Load entire directory
-npx ibmi-mcp-server --tools tools/
+npx @ibm/ibmi-mcp-server@latest --tools tools/
 
 # Load specific toolsets only
-npx ibmi-mcp-server --tools tools/ --toolsets performance,security
+npx @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance,security
 ```
 
 ### 3. Connection Management
