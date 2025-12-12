@@ -39,6 +39,15 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
 | **`client/`** | Python client examples for testing | [Client README](./client/README.md) |
 | **`deployment/`** | Docker, Podman, OpenShift configs | [Deployment Guide](./deployment/README.md) |
 
+### 📖 Quick Navigation
+
+- [🚀 MCP Server](#-mcp-server) - Get started with the server
+- [🧩 SQL Tools](#-sql-tools) - Create custom SQL tools
+- [🤖 AI Agents](#-ai-agents) - Use agent frameworks
+- [🐍 Python Clients](#-python-clients) - Test with Python clients
+- [📦 Deployment](#-deployment) - Deploy to production
+- [📡 Setup Mapepire](#-setup-mapepire) - Install prerequisite
+
 ---
 
 ## 🚀 MCP Server
