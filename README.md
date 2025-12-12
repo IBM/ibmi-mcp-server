@@ -49,19 +49,14 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
     - [Why Mapepire Enables AI and MCP Workloads](#why-mapepire-enables-ai-and-mcp-workloads)
     - [Installation](#installation)
   - [⚡ Quickstart](#-quickstart)
-    - [Create Configuration File](#create-configuration-file)
-    - [Set Configuration Path](#set-configuration-path)
-    - [Run the Server](#run-the-server)
-    - [Verify Server is Running](#verify-server-is-running)
-    - [Test with Python Client (Optional)](#test-with-python-client-optional)
+    - [1. Create Configuration File](#1-create-configuration-file)
+    - [2. Set Configuration Path](#2-set-configuration-path)
+    - [3. Run the Server](#3-run-the-server)
+    - [4. Verify Server is Running](#4-verify-server-is-running)
+    - [5. Test with Python Client (Optional)](#5-test-with-python-client-optional)
   - [🎯 What's Next?](#-whats-next)
   - [CLI Reference](#cli-reference)
-    - [Basic Usage](#basic-usage)
-    - [Available Options](#available-options)
   - [🔌 Installing in MCP Clients](#-installing-in-mcp-clients)
-    - [Prerequisites: Local Installation](#prerequisites-local-installation)
-    - [Remote Server Setup](#remote-server-setup)
-    - [Client Configurations](#client-configurations)
   - [🧩 SQL Tool Configuration](#-sql-tool-configuration)
     - [Sources](#sources)
     - [Tools](#tools)
@@ -126,7 +121,7 @@ sc start mapepire
 
 Get started with the IBM i MCP Server using the official npm package.
 
-### Create Configuration File
+### 1. Create Configuration File
 
 Create a `.env` file with your IBM i connection details:
 
@@ -152,7 +147,7 @@ EOF
 
 > **📖 Configuration Guide:** See the complete [Configuration](#⚙️-configuration) section for all available settings.
 
-### Set Configuration Path
+### 2. Set Configuration Path
 
 Point the server to your configuration file using the `MCP_SERVER_CONFIG` environment variable:
 
@@ -163,7 +158,7 @@ export MCP_SERVER_CONFIG=.env
 
 > **Note:** CLI arguments override settings in the configuration file.
 
-### Run the Server
+### 3. Run the Server
 
 Start the server using the official npm package:
 
@@ -191,7 +186,7 @@ npx @ibm/ibmi-mcp-server@latest --transport stdio --tools ./tools
 npx @ibm/ibmi-mcp-server@latest --transport http --toolsets performance,security
 ```
 
-### Verify Server is Running
+### 4. Verify Server is Running
 
 Test the server endpoint:
 
@@ -205,7 +200,7 @@ curl -X POST http://localhost:3010/mcp \
   -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}'
 ```
 
-### Test with Python Client (Optional)
+### 5. Test with Python Client (Optional)
 
 Install and run the example Python client:
 
