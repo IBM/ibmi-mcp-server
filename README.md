@@ -57,7 +57,7 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
   - [🎯 What's Next?](#-whats-next)
   - [CLI Reference](#cli-reference)
     - [Basic Usage](#basic-usage)
-    - [Available Options](#available-options)********
+    - [Available Options](#available-options)
   - [🔌 Installing in MCP Clients](#-installing-in-mcp-clients)
     - [Prerequisites: Local Installation](#prerequisites-local-installation)
     - [Remote Server Setup](#remote-server-setup)
