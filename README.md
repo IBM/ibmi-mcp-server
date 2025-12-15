@@ -1,6 +1,6 @@
 <div align="center">
 
-# ibmi-mcp-server (⚠️ Under Active Development)
+# ibmi-mcp-server
 
 **MCP server for IBM i**
 
@@ -51,7 +51,7 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
 
 ## 🚀 MCP Server
 
-The MCP Server is a TypeScript implementation that enables AI agents to execute SQL queries on IBM i systems through YAML-defined tools.
+The MCP Server enables AI agents to execute SQL queries on IBM i systems through YAML-defined SQL tools.
 
 ### Quick Start
 

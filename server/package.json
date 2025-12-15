@@ -1,7 +1,7 @@
 {
   "name": "@ibm/ibmi-mcp-server",
   "version": "0.1.2",
-  "description": "A production-grade TypeScript template for building robust Model Context Protocol (MCP) servers, featuring built-in observability with OpenTelemetry, advanced error handling, comprehensive utilities, and a modular architecture.",
+  "description": "A production-grade MCP server for IBM i",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
