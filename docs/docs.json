@@ -86,6 +86,7 @@
               "clients/overview",
               "clients/claude-desktop",
               "clients/claude-code",
+              "clients/bob",
               "clients/vscode",
               "clients/cursor",
               "clients/gemini-cli",

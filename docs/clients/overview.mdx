@@ -25,6 +25,9 @@ The IBM i MCP Server works with popular MCP-compatible clients across different 
   <Card title="Claude Code" icon="terminal" href="/clients/claude-code">
     CLI tool with server management commands
   </Card>
+  <Card title="IBM Bob" icon="briefcase" href="/clients/bob">
+    IBM's AI-powered development assistant
+  </Card>
   <Card title="VSCode" icon="code" href="/clients/vscode">
     GitHub Copilot Chat integration
   </Card>
@@ -92,8 +95,9 @@ The IBM i MCP Server supports two transport protocols:
 
 | Client | Platform | Stdio | HTTP | Authentication | Notes |
 |--------|----------|:-----:|:----:|:--------------:|-------|
-| **Claude Desktop** | macOS, Windows | ✅ | ✅ | Bearer Token | Official desktop app |
+| **Claude Desktop** | macOS, Windows | ✅ | ❌ | N/A | Official desktop app (stdio only) |
 | **Claude Code** | CLI | ✅ | ✅ | Bearer Token | CLI server management |
+| **IBM Bob** | IDE | ✅ | ✅ | Bearer Token | IBM's AI assistant (6,000+ users) |
 | **VSCode** | Editor | ✅ | ✅ | Bearer Token | Via Copilot Chat |
 | **Cursor** | Editor | ✅ | ✅ | Bearer Token | AI-first code editor |
 | **Gemini CLI** | CLI | ✅ | ✅ | Bearer Token | Google AI integration |
@@ -114,7 +118,7 @@ The IBM i MCP Server supports two transport protocols:
 
     2. **Test the package:**
        ```bash
-       npx @ibm/ibmi-mcp-server@latest --help
+       npx -y @ibm/ibmi-mcp-server@latest --help
        ```
 
     3. **Note your tools path:**
@@ -275,7 +279,7 @@ claude mcp add ibmi-mcp \
   --env DB2i_HOST=your-ibmi-host.com \
   --env DB2i_USER=your-username \
   --env DB2i_PASS=your-password \
-  -- npx @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
+  -- npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 
 # Add remote HTTP server
 claude mcp add --transport http ibmi-mcp \

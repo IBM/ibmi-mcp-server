@@ -69,7 +69,7 @@ Choose your installation method based on your needs:
 
     ```bash
     # No installation needed - npx downloads and runs automatically
-    npx @ibm/ibmi-mcp-server@latest -y --help
+    npx -y @ibm/ibmi-mcp-server@latest --help
     ```
 
     **Benefits:**
@@ -86,7 +86,7 @@ Choose your installation method based on your needs:
     <Success>
     ✓ **Verify the package works:**
     ```bash
-    npx @ibm/ibmi-mcp-server@latest -y --help
+    npx -y @ibm/ibmi-mcp-server@latest --help
     ```
 
     You should see the help output with available options.
@@ -326,7 +326,7 @@ Start the server in HTTP mode with your new SQL tool:
   <Tab title="NPM Package (Recommended)">
     ```bash
     export MCP_SERVER_CONFIG=.env
-    npx @ibm/ibmi-mcp-server@latest -y --transport http --tools ./tools/quickstart.yaml
+    npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quickstart.yaml
     ```
 
     **Session Modes**:
@@ -334,7 +334,7 @@ Start the server in HTTP mode with your new SQL tool:
     - `stateful`: Maintains persistent sessions with connection state
     - `stateless`: Each request is independent, no session state
 
-    Set via environment: `MCP_SESSION_MODE=stateful npx @ibm/ibmi-mcp-server@latest -y --transport http`
+    Set via environment: `MCP_SESSION_MODE=stateful npx -y @ibm/ibmi-mcp-server@latest --transport http`
   </Tab>
 
   <Tab title="Build from Source">

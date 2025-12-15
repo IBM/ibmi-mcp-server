@@ -3,8 +3,6 @@ title: "Gemini CLI"
 description: "Configure IBM i MCP Server with Google's Gemini CLI"
 ---
 
-# Gemini CLI Integration
-
 The Gemini CLI provides command-line access to Google's Gemini AI models with MCP server support for enhanced capabilities.
 
 <Note>
@@ -142,7 +140,7 @@ You can configure multiple MCP servers for different purposes:
   <Accordion title="Server Not Found">
     **Solutions**:
     - Verify `~/.gemini/settings.json` exists and has valid JSON
-    - Check that `npx @ibm/ibmi-mcp-server@latest` works from terminal
+    - Check that `npx -y @ibm/ibmi-mcp-server@latest` works from terminal
     - Ensure Node.js and npm are in PATH
     - Restart Gemini CLI after configuration changes
   </Accordion>
@@ -208,6 +206,6 @@ Load specific toolsets for focused workflows:
 
 ## Additional Resources
 
-- [Gemini CLI MCP Documentation](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html)
+- [Gemini CLI MCP Documentation](https://geminicli.com/docs/tools/mcp-server/)
 - [Gemini CLI Installation](https://google-gemini.github.io/gemini-cli/)
 - [IBM i MCP Quick Start](/quickstart)

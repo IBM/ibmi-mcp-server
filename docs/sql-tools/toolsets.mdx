@@ -329,28 +329,28 @@ Control which toolsets are loaded at server startup:
 
 ```bash
 # No --toolsets parameter loads everything
-npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml
 ```
 
 ### Load Specific Toolsets
 
 ```bash
 # Load single toolset
-npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets performance_monitoring
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets performance_monitoring
 
 # Load multiple toolsets (comma-separated)
-npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets performance_monitoring,security_audit
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets performance_monitoring,security_audit
 
 # Load from environment variable
 SELECTED_TOOLSETS=employee_information,payroll_processing
-npx @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets $SELECTED_TOOLSETS
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml --toolsets $SELECTED_TOOLSETS
 ```
 
 ### List Available Toolsets
 
 ```bash
 # Show all toolsets without starting the server
-npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools/my-tools.yaml
+npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools/my-tools.yaml
 ```
 
 **Output:**
@@ -434,10 +434,10 @@ toolsets:
 **Load all files:**
 ```bash
 # Load entire directory
-npx @ibm/ibmi-mcp-server@latest --tools tools/
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/
 
 # Load directory with specific toolsets
-npx @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring,security_audit
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring,security_audit
 ```
 
 ---
@@ -671,7 +671,7 @@ SELECTED_TOOLSETS=production_readonly,system_monitoring
 
 **Start server:**
 ```bash
-npx @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets $SELECTED_TOOLSETS
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets $SELECTED_TOOLSETS
 ```
 
 ---

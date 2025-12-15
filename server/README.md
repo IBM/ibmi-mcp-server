@@ -229,7 +229,7 @@ Start the server in HTTP mode with your new tools:
 
 ```bash
 # Start the server with HTTP transport
-npx @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quckstart.yaml
+npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quckstart.yaml
 ```
 
 The server will:
@@ -302,7 +302,7 @@ The IBM i MCP Server provides a command-line interface with flexible options for
 ### Basic Usage
 
 ```bash
-npx @ibm/ibmi-mcp-server@latest -y [options]
+npx -y @ibm/ibmi-mcp-server@latest [options]
 ```
 
 > **Note:** The `-y` flag automatically accepts the npm package installation prompt.
@@ -322,27 +322,27 @@ npx @ibm/ibmi-mcp-server@latest -y [options]
 
 **Run server with stdio transport (for MCP clients):**
 ```bash
-npx @ibm/ibmi-mcp-server@latest -y --transport stdio --tools ./tools
+npx -y @ibm/ibmi-mcp-server@latest --transport stdio --tools ./tools
 ```
 
 **Run HTTP server for testing:**
 ```bash
-npx @ibm/ibmi-mcp-server@latest -y --transport http --tools ./tools
+npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
 ```
 
 **Load specific toolsets only:**
 ```bash
-npx @ibm/ibmi-mcp-server@latest -y --toolsets performance,security
+npx -y @ibm/ibmi-mcp-server@latest --toolsets performance,security
 ```
 
 **List available toolsets:**
 ```bash
-npx @ibm/ibmi-mcp-server@latest -y --list-toolsets --tools ./tools
+npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools ./tools
 ```
 
 **Use custom tools directory:**
 ```bash
-npx @ibm/ibmi-mcp-server@latest -y --tools /absolute/path/to/custom-tools
+npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/custom-tools
 ```
 
 </details>
@@ -359,7 +359,7 @@ The server is available as an npm package and can be used directly with `npx`:
 
 ```bash
 # Test the server is available
-npx @ibm/ibmi-mcp-server@latest -y --help
+npx -y @ibm/ibmi-mcp-server@latest --help
 ```
 
 > **Note:** The `-y` flag automatically accepts the npm package installation prompt.
@@ -442,7 +442,7 @@ claude mcp add ibmi-mcp \
   --env DB2i_PASS=your-password \
   --env DB2i_PORT=8076 \
   --env MCP_TRANSPORT_TYPE=stdio \
-  -- npx @ibm/ibmi-mcp-server@latest -y --transport stdio --tools /absolute/path/to/tools
+  -- npx -y @ibm/ibmi-mcp-server@latest --transport stdio --tools /absolute/path/to/tools
 ```
 
 **Using `.mcp.json`:**

@@ -22,7 +22,7 @@ Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to 
     export MCP_SERVER_CONFIG=.env
 
     # Start the server - it will automatically load the config
-    npx @ibm/ibmi-mcp-server@latest -y --transport http
+    npx -y @ibm/ibmi-mcp-server@latest --transport http
     ```
 
     The server loads the file specified by `MCP_SERVER_CONFIG` on startup.
@@ -482,7 +482,7 @@ Below is the reference for core server configuration options. Each section inclu
 <Warning>
 **Path Requirements:**
 - `TOOLS_YAML_PATH` in `.env` files should use **absolute paths** to avoid issues when the server is started from different directories
-- For relative paths, use the `--tools` CLI argument instead: `npx @ibm/ibmi-mcp-server@latest -y --tools ./tools`
+- For relative paths, use the `--tools` CLI argument instead: `npx -y @ibm/ibmi-mcp-server@latest --tools ./tools`
 - CLI arguments override environment variables, so `--tools` always takes precedence over `TOOLS_YAML_PATH`
 </Warning>
 

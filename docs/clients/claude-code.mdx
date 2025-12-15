@@ -3,8 +3,6 @@ title: "Claude Code"
 description: "Configure IBM i MCP Server with Claude Code CLI tool"
 ---
 
-# Claude Code Integration
-
 Claude Code is the official CLI tool for Claude that provides built-in MCP server management commands. It supports both local (stdio) and remote (HTTP) server connections with a simple command-line interface.
 
 <Note>
@@ -32,31 +30,31 @@ Configure a local server that Claude Code will spawn and manage:
 **Option 1: Interactive setup**
 ```bash
 claude mcp add ibmi-mcp \
-  --env DB2i_HOST=your-ibmi-host.com \
-  --env DB2i_USER=your-username \
-  --env DB2i_PASS=your-password \
-  --env DB2i_PORT=8076 \
-  --env MCP_TRANSPORT_TYPE=stdio \
-  -- npx @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
+  -e DB2i_HOST=your-ibmi-host.com \
+  -e DB2i_USER=your-username \
+  -e DB2i_PASS=your-password \
+  -e DB2i_PORT=8076 \
+  -e MCP_TRANSPORT_TYPE=stdio \
+  -- npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 ```
 
 **Option 2: With environment variable file**
 ```bash
 # Create .env file with credentials first
 claude mcp add ibmi-mcp \
-  -- npx @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
+  -- npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 ```
 
 ### Using Configuration File
 
-Edit `.mcp.json` in your home directory:
+Edit `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -82,21 +80,21 @@ Connect to a remote IBM i MCP Server:
 
 ```bash
 # Add remote HTTP server with authentication
-claude mcp add --transport http ibmi-mcp \
+claude mcp add -t http ibmi-mcp \
   http://localhost:3010/mcp \
-  --header "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
 ```
 
 ### Using Configuration File
 
-Edit `.mcp.json`:
+Edit `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "ibmi-mcp": {
       "url": "http://localhost:3010/mcp",
-      "type": "http",
+      "transport": "http",
       "headers": {
         "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
       }
@@ -178,18 +176,17 @@ When adding servers, you can use various CLI options:
 ```bash
 # With specific toolsets
 claude mcp add ibmi-mcp \
-  -- npx @ibm/ibmi-mcp-server@latest \
+  -- npx -y @ibm/ibmi-mcp-server@latest \
      --tools /path/to/tools \
      --toolsets performance,security
 
-# With transport override
-claude mcp add ibmi-mcp \
-  -- npx @ibm/ibmi-mcp-server@latest \
-     --transport stdio \
+# With explicit stdio transport
+claude mcp add -t stdio ibmi-mcp \
+  -- npx -y @ibm/ibmi-mcp-server@latest \
      --tools /path/to/tools
 
 # List available toolsets
-npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path/to/tools
+npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path/to/tools
 ```
 
 ## Troubleshooting
@@ -225,7 +222,7 @@ npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path/to/tools
     **Solutions**:
     - Verify tools path is absolute: `/full/path/to/tools`
     - Check YAML files are valid
-    - Test tools path: `npx @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path`
+    - Test tools path: `npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path`
     - Check IBM i connection credentials
   </Accordion>
 </AccordionGroup>
@@ -267,13 +264,13 @@ Switch between different tool configurations:
 ```bash
 # Add server with custom tools
 claude mcp add ibmi-performance \
-  -- npx @ibm/ibmi-mcp-server@latest \
+  -- npx -y @ibm/ibmi-mcp-server@latest \
      --tools /path/to/performance-tools \
      --toolsets monitoring,diagnostics
 
 # Add server with all tools
 claude mcp add ibmi-all \
-  -- npx @ibm/ibmi-mcp-server@latest \
+  -- npx -y @ibm/ibmi-mcp-server@latest \
      --tools /path/to/all-tools
 ```
 
