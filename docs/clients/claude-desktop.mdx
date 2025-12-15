@@ -3,14 +3,12 @@ title: "Claude Desktop"
 description: "Configure IBM i MCP Server with Claude Desktop app for macOS and Windows"
 ---
 
-# Claude Desktop Integration
-
 Claude Desktop is the official desktop application for Claude, available for macOS and Windows. It provides a rich interface for interacting with Claude while supporting MCP servers for extended capabilities.
 
 <Note>
 **Platform Support**: macOS and Windows
-**Transport Modes**: Stdio (local) and HTTP (remote)
-**Authentication**: Bearer Token for HTTP mode
+**Transport Mode**: Stdio (local process management)
+**Note**: For remote HTTP servers, use Claude Code instead
 </Note>
 
 ## Configuration File Location
@@ -50,7 +48,7 @@ Edit `claude_desktop_config.json`:
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -75,55 +73,9 @@ Edit `claude_desktop_config.json`:
 
 Close and reopen Claude Desktop to load the new configuration.
 
-## Remote (HTTP) Setup
-
-For connecting to a remote IBM i MCP Server:
-
-**Step 1: Start remote server with authentication**
-
-On your server machine:
-```bash
-# Configure .env file
-MCP_TRANSPORT_TYPE=http
-MCP_AUTH_MODE=ibmi
-IBMI_HTTP_AUTH_ENABLED=true
-
-# Start server
-npm run start:http
-```
-
-**Step 2: Obtain access token**
-
-```bash
-node get-access-token.js --verbose
-# Copy the token from output
-```
-
-**Step 3: Edit configuration file**
-
-Edit `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "ibmi-mcp": {
-      "url": "http://localhost:3010/mcp",
-      "type": "http",
-      "headers": {
-        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
-      }
-    }
-  }
-}
-```
-
-<Tip>
-**Production**: Replace `http://localhost:3010` with your production server URL and ensure HTTPS is enabled (`IBMI_AUTH_ALLOW_HTTP=false`).
-</Tip>
-
-**Step 4: Restart Claude Desktop**
-
-Close and reopen Claude Desktop to load the new configuration.
+<Info>
+**Remote Servers**: Claude Desktop only supports local stdio servers. For connecting to remote MCP servers via HTTP, use [Claude Code](/clients/claude-code#remote-http-setup) instead, which supports HTTP transport.
+</Info>
 
 ## Environment Variable Expansion
 
@@ -134,7 +86,7 @@ Claude Desktop supports environment variable expansion for secure credential man
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "${IBMI_TOOLS_PATH}"],
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "${IBMI_TOOLS_PATH}"],
       "env": {
         "DB2i_HOST": "${DB2i_HOST}",
         "DB2i_USER": "${DB2i_USER}",
@@ -186,7 +138,7 @@ If configured correctly, Claude should list the IBM i MCP tools and be able to e
 
     **Solutions**:
     - Verify JSON syntax in `claude_desktop_config.json`
-    - Check that `npx ibmi-mcp-server` works from terminal
+    - Check that `npx -y @ibm/ibmi-mcp-server@latest` works from terminal
     - Ensure absolute paths are used for `--tools`
     - Restart Claude Desktop completely (Cmd+Q / Alt+F4, then relaunch)
     - Check Claude Desktop logs for errors
@@ -237,7 +189,7 @@ Configure multiple server instances for different IBM i systems:
   "mcpServers": {
     "ibmi-dev": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "DEVUSER",
@@ -246,10 +198,13 @@ Configure multiple server instances for different IBM i systems:
       }
     },
     "ibmi-prod": {
-      "url": "https://prod-mcp.company.com/mcp",
-      "type": "http",
-      "headers": {
-        "Authorization": "Bearer PROD_TOKEN"
+      "command": "npx",
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/path/to/prod-tools"],
+      "env": {
+        "DB2i_HOST": "prod-ibmi.company.com",
+        "DB2i_USER": "PRODUSER",
+        "DB2i_PASS": "${PROD_PASSWORD}",
+        "MCP_TRANSPORT_TYPE": "stdio"
       }
     }
   }
@@ -266,7 +221,8 @@ Load specific toolsets instead of all tools:
     "ibmi-mcp": {
       "command": "npx",
       "args": [
-        "ibmi-mcp-server",
+        "-y",
+        "@ibm/ibmi-mcp-server@latest",
         "--tools", "/absolute/path/to/tools",
         "--toolsets", "performance,security"
       ],

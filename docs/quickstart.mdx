@@ -59,65 +59,140 @@ Complete these prerequisites before starting the installation:
 
 ## Step 1: Installation
 
-<Note>
-**Repository Structure**: The IBM i MCP Server follows a modular architecture:
-- `server/` - MCP server implementation (main package)
-- `tools/` - SQL tool YAML configurations
-- `agents/` - Agent implementations and examples
-- `apps/` - Deployment configurations (Docker, Gateway, n8n)
-</Note>
+Choose your installation method based on your needs:
 
-Clone the repository and install dependencies:
+<Tabs>
+  <Tab title="NPM Package (Recommended)">
+    **Best for:** Production use, quick setup, always-updated package
 
-```bash
-git clone https://github.com/IBM/ibmi-mcp-server.git
-cd ibmi-mcp-server/
-npm install
-```
+    The official npm package provides instant installation without building from source.
 
-Build the project:
+    ```bash
+    # No installation needed - npx downloads and runs automatically
+    npx -y @ibm/ibmi-mcp-server@latest --help
+    ```
 
-```bash
-npm run build
-```
+    **Benefits:**
+    - ✅ Always up-to-date with latest stable release
+    - ✅ No build step required
+    - ✅ Instant setup in seconds
+    - ✅ Automatic dependency management
+    - ✅ Perfect for CI/CD pipelines
 
-<Tip>
-Use `npm run rebuild` for a clean install if you encounter any issues.
-</Tip>
+    <Note>
+    The `-y` flag automatically accepts the npm package installation prompt. You can omit it if you want to confirm before installation.
+    </Note>
 
-<Success>
-✓ **Verify the build succeeded:**
-- No error messages in the output
-- `dist/` directory was created
-- `dist/index.js` exists
+    <Success>
+    ✓ **Verify the package works:**
+    ```bash
+    npx -y @ibm/ibmi-mcp-server@latest --help
+    ```
 
-**Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
-</Success>
+    You should see the help output with available options.
+    </Success>
+
+    **Next:** Skip to [Step 2: Configuration](#step-2-configuration)
+  </Tab>
+
+  <Tab title="Build from Source">
+    **Best for:** Development, customization, contributing, latest features
+
+    <Note>
+    **Repository Structure**: The IBM i MCP Server follows a modular architecture:
+    - `server/` - MCP server implementation (main package)
+    - `tools/` - SQL tool YAML configurations
+    - `agents/` - Agent implementations and examples
+    - `deployment/` - Deployment configurations (Docker, Gateway, OpenShift)
+    </Note>
+
+    Clone the repository and install dependencies:
+
+    ```bash
+    git clone https://github.com/IBM/ibmi-mcp-server.git
+    cd ibmi-mcp-server/server
+    npm install
+    ```
+
+    Build the project:
+
+    ```bash
+    npm run build
+    ```
+
+    <Tip>
+    Use `npm run rebuild` for a clean install if you encounter any issues.
+    </Tip>
+
+    <Success>
+    ✓ **Verify the build succeeded:**
+    - No error messages in the output
+    - `dist/` directory was created
+    - `dist/index.js` exists
+
+    **Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
+    </Success>
+
+    **Benefits:**
+    - ✅ Access to latest development features
+    - ✅ Ability to modify and customize code
+    - ✅ Contribute back to the project
+    - ✅ Debug and troubleshoot at source level
+  </Tab>
+</Tabs>
 
 ---
 
 ## Step 2: Configuration
 
-Create your environment configuration:
+Create your environment configuration file:
 
-```bash
-cp .env.example .env
-```
+<Tabs>
+  <Tab title="NPM Package">
+    Create a `.env` file in your current directory:
 
-Edit the `.env` file with your IBM i connection details:
+    ```bash
+    cat > .env << 'EOF'
+    # IBM i DB2 for i Connection Settings
+    DB2i_HOST=your-ibmi-host
+    DB2i_USER=your-username
+    DB2i_PASS=your-password
+    DB2i_PORT=8076
+    DB2i_IGNORE_UNAUTHORIZED=true
 
-```bash
-# IBM i DB2 for i Connection Settings
-DB2i_HOST=your-ibmi-host
-DB2i_USER=your-username
-DB2i_PASS=your-password
-DB2i_PORT=8076
-DB2i_IGNORE_UNAUTHORIZED=true
+    # Server Configuration
+    MCP_TRANSPORT_TYPE=http
+    MCP_HTTP_PORT=3010
+    EOF
+    ```
 
-# Server Configuration
-MCP_TRANSPORT_TYPE=http
-MCP_HTTP_PORT=3010
-```
+    Edit the file and replace the placeholder values with your actual IBM i credentials.
+  </Tab>
+
+  <Tab title="Build from Source">
+    Copy the example configuration and edit it:
+
+    ```bash
+    # From ibmi-mcp-server directory
+    cp .env.example .env
+    ```
+
+    Edit the `.env` file with your IBM i connection details:
+
+    ```bash
+    # IBM i DB2 for i Connection Settings
+    DB2i_HOST=your-ibmi-host
+    DB2i_USER=your-username
+    DB2i_PASS=your-password
+    DB2i_PORT=8076
+    DB2i_IGNORE_UNAUTHORIZED=true
+
+    # Server Configuration
+    MCP_TRANSPORT_TYPE=http
+    MCP_HTTP_PORT=3010
+    ```
+  </Tab>
+</Tabs>
 
 <Warning>
 Replace the connection values with your actual IBM i system credentials. The user profile must have appropriate authorities for database operations.
@@ -137,45 +212,149 @@ Replace the connection values with your actual IBM i system credentials. The use
 **Having connection issues?** See the [troubleshooting section](#troubleshooting) below.
 </Success>
 
+<Card title="Explore All Configuration Options →" icon="gear" href="/configuration">
+ The Configuration guide covers authentication modes (JWT, OAuth, IBM i), HTTP/HTTPS settings, OpenTelemetry observability, and all environment variables with examples for development and production.
+</Card>
+
 ---
 
-## Step 3: Start the Server
+## Step 3: Create Your First SQL Tool
 
-Choose the transport mode based on how you'll connect clients:
+SQL tools are YAML-based configurations that define SQL queries the MCP server can execute. Each tool specifies a data source, parameters, and the SQL statement to run.
+
+### Create Tools Directory
+
+First, create a directory to store your tool configurations:
+
+```bash
+mkdir -p tools
+```
+
+### Create a Simple Tool Configuration
+
+Create a file named `tools/quickstart.yaml` with the following content:
+
+```yaml
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  system_activity:
+    source: ibmi-system
+    description: "Current system activity information including active jobs and resource utilization"
+    parameters: []
+    statement: |
+      SELECT * FROM TABLE(QSYS2.SYSTEM_ACTIVITY_INFO())
+
+toolsets:
+  performance:
+    tools:
+      - system_activity
+```
+
+### Understanding the YAML Structure
+
+The YAML configuration has three main sections:
+
+<Steps>
+  <Step title="Sources">
+    Defines the IBM i data sources your tools will connect to. The environment variables (`${DB2i_HOST}`, etc.) are automatically replaced with values from your `.env` file.
+
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+    ```
+  </Step>
+
+  <Step title="Tools">
+    Defines the SQL operations available to AI agents. Each tool specifies:
+    - `source`: Which data source to use
+    - `description`: What the tool does (helps AI understand when to use it)
+    - `parameters`: Input parameters (empty array `[]` means no parameters required)
+    - `statement`: The SQL query to execute
+
+    ```yaml
+    tools:
+      system_activity:
+        source: ibmi-system
+        description: "Current system activity information including active jobs and resource utilization"
+        parameters: []
+        statement: |
+          SELECT * FROM TABLE(QSYS2.SYSTEM_ACTIVITY_INFO())
+    ```
+  </Step>
+
+  <Step title="Toolsets">
+    Groups related tools together for easier management. You can load specific toolsets when starting the server using `--toolsets performance`.
+
+    ```yaml
+    toolsets:
+      performance:
+        tools:
+          - system_activity
+    ```
+  </Step>
+</Steps>
+
+<Success>
+✓ **Verify your tool configuration:**
+- `tools/quickstart.yaml` file exists
+- YAML syntax is valid (no tabs, proper indentation with spaces)
+- Environment variables are wrapped in `${}` syntax
+- SQL statement uses the pipe `|` character for multi-line strings
+</Success>
+
+<Card title="Learn More: SQL Tools →" icon="database" href="/sql-tools/overview">
+  **Ready to build more tools?** The SQL Tools documentation covers parameters, validation, multiple data sources, complex queries, and the full YAML configuration reference.
+</Card>
+
+---
+
+## Step 4: Start the Server
+
+Start the server in HTTP mode with your new SQL tool:
 
 <Tabs>
-  <Tab title="HTTP Transport (Recommended)">
-    **Choose this if you want to:**
-    - Connect from web applications or remote machines
-    - Use Claude Desktop, VSCode, or Cursor
-    - Deploy in production environments
-    - Have multiple concurrent clients
-
+  <Tab title="NPM Package (Recommended)">
     ```bash
-    npm run start:http
+    export MCP_SERVER_CONFIG=.env
+    npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quickstart.yaml
     ```
 
-    **Session Modes (HTTP Only)**:
+    **Session Modes**:
+    - `auto` (default): Automatically detects client capabilities ← **Start with this**
+    - `stateful`: Maintains persistent sessions with connection state
+    - `stateless`: Each request is independent, no session state
+
+    Set via environment: `MCP_SESSION_MODE=stateful npx -y @ibm/ibmi-mcp-server@latest --transport http`
+  </Tab>
+
+  <Tab title="Build from Source">
+    ```bash
+    # From server/ directory
+    npm run start:http -- --tools ../tools/quickstart.yaml
+    ```
+
+    **Session Modes**:
     - `auto` (default): Automatically detects client capabilities ← **Start with this**
     - `stateful`: Maintains persistent sessions with connection state
     - `stateless`: Each request is independent, no session state
 
     Set via environment: `MCP_SESSION_MODE=stateful npm run start:http`
   </Tab>
-
-  <Tab title="Stdio Transport">
-    **Choose this if you want to:**
-    - Use MCP Inspector for testing
-    - Connect from CLI tools on the same machine
-    - Test in development before HTTP deployment
-
-    ```bash
-    npm run start:stdio
-    ```
-
-    **Note**: Most production deployments use HTTP transport.
-  </Tab>
 </Tabs>
+
+<Note>
+**Alternative: Stdio Transport** - For MCP Inspector or CLI tools, use `--transport stdio` (NPM package) or `npm run start:stdio` (build from source). However, HTTP transport is recommended for most use cases.
+</Note>
 
 **Available CLI Options**:
 
@@ -194,7 +373,7 @@ You should see output similar to:
   Transport: http
   Host: 127.0.0.1:3010
   Endpoint: http://127.0.0.1:3010/mcp
-  Tools loaded: 12
+  Tools loaded: 1
 ```
 
 <Success>
@@ -214,9 +393,13 @@ You should see output similar to:
 
 ---
 
-## Step 4: Test with Sample MCP Client
+## Step 5: Test with Sample MCP Client
 
-Now that your server is running, test it with the included Python client script to verify connectivity and tool execution.
+Now that your server is running, test it with the example Python client from the [GitHub repository](https://github.com/IBM/ibmi-mcp-server/tree/main/client) to verify connectivity and tool execution.
+
+<Note>
+**Example Client Location**: The sample client scripts are available in the [`client/`](https://github.com/IBM/ibmi-mcp-server/tree/main/client) directory of the GitHub repository. Clone the repository or download the files to follow along.
+</Note>
 
 ### Install uv (Python Package Manager)
 
@@ -235,12 +418,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 In a **new terminal window** (keep the server running in the first terminal):
 
 ```bash
-# Navigate to the client directory
-cd client
+# Clone the repository if you haven't already
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server/client
 
 # Install dependencies and run the test client
 uv run mcp_client.py
 ```
+
+<Tip>
+**Already have the repo cloned?** Just navigate to the `client/` directory and run `uv run mcp_client.py`
+</Tip>
 
 You should see output like this:
 
@@ -250,11 +438,6 @@ AVAILABLE TOOLS
 ================================================================================
  1. system_activity
     └─ Get real-time IBM i system activity metrics
- 2. active_jobs
-    └─ List currently active jobs on the IBM i system
- 3. database_tables
-    └─ List database tables in a schema
- ... (more tools)
 
 ================================================================================
 SYSTEM ACTIVITY RESULT
@@ -294,14 +477,18 @@ The `mcp_client.py` script:
 3. Executes the `system_activity` tool (a pre-built IBM i monitoring query)
 4. Formats and displays the results
 
-**Source**: View the script at `client/mcp_client.py` to see the MCP client SDK in action.
+**View Source**: See the implementation at [`client/mcp_client.py`](https://github.com/IBM/ibmi-mcp-server/blob/main/client/mcp_client.py) to understand how to use the MCP client SDK.
 </Accordion>
 
 ---
 
-## Step 5: Run an AI Agent (Optional)
+## Step 6: Run an AI Agent (Optional)
 
-Now that you've verified the MCP server works, try the included AI agent that can answer natural language questions about your IBM i system.
+Now that you've verified the MCP server works, try the example AI agent from the [GitHub repository](https://github.com/IBM/ibmi-mcp-server/tree/main/client) that can answer natural language questions about your IBM i system.
+
+<Note>
+**Agent Script Location**: The `agent.py` script is in the [`client/`](https://github.com/IBM/ibmi-mcp-server/tree/main/client) directory of the GitHub repository. If you haven't cloned the repo yet (from Step 5), you'll need to do so first.
+</Note>
 
 ### Configure API Key
 
@@ -336,18 +523,37 @@ The agent uses an LLM to understand your questions and call the appropriate MCP 
 
 ### Run the Agent
 
-Ask natural language questions about your IBM i system:
+From the `client/` directory (where you ran the previous step), ask natural language questions about your IBM i system:
 
-```bash
-# With OpenAI
-uv run agent.py -p "What is my system status?" --model-id "openai:gpt-4o"
+<Tabs>
+  <Tab title="OpenAI">
+    ```bash
+    # If you skipped Step 5, clone the repo first:
+    # git clone https://github.com/IBM/ibmi-mcp-server.git
+    # cd ibmi-mcp-server/client
 
-# With local Ollama
-uv run agent.py -p "What is my system status?" --model-id "ollama:qwen2.5"
+    # Run the agent with OpenAI
+    uv run agent.py -p "What is my system performing?" --model-id "openai:gpt-4o"
 
-# Or use the default prompt
-uv run agent.py
-```
+    # Or use the default prompt
+    uv run agent.py --model-id "openai:gpt-4o"
+    ```
+  </Tab>
+
+  <Tab title="Ollama (Local)">
+    ```bash
+    # If you skipped Step 5, clone the repo first:
+    # git clone https://github.com/IBM/ibmi-mcp-server.git
+    # cd ibmi-mcp-server/client
+
+    # Run the agent with local Ollama
+    uv run agent.py -p "What is my system performing?" --model-id "ollama:qwen2.5"
+
+    # Or use the default prompt
+    uv run agent.py --model-id "ollama:qwen2.5"
+    ```
+  </Tab>
+</Tabs>
 
 **Example interaction**:
 ```
@@ -367,7 +573,7 @@ The agent automatically:
 3. Executes the tool(s) on your IBM i system
 4. Synthesizes the results into a natural language response
 
-**Try different questions**: "Show me active jobs", "What tables are in QIWS?", "Check system performance"
+**View Source**: See [`client/agent.py`](https://github.com/IBM/ibmi-mcp-server/blob/main/client/agent.py) for the implementation details.
 </Tip>
 
 <Card title="Build Production Agents" icon="rocket" href="/agents/overview">

@@ -4,7 +4,7 @@ description: "Connect AI agents to IBM i systems through secure, YAML-configured
 ---
 
 
-A production-ready **Model Context Protocol (MCP) server** that connects AI agents to IBM i.
+A production-ready **Model Context Protocol (MCP) server** for IBM i.
 ![alt text](images/mcp-overview.png)
 
 ---
@@ -31,7 +31,7 @@ The IBM i MCP Server transforms your IBM i SQL expertise into AI-accessible tool
     **Already familiar?** Skip to Step 2.
   </Step>
 
-  <Step title="Install Mapepire (10 minutes)">
+  <Step title="Install Mapepire">
     Install [Mapepire](/setup-mapepire) on your IBM i system—the database connectivity layer required for MCP.
 
     **Already installed?** Verify it's running and note the port (default: 8076).
@@ -160,7 +160,7 @@ Different goals? Jump directly to what you need:
     The server supports multiple authentication modes to fit your deployment:
 
     **For Development:**
-    - **Shared credentials** (stdio): All operations use same DB2i user
+    - **Shared credentials** (stdio): All operations use same Db2i user
     - Fast setup for testing and local development
 
     **For Production:**

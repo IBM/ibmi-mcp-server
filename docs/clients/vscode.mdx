@@ -9,8 +9,9 @@ Visual Studio Code supports MCP servers through GitHub Copilot Chat. You can con
 
 <Note>
 **Prerequisites**:
-- VSCode with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) installed and enabled
+- VSCode 1.102+ with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) installed and enabled
 - Copilot subscription (individual, business, or enterprise)
+- MCP support is generally available from VS Code 1.102
 </Note>
 
 ## Configuration File Locations
@@ -31,7 +32,12 @@ Visual Studio Code supports MCP servers through GitHub Copilot Chat. You can con
   </Tab>
 
   <Tab title="User">
-    **Locations**:
+    **Recommended Method**: Use Command Palette
+    1. Press `Cmd/Ctrl+Shift+P`
+    2. Run **MCP: Open User Configuration**
+    3. Edit in VSCode with IntelliSense support
+
+    **File Locations** (if editing manually):
     - **macOS/Linux**: `~/.config/Code/User/globalStorage/modelcontextprotocol.mcp/mcp.json`
     - **Windows**: `%APPDATA%\Code\User\globalStorage\modelcontextprotocol.mcp\mcp.json`
 
@@ -44,6 +50,13 @@ Visual Studio Code supports MCP servers through GitHub Copilot Chat. You can con
 
 ## Local (Stdio) Setup
 
+### Using Command Palette (Recommended)
+
+1. Press `Cmd/Ctrl+Shift+P`
+2. Run **MCP: Add Server**
+3. Choose **Workspace** or **Global** scope
+4. Paste configuration and edit with IntelliSense
+
 ### Using CLI
 
 ```bash
@@ -52,7 +65,7 @@ code --add-mcp '{
   "name": "ibmiMcp",
   "type": "stdio",
   "command": "npx",
-  "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+  "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/absolute/path/to/tools"],
   "env": {
     "DB2i_HOST": "your-ibmi-host.com",
     "DB2i_USER": "your-username",
@@ -73,7 +86,7 @@ Create or edit `mcp.json`:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -90,7 +103,13 @@ Create or edit `mcp.json`:
 **Important**: The `--tools` path must be an **absolute path**.
 </Warning>
 
-## Remote (HTTP) Setup
+<Info>
+**Security**: On first start, VSCode will prompt you to trust the MCP server. Only trust servers from reliable sources as they can execute code on your machine.
+</Info>
+
+## Remote (HTTP/SSE) Setup
+
+VSCode supports both HTTP and SSE (Server-Sent Events) transport for remote servers.
 
 ### Using CLI
 
@@ -108,6 +127,8 @@ code --add-mcp '{
 
 ### Using mcp.json
 
+<Tabs>
+  <Tab title="HTTP Transport">
 ```json
 {
   "servers": {
@@ -121,10 +142,36 @@ code --add-mcp '{
   }
 }
 ```
+  </Tab>
 
-## Secure Credentials with Input Variables
+  <Tab title="SSE Transport">
+```json
+{
+  "servers": {
+    "ibmiMcp": {
+      "type": "sse",
+      "url": "http://localhost:3010/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
 
-VSCode supports input variables to avoid hardcoding sensitive credentials:
+<Info>
+**SSE (Server-Sent Events)**: Alternative to HTTP transport for real-time server updates. Use when your server supports SSE protocol.
+</Info>
+  </Tab>
+</Tabs>
+
+## Secure Credentials with Variables
+
+VSCode supports multiple variable types for secure credential management and flexible configurations:
+
+### Input Variables
+
+Prompt users for sensitive data at runtime:
 
 ```json
 {
@@ -150,7 +197,7 @@ VSCode supports input variables to avoid hardcoding sensitive credentials:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "${input:db2iHost}",
         "DB2i_USER": "${input:db2iUser}",
@@ -167,16 +214,63 @@ VSCode supports input variables to avoid hardcoding sensitive credentials:
 VSCode will prompt for these values when the server starts, keeping credentials secure and out of version control.
 </Tip>
 
+### Built-in Variables
+
+Use VSCode's built-in variables for dynamic paths:
+
+- **`${workspaceFolder}`** - Absolute path to the workspace root
+- **`${env:VAR_NAME}`** - Environment variable value
+- **`${userHome}`** - User's home directory path
+
+**Example:**
+```json
+{
+  "servers": {
+    "ibmiMcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "${workspaceFolder}/tools"],
+      "env": {
+        "DB2i_HOST": "${env:IBM_HOST}",
+        "DB2i_USER": "${env:IBM_USER}",
+        "DB2i_PASS": "${env:IBM_PASS}"
+      }
+    }
+  }
+}
+```
+
+<Tip>
+**Best Practice**: Use `${workspaceFolder}` for tools paths in team configs so they work regardless of where teammates clone the repo.
+</Tip>
+
 ## Managing Servers
 
-### View Servers
+### List All Servers
+1. Open Command Palette (`Cmd/Ctrl+Shift+P`)
+2. Run **MCP: List Servers**
+3. View all configured servers with status
+
+### View Servers in Chat
 - Open the **Copilot Chat** view in the Activity Bar
 - Look for MCP servers listed in the chat interface
+- Click the MCP indicator to see available tools
 
 ### Restart Server
-1. Open Command Palette (`Cmd/Ctrl+Shift+P`)
-2. Search for "MCP: Restart Server"
-3. Select your server to restart
+**Method 1 - Command Palette:**
+1. Press `Cmd/Ctrl+Shift+P`
+2. Run **MCP: Restart Server**
+3. Select your server from the list
+
+**Method 2 - Extensions View:**
+- Right-click server in Extensions view
+- Select "Restart"
+
+### Autostart Servers (Experimental)
+Enable automatic server startup:
+1. Open VSCode Settings
+2. Search for `chat.mcp.autostart`
+3. Enable the setting
 
 ### Disable Server
 Remove or comment out the server entry in `mcp.json`
@@ -205,7 +299,7 @@ After configuration:
 
   <Accordion title="Server Fails to Start">
     **Solutions**:
-    - Verify `npx ibmi-mcp-server` works from terminal
+    - Verify `npx -y @ibm/ibmi-mcp-server@latest` works from terminal
     - Check all paths are absolute
     - Ensure IBM i credentials are correct
     - Review VSCode Developer Tools: Help → Toggle Developer Tools
@@ -259,7 +353,7 @@ Share MCP configuration with your team via `.vscode/mcp.json`:
     "ibmiMcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "${workspaceFolder}/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "${workspaceFolder}/tools"],
       "env": {
         "DB2i_HOST": "${input:db2iHost}",
         "DB2i_USER": "${input:db2iUser}",
@@ -282,7 +376,7 @@ Configure dev and prod servers:
     "ibmi-dev": {
       "type": "stdio",
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/path/to/dev-tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/path/to/dev-tools"],
       "env": {
         "DB2i_HOST": "dev-ibmi.company.com",
         "DB2i_USER": "${input:devUser}",
@@ -312,7 +406,7 @@ Load specific toolsets for different workflows:
       "type": "stdio",
       "command": "npx",
       "args": [
-        "ibmi-mcp-server",
+        "@ibm/ibmi-mcp-server@latest", "-y",
         "--tools", "/path/to/tools",
         "--toolsets", "performance,monitoring"
       ],

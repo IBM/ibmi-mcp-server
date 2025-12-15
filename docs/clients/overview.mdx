@@ -25,6 +25,9 @@ The IBM i MCP Server works with popular MCP-compatible clients across different 
   <Card title="Claude Code" icon="terminal" href="/clients/claude-code">
     CLI tool with server management commands
   </Card>
+  <Card title="IBM Bob" icon="briefcase" href="/clients/bob">
+    IBM's AI-powered development assistant
+  </Card>
   <Card title="VSCode" icon="code" href="/clients/vscode">
     GitHub Copilot Chat integration
   </Card>
@@ -92,8 +95,9 @@ The IBM i MCP Server supports two transport protocols:
 
 | Client | Platform | Stdio | HTTP | Authentication | Notes |
 |--------|----------|:-----:|:----:|:--------------:|-------|
-| **Claude Desktop** | macOS, Windows | ✅ | ✅ | Bearer Token | Official desktop app |
+| **Claude Desktop** | macOS, Windows | ✅ | ❌ | N/A | Official desktop app (stdio only) |
 | **Claude Code** | CLI | ✅ | ✅ | Bearer Token | CLI server management |
+| **IBM Bob** | IDE | ✅ | ✅ | Bearer Token | IBM's AI assistant (6,000+ users) |
 | **VSCode** | Editor | ✅ | ✅ | Bearer Token | Via Copilot Chat |
 | **Cursor** | Editor | ✅ | ✅ | Bearer Token | AI-first code editor |
 | **Gemini CLI** | CLI | ✅ | ✅ | Bearer Token | Google AI integration |
@@ -103,24 +107,58 @@ The IBM i MCP Server supports two transport protocols:
 
 ### For Local (Stdio) Setup
 
-1. **Install the server globally:**
-   ```bash
-   cd ibmi-mcp-server
-   npm install
-   npm run build
-   npm link
-   ```
+<Tabs>
+  <Tab title="NPM Package (Recommended)">
+    The easiest way to get started - no installation needed!
 
-2. **Verify installation:**
-   ```bash
-   which ibmi-mcp-server
-   # or
-   npx ibmi-mcp-server --help
-   ```
+    1. **Verify npx is available:**
+       ```bash
+       npx --version
+       ```
 
-3. **Note your tools path:**
-   - Must be an **absolute path**
-   - Example: `/Users/yourname/ibmi-mcp-server/tools`
+    2. **Test the package:**
+       ```bash
+       npx -y @ibm/ibmi-mcp-server@latest --help
+       ```
+
+    3. **Note your tools path:**
+       - Must be an **absolute path**
+       - Example: `/Users/yourname/myproject/tools`
+       - Or use `--tools $(pwd)/tools` for relative paths
+
+    **Benefits:**
+    - ✅ Always up-to-date with latest stable release
+    - ✅ No build step required
+    - ✅ Works across all clients (Claude Desktop, VSCode, Cursor)
+    - ✅ Automatic dependency management
+  </Tab>
+
+  <Tab title="Build from Source">
+    For development or custom modifications:
+
+    1. **Install the server globally:**
+       ```bash
+       cd ibmi-mcp-server/server
+       npm install
+       npm run build
+       npm link
+       ```
+
+    2. **Verify installation:**
+       ```bash
+       which ibmi-mcp-server
+       ```
+
+    3. **Note your tools path:**
+       - Must be an **absolute path**
+       - Example: `/Users/yourname/ibmi-mcp-server/tools`
+
+    **Benefits:**
+    - Access to latest development features
+    - Ability to modify and customize
+    - Debug at source level
+  </Tab>
+</Tabs>
 
 ### For Remote (HTTP) Setup
 
@@ -208,7 +246,7 @@ OAUTH_AUDIENCE=ibmi-mcp-server
   "mcpServers": {
     "ibmi-mcp": {
       "command": "npx",
-      "args": ["ibmi-mcp-server", "--tools", "/absolute/path/to/tools"],
+      "args": ["@ibm/ibmi-mcp-server@latest", "-y", "--tools", "/absolute/path/to/tools"],
       "env": {
         "DB2i_HOST": "your-ibmi-host.com",
         "DB2i_USER": "your-username",
@@ -241,7 +279,7 @@ claude mcp add ibmi-mcp \
   --env DB2i_HOST=your-ibmi-host.com \
   --env DB2i_USER=your-username \
   --env DB2i_PASS=your-password \
-  -- npx ibmi-mcp-server --tools /absolute/path/to/tools
+  -- npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 
 # Add remote HTTP server
 claude mcp add --transport http ibmi-mcp \

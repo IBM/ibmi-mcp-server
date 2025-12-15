@@ -127,11 +127,10 @@ Let's see how an **existing IBM i service** becomes an AI tool. No new infrastru
 ```sql
 -- QSYS2.ACTIVE_JOB_INFO is a built-in IBM i service
 -- It's already running, already optimized, already secured
-SELECT job_name, user_name, cpu_used, elapsed_time
-FROM qsys2.active_job_info
-WHERE job_status = 'ACTIVE'
-ORDER BY cpu_used DESC
-FETCH FIRST 20 ROWS ONLY
+SELECT job_name, cpu_time
+FROM table(qsys2.active_job_info())
+order by cpu_time desc
+fetch first 10 rows only;
 ```
 
 **Step 2: Make It an MCP Tool (YAML Definition)**
@@ -142,13 +141,16 @@ tools:
   get_active_jobs:
     source: ibmi-system
     description: "List currently active jobs with CPU usage from QSYS2.ACTIVE_JOB_INFO"
+    parameters:
+      - name: limit
+        type: integer
+        default: 10
+        description: "Number of top CPU-consuming jobs to return"
     statement: |
-      SELECT job_name, user_name, cpu_used, elapsed_time
-      FROM qsys2.active_job_info
-      WHERE job_status = 'ACTIVE'
-      ORDER BY cpu_used DESC
-      FETCH FIRST 20 ROWS ONLY
-    parameters: []
+      SELECT job_name, cpu_time
+      FROM table(qsys2.active_job_info())
+      order by cpu_time desc
+      fetch first :limit rows only
 ```
 
 **Step 3: AI Agents Discover It Automatically**
@@ -161,7 +163,13 @@ When the server starts, it registers this tool. AI agents see:
   "description": "List currently active jobs with CPU usage from QSYS2.ACTIVE_JOB_INFO",
   "inputSchema": {
     "type": "object",
-    "properties": {},
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Number of top CPU-consuming jobs to return",
+        "default": 10
+      }
+    },
     "required": []
   }
 }
@@ -170,30 +178,38 @@ When the server starts, it registers this tool. AI agents see:
 **Step 4: AI Agents Use It Naturally**
 
 ```
-User: "Show me the top CPU-consuming jobs"
+User: "Show me the top 5 CPU-consuming jobs"
 
-AI Agent: [Calls get_active_jobs tool]
+AI Agent: [Calls get_active_jobs tool with limit=5]
 
 Result:
 {
   "rows": [
     {
-      "JOB_NAME": "QZDASOINIT",
-      "USER_NAME": "QTCP",
-      "CPU_USED": 45231,
-      "ELAPSED_TIME": 3600000
+      "job_name": "QZDASOINIT",
+      "cpu_time": 45231
     },
     {
-      "JOB_NAME": "QSYSARB",
-      "USER_NAME": "QSYS",
-      "CPU_USED": 12450,
-      "ELAPSED_TIME": 86400000
+      "job_name": "QSYSARB",
+      "cpu_time": 12450
+    },
+    {
+      "job_name": "QPADEV0001",
+      "cpu_time": 8932
+    },
+    {
+      "job_name": "QTCPIP",
+      "cpu_time": 5621
+    },
+    {
+      "job_name": "QDBSRV01",
+      "cpu_time": 3489
     }
   ],
-  "rowCount": 2
+  "rowCount": 5
 }
 
-AI: "The QZDASOINIT job under QTCP is using the most CPU at 45,231 milliseconds..."
+AI: "The top CPU-consuming jobs are QZDASOINIT (45,231ms), QSYSARB (12,450ms), and QPADEV0001 (8,932ms)..."
 ```
 
 <Note>
@@ -292,13 +308,13 @@ GET /mcp/tools/list
 **Configuration flexibility:**
 ```bash
 # Load specific YAML file
-npx ibmi-mcp-server --tools tools/my-tools.yaml
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/my-tools.yaml
 
 # Load entire directory
-npx ibmi-mcp-server --tools tools/
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/
 
 # Load specific toolsets only
-npx ibmi-mcp-server --tools tools/ --toolsets performance,security
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance,security
 ```
 
 ### 3. Connection Management
@@ -318,7 +334,7 @@ npx ibmi-mcp-server --tools tools/ --toolsets performance,security
     **Best for:** Development, CLI tools, single-user scenarios
 
     ```bash
-    # All operations use same DB2i user
+    # All operations use same Db2i user
     DB2i_HOST=ibmi-system.com
     DB2i_USER=MCPUSER
     DB2i_PASS=password
@@ -333,8 +349,8 @@ npx ibmi-mcp-server --tools tools/ --toolsets performance,security
     MCP_AUTH_MODE=ibmi
     IBMI_HTTP_AUTH_ENABLED=true
 
-    # User JSMITH → Connects as JSMITH to DB2i
-    # User AADAMS → Connects as AADAMS to DB2i
+    # User JSMITH → Connects as JSMITH to Db2i
+    # User AADAMS → Connects as AADAMS to Db2i
     ```
   </Tab>
 </Tabs>

@@ -1,0 +1,686 @@
+---
+title: "IBM i Authentication"
+description: "Complete guide to IBM i HTTP authentication with token-based access, RSA encryption, and per-user connection pooling."
+---
+
+IBM i HTTP authentication enables secure, token-based access to the MCP server with per-user connection pooling. Clients authenticate with IBM i credentials to obtain Bearer tokens for subsequent API requests.
+
+<Info>
+**When to use IBM i authentication:**
+- **Multi-user environments**: Each user gets their own connection pool with their credentials
+- **Production deployments**: Token-based auth with automatic expiry and session management
+- **Enhanced security**: Credentials encrypted during transmission using RSA/AES
+- **Audit trails**: Per-user tracking of database operations
+
+**When to use simpler auth:**
+- **Development**: Use shared `DB2i_USER`/`DB2i_PASS` credentials (no token auth needed)
+- **Single-user scenarios**: JWT or OAuth may be sufficient
+</Info>
+
+---
+
+## How It Works
+
+### Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    participant IBM i
+
+    Client->>Server: 1. GET /api/v1/auth/public-key
+    Server-->>Client: RSA Public Key
+
+    Client->>Client: 2. Generate AES session key
+    Client->>Client: 3. Encrypt credentials with session key
+    Client->>Client: 4. Encrypt session key with RSA public key
+
+    Client->>Server: 5. POST /api/v1/auth (encrypted payload)
+    Server->>Server: 6. Decrypt session key with private key
+    Server->>Server: 7. Decrypt credentials with session key
+
+    Server->>IBM i: 8. Authenticate with decrypted credentials
+    IBM i-->>Server: Authentication Success
+
+    Server->>Server: 9. Create access token & connection pool
+    Server-->>Client: Bearer Token
+
+    Client->>Server: 10. API requests with Bearer token
+    Server-->>Client: Authenticated responses
+```
+
+**Key Features:**
+- **End-to-end encryption**: Credentials never transmitted in plain text
+- **Per-user pools**: Each token gets its own dedicated DB2 connection pool
+- **Token lifecycle**: Automatic expiry and cleanup of stale sessions
+- **Key rotation**: Support for multiple keypairs for zero-downtime rotation
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `MCP_AUTH_MODE` | Must be set to `ibmi` | `none` | ✅ Yes |
+| `IBMI_HTTP_AUTH_ENABLED` | Enable auth endpoints | `false` | ✅ Yes |
+| `IBMI_AUTH_KEY_ID` | Identifier for RSA keypair | (none) | ✅ Yes |
+| `IBMI_AUTH_PRIVATE_KEY_PATH` | Path to RSA private key | (none) | ✅ Yes |
+| `IBMI_AUTH_PUBLIC_KEY_PATH` | Path to RSA public key | (none) | ✅ Yes |
+| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP (dev only) | `false` | No |
+| `IBMI_AUTH_TOKEN_EXPIRY_SECONDS` | Token lifetime | `3600` (1hr) | No |
+| `IBMI_AUTH_CLEANUP_INTERVAL_SECONDS` | Cleanup interval | `300` (5min) | No |
+| `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` | Max sessions | `100` | No |
+
+<Info>
+**Complete Reference**: See the [IBM i Authentication Settings](/configuration#ibm-i-authentication-settings) section in the Configuration Reference for all available environment variables and their defaults.
+</Info>
+
+### Db2i Credentials: Important Notes
+
+<Warning>
+**Common Pitfall**: When using IBM i HTTP authentication, you may encounter validation errors about `DB2i_USER` and `DB2i_PASS` even though the Bearer token provides authentication.
+
+**Solution**: Either **omit these variables entirely** from your `.env` file, or set them to placeholder values like `TOKEN_AUTH`.
+
+**Why this happens**: The validation schema requires these fields to be either undefined or have non-empty values. Empty strings (`DB2i_USER=""`) fail validation. When using token authentication, the Bearer token supplies user credentials, so `DB2i_USER` and `DB2i_PASS` are not used.
+</Warning>
+
+<Tabs>
+  <Tab title="Option 1: Omit Variables (Recommended)">
+    ```bash
+    # .env for IBM i HTTP Authentication
+
+    # Authentication Mode
+    MCP_AUTH_MODE=ibmi
+    IBMI_HTTP_AUTH_ENABLED=true
+
+    # Encryption Keys
+    IBMI_AUTH_KEY_ID=production
+    IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+    IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+
+    # IBM i Connection (host only, no credentials)
+    DB2i_HOST=ibmi-prod.company.com
+    DB2i_PORT=8076
+    DB2i_IGNORE_UNAUTHORIZED=false
+
+    # DO NOT INCLUDE DB2i_USER or DB2i_PASS
+    # Token authentication provides user credentials
+    ```
+
+    **This is the cleanest approach**: Variables are completely absent from the configuration.
+  </Tab>
+
+  <Tab title="Option 2: Placeholder Values">
+    ```bash
+    # .env for IBM i HTTP Authentication
+
+    # Authentication Mode
+    MCP_AUTH_MODE=ibmi
+    IBMI_HTTP_AUTH_ENABLED=true
+
+    # Encryption Keys
+    IBMI_AUTH_KEY_ID=production
+    IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+    IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+
+    # IBM i Connection
+    DB2i_HOST=ibmi-prod.company.com
+    DB2i_PORT=8076
+    DB2i_IGNORE_UNAUTHORIZED=false
+
+    # Placeholders (not used during token auth)
+    DB2i_USER=TOKEN_AUTH
+    DB2i_PASS=TOKEN_AUTH
+    ```
+
+    **Why this works**: Validation passes because values are non-empty, but they're never used since token auth provides real credentials.
+  </Tab>
+</Tabs>
+
+<Note>
+**Reference**: See [GitHub Issue #77](https://github.com/IBM/ibmi-mcp-server/issues/77) for the original discussion of this validation behavior.
+</Note>
+
+---
+
+## Setup: RSA Encryption Keys
+
+IBM i authentication requires RSA keypairs to protect credentials during transmission. The authentication flow uses RSA and AES encryption to securely exchange IBM i credentials between clients and the server.
+
+<Steps>
+  <Step title="Create Secrets Directory">
+    Create a dedicated directory for storing encryption keys:
+
+    ```bash
+    mkdir -p secrets
+    ```
+
+    <Tip>
+    Store the `secrets/` directory outside of version control. Add it to your `.gitignore` file.
+    </Tip>
+  </Step>
+
+  <Step title="Generate RSA Private Key">
+    Generate a 2048-bit RSA private key:
+
+    ```bash
+    openssl genpkey -algorithm RSA \
+      -out secrets/private.pem \
+      -pkeyopt rsa_keygen_bits:2048
+    ```
+
+    **What this does:**
+    - Creates a new RSA private key with 2048-bit encryption strength
+    - Saves it to `secrets/private.pem`
+    - This key will be used by the server to decrypt credentials sent by clients
+  </Step>
+
+  <Step title="Extract Public Key">
+    Extract the corresponding public key from the private key:
+
+    ```bash
+    openssl rsa -pubout \
+      -in secrets/private.pem \
+      -out secrets/public.pem
+    ```
+
+    **What this does:**
+    - Derives the public key from your private key
+    - Saves it to `secrets/public.pem`
+    - Clients use this public key to encrypt credentials before sending them to the server
+  </Step>
+
+  <Step title="Set Secure File Permissions">
+    Restrict access to your private key:
+
+    ```bash
+    # Make private key readable only by owner
+    chmod 600 secrets/private.pem
+
+    # Public key can be more permissive
+    chmod 644 secrets/public.pem
+    ```
+
+    <Warning>
+    **Critical Security Step**: The private key (`private.pem`) must be protected. Anyone with access to this file can decrypt client credentials.
+    </Warning>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Add the keypair paths to your `.env` file:
+
+    ```bash
+    # IBM i Authentication Keys
+    IBMI_AUTH_KEY_ID=production
+    IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+    IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+    ```
+
+    **Key Configuration:**
+    - `IBMI_AUTH_KEY_ID`: Identifier for this keypair (used for key rotation)
+    - `IBMI_AUTH_PRIVATE_KEY_PATH`: Path to your private key file
+    - `IBMI_AUTH_PUBLIC_KEY_PATH`: Path to your public key file
+  </Step>
+</Steps>
+
+**How the Encryption Works:**
+
+1. **Client requests public key** from server (`/api/v1/auth/public-key`)
+2. **Client generates** a random AES-256-GCM session key
+3. **Client encrypts** IBM i credentials with the session key
+4. **Client encrypts** the session key with the server's RSA public key
+5. **Server decrypts** the session key using its RSA private key
+6. **Server decrypts** the credentials using the session key
+7. **Server authenticates** against IBM i and issues an access token
+
+<Note>
+**Key Rotation**: To rotate keys, generate a new keypair with a different `IBMI_AUTH_KEY_ID`. The server can support multiple keypairs simultaneously, allowing gradual migration without service interruption.
+</Note>
+
+---
+
+## Start the Server
+
+After configuring IBM i authentication and generating your RSA keys, start the MCP server with authentication enabled.
+
+**Complete Configuration Example:**
+
+```bash
+# .env file with IBM i HTTP Authentication
+MCP_AUTH_MODE=ibmi
+IBMI_HTTP_AUTH_ENABLED=true
+
+# Encryption Keys
+IBMI_AUTH_KEY_ID=production
+IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+
+# IBM i Connection (host only - no DB2i_USER/DB2i_PASS needed)
+DB2i_HOST=ibmi-prod.company.com
+DB2i_PORT=8076
+DB2i_IGNORE_UNAUTHORIZED=false
+
+# Server Settings
+MCP_TRANSPORT_TYPE=http
+MCP_HTTP_PORT=3010
+MCP_LOG_LEVEL=info
+
+# Security (production)
+IBMI_AUTH_ALLOW_HTTP=false
+IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
+```
+
+**Start the Server:**
+
+<Tabs>
+  <Tab title="NPM Package">
+    ```bash
+    # Set configuration file path
+    export MCP_SERVER_CONFIG=.env
+
+    # Start the server
+    npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
+    ```
+
+    You should see:
+    ```
+    ✓ IBM i HTTP authentication enabled
+    ✓ Public key loaded from secrets/public.pem
+    ✓ Private key loaded from secrets/private.pem
+    ✓ Server ready!
+      Transport: http
+      Host: 127.0.0.1:3010
+      Endpoint: http://127.0.0.1:3010/mcp
+      Auth: IBM i HTTP (key_id: production)
+    ```
+  </Tab>
+
+  <Tab title="Build from Source">
+    ```bash
+    # From the repository root
+    export MCP_SERVER_CONFIG=.env
+    cd server
+    npm run start:http -- --tools ../tools
+    ```
+
+    You should see:
+    ```
+    ✓ IBM i HTTP authentication enabled
+    ✓ Public key loaded from secrets/public.pem
+    ✓ Private key loaded from secrets/private.pem
+    ✓ Server ready!
+      Transport: http
+      Host: 127.0.0.1:3010
+      Endpoint: http://127.0.0.1:3010/mcp
+      Auth: IBM i HTTP (key_id: production)
+    ```
+  </Tab>
+</Tabs>
+
+<Success>
+✓ **Verify authentication is working:**
+
+Test the public key endpoint:
+```bash
+curl http://localhost:3010/api/v1/auth/public-key
+```
+
+Should return:
+```json
+{
+  "keyId": "production",
+  "publicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhki..."
+}
+```
+
+If you see the public key, authentication is properly configured!
+</Success>
+
+<Warning>
+**Production HTTPS**: In production, ensure `IBMI_AUTH_ALLOW_HTTP=false` and use HTTPS. The server will reject HTTP authentication requests for security.
+</Warning>
+
+---
+
+## Usage Examples
+
+### Getting an Access Token
+
+The repository includes a helper script to obtain authentication tokens: [`get-access-token.js`](https://github.com/IBM/ibmi-mcp-server/blob/main/get-access-token.js)
+
+<Note>
+**Script Location**: The `get-access-token.js` script is included in the root of the [GitHub repository](https://github.com/IBM/ibmi-mcp-server/blob/main/get-access-token.js). Clone the repository or download this file to use the token helper.
+
+**What it does**: This script authenticates with your IBM i credentials and generates a Bearer token, then outputs a command to set the `IBMI_MCP_ACCESS_TOKEN` environment variable.
+</Note>
+
+```bash
+# Clone the repository if you haven't already
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server
+
+# ONE-LINER: Generate token and set IBMI_MCP_ACCESS_TOKEN automatically
+eval $(node get-access-token.js --quiet)
+
+# Verify the token was set
+echo $IBMI_MCP_ACCESS_TOKEN
+
+# Alternative: View token details with verbose output
+node get-access-token.js --verbose
+
+# Alternative: Specify credentials explicitly
+node get-access-token.js \
+  --user myuser \
+  --password mypass \
+  --host my-ibmi-host \
+  --quiet
+```
+
+<Tip>
+**Quick Setup**: The one-liner `eval $(node get-access-token.js --quiet)` does everything:
+1. Reads your IBM i credentials from `.env`
+2. Encrypts and sends them to the MCP server
+3. Receives the Bearer token
+4. Automatically sets `export IBMI_MCP_ACCESS_TOKEN=your-token`
+5. Token is now available in your shell session
+
+Use this token with any MCP client by including the header: `Authorization: Bearer $IBMI_MCP_ACCESS_TOKEN`
+</Tip>
+
+**Example Output:**
+
+```bash
+$ eval $(node get-access-token.js --quiet)
+$ echo $IBMI_MCP_ACCESS_TOKEN
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiTVlVU0VSIiwiaG9zdCI6...
+
+# Token is now set and ready to use with MCP clients
+```
+
+**Common Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--user` | `-u` | IBM i username | `DB2i_USER` from .env |
+| `--password` | `-p` | IBM i password | `DB2i_PASS` from .env |
+| `--host` | `-h` | IBM i host address | `DB2i_HOST` from .env |
+| `--server` | | MCP server address | `localhost` |
+| `--port` | | MCP server port | `3010` |
+| `--https` | | Use HTTPS instead of HTTP | HTTP |
+| `--verbose` | `-v` | Enable verbose output with metadata | (quiet mode) |
+| `--quiet` | `-q` | Output only export command for shell eval | (normal mode) |
+
+<Accordion title="Advanced Options">
+
+For advanced use cases, the script supports additional configuration:
+
+| Option | Description |
+|--------|-------------|
+| `--duration` | Token duration in seconds |
+| `--pool-start` | Initial connection pool size |
+| `--pool-max` | Maximum connection pool size |
+| `--public-key-path` | Path to PEM-encoded server public key (skips HTTP fetch) |
+| `--key-id` | Key identifier when using `--public-key-path` |
+
+**Example with advanced options:**
+```bash
+node get-access-token.js \
+  --server prod-mcp.company.com \
+  --port 443 \
+  --https \
+  --duration 7200 \
+  --quiet
+```
+
+</Accordion>
+
+The script automatically:
+- Loads IBM i credentials from `.env` with CLI fallback
+- Fetches the server's public key (or uses local file with `--public-key-path`)
+- Encrypts credentials client-side using RSA/AES
+- Requests an access token from the MCP server
+- Outputs the token (or export command in quiet mode)
+
+**View Source**: See the full implementation at [`get-access-token.js`](https://github.com/IBM/ibmi-mcp-server/blob/main/get-access-token.js)
+
+### Using the Token with MCP Clients
+
+Once you have a token, configure your MCP client:
+
+<Tabs>
+  <Tab title="Python (Agno)">
+    ```python
+    import asyncio
+    import os
+    from agno.agent import Agent
+    from agno.tools.mcp import MCPTools, StreamableHTTPClientParams
+
+    # Get access token from environment
+    token = os.environ.get('IBMI_MCP_ACCESS_TOKEN')
+    if not token:
+        raise ValueError("IBMI_MCP_ACCESS_TOKEN not set")
+
+    url = "http://localhost:3010/mcp"
+    server_params = StreamableHTTPClientParams(
+        url=url,
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    async def main():
+        async with MCPTools(
+            url=url,
+            server_params=server_params,
+            transport="streamable-http"
+        ) as tools:
+            agent = Agent(
+                model="openai:gpt-4o",
+                tools=[tools],
+                name="ibmi-agent",
+                show_tool_calls=True
+            )
+            await agent.aprint_response("What is the system status?")
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Tab>
+
+  <Tab title="Python (MCP SDK)">
+    ```python
+    import asyncio
+    import os
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    async def main():
+        token = os.environ.get('IBMI_MCP_ACCESS_TOKEN')
+        if not token:
+            raise ValueError("IBMI_MCP_ACCESS_TOKEN not set")
+
+        headers = {"Authorization": f"Bearer {token}"}
+
+        async with streamablehttp_client(
+            "http://localhost:3010/mcp",
+            headers=headers
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # List tools
+                tools = await session.list_tools()
+                print(f"Tools: {[t.name for t in tools.tools]}")
+
+                # Execute a tool
+                result = await session.call_tool("system_status", {})
+                print(result)
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Tab>
+
+  <Tab title="Claude Desktop">
+    ```json
+    {
+      "mcpServers": {
+        "ibmi-mcp": {
+          "url": "http://localhost:3010/mcp",
+          "type": "http",
+          "headers": {
+            "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="VSCode">
+    ```json
+    {
+      "servers": {
+        "ibmiMcp": {
+          "type": "http",
+          "url": "http://localhost:3010/mcp",
+          "headers": {
+            "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Production Deployment" icon="shield-check">
+    - **Always use HTTPS**: Set `IBMI_AUTH_ALLOW_HTTP=false`
+    - **Rotate keys regularly**: Generate new keypairs every 90-180 days
+    - **Use strong key sizes**: 2048-bit minimum, 4096-bit recommended for high-security environments
+    - **Monitor key access**: Enable file auditing on the `secrets/` directory
+    - **Backup keys securely**: Store encrypted backups in a secrets management system
+  </Accordion>
+
+  <Accordion title="File Permissions" icon="lock">
+    - **Private key**: `chmod 600 secrets/private.pem` (owner read/write only)
+    - **Public key**: `chmod 644 secrets/public.pem` (world-readable is safe)
+    - **Secrets directory**: `chmod 700 secrets/` (owner access only)
+    - **Owner**: Ensure files are owned by the service account running the MCP server
+  </Accordion>
+
+  <Accordion title="Version Control" icon="code-branch">
+    - **Never commit keys**: Add `secrets/` to `.gitignore`
+    - **Never commit `.env`**: Environment files often contain paths to secrets
+    - **Use environment-specific keys**: Different keypairs for dev/staging/production
+    - **Document setup process**: Include key generation in deployment documentation
+  </Accordion>
+
+  <Accordion title="Secrets Management" icon="vault">
+    For production environments, consider using a secrets management system:
+    - **AWS Secrets Manager**: Store keys in encrypted AWS vault
+    - **HashiCorp Vault**: Centralized secrets management with audit logs
+    - **Azure Key Vault**: Microsoft's cloud-based secrets storage
+    - **Kubernetes Secrets**: For containerized deployments
+
+    Update `IBMI_AUTH_PRIVATE_KEY_PATH` to reference the mounted secret location.
+  </Accordion>
+
+  <Accordion title="Network Security" icon="network-wired">
+    - **HTTPS Only**: Never allow `IBMI_AUTH_ALLOW_HTTP=true` in production
+    - **Firewall Rules**: Restrict access to auth endpoints
+    - **Rate Limiting**: Configure rate limits on authentication endpoints
+    - **IP Whitelisting**: Restrict auth access to known client IPs when possible
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Validation Error: DB2i_USER and DB2i_PASS Required">
+    **Symptom**: Server fails to start with error requiring `DB2i_USER` and `DB2i_PASS` even though you're using token authentication.
+
+    **Solution**: Either completely omit these variables from your `.env` file, or set them to placeholder values like `TOKEN_AUTH`. Do not use empty strings (`DB2i_USER=""`).
+
+    See the [Configuration](#configuration) section above for detailed examples.
+
+    **Why**: Validation requires these fields to be either undefined or have non-empty values. When using token auth, credentials come from the Bearer token, not environment variables.
+  </Accordion>
+
+  <Accordion title="401 Unauthorized When Using Token">
+    **Possible causes:**
+    - Token has expired (check `IBMI_AUTH_TOKEN_EXPIRY_SECONDS`)
+    - Token was obtained from a different server instance
+    - Authorization header missing or malformed
+
+    **Check:**
+    ```bash
+    # Verify header format
+    curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:3010/mcp
+
+    # Get a fresh token
+    node get-access-token.js --verbose
+    ```
+  </Accordion>
+
+  <Accordion title="Encryption Key Errors">
+    **Symptom**: Server fails to start or auth requests fail with encryption errors.
+
+    **Solutions:**
+    - Verify file paths in `.env` are correct
+    - Check file permissions: `ls -la secrets/`
+    - Ensure private key is valid: `openssl rsa -in secrets/private.pem -check`
+    - Regenerate keypair if corrupted
+  </Accordion>
+
+  <Accordion title="Connection Pool Exhaustion">
+    **Symptom**: "Max concurrent sessions reached" errors.
+
+    **Solutions:**
+    - Increase `IBMI_AUTH_MAX_CONCURRENT_SESSIONS`
+    - Reduce `IBMI_AUTH_TOKEN_EXPIRY_SECONDS` to clean up idle sessions faster
+    - Monitor active sessions and adjust cleanup interval
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Authentication Endpoints
+
+When enabled (`IBMI_HTTP_AUTH_ENABLED=true`), the server provides these endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/auth/public-key` | GET | Retrieve server's RSA public key for client-side encryption |
+| `/api/v1/auth` | POST | Authenticate with encrypted IBM i credentials and receive Bearer token |
+| `/healthz` | GET | Health check endpoint (no authentication required) |
+
+For detailed API specifications, see the [API Reference](/api/auth-endpoints).
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="gear" href="/configuration">
+    Explore all configuration options for the MCP server
+  </Card>
+  <Card title="Client Integrations" icon="plug" href="/clients/overview">
+    Connect Claude Desktop, VSCode, Cursor, and other MCP clients
+  </Card>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create custom SQL operations for authenticated users
+  </Card>
+  <Card title="Production Deployment" icon="server" href="/deployment/production">
+    Deploy with Docker, HTTPS, and secrets management
+  </Card>
+</CardGroup>

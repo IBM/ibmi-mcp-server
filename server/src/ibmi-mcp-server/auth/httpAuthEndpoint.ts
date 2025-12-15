@@ -273,7 +273,7 @@ export const handleAuthRequest = async (c: Context) => {
       host: requestBody.host,
       user: credentials.username,
       password: credentials.password,
-      rejectUnauthorized: !ignoreUnauthorized, // Use existing DB2i config
+      rejectUnauthorized: !ignoreUnauthorized, // Use existing Db2i config
     };
 
     // Generate authentication token

@@ -230,7 +230,7 @@ Configure proper certificates on the MCP server:
 
 ```bash
 # MCP server with SSL
-npx ibmi-mcp-server \
+npx -y @ibm/ibmi-mcp-server@latest \
   --tools tools/production-tools.yaml \
   --port 3010 \
   --ssl-cert /path/to/cert.pem \

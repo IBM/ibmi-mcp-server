@@ -1,0 +1,316 @@
+---
+title: "IBM Bob"
+description: "Configure IBM i MCP Server with IBM Bob, IBM's AI-powered development assistant"
+---
+
+# IBM Bob Integration
+
+IBM Bob is IBM's AI-powered development assistant and IDE designed for enterprise software development.
+
+<Note>
+**Platform Support**: Windows, macOS, Linux
+**Transport Modes**: Stdio (local) and HTTP (remote)
+**MCP Client**: Built-in MCP client for connecting to MCP servers
+</Note>
+
+## Prerequisites
+
+Ensure you have IBM Bob installed and configured:
+
+```bash
+# Verify Bob installation
+bob --version
+```
+
+<Info>
+**Getting Bob**: IBM Bob is available to IBM employees and authorized partners. Visit the [IBM Bob product page](https://www.ibm.com/products/bob) for access information.
+</Info>
+
+## Configuration File Location
+
+Bob stores its MCP server configuration in:
+
+<Tabs>
+  <Tab title="User Configuration">
+    **Location**: `~/.bob/mcp.json` or `%USERPROFILE%\.bob\mcp.json` (Windows)
+
+    **Benefits**:
+    - Available across all projects
+    - Personal configuration
+    - Not shared via version control
+  </Tab>
+
+  <Tab title="Workspace Configuration">
+    **Location**: `.bob/mcp.json` in your project root
+
+    **Benefits**:
+    - Shared with team via version control
+    - Project-specific MCP servers
+    - Consistent across team members
+  </Tab>
+</Tabs>
+
+## Local (Stdio) Setup
+
+Configure a local server that Bob will spawn and manage:
+
+### Using Configuration File
+
+Create or edit your MCP configuration file:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/absolute/path/to/tools"],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "your-username",
+        "DB2i_PASS": "your-password",
+        "DB2i_PORT": "8076",
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "NODE_OPTIONS": "--no-deprecation"
+      }
+    }
+  }
+}
+```
+
+<Warning>
+**Important**:
+- The `--tools` path must be an **absolute path**
+- Replace credentials with your actual IBM i system details
+- Ensure the user profile has appropriate database authorities
+</Warning>
+
+## Remote (HTTP) Setup
+
+Connect to a remote IBM i MCP Server:
+
+### Step 1: Start Remote Server
+
+On your server machine, configure and start the MCP server with authentication:
+
+```bash
+# Configure .env file
+MCP_TRANSPORT_TYPE=http
+MCP_AUTH_MODE=ibmi
+IBMI_HTTP_AUTH_ENABLED=true
+
+# Start server
+npm run start:http
+```
+
+### Step 2: Obtain Access Token
+
+```bash
+# Generate access token
+node get-access-token.js --verbose
+
+# Copy the token from output
+```
+
+### Step 3: Configure Bob
+
+Edit your MCP configuration file:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "http://localhost:3010/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+<Tip>
+**Production**: Replace `http://localhost:3010` with your production server URL and ensure HTTPS is enabled for secure communication.
+</Tip>
+
+## Environment Variable Expansion
+
+Bob supports environment variable expansion for secure credential management:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "command": "npx",
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "${IBMI_TOOLS_PATH}"],
+      "env": {
+        "DB2i_HOST": "${DB2i_HOST}",
+        "DB2i_USER": "${DB2i_USER}",
+        "DB2i_PASS": "${DB2i_PASS}",
+        "DB2i_PORT": "${DB2i_PORT:-8076}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+**Supported syntax:**
+- `${VAR}` - Expands to the value of environment variable `VAR`
+- `${VAR:-default}` - Expands to `VAR` if set, otherwise uses `default`
+
+## Testing the Connection
+
+After configuration, restart Bob and verify the MCP server connection:
+
+1. **Restart Bob**: Close and reopen the Bob IDE
+2. **Check MCP status**: Look for MCP indicators in the Bob interface
+3. **List available tools**: Ask Bob "What MCP tools are available?"
+4. **Test a tool**: Try "Show me the IBM i system status using MCP"
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server Not Appearing">
+    **Symptoms**: MCP server doesn't show up in Bob
+
+    **Solutions**:
+    - Verify JSON syntax in your MCP configuration file
+    - Check that `npx -y @ibm/ibmi-mcp-server@latest` works from terminal
+    - Ensure absolute paths are used for `--tools`
+    - Restart Bob completely
+    - Check Bob logs for MCP-related errors
+  </Accordion>
+
+  <Accordion title="Authentication Failed (Remote)">
+    **Symptoms**: Connection refused or 401 Unauthorized for remote connections
+
+    **Solutions**:
+    - Verify server is running: `curl http://localhost:3010/mcp`
+    - Check token is valid: verify token hasn't expired (default: 1 hour)
+    - Ensure `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true` on server
+    - Get a fresh token: `node get-access-token.js --verbose`
+    - Confirm Authorization header format: `Bearer TOKEN`
+  </Accordion>
+
+  <Accordion title="Tools Not Loading">
+    **Symptoms**: Server connects but no tools available
+
+    **Solutions**:
+    - Verify tools path exists and is absolute
+    - Check YAML files are valid in tools directory
+    - Ensure IBM i credentials are correct
+    - Verify Mapepire is running on IBM i (port 8076)
+    - Test tools: `npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path`
+  </Accordion>
+
+  <Accordion title="Connection to IBM i Failed">
+    **Symptoms**: Server starts but can't connect to IBM i
+
+    **Solutions**:
+    - Test IBM i connectivity: `ping your-ibmi-host`
+    - Verify Mapepire is running: `netstat -an | grep 8076`
+    - Check firewall allows port 8076
+    - Ensure DB2i credentials have appropriate authorities
+    - Verify hostname resolution
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Configuration
+
+### Multiple IBM i Systems
+
+Configure multiple server instances for different IBM i systems:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-dev": {
+      "command": "npx",
+      "args": ["-y", "@ibm/ibmi-mcp-server@latest", "--tools", "/path/to/dev-tools"],
+      "env": {
+        "DB2i_HOST": "dev-ibmi.company.com",
+        "DB2i_USER": "DEVUSER",
+        "DB2i_PASS": "${DEV_PASSWORD}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    },
+    "ibmi-prod": {
+      "url": "https://prod-mcp.company.com/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer ${PROD_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Custom Toolsets
+
+Load specific toolsets for different workflows:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-performance": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ibm/ibmi-mcp-server@latest",
+        "--tools", "/path/to/tools",
+        "--toolsets", "performance,monitoring"
+      ],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "${DB2i_USER}",
+        "DB2i_PASS": "${DB2i_PASS}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    },
+    "ibmi-security": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ibm/ibmi-mcp-server@latest",
+        "--tools", "/path/to/tools",
+        "--toolsets", "security,audit"
+      ],
+      "env": {
+        "DB2i_HOST": "your-ibmi-host.com",
+        "DB2i_USER": "${DB2i_USER}",
+        "DB2i_PASS": "${DB2i_PASS}",
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
+    Create custom SQL tools for your IBM i workflows
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Explore all IBM i MCP Server configuration options
+  </Card>
+  <Card title="Authentication" icon="lock" href="/server-config/ibmi-auth">
+    Set up secure IBM i HTTP authentication
+  </Card>
+  <Card title="Other Clients" icon="grid" href="/clients/overview">
+    Explore other MCP-compatible clients
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [IBM Bob Product Page](https://www.ibm.com/products/bob)
+- [IBM Bob Documentation](https://pages.github.ibm.com/code-assistant/bob-docs/) (IBM Internal)
+- [IBM i MCP Server on IT Jungle](https://www.itjungle.com/2025/10/27/beta-of-mcp-server-opens-up-ibm-i-for-agentic-ai/)
+- [IBM i MCP Quick Start](/quickstart)
+
+<Note>
+**Internal Documentation**: For IBM employees, detailed Bob MCP configuration is available at [Bob MCP Documentation](https://pages.github.ibm.com/code-assistant/bob-docs/features/mcp/using-mcp-in-bob/).
+</Note>

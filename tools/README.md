@@ -1,5 +1,68 @@
 # IBM i MCP Server - SQL Tool Configurations
 
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [IBM i MCP Server - SQL Tool Configurations](#ibm-i-mcp-server---sql-tool-configurations)
+  - [Tool Categories](#tool-categories)
+  - [Sources](#sources)
+  - [Tools](#tools)
+    - [Enabling and Disabling Tools](#enabling-and-disabling-tools)
+    - [Parameters](#parameters)
+      - [Parameter Reference](#parameter-reference)
+      - [Parameter Types](#parameter-types)
+      - [Common Properties](#common-properties)
+    - [String Parameters](#string-parameters)
+    - [Integer Parameters](#integer-parameters)
+    - [Float Parameters](#float-parameters)
+    - [Boolean Parameters](#boolean-parameters)
+    - [Array Parameters](#array-parameters)
+    - [Parameter Constraint Summary](#parameter-constraint-summary)
+    - [Best Practices for Parameter Descriptions](#best-practices-for-parameter-descriptions)
+    - [Using Parameters in SQL Statements](#using-parameters-in-sql-statements)
+    - [Complete Parameter Examples](#complete-parameter-examples)
+      - [Example 1: Recently Used Objects *(from object-statistics-dev.yaml)*](#example-1-recently-used-objects-from-object-statistics-devyaml)
+      - [Example 2: Filtered Library Search](#example-2-filtered-library-search)
+    - [Parameter Validation](#parameter-validation)
+  - [Output Format Options](#output-format-options)
+    - [Overview](#overview)
+    - [Output Format Configuration](#output-format-configuration)
+    - [Table Format Styles](#table-format-styles)
+      - [1. `markdown` (Default)](#1-markdown-default)
+      - [2. `ascii`](#2-ascii)
+      - [3. `grid`](#3-grid)
+      - [4. `compact`](#4-compact)
+    - [Maximum Display Rows](#maximum-display-rows)
+    - [Configuration Examples](#configuration-examples)
+      - [Example 1: Default Configuration](#example-1-default-configuration)
+      - [Example 2: ASCII Format](#example-2-ascii-format)
+      - [Example 3: Grid Format](#example-3-grid-format)
+      - [Example 4: Compact Format](#example-4-compact-format)
+      - [Example 5: High Row Limit](#example-5-high-row-limit)
+    - [Automatic Features](#automatic-features)
+      - [Column Type Awareness](#column-type-awareness)
+      - [NULL Value Handling](#null-value-handling)
+    - [Complete Output Structure](#complete-output-structure)
+    - [Best Practices](#best-practices)
+  - [Complete Example: Employee Information Tools](#complete-example-employee-information-tools)
+    - [File Overview](#file-overview)
+    - [Source Configuration](#source-configuration)
+    - [Tool 1: Basic String Parameter with Pattern Validation](#tool-1-basic-string-parameter-with-pattern-validation)
+    - [Tool 2: String Enum Parameter](#tool-2-string-enum-parameter)
+    - [Tool 3: Another String Enum (Job Titles)](#tool-3-another-string-enum-job-titles)
+    - [Tool 4: Boolean Parameter](#tool-4-boolean-parameter)
+    - [Tool 5: Integer Parameters with Optional Filtering](#tool-5-integer-parameters-with-optional-filtering)
+    - [Tool 6: Array Parameter (In Theory)](#tool-6-array-parameter-in-theory)
+    - [Tool 7: Float Parameter](#tool-7-float-parameter)
+    - [Tool 8: Pagination with Multiple Integer Parameters](#tool-8-pagination-with-multiple-integer-parameters)
+    - [Toolset Organization](#toolset-organization)
+    - [Running the Example](#running-the-example)
+    - [Parameter Type Summary from This Example](#parameter-type-summary-from-this-example)
+</details>
+
+---
+
+
 Tools for this MCP server are defined in YAML configuration files. This directory contains several example tool configuration files that can be used to monitor and manage IBM i systems.
 
 There are three main sections in each YAML file:

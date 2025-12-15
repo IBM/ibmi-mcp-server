@@ -24,7 +24,7 @@ The `tools/` directory contains pre-built tool configurations organized by categ
 <Tip>
 **List Available Toolsets:**
 ```bash
-npx ibmi-mcp-server --list-toolsets --tools tools
+npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools
 ```
 </Tip>
 
@@ -209,10 +209,10 @@ security:
 
 ```bash
 # Load single toolset
-npx ibmi-mcp-server --tools tools/ --toolsets performance_monitoring
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring
 
 # Load multiple toolsets
-npx ibmi-mcp-server --tools tools/ --toolsets performance_monitoring,security_audit
+npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring,security_audit
 ```
 
 ### Environment Variables
