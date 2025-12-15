@@ -290,6 +290,10 @@ Below is the reference for core server configuration options. Each section inclu
 | `IBMI_AUTH_PRIVATE_KEY_PATH` | Path to RSA private key | (none) | `secrets/private.pem` |
 | `IBMI_AUTH_PUBLIC_KEY_PATH` | Path to RSA public key | (none) | `secrets/public.pem` |
 
+<Card title="IBM i Authentication Guide →" icon="key" href="/server-config/ibmi-auth">
+  **Complete setup guide**: For detailed instructions on IBM i HTTP authentication including RSA key generation, token management, security best practices, and troubleshooting, see the [IBM i Authentication](/server-config/ibmi-auth) page.
+</Card>
+
 ### Setting Up RSA Encryption Keys
 
 **IBM i authentication requires RSA keypairs to protect credentials during transmission.** The authentication flow uses RSA and AES encryption to securely exchange IBM i credentials between clients and the server.

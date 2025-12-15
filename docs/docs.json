@@ -19,15 +19,21 @@
             "pages": [
               "index",
               "quickstart",
-              "configuration",
               "setup-mapepire"
             ]
           },
-          {
+                    {
             "group": "Core Concepts",
             "pages": [
               "concepts/architecture",
               "concepts/mcp-overview"
+            ]
+          },
+          {
+            "group": "Server Configuration",
+            "pages": [
+              "configuration",
+              "server-config/ibmi-auth"
             ]
           },
           {

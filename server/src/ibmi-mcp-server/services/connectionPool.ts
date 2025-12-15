@@ -59,11 +59,11 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     });
 
     try {
-      // Check if DB2i configuration is available
+      // Check if Db2i configuration is available
       if (!config.db2i) {
         throw new McpError(
           JsonRpcErrorCode.ConfigurationError,
-          "DB2i configuration not found. Please ensure DB2i_HOST, DB2i_USER, and DB2i_PASS environment variables are set.",
+          "Db2i configuration not found. Please ensure DB2i_HOST, DB2i_USER, and DB2i_PASS environment variables are set.",
           { configSection: "db2i" },
         );
       }
