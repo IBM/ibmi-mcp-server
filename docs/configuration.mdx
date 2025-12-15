@@ -582,20 +582,6 @@ TOOLS_YAML_PATH=configs/**/*.yaml
   </Tab>
 </Tabs>
 
-## External Service Integration
-
-**Connect to external AI and LLM services.** These settings configure integration with third-party services like OpenRouter for accessing multiple LLM providers through a unified API. Useful for building AI agents that leverage the MCP server's tools.
-
-### OpenRouter
-
-**Access multiple LLM providers through OpenRouter.ai.** OpenRouter provides a unified API for accessing models from OpenAI, Anthropic, Google, Meta, and more. Configure your API key and app details to enable LLM-powered agents that use your MCP tools.
-
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `OPENROUTER_API_KEY` | API key for OpenRouter.ai service | (none) | `sk-or-v1-...` |
-| `OPENROUTER_APP_URL` | Application URL for OpenRouter dashboard | `http://localhost:3000` | `https://myapp.com` |
-| `OPENROUTER_APP_NAME` | Application name for OpenRouter identification | Package name | `ibmi-mcp-server` |
-
 ## Environment-Specific Examples
 
 <Accordion title="Development Environment">

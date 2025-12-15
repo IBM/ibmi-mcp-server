@@ -55,14 +55,6 @@ The MCP Server is a TypeScript implementation that enables AI agents to execute 
 
 ### Quick Start
 
-Choose your installation method:
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-#### **NPM Package (Recommended)**
-
 **Prerequisites:**
 - [Mapepire](#-setup-mapepire) installed on IBM i
 - Node.js 18+ installed
@@ -83,7 +75,7 @@ Choose your installation method:
 2. **Run the server:**
    ```bash
    export MCP_SERVER_CONFIG=.env
-   npx @ibm/ibmi-mcp-server@latest -y --transport http
+   npx @ibm/ibmi-mcp-server@latest -y --transport http --tools ./tools
    ```
 
 3. **Verify it's running:**
@@ -91,60 +83,16 @@ Choose your installation method:
    curl http://localhost:3010/healthz
    ```
 
-> **Benefits:** Always up-to-date, no build required, instant setup
-
-</td>
-<td width="50%" valign="top">
-
-#### **Build from Source**
-
-**Prerequisites:**
-- [Mapepire](#-setup-mapepire) installed on IBM i
-- Node.js 18+ and npm installed
-- Git installed
-
-**Steps:**
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/IBM/ibmi-mcp-server.git
-   cd ibmi-mcp-server
-   ```
-
-2. **Create configuration file:**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your credentials
-   ```
-
-3. **Install dependencies and build:**
-   ```bash
-   cd server
-   npm install
-   npm run build
-   ```
-
-4. **Run the server:**
-   ```bash
-   export MCP_SERVER_CONFIG=../.env
-   npm run start:http
-   ```
-
-> **Benefits:** Latest development features, customization options
-
-</td>
-</tr>
-</table>
 
 ### What You Can Do
 
 - **Connect AI Clients**: Claude Desktop, VSCode Copilot, Cursor, Windsurf, and more
-- **Execute SQL Tools**: Run pre-configured or custom SQL queries via MCP
+- **Execute SQL Tools**: Run pre-configured or custom SQL queries via MCP (`--tools`)
 - **Monitor IBM i Systems**: Performance, jobs, security, storage, and more
 - **Build Custom Tools**: Create YAML-based SQL tools for your specific needs
 
 > [!NOTE]
-> **📖 Full Documentation:** [Server README](./server/README.md)
+> **[📖 Full Documentation: Server README →](./server/README.md)**
 >
 > **Quick Links:**
 > - [Installing in MCP Clients](./server/README.md#-installing-in-mcp-clients)
@@ -199,7 +147,7 @@ The `tools/` directory includes ready-to-use configurations:
 - **Database** - Tables, indexes, constraints, statistics
 
 > [!NOTE]
-> **📖 Full Documentation:** [Tools Guide](./tools/README.md)
+> **[📖 Full Documentation: Tools Guide →](./tools/README.md)**
 
 ---
 
@@ -223,7 +171,7 @@ Pre-built AI agent examples using popular frameworks to interact with IBM i syst
 - **Automation**: Execute administrative tasks through conversation
 
 > [!NOTE]
-> **📖 Full Documentation:** [Agents Guide](./agents/README.md)
+> **[📖 Full Documentation: Agents Guide →](./agents/README.md)**
 
 ---
 
@@ -231,8 +179,44 @@ Pre-built AI agent examples using popular frameworks to interact with IBM i syst
 
 Simple Python client examples for testing and interacting with the MCP Server.
 
+```python
+import asyncio
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+async def main():
+    # Connect to the IBM i MCP server with authentication
+    async with streamablehttp_client("http://localhost:3010/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        # Create a session using the authenticated streams
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the connection
+            await session.initialize()
+
+            # List available tools (now authenticated with your IBM i credentials)
+            tools = await session.list_tools()
+            for i, tool in enumerate(tools.tools, 1):
+                print(f"{i:2d}. {tool.name}")
+                print(f"    └─ {tool.description}")
+
+            # Execute a tool with authenticated IBM i access
+            print("\n" + "=" * 80)
+            print("SYSTEM ACTIVITY RESULT")
+            print("=" * 80)
+            result = await session.call_tool("system_activity", {})
+
+            print(result)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
 > [!NOTE]
-> **📖 Full Documentation:** [Client README](./client/README.md)
+> **[📖 Full Documentation: Client README →](./client/README.md)**
 
 ---
 
@@ -247,7 +231,7 @@ Production-ready deployment configurations for containerized environments.
 - **Production Features** - HTTPS, authentication, monitoring, caching
 
 > [!NOTE]
-> **📖 Full Documentation:** [Deployment Guide](./deployment/README.md)
+> **[📖 Full Documentation: Deployment Guide →](./deployment/README.md)**
 
 ---
 
@@ -286,7 +270,7 @@ sc start mapepire
 ```
 
 > [!NOTE]
-> **📚 Full Documentation:** [Mapepire System Administrator Guide](https://mapepire-ibmi.github.io/guides/sysadmin/)
+> **[📚 Full Documentation: Mapepire System Administrator Guide →](https://mapepire-ibmi.github.io/guides/sysadmin/)**
 
 > [!IMPORTANT]
 > **Important Notes:**
