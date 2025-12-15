@@ -64,15 +64,6 @@
             "pages": [
               "agents/overview"
             ]
-          },
-          {
-            "group": "Agno Framework",
-            "pages": [
-              "agents/agno/getting-started",
-              "agents/agno/filtered-mcp-tools",
-              "agents/agno/agent-patterns",
-              "agents/agno/advanced-config"
-            ]
           }
         ]
       },
