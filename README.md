@@ -79,7 +79,7 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 
 3. **Start the server:**
    ```bash
-   npx -y @ibm/ibmi-mcp-server@latest --tools ./tools
+   npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
    ```
 
    The server will use our pre-configured tools for:

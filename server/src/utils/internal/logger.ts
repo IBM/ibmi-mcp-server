@@ -67,8 +67,8 @@ function createPinoLogger(): PinoLogger {
   // Build a transport target list so we can combine console + file outputs.
   const targets: TransportTargetOptions[] = [];
 
-  // Console pretty printing for local dev (non-stdio, non-prod) if TTY.
-  if (!isProd && !isStdioTransport && process.stdout.isTTY) {
+  // Console pretty printing for local dev (non-prod)
+  if (!isProd && process.stdout.isTTY) {
     targets.push({
       target: "pino-pretty",
       options: {
