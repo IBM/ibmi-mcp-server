@@ -82,8 +82,8 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
    npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/performance/performance.yaml
    ```
 
-   The server will use our pre-configured tools for:
-   - 📊 Performance monitoring (system status, memory pools, active jobs)
+   > The server will use our pre-configured tools for:
+   > - 📊 Performance monitoring (system status, memory pools, active jobs)
    > See the [Tools Guide](https://ibm-d95bab6e.mintlify.app/sql-tools/using-default-tools) for more toolsets.
 
 4. **Verify it's running:**
