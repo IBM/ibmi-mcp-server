@@ -55,12 +55,18 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 ### Quick Start
 
 **Prerequisites:**
-- [Mapepire](#-setup-mapepire) installed on IBM i
+- [Mapepire](#-setup-mapepire) running on IBM i (port 8076)
 - Node.js 18+ installed
 
-**Steps:**
+**Get Started:**
 
-1. **Create configuration file:**
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/IBM/ibmi-mcp-server.git
+   cd ibmi-mcp-server
+   ```
+
+2. **Configure your IBM i connection:**
    ```bash
    cat > .env << 'EOF'
    DB2i_HOST=your-ibmi-host.com
@@ -71,30 +77,40 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
    EOF
    ```
 
-2. **Run the server:**
+3. **Start the server:**
    ```bash
-   export MCP_SERVER_CONFIG=.env
-   npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
+   npx -y @ibm/ibmi-mcp-server@latest --tools ./tools
    ```
 
-3. **Verify it's running:**
+   The server will use our pre-configured tools for:
+   - 📊 Performance monitoring (system status, memory pools, active jobs)
+   - 🔒 Security auditing (user authorities, object permissions)
+   - 💼 Job management (job details, subsystem info)
+   - 🗂️ Database operations (table info, data analysis)
+
+4. **Verify it's running:**
    ```bash
+   # Check server health
    curl http://localhost:3010/healthz
+
+   # List available tools
+   curl -X POST http://localhost:3010/mcp \
+     -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+     grep -o '"name":"[^"]*"' | sed 's/"name":"//g' | sed 's/"//g' | head -20
    ```
 
-
-### What You Can Do
-
-- **Connect AI Clients**: Claude Desktop, VSCode Copilot, Cursor, Windsurf, and more
-- **Execute SQL Tools**: Run pre-configured or custom SQL queries via MCP (`--tools`)
-- **Monitor IBM i Systems**: Performance, jobs, security, storage, and more
-- **Build Custom Tools**: Create YAML-based SQL tools for your specific needs
 
 > [!NOTE]
 > **[📖 Full Documentation: Server README →](./server/README.md)**
 >
+> **Next Steps:**
+> - [Complete Setup Guide](https://ibm-d95bab6e.mintlify.app/quickstart) - Detailed configuration and client integration
+> - [Create Custom Tools](https://ibm-d95bab6e.mintlify.app/sql-tools/overview) - Build your own SQL tools
+> - [Connect AI Clients](https://ibm-d95bab6e.mintlify.app/clients/overview) - Integrate with Claude, VSCode, Bob, etc.
+>
 > **Quick Links:**
-> - [Installing in MCP Clients](./server/README.md#-installing-in-mcp-clients)
 > - [Server Configuration](./server/README.md#️-configuration)
 
 ---

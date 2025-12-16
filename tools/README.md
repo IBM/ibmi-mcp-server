@@ -84,7 +84,7 @@ This directory contains pre-built tool configurations organized by category:
 
 > **💡 Quick Start:** Use `--list-toolsets` to see all available toolsets:
 > ```bash
-> npx ibmi-mcp-server --list-toolsets --tools tools
+> npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools
 > ```
 
 Below is an overview of the structure and purpose of each section.
