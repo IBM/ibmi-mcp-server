@@ -51,7 +51,8 @@
                 ]
               },
               "sql-tools/parameter-guide",
-              "sql-tools/output-formats"
+              "sql-tools/output-formats",
+              "sql-tools/using-default-tools"
             ]
           }
         ]

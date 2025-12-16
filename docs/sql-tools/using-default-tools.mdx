@@ -1,0 +1,684 @@
+---
+title: "Using Default Tools"
+description: "Comprehensive guide to starting the MCP server with pre-built SQL tools for IBM i operations."
+---
+
+The IBM i MCP Server includes a curated collection of pre-built SQL tools in the `tools/` directory. These production-ready tools cover common IBM i operations from system monitoring to security analysis, allowing you to start building AI agents immediately without writing custom YAML configurations.
+
+<Note>
+**Prerequisites**: This guide assumes you've completed the [Quickstart](/quickstart) and have:
+- IBM i database credentials configured (`DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`)
+- Access to the pre-built tools directory (clone or download from [GitHub](https://github.com/IBM/ibmi-mcp-server/tree/main/tools))
+</Note>
+
+## Getting the Tools Directory
+
+Download the pre-built tools from the repository:
+
+```bash
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server
+```
+
+<Tip>
+All examples use `npx @ibm/ibmi-mcp-server` to run the published package. Point `--tools` to wherever you've saved the `tools/` directory.
+</Tip>
+
+---
+
+## Available Tool Categories
+
+The `tools/` directory contains pre-built tool configurations organized by functional domain:
+
+| Directory | Category | Description | Key Tools |
+|-----------|----------|-------------|-----------|
+| [**sample/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/sample) | Sample Data | Demonstration tools using IBM i SAMPLE schema (employee, department, project data) | Employee lookup, department analysis, project management |
+| [**sys-admin/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/sys-admin) | System Administration | High-level system service discovery and metadata exploration | Service catalogs, schema browsing, example queries |
+| [**security/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/security) | Security Analysis | Library list security assessment and vulnerability detection | Library list configuration, authority checks, security analysis |
+| [**performance/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/performance) | Performance Monitoring | System performance metrics and resource utilization | System status, active jobs, memory pools, HTTP server stats |
+| [**developer/**](https://github.com/IBM/ibmi-mcp-server/tree/main/tools/developer) | Development Tools | Object statistics and dependency analysis for developers | Recently used objects, stale object detection, dependency tracking |
+
+<Tip>
+**List All Available Toolsets:**
+```bash
+npx @ibm/ibmi-mcp-server --list-toolsets --tools ./tools
+```
+This command shows all toolsets with descriptions and tool counts.
+</Tip>
+
+---
+
+## Loading Strategies
+
+### 1. Load All Tools from Directory
+
+Load every YAML file in the `tools/` directory and all subdirectories:
+
+```bash
+# Set environment variable to allow duplicate sources
+export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+# HTTP transport (recommended for testing)
+npx @ibm/ibmi-mcp-server --transport http --tools ./tools
+
+# STDIO transport (for MCP client integration)
+npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools
+```
+
+<Warning>
+**Important**: When loading all tools from the directory, you **must** set `YAML_ALLOW_DUPLICATE_SOURCES=true`. Multiple YAML files define the same database sources (e.g., `ibmi-system`), and this setting allows the server to merge them instead of failing with a duplicate source error.
+</Warning>
+
+**Alternative: Use .env file**
+
+Create a `.env` file in your working directory:
+
+```bash
+# .env
+YAML_ALLOW_DUPLICATE_SOURCES=true
+DB2i_HOST=your-ibmi-system.local
+DB2i_USER=YOURUSERID
+DB2i_PASS=YourPassword
+```
+
+Then start the server:
+
+```bash
+npx @ibm/ibmi-mcp-server --transport http --tools ./tools
+```
+
+**What happens:**
+- Recursively scans `tools/` for all `.yaml` files
+- Loads all tools from all categories
+- Makes every toolset available to AI agents
+- Merges sources, tools, and toolsets across files
+- Allows duplicate source definitions (e.g., `ibmi-system` appears in multiple files)
+
+<Note>
+**Why Duplicate Sources?** Each YAML file is designed to be self-contained with its own source definitions. When loading multiple files, the same database connection (like `ibmi-system`) appears in multiple files. The `YAML_ALLOW_DUPLICATE_SOURCES=true` setting intelligently merges these duplicate definitions.
+</Note>
+
+---
+
+### 2. Load Specific Configuration File
+
+Target a single YAML file for focused operations:
+
+<Tabs>
+  <Tab title="Performance Monitoring">
+    ```bash
+    # Load only performance monitoring tools
+    npx @ibm/ibmi-mcp-server \
+      --transport http \
+      --tools ./tools/performance/performance.yaml
+    ```
+
+    **Includes tools for:**
+    - System status and health
+    - Active job monitoring
+    - Memory pool utilization
+    - HTTP server statistics
+  </Tab>
+  <Tab title="Security Analysis">
+    ```bash
+    # Load only security analysis tools
+    npx @ibm/ibmi-mcp-server \
+      --transport http \
+      --tools ./tools/security/library-list-security.yaml
+    ```
+
+    **Includes tools for:**
+    - Library list configuration
+    - Authority validation
+    - Security vulnerability detection
+  </Tab>
+  <Tab title="Sample Data">
+    ```bash
+    # Load sample employee database tools
+    npx @ibm/ibmi-mcp-server \
+      --transport http \
+      --tools ./tools/sample/employee-info.yaml
+    ```
+
+    **Includes tools for:**
+    - Employee information lookup
+    - Department analysis
+    - Project assignment queries
+  </Tab>
+</Tabs>
+
+**Benefits:**
+- **Fast startup** - Only loads tools from specified file
+- **Clear scope** - Agent sees only relevant tools for the task
+- **Easy debugging** - Isolated tool configuration
+- **Production ready** - Minimal resource usage
+- **No duplicate sources** - Single file = single source definition
+
+---
+
+### 3. Load Specific Toolsets
+
+Select logical groups of tools across multiple files using toolset filtering:
+
+<Tip>
+**Discover Available Toolsets**: Before loading specific toolsets, list all available default toolsets and their tools:
+```bash
+npx @ibm/ibmi-mcp-server --list-toolsets --tools ./tools
+```
+This shows toolset names, descriptions, and tool counts to help you choose which ones to load.
+</Tip>
+
+#### Single Toolset
+
+<Tabs>
+  <Tab title="Performance Only">
+    ```bash
+    export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+    npx @ibm/ibmi-mcp-server \
+      --transport http \
+      --tools ./tools \
+      --toolsets performance_monitoring
+    ```
+
+    **Result**: Only tools tagged with `performance_monitoring` toolset are loaded, even though all YAML files are scanned.
+  </Tab>
+  <Tab title="Security Only">
+    ```bash
+    export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+    npx @ibm/ibmi-mcp-server \
+      --transport http \
+      --tools ./tools \
+      --toolsets security_audit
+    ```
+
+    **Result**: Only security analysis tools are available to AI agents.
+  </Tab>
+</Tabs>
+
+#### Multiple Toolsets
+
+Combine related toolsets for comprehensive operations:
+
+```bash
+# Required when loading from directory
+export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+# System administration and monitoring
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets performance_monitoring,system_admin
+
+# Development workflow
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets developer_tools,sample_data
+
+# Security and compliance
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets security_audit,system_admin
+```
+
+<Note>
+**Toolset Names**: Use the exact toolset identifiers from the YAML configurations. Run `--list-toolsets` to see available names.
+</Note>
+
+---
+
+## Environment Variables
+
+Configure database connections and runtime behavior:
+
+### Required Database Credentials
+
+```bash
+# IBM i connection details
+export DB2i_HOST="your-ibmi-system.local"
+export DB2i_USER="YOURUSERID"
+export DB2i_PASS="YourPassword"
+
+# Optional: Custom port (default: 8076)
+export DB2i_PORT=8076
+
+# Optional: SSL validation (default: true in production)
+export DB2i_IGNORE_UNAUTHORIZED=true  # Development only
+```
+
+### Server Configuration
+
+```bash
+# HTTP transport settings
+export MCP_HTTP_PORT=3010
+export MCP_HTTP_HOST="0.0.0.0"
+
+# Logging configuration
+export MCP_LOG_LEVEL=debug  # debug | info | warning | error
+
+# Pre-select toolsets at startup
+export SELECTED_TOOLSETS="performance_monitoring,security_audit"
+
+# YAML configuration (important when loading all tools)
+export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required when loading tools/ directory
+export YAML_ALLOW_DUPLICATE_TOOLS=false   # Prevent accidental tool name conflicts
+```
+
+### Complete Example
+
+```bash
+# Set environment variables
+export DB2i_HOST="ibmi-dev.mycompany.local"
+export DB2i_USER="DEVUSER"
+export DB2i_PASS="DevPassword123"
+export MCP_LOG_LEVEL=debug
+export MCP_HTTP_PORT=3010
+
+# Required when loading all tools from directory
+export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+# Start server with specific toolsets
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets performance_monitoring,developer_tools
+```
+
+<Tip>
+**Use `.env` Files**: Create a `.env` file in your working directory for persistent configuration:
+```bash
+# .env
+DB2i_HOST=ibmi-dev.mycompany.local
+DB2i_USER=DEVUSER
+DB2i_PASS=DevPassword123
+MCP_LOG_LEVEL=debug
+YAML_ALLOW_DUPLICATE_SOURCES=true
+```
+The server automatically loads environment variables from `.env` files in the current directory.
+</Tip>
+
+---
+
+## Usage Scenarios
+
+<Note>
+**Testing Your Server**: Each scenario includes examples for testing with:
+- **MCP Inspector**: Interactive browser-based tool for exploring and testing MCP tools
+- **Agno Agent** (Python): Quick AI agent testing with natural language prompts ([setup guide](https://github.com/IBM/ibmi-mcp-server/tree/main/client))
+</Note>
+
+### Scenario 1: Quick System Health Check
+
+**Goal**: Monitor IBM i system health with AI assistance.
+
+**Start the server:**
+```bash
+# Load performance monitoring tools (single file - no duplicate sources needed)
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools/performance/performance.yaml
+```
+
+<Tabs>
+  <Tab title="Test with MCP Inspector">
+    ```bash
+    # Open MCP Inspector in browser
+    npx @modelcontextprotocol/inspector \
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools/performance/performance.yaml
+    ```
+
+    **In Inspector**: Select any performance tool and fill in parameters to execute queries.
+  </Tab>
+  <Tab title="Test with Agno Agent">
+    ```bash
+    # From the client directory (requires setup - see link above)
+    cd client
+    uv run agent.py -p "Check the system health and identify any resource bottlenecks. Show me the top 5 CPU consumers."
+    ```
+
+    The agent will automatically select and execute appropriate tools based on your natural language prompt.
+  </Tab>
+</Tabs>
+
+---
+
+### Scenario 2: Security Audit
+
+**Goal**: Perform comprehensive security analysis.
+
+**Start the server:**
+```bash
+# Allow duplicate sources when loading multiple toolsets
+export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+# Load security and system admin tools
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets security_audit,system_admin
+```
+
+<Tabs>
+  <Tab title="Test with MCP Inspector">
+    ```bash
+    # Set environment variable first
+    export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+    # Open MCP Inspector
+    npx @modelcontextprotocol/inspector \
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets security_audit,system_admin
+    ```
+
+    **In Inspector**: Explore security tools like library list analysis and authority checks.
+  </Tab>
+  <Tab title="Test with Agno Agent">
+    ```bash
+    # From the client directory
+    cd client
+    uv run agent.py -p "Analyze the library list configuration for security vulnerabilities. Check for any unauthorized access or suspicious authority levels."
+    ```
+
+    The agent will use security-focused tools to perform the analysis.
+  </Tab>
+</Tabs>
+
+---
+
+### Scenario 3: Development Workflow
+
+**Goal**: Help developers find and manage IBM i objects.
+
+**Start the server:**
+```bash
+# Allow duplicate sources when loading multiple toolsets
+export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+# Load developer tools and sample data
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets developer_tools,sample_data
+```
+
+<Tabs>
+  <Tab title="Test with MCP Inspector">
+    ```bash
+    # Set environment variable first
+    export YAML_ALLOW_DUPLICATE_SOURCES=true
+
+    # Open MCP Inspector
+    npx @modelcontextprotocol/inspector \
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets developer_tools,sample_data
+    ```
+
+    **In Inspector**: Test developer tools for object statistics and dependency tracking.
+  </Tab>
+  <Tab title="Test with Agno Agent">
+    ```bash
+    # From the client directory
+    cd client
+    uv run agent.py -p "Find all objects I modified in the last 7 days. Show me any stale objects that haven't been accessed recently."
+    ```
+
+    The agent will query object statistics and provide development insights.
+  </Tab>
+</Tabs>
+
+---
+
+### Scenario 4: Production Monitoring Dashboard
+
+**Goal**: Create a monitoring agent with specific tool access.
+
+**Start the server:**
+```bash
+# Production configuration
+export MCP_LOG_LEVEL=info
+export MCP_HTTP_PORT=8080
+export DB2i_IGNORE_UNAUTHORIZED=false  # Enforce SSL in production
+export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required for directory loading
+
+# Start with performance monitoring only
+npx @ibm/ibmi-mcp-server \
+  --transport http \
+  --tools ./tools \
+  --toolsets performance_monitoring
+```
+
+<Tabs>
+  <Tab title="Test with MCP Inspector">
+    ```bash
+    # Set environment variables
+    export YAML_ALLOW_DUPLICATE_SOURCES=true
+    export MCP_LOG_LEVEL=info
+
+    # Open MCP Inspector
+    npx @modelcontextprotocol/inspector \
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets performance_monitoring
+    ```
+
+    **In Inspector**: Monitor real-time system performance metrics.
+  </Tab>
+  <Tab title="Test with Agno Agent">
+    ```bash
+    # From the client directory
+    # Update url in agent.py if using custom port (default: 3010)
+    cd client
+    uv run agent.py -p "Show me current system status and identify any performance issues."
+    ```
+
+    The agent provides continuous monitoring with natural language queries.
+  </Tab>
+</Tabs>
+
+---
+
+## Command Reference
+
+### CLI Options
+
+| Option | Alias | Description | Example |
+|--------|-------|-------------|---------|
+| `--tools <path>` | - | Path to YAML tools (file, directory, or glob pattern) | `--tools tools/performance/performance.yaml` |
+| `--toolsets <list>` | `-ts` | Comma-separated list of toolsets to load | `--toolsets performance_monitoring,security_audit` |
+| `--transport <type>` | `-t` | Transport protocol: `stdio` or `http` | `--transport http` |
+| `--list-toolsets` | - | Show all available toolsets and exit | `--list-toolsets --tools tools` |
+| `--help` | `-h` | Display help message and exit | `--help` |
+
+### Path Formats
+
+The `--tools` argument accepts multiple formats:
+
+<Tabs>
+  <Tab title="Single File">
+    ```bash
+    # Specific YAML file
+    --tools tools/performance/performance.yaml
+    --tools /absolute/path/to/config.yaml
+    --tools ../relative/path/to/config.yaml
+    ```
+  </Tab>
+  <Tab title="Directory">
+    ```bash
+    # All YAML files in directory (recursive)
+    --tools tools
+    --tools tools/performance
+    --tools /absolute/path/to/tools
+    ```
+  </Tab>
+  <Tab title="Glob Pattern">
+    ```bash
+    # Pattern matching (quote for shell safety)
+    --tools "tools/**/*.yaml"
+    --tools "tools/performance/*.yaml"
+    --tools "custom-tools/**/*-dev.yaml"
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Troubleshooting
+
+### No Tools Loaded
+
+**Symptom**: Server starts but no tools are available.
+
+**Solutions**:
+1. **Verify path exists**:
+   ```bash
+   ls -la ./tools/performance/performance.yaml
+   ```
+
+2. **Check path is relative to current directory**:
+   ```bash
+   # Use ./ prefix for relative paths
+   npx @ibm/ibmi-mcp-server --tools ./tools
+
+   # Or use absolute paths
+   npx @ibm/ibmi-mcp-server --tools /full/path/to/tools
+   ```
+
+3. **Check for duplicate source errors**:
+   ```bash
+   # If loading from directory, ensure this is set
+   export YAML_ALLOW_DUPLICATE_SOURCES=true
+   ```
+
+4. **Review server logs**:
+   The server outputs to console when using `--transport http`. Look for YAML parsing errors in the startup output.
+
+---
+
+### Connection Failures
+
+**Symptom**: Tools load but queries fail with connection errors.
+
+**Solutions**:
+1. **Verify environment variables**:
+   ```bash
+   echo $DB2i_HOST
+   echo $DB2i_USER
+   # DB2i_PASS won't echo for security
+   ```
+
+2. **Test connection manually**:
+   ```bash
+   # Use IBM i Access Client Solutions or similar tool
+   # to verify credentials and network access
+   ```
+
+3. **Check SSL configuration**:
+   ```bash
+   # For development, disable SSL verification
+   export DB2i_IGNORE_UNAUTHORIZED=true
+   ```
+
+---
+
+### Toolset Not Found
+
+**Symptom**: `--toolsets` specified but tools don't load.
+
+**Solutions**:
+1. **List available toolsets**:
+   ```bash
+   npx @ibm/ibmi-mcp-server \
+     --list-toolsets \
+     --tools ./tools
+   ```
+
+2. **Check exact toolset names**:
+   - Toolset names are case-sensitive
+   - Use underscores, not spaces: `performance_monitoring` not `performance monitoring`
+
+3. **Verify toolset exists in YAML**:
+   ```bash
+   grep -r "toolsets:" ./tools/
+   ```
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Development vs Production">
+    **Development:**
+    - Use `--transport http` for easier debugging
+    - Load all tools: `--tools ./tools` (no toolset filter)
+    - Enable debug logging: `MCP_LOG_LEVEL=debug`
+    - Allow SSL bypass: `DB2i_IGNORE_UNAUTHORIZED=true`
+    - Set `YAML_ALLOW_DUPLICATE_SOURCES=true` in `.env`
+
+    **Production:**
+    - Use `--transport stdio` for MCP client integration
+    - Load specific toolsets: `--toolsets performance_monitoring`
+    - Use info logging: `MCP_LOG_LEVEL=info`
+    - Enforce SSL: `DB2i_IGNORE_UNAUTHORIZED=false`
+    - Still need `YAML_ALLOW_DUPLICATE_SOURCES=true` if loading from directory
+  </Accordion>
+
+  <Accordion title="Organize by Access Level">
+    Create environment-specific configurations:
+
+    ```bash
+    # Developer access
+    --toolsets developer_tools,sample_data,system_admin
+
+    # DBA access
+    --toolsets performance_monitoring,security_audit,system_admin
+
+    # Auditor access (read-only)
+    --toolsets security_audit
+    ```
+  </Accordion>
+
+  <Accordion title="Performance Optimization">
+    1. **Load only needed tools**: Use `--toolsets` to reduce memory
+    2. **Use specific files**: Target exact YAML files instead of directories
+    3. **Monitor resource usage**: Check `logs/combined.log` for performance metrics
+    4. **Cache connections**: The server automatically pools database connections
+  </Accordion>
+
+  <Accordion title="Security Considerations">
+    1. **Credential management**: Use environment variables, never hardcode
+    2. **Least privilege**: Load only toolsets needed for the agent's role
+    3. **Audit logging**: Enable `MCP_LOG_LEVEL=info` in production
+    4. **SSL enforcement**: Set `DB2i_IGNORE_UNAUTHORIZED=false` for production
+    5. **Read-only tools**: Prefer query-only tools for non-admin agents
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Custom Tools" icon="hammer" href="/sql-tools/building-tools">
+    Learn to create your own YAML SQL tools for custom IBM i operations
+  </Card>
+  <Card title="Tools Reference" icon="wrench" href="/sql-tools/tools">
+    Complete YAML tools configuration reference with all options
+  </Card>
+  <Card title="Toolsets Guide" icon="layer-group" href="/sql-tools/toolsets">
+    Organize tools into logical groups for better agent discovery
+  </Card>
+  <Card title="Configuration Guide" icon="gear" href="/configuration">
+    Complete server configuration and environment variables
+  </Card>
+</CardGroup>
+
+---
+
+## Examples Repository
+
+<Card title="View Default Tools on GitHub" icon="github" href="https://github.com/IBM/ibmi-mcp-server/tree/main/tools">
+  Browse the complete collection of pre-built YAML tools with documentation and examples →
+</Card>
+
+<Note>
+**Contributing**: Found a bug or want to add a new default tool? Contributions are welcome! See the [Contributing Guide](https://github.com/IBM/ibmi-mcp-server/blob/main/CONTRIBUTING.md) for details.
+</Note>

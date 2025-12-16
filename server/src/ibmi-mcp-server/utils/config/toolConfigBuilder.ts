@@ -859,7 +859,7 @@ export class ToolConfigBuilder {
           if (!options.allowDuplicateSources) {
             throw new McpError(
               JsonRpcErrorCode.ConfigurationError,
-              `Duplicate source name: ${sourceName}`,
+              `Duplicate source name: ${sourceName}. To allow duplicate source names, set YAML_ALLOW_DUPLICATE_SOURCES=true in server .env`,
             );
           }
           logger.warning(
