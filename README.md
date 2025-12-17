@@ -11,8 +11,6 @@
 ![NPM Version](https://img.shields.io/npm/v/%40ibm%2Fibmi-mcp-server)
 
 
-**📚 [Documentation](https://ibm-d95bab6e.mintlify.app/) | ⚠️ Docs are under active development**
-
 **MCP server for IBM i**
 </div>
 
@@ -26,6 +24,12 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
 ![MCP Architecture](docs/images/mcp-arch.png)
 
 > **How it works:** AI clients connect via MCP → Server executes YAML-defined SQL tools → Results stream back to the AI agent through Mapepire.
+
+
+> [!TIP]
+> **📚 [Official Documentation](https://ibm-d95bab6e.mintlify.app/) | ⚠️ Docs are under active development**
+>  
+> The Docs are continuously evolving. Please check back frequently for updates and new guides. If there's something missing, feel free to open an issue!
 
 ### 📁 Repository Structure
 
@@ -86,7 +90,7 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 
    > The server will use our pre-configured tools for:
    > - 📊 Performance monitoring (system status, memory pools, active jobs)
-   > See the [Tools Guide](https://ibm-d95bab6e.mintlify.app/sql-tools/using-default-tools) for more toolsets.
+   > - See the [Tools Guide](https://ibm-d95bab6e.mintlify.app/sql-tools/using-default-tools) for more toolsets.
 
 4. **Verify it's running:**
    ```bash
@@ -103,14 +107,14 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 
 
 > [!NOTE]
-> **[📖 Full Documentation: Server README →](./server/README.md)**
+> **[📖 Full Server Quickstart →](https://ibm-d95bab6e.mintlify.app/quickstart)**
 >
 > **Next Steps:**
-> - [Complete Setup Guide](https://ibm-d95bab6e.mintlify.app/quickstart) - Detailed configuration and client integration
 > - [Create Custom Tools](https://ibm-d95bab6e.mintlify.app/sql-tools/overview) - Build your own SQL tools
 > - [Connect AI Clients](https://ibm-d95bab6e.mintlify.app/clients/overview) - Integrate with Claude, VSCode, Bob, etc.
 >
-> **Quick Links:**
+> **Additional links:**
+> - [Server README](./server/README.md)
 > - [Server Configuration](./server/README.md#️-configuration)
 
 ---
@@ -162,7 +166,10 @@ The `tools/` directory includes ready-to-use configurations:
 - **Database** - Tables, indexes, constraints, statistics
 
 > [!NOTE]
-> **[📖 Full Documentation: Tools Guide →](./tools/README.md)**
+> **[📖 Full Documentation: Tools Guide →](https://ibm-d95bab6e.mintlify.app/sql-tools/overview)**
+>
+> **Additional links:**
+> - [Tools README](./tools/README.md)
 
 ---
 
@@ -186,7 +193,10 @@ Pre-built AI agent examples using popular frameworks to interact with IBM i syst
 - **Automation**: Execute administrative tasks through conversation
 
 > [!NOTE]
-> **[📖 Full Documentation: Agents Guide →](./agents/README.md)**
+> **[📖 Full Documentation: Agents Guide →](https://ibm-d95bab6e.mintlify.app/agents/overview)**
+> 
+> **Additional links:**
+> - [Agents README](./agents/README.md)
 
 ---
 
@@ -231,7 +241,10 @@ if __name__ == "__main__":
 ```
 
 > [!NOTE]
-> **[📖 Full Documentation: Client README →](./client/README.md)**
+> **[📖 Full Documentation: Client README →](https://ibm-d95bab6e.mintlify.app/clients/overview)**
+> 
+> **Additional links:**
+> - [Client README](./client/README.md)
 
 ---
 
