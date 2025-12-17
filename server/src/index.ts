@@ -20,7 +20,7 @@ import {
   logOperationStart,
   logOperationSuccess,
 } from "@/utils/internal/logging-helpers.js";
-import { logger } from "@/utils/internal/logger.js";
+import { logger, reinitializeLogger } from "@/utils/internal/logger.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import http from "http";
 import { statSync, existsSync } from "fs";
@@ -43,6 +43,7 @@ async function listToolsetsCommand(): Promise<void> {
   try {
     // Apply CLI overrides to get the correct tools path
     applyCliOverrides(cliArgs);
+    reinitializeLogger();
 
     if (!config.toolsYamlPath) {
       logger.error("❌ No YAML tools configuration found.");
@@ -201,6 +202,9 @@ if (cliArgs.tools) {
 
 // Apply CLI overrides directly to global config so downstream modules see changes
 applyCliOverrides(cliArgs);
+
+// Reinitialize logger with updated config (especially transport mode from CLI)
+reinitializeLogger();
 
 // Log overrides if provided
 if (cliArgs.tools) {

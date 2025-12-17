@@ -538,16 +538,244 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 | `MCP_SERVER_NAME` | Server name identifier for MCP protocol | Package name | `ibmi-mcp-dev` |
 | `MCP_SERVER_VERSION` | Server version for MCP protocol | Package version | `1.9.1` |
 | `NODE_ENV` | Node environment | `development` | `production`, `test` |
-| `LOGS_DIR` | Directory for log files (relative to root) | `logs` | `logs` |
 
-### Logging
+### Logging Configuration
 
-**Control log output detail and format.** Logging settings determine how verbose the server's diagnostic output is and whether logs are formatted as human-readable text or structured JSON for log aggregation systems.
+**Control log output, verbosity, and file storage.** The server uses Pino for structured logging with automatic log rotation, level-specific log files, and support for both console and file outputs. Logs help you debug issues, track server behavior, and comply with audit requirements.
+
+#### Log Settings
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
-| `MCP_LOG_LEVEL` | Logging verbosity level | `info` | `debug`, `info`, `warn`, `error` |
-| `LOG_FORMAT` | Log output format | `json` | `json`, `text` |
+| `MCP_LOG_LEVEL` | Logging verbosity level | `info` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
+| `LOGS_DIR` | Directory for log files | `~/.ibmi-mcp-server/logs` | Any absolute, relative, or `~/` path |
+| `NO_COLOR` | Disable colored console output | (none) | `1` to disable colors |
+| `FORCE_COLOR` | Force disable colored output | (none) | `0` to disable colors |
+
+<Info>
+**Log Levels Explained**:
+- `debug`: Detailed diagnostic information (verbose)
+- `info`: General informational messages (recommended)
+- `notice`: Significant events worth noting
+- `warning`: Warning conditions that should be addressed
+- `error`: Error conditions that need attention
+- `crit`, `alert`, `emerg`: Critical system failures
+</Info>
+
+#### Log Directory Configuration
+
+**Where logs are stored depends on how you specify the path:**
+
+<Tabs>
+  <Tab title="Default (OS-Standard)">
+    ```bash
+    # No LOGS_DIR specified - uses OS-standard location
+    # Logs will be written to: ~/.ibmi-mcp-server/logs/
+    ```
+
+    **Default location**: `~/.ibmi-mcp-server/logs/`
+
+    **Use for**: Production with `npx`, user-specific installations
+
+    **Benefits**:
+    - Works consistently with `npx @ibm/ibmi-mcp-server`
+    - Persists across package updates
+    - Doesn't require write permissions to npm cache
+    - Follows OS conventions for user data
+  </Tab>
+
+  <Tab title="Absolute Path">
+    ```bash
+    # Absolute path - exact location specified
+    LOGS_DIR=/var/log/ibmi-mcp-server
+    ```
+
+    **Use for**: System-wide installations, production servers
+
+    **Examples**:
+    - `/var/log/ibmi-mcp-server` - System logs directory
+    - `/opt/ibmi-mcp/logs` - Custom application directory
+    - `/app/logs` - Docker container path
+  </Tab>
+
+  <Tab title="Relative Path">
+    ```bash
+    # Relative to current working directory (process.cwd())
+    LOGS_DIR=./logs
+    ```
+
+    **Resolves relative to**: Directory where you run the server
+
+    **Use for**: Local development, project-specific logs
+
+    **Examples**:
+    - `./logs` - Logs in current directory
+    - `../shared-logs` - Logs in parent directory
+    - `data/logs` - Logs in data subdirectory
+  </Tab>
+
+  <Tab title="Tilde Expansion">
+    ```bash
+    # User home directory expansion
+    LOGS_DIR=~/my-project/logs
+    ```
+
+    **Expands to**: Your home directory + path
+
+    **Use for**: User-specific custom locations
+
+    **Examples**:
+    - `~/ibmi-mcp-logs` → `/Users/username/ibmi-mcp-logs`
+    - `~/projects/mcp/logs` → `/Users/username/projects/mcp/logs`
+  </Tab>
+</Tabs>
+
+<Warning>
+**Path Resolution:**
+- Absolute paths (`/var/log/...`) are used as-is
+- Relative paths (`./logs`) resolve from **current working directory**, not package location
+- Tilde paths (`~/logs`) expand to your home directory
+- When using `npx`, relative paths resolve from where you run the command
+</Warning>
+
+#### Log Files Created
+
+The server creates **6 log files** with automatic rotation:
+
+| File | Content | Rotation |
+|------|---------|----------|
+| `combined.log` | All info+ level logs | Daily or 10MB |
+| `error.log` | Error+ level logs only | Daily or 10MB |
+| `warn.log` | Warning+ level logs only | Daily or 10MB |
+| `info.log` | Info+ level logs only | Daily or 10MB |
+| `debug.log` | Debug+ level logs only | Daily or 10MB |
+| `interactions.log` | MCP interaction tracking | Daily or 10MB |
+
+**Rotation behavior:**
+- Logs rotate when they reach **10MB** OR at **midnight daily** (whichever comes first)
+- Rotated files are numbered sequentially: `combined.log.1`, `combined.log.2`, etc.
+- **Current file + 5 historical versions** are kept (6 total files per log level)
+- When the 7th file would be created, the oldest file is automatically deleted
+- Daily rotation re-uses the existing file if still within the same day
+
+<Accordion title="Log File Examples">
+
+**Directory structure:**
+```bash
+~/.ibmi-mcp-server/logs/
+├── combined.log       # Current log (being written to)
+├── combined.log.1     # Most recent rotation (yesterday or 10MB ago)
+├── combined.log.2     # 2nd most recent
+├── combined.log.3     # 3rd most recent
+├── combined.log.4     # 4th most recent
+├── combined.log.5     # 5th most recent (oldest kept)
+├── error.log          # Current error log
+├── error.log.1        # Recent error rotation
+├── warn.log           # Current warning log
+├── info.log           # Current info log
+├── debug.log          # Current debug log
+└── interactions.log   # Current interaction log
+```
+
+**Note**: Once `combined.log.6` would be created, `combined.log.5` is deleted and files shift: `.4` → `.5`, `.3` → `.4`, etc.
+
+**Sample log entry (JSON format):**
+```json
+{
+  "level": "info",
+  "time": "2024-12-17T16:30:45.123Z",
+  "pid": 12345,
+  "env": "production",
+  "version": "0.1.2",
+  "msg": "Connection pool initialized successfully",
+  "operation": "InitializePool",
+  "requestId": "req_abc123"
+}
+```
+
+</Accordion>
+
+#### Console Output & Colors
+
+**Console behavior depends on environment and transport mode:**
+
+<AccordionGroup>
+  <Accordion title="HTTP Transport (Colored)" icon="palette">
+    In development with HTTP transport, console logs are **colored and pretty-printed** to stderr:
+
+    ```bash
+    MCP_TRANSPORT_TYPE=http
+    MCP_LOG_LEVEL=debug
+    ```
+
+    **Output**: Human-readable colored logs to `stderr`
+
+    **Disable colors**: Set `NO_COLOR=1` or `FORCE_COLOR=0`
+  </Accordion>
+
+  <Accordion title="STDIO Transport (Plain)" icon="terminal">
+    With STDIO transport, console logs are **plain JSON** to stderr (MCP spec requirement):
+
+    ```bash
+    MCP_TRANSPORT_TYPE=stdio
+    ```
+
+    **Output**: Structured JSON to `stderr` (no colors, no pretty-printing)
+
+    **Why**: MCP protocol requires clean JSON-RPC on `stdout` with no ANSI codes
+  </Accordion>
+
+  <Accordion title="Production (JSON)" icon="server">
+    In production, logs are **structured JSON** regardless of transport:
+
+    ```bash
+    NODE_ENV=production
+    ```
+
+    **Output**: JSON to `stderr` and log files
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+**NO_COLOR Support**: The server respects the [NO_COLOR](https://no-color.org/) environment variable standard. Set `NO_COLOR=1` to disable all colored output, useful for CI/CD pipelines and log aggregation systems.
+</Note>
+
+#### Session Correlation with OpenTelemetry
+
+**How to correlate logs across server restarts:**
+
+Since logs now append across server sessions (rather than creating timestamped files), use **structured logging fields** to filter by session:
+
+<CodeGroup>
+```json Example: Filter by Request ID
+{
+  "requestId": "req_abc123",
+  "operation": "ExecuteQuery",
+  "msg": "Query executed successfully"
+}
+```
+
+```json Example: Filter by Trace ID (OpenTelemetry)
+{
+  "traceId": "d4e5f6a7b8c9d0e1",
+  "spanId": "a1b2c3d4e5f6",
+  "msg": "Processing MCP tool request"
+}
+```
+</CodeGroup>
+
+**Best practice**: Enable OpenTelemetry for distributed tracing across restarts:
+
+```bash
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+```
+
+This adds `traceId` and `spanId` to every log entry, making it easy to:
+- Filter logs by specific server sessions
+- Correlate requests across services
+- Track performance over time
+- Debug issues with full request context
 
 ### OpenTelemetry
 

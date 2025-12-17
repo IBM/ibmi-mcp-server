@@ -9,6 +9,7 @@
 
 import dotenv from "dotenv";
 import { existsSync, mkdirSync, readFileSync, statSync } from "fs";
+import { homedir } from "os";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
@@ -27,7 +28,7 @@ if (process.env.MCP_SERVER_CONFIG) {
     dotenv.config({ path: configPath });
     envLoaded = true;
     if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-      console.log(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
+      console.error(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
     }
   } else {
     if (process.stdout.isTTY) {
@@ -53,7 +54,7 @@ if (!envLoaded) {
       dotenv.config({ path: envPath });
       envLoaded = true;
       if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-        console.log(`Loaded .env from: ${envPath}`);
+        console.error(`Loaded .env from: ${envPath}`);
       }
       break;
     }
@@ -146,7 +147,9 @@ const EnvSchema = z.object({
   MCP_SERVER_NAME: z.string().optional(),
   MCP_SERVER_VERSION: z.string().optional(),
   MCP_LOG_LEVEL: z.string().default("debug"),
-  LOGS_DIR: z.string().default(path.join(projectRoot, "logs")),
+  LOGS_DIR: z
+    .string()
+    .default(path.join(homedir(), ".ibmi-mcp-server", "logs")),
   NODE_ENV: z.string().default("development"),
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
   MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
@@ -338,30 +341,46 @@ if (!parsedEnv.success) {
 
 const env = parsedEnv.success ? parsedEnv.data : EnvSchema.parse({});
 
+/**
+ * Expands tilde (~) to user's home directory
+ * @param filePath - Path that may contain ~
+ * @returns Path with ~ expanded to home directory
+ */
+const expandTilde = (filePath: string): string => {
+  if (filePath.startsWith("~/") || filePath === "~") {
+    return path.join(homedir(), filePath.slice(1));
+  }
+  return filePath;
+};
+
+/**
+ * Ensures a directory exists, creating it if necessary.
+ * Handles absolute paths, relative paths, and tilde (~) expansion.
+ *
+ * @param dirPath - Directory path (absolute, relative, or with ~)
+ * @param baseDir - Base directory for resolving relative paths (typically process.cwd())
+ * @param dirName - Human-readable name for logging
+ * @returns Resolved absolute path to the directory, or null if creation failed
+ */
 const ensureDirectory = (
   dirPath: string,
-  rootDir: string,
+  baseDir: string,
   dirName: string,
 ): string | null => {
-  const resolvedDirPath = path.isAbsolute(dirPath)
-    ? dirPath
-    : path.resolve(rootDir, dirPath);
-  if (
-    !resolvedDirPath.startsWith(rootDir + path.sep) &&
-    resolvedDirPath !== rootDir
-  ) {
-    if (process.stdout.isTTY) {
-      console.error(
-        `Error: ${dirName} path "${dirPath}" resolves to "${resolvedDirPath}", which is outside the project boundary "${rootDir}".`,
-      );
-    }
-    return null;
-  }
+  // Expand ~ to home directory first
+  const expandedPath = expandTilde(dirPath);
+
+  // Resolve path: absolute paths used as-is, relative paths resolved from baseDir
+  const resolvedDirPath = path.isAbsolute(expandedPath)
+    ? expandedPath
+    : path.resolve(baseDir, expandedPath);
+
+  // Try to create directory if it doesn't exist
   if (!existsSync(resolvedDirPath)) {
     try {
       mkdirSync(resolvedDirPath, { recursive: true });
       if (process.stdout.isTTY) {
-        console.log(`Created ${dirName} directory: ${resolvedDirPath}`);
+        console.error(`Created ${dirName} directory: ${resolvedDirPath}`);
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -373,6 +392,7 @@ const ensureDirectory = (
       return null;
     }
   } else {
+    // Verify existing path is actually a directory
     try {
       const stats = statSync(resolvedDirPath);
       if (!stats.isDirectory()) {
@@ -397,25 +417,22 @@ const ensureDirectory = (
   return resolvedDirPath;
 };
 
-let validatedLogsPath: string | null = ensureDirectory(
+// Ensure logs directory exists
+// Supports multiple path formats:
+// - Absolute: /var/log/ibmi-mcp
+// - Relative: ./logs (resolved from process.cwd())
+// - Tilde: ~/my-logs (expanded to home directory)
+const validatedLogsPath: string | null = ensureDirectory(
   env.LOGS_DIR,
-  projectRoot,
+  process.cwd(),
   "logs",
 );
+
 if (!validatedLogsPath) {
   if (process.stdout.isTTY) {
     console.warn(
-      `Warning: Custom logs directory ('${env.LOGS_DIR}') is invalid or outside the project boundary. Falling back to default.`,
+      `Warning: Could not create logs directory at '${env.LOGS_DIR}'. File logging will be disabled.`,
     );
-  }
-  const defaultLogsDir = path.join(projectRoot, "logs");
-  validatedLogsPath = ensureDirectory(defaultLogsDir, projectRoot, "logs");
-  if (!validatedLogsPath) {
-    if (process.stdout.isTTY) {
-      console.warn(
-        "Warning: Default logs directory could not be created. File logging will be disabled.",
-      );
-    }
   }
 }
 

@@ -67,8 +67,18 @@ function createPinoLogger(): PinoLogger {
   // Build a transport target list so we can combine console + file outputs.
   const targets: TransportTargetOptions[] = [];
 
-  // Console pretty printing for local dev (non-prod)
-  if (!isProd && process.stdout.isTTY) {
+  // CRITICAL: STDIO transport MUST NOT output colored logs to stdout.
+  // The MCP specification requires clean JSON-RPC on stdout with no ANSI codes.
+  // Respect NO_COLOR environment variable (https://no-color.org/)
+  const noColorEnv =
+    process.env.NO_COLOR === "1" || process.env.FORCE_COLOR === "0";
+  const useColoredOutput =
+    !isProd && process.stdout.isTTY && !isStdioTransport && !noColorEnv;
+
+  // Console output: colored pretty-print or plain JSON to stderr
+  // NEVER output to stdout in any mode (reserved for JSON-RPC in STDIO)
+  if (useColoredOutput) {
+    // Colored pretty-printing for dev with HTTP transport
     targets.push({
       target: "pino-pretty",
       options: {
@@ -78,6 +88,16 @@ function createPinoLogger(): PinoLogger {
         translateTime: "SYS:yyyy-mm-dd HH:MM:ss.l",
       },
       level: "debug",
+    });
+  } else if (!isStdioTransport) {
+    // Plain JSON to stderr when colors disabled (NO_COLOR, prod, etc.)
+    // Skip for STDIO transport to keep stderr quieter (logs go to files only)
+    targets.push({
+      target: "pino/file",
+      options: {
+        destination: process.stderr.fd,
+      },
+      level: logLevel,
     });
   }
 
@@ -91,7 +111,7 @@ function createPinoLogger(): PinoLogger {
   }
 
   if (resolvedLogsDir) {
-    // Combined rotating log file (JSON) similar to previous combined.log
+    // Combined rotating log file (JSON)
     targets.push({
       target: "pino-roll",
       options: {
@@ -99,12 +119,12 @@ function createPinoLogger(): PinoLogger {
         frequency: "daily",
         mkdir: true,
         size: "10m",
-        files: 5,
+        limit: { count: 5 },
       },
       level: "info",
     });
 
-    // Level-specific rolling files to mirror prior Winston setup
+    // Level-specific rolling files
     targets.push(
       {
         target: "pino-roll",
@@ -113,7 +133,7 @@ function createPinoLogger(): PinoLogger {
           frequency: "daily",
           mkdir: true,
           size: "10m",
-          files: 5,
+          limit: { count: 5 },
         },
         level: "error",
       },
@@ -124,7 +144,7 @@ function createPinoLogger(): PinoLogger {
           frequency: "daily",
           mkdir: true,
           size: "10m",
-          files: 5,
+          limit: { count: 5 },
         },
         level: "warn",
       },
@@ -135,7 +155,7 @@ function createPinoLogger(): PinoLogger {
           frequency: "daily",
           mkdir: true,
           size: "10m",
-          files: 5,
+          limit: { count: 5 },
         },
         level: "info",
       },
@@ -146,7 +166,7 @@ function createPinoLogger(): PinoLogger {
           frequency: "daily",
           mkdir: true,
           size: "10m",
-          files: 5,
+          limit: { count: 5 },
         },
         level: "debug",
       },
@@ -196,36 +216,49 @@ function createPinoLogger(): PinoLogger {
   return pinoInstance;
 }
 
-const mainLogger = createPinoLogger();
+let mainLogger = createPinoLogger();
+let interactionLogger = createInteractionLogger();
 
-// Create a dedicated logger for interaction-specific logs.
-// Create a dedicated interaction logger that writes to interactions.log if logsPath is available.
-let interactionLogger: PinoLogger;
-if (config.logsPath) {
-  const interactionLogLevel =
-    mcpToPinoLevel[config.logLevel as McpLogLevel] || "info";
-  interactionLogger = pino({
-    name: `${config.mcpServerName || "mcp-server"}-interactions`,
-    level: interactionLogLevel,
-    timestamp: pino.stdTimeFunctions.isoTime,
-    transport: {
-      targets: [
-        {
-          target: "pino-roll",
-          options: {
-            file: path.join(config.logsPath, "interactions.log"),
-            frequency: "daily",
-            mkdir: true,
-            size: "10m",
-            files: 5,
+/**
+ * Create the interaction logger based on current config
+ */
+function createInteractionLogger(): PinoLogger {
+  if (config.logsPath) {
+    const interactionLogLevel =
+      mcpToPinoLevel[config.logLevel as McpLogLevel] || "info";
+
+    return pino({
+      name: `${config.mcpServerName || "mcp-server"}-interactions`,
+      level: interactionLogLevel,
+      timestamp: pino.stdTimeFunctions.isoTime,
+      transport: {
+        targets: [
+          {
+            target: "pino-roll",
+            options: {
+              file: path.join(config.logsPath, "interactions.log"),
+              frequency: "daily",
+              mkdir: true,
+              size: "10m",
+              limit: { count: 5 },
+            },
+            level: "info",
           },
-          level: "info",
-        },
-      ],
-    },
-  });
-} else {
-  interactionLogger = mainLogger.child({ name: "interaction-logger" });
+        ],
+      },
+    });
+  } else {
+    return mainLogger.child({ name: "interaction-logger" });
+  }
+}
+
+/**
+ * Reinitialize the logger with updated configuration
+ * Call this after CLI arguments are applied to config
+ */
+export function reinitializeLogger(): void {
+  mainLogger = createPinoLogger();
+  interactionLogger = createInteractionLogger();
 }
 
 // Wrapper function to preserve the original MCP log levels and handle notifications.
