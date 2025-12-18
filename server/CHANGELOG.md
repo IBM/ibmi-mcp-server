@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.2.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.1.2...v0.2.0) (2025-12-18)
+
+
+### Bug Fixes
+
+*  logging configuration and directory management ([#84](https://github.com/IBM/ibmi-mcp-server/issues/84)) ([2bcaa1f](https://github.com/IBM/ibmi-mcp-server/commit/2bcaa1f07289fb6447a3c070481cc842d2e4546b))
+
+
+### Updates
+
+* include docs on using default toolsets ([b45f436](https://github.com/IBM/ibmi-mcp-server/commit/b45f436582c98c8d15882a6f631c91e9237549bb))
+
+
+### Chores
+
+* Add script to list pull requests and categorize commits by type ([0447f1d](https://github.com/IBM/ibmi-mcp-server/commit/0447f1dd8adfd3a4f7992e108d1dc21c57d816d4))
+
 ### [0.1.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.1.1...v0.1.2) (2025-12-11)
 
 ## 0.1.1 (2025-12-11)
