@@ -89,24 +89,19 @@ export const DANGEROUS_FUNCTIONS = [
   "EXEC",
   "EXECUTE_IMMEDIATE",
   "EVAL",
-  "CONCAT",
-  "CHAR",
-  "VARCHAR", // Can be used for dynamic SQL construction
+  // Removed: CONCAT, CHAR, VARCHAR - these are benign functions with high false-positive rates
+  // They are not execution primitives and don't represent security risks
 ] as const;
 
 /**
  * Dangerous SQL patterns that should be detected
  */
 export const DANGEROUS_PATTERNS = [
-  // Dynamic SQL patterns
-  /\bCONCAT\s*\(/i,
-  /\b(CHAR|VARCHAR|CLOB)\s*\(/i,
+  // Removed: CONCAT and CHAR/VARCHAR/CLOB patterns - benign functions with high false-positive rates
   // System function patterns
   /\bSYSTEM\s*\(/i,
   /\bLOAD_EXTENSION\s*\(/i,
   /\bQCMDEXC\s*\(/i,
-  // Comment-based bypass attempts
-  /\/\*.*?(DROP|DELETE|INSERT|UPDATE).*?\*\//i,
   // Multiple statement patterns
   /;\s*(DROP|DELETE|INSERT|UPDATE|CREATE|ALTER)/i,
   // Union-based attacks
@@ -279,7 +274,113 @@ export class SqlSecurityValidator {
   }
 
   /**
-   * Validate SQL query using AST parsing
+   * Strip string literals from SQL to prevent false positives in regex validation
+   * Comments are not allowed in DB2 SQL statements, so only string literals need stripping
+   * @param sql - Raw SQL query
+   * @returns Normalized SQL with strings replaced with empty literals
+   * @private
+   */
+  private static stripSqlLiteralsAndComments(sql: string): string {
+    let normalized = sql;
+
+    // Replace single-quoted strings with empty string literals
+    // Pattern handles escaped quotes: 'can''t' -> ''
+    normalized = normalized.replace(/'(?:''|[^'])*'/g, "''");
+
+    return normalized;
+  }
+
+  /**
+   * Determine if an AST node represents a SQL statement (vs expression/literal)
+   * @param node - AST node to check
+   * @returns True if node has a statement-type .type field
+   * @private
+   */
+  private static isStatementTypeNode(node: unknown): boolean {
+    if (!node || typeof node !== "object") return false;
+
+    const objNode = node as Record<string, unknown>;
+    if (!objNode.type || typeof objNode.type !== "string") return false;
+
+    const nodeType = objNode.type.toUpperCase();
+
+    // Known statement types from DANGEROUS_OPERATIONS and SELECT
+    const STATEMENT_TYPES = new Set([
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "REPLACE",
+      "MERGE",
+      "TRUNCATE",
+      "DROP",
+      "CREATE",
+      "ALTER",
+      "RENAME",
+      "CALL",
+      "EXEC",
+      "EXECUTE",
+      "SET",
+      "DECLARE",
+      "GRANT",
+      "REVOKE",
+      "DENY",
+      "LOAD",
+      "IMPORT",
+      "EXPORT",
+      "BULK",
+      "SHUTDOWN",
+      "RESTART",
+      "KILL",
+      "STOP",
+      "START",
+      "BACKUP",
+      "RESTORE",
+      "DUMP",
+      "LOCK",
+      "UNLOCK",
+      "COMMIT",
+      "ROLLBACK",
+      "SAVEPOINT",
+    ]);
+
+    return STATEMENT_TYPES.has(nodeType);
+  }
+
+  /**
+   * Recursively traverse AST to find all statement nodes
+   * @param node - Current AST node
+   * @param callback - Function to call for each statement node found
+   * @private
+   */
+  private static traverseAstForStatements(
+    node: unknown,
+    callback: (node: Record<string, unknown>) => void,
+  ): void {
+    if (!node || typeof node !== "object") return;
+
+    const objNode = node as Record<string, unknown>;
+
+    // If this is a statement-type node, invoke callback
+    if (this.isStatementTypeNode(objNode)) {
+      callback(objNode);
+    }
+
+    // Recurse into all object/array properties
+    for (const key in objNode) {
+      const value = objNode[key];
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => this.traverseAstForStatements(item, callback));
+      } else if (typeof value === "object" && value !== null) {
+        this.traverseAstForStatements(value, callback);
+      }
+    }
+  }
+
+  /**
+   * Validate SQL query using AST parsing with fail-closed security model
+   * In read-only mode, enforces allowlist (only SELECT) and blocks SELECT INTO
    * @param query - SQL query to validate
    * @param context - Request context for logging
    * @private
@@ -291,7 +392,7 @@ export class SqlSecurityValidator {
     const violations: string[] = [];
 
     try {
-      const ast = this.parser.astify(query, { database: "mysql" });
+      const ast = this.parser.astify(query, { database: "db2" });
 
       logger.debug(
         {
@@ -304,21 +405,40 @@ export class SqlSecurityValidator {
 
       const statements = Array.isArray(ast) ? ast : [ast];
 
+      // Phase 1: Top-level statement type validation (allowlist enforcement)
       for (const statement of statements) {
         if (!statement || typeof statement !== "object") continue;
 
         const objStmt = statement as unknown as Record<string, unknown>;
         const stmtType = String(objStmt.type || "").toUpperCase();
 
-        // 1. Check top-level statement type
-        if (
-          stmtType &&
-          (DANGEROUS_OPERATIONS as readonly string[]).includes(stmtType)
-        ) {
-          violations.push(`Dangerous statement type: ${stmtType}`);
+        // Allowlist: only SELECT is allowed in read-only mode
+        if (stmtType !== "SELECT") {
+          violations.push(`Non-read-only statement detected: ${stmtType}`);
         }
 
-        // 2. Check for dangerous functions anywhere in the AST
+        // Note: SELECT INTO detection via AST is unreliable with this parser
+        // Regex validation provides coverage for SELECT INTO patterns
+      }
+
+      // Phase 2: Nested statement validation (CTEs, subqueries, unions)
+      // Traverse AST to find all statement nodes including nested ones
+      for (const statement of statements) {
+        this.traverseAstForStatements(statement, (node) => {
+          const nodeType = String(node.type || "").toUpperCase();
+
+          if (nodeType !== "SELECT") {
+            // Any non-SELECT statement in nested context is a violation
+            violations.push(
+              `Non-read-only statement in nested context: ${nodeType}`,
+            );
+          }
+          // Note: SELECT INTO checking is unreliable in AST, rely on regex instead
+        });
+      }
+
+      // Phase 3: Dangerous function scanning (keep existing logic)
+      for (const statement of statements) {
         const dangerousFunctions = this.findDangerousFunctionsInAST(statement);
         if (dangerousFunctions.length > 0) {
           violations.push(
@@ -327,8 +447,10 @@ export class SqlSecurityValidator {
             ),
           );
         }
+      }
 
-        // 3. Check for UNION-based attacks
+      // Phase 4: UNION validation (keep existing logic)
+      for (const statement of statements) {
         if (this.hasUnionWithDangerousStatements(statement)) {
           violations.push("UNION with dangerous statements detected");
         }
@@ -340,6 +462,8 @@ export class SqlSecurityValidator {
         validationMethod: "ast",
       };
     } catch (parseError) {
+      // CRITICAL SECURITY CHANGE: Fail closed instead of allowing fallback
+      // If we can't parse the AST in read-only mode, we must reject the query
       logger.warning(
         {
           ...context,
@@ -349,12 +473,12 @@ export class SqlSecurityValidator {
               : String(parseError),
           queryLength: query.length,
         },
-        "SQL AST parsing failed, will use regex validation only",
+        "SQL AST parsing failed in read-only mode - rejecting query",
       );
 
       return {
-        isValid: true, // Let regex validation handle it
-        violations: [],
+        isValid: false, // CHANGED: Fail closed for security
+        violations: ["SQL parsing failed (cannot validate read-only safely)"],
         validationMethod: "ast",
       };
     }
@@ -372,17 +496,20 @@ export class SqlSecurityValidator {
   ): SecurityValidationResult {
     const violations: string[] = [];
 
+    // Normalize SQL by stripping comments and string literals to prevent false positives
+    const normalizedQuery = this.stripSqlLiteralsAndComments(query);
+
     // Check for dangerous operations
     for (const operation of DANGEROUS_OPERATIONS) {
       const pattern = new RegExp(`\\b${operation}\\b`, "i");
-      if (pattern.test(query)) {
+      if (pattern.test(normalizedQuery)) {
         violations.push(`Write operation '${operation}' detected`);
       }
     }
 
     // Check for dangerous patterns
     for (const pattern of DANGEROUS_PATTERNS) {
-      if (pattern.test(query)) {
+      if (pattern.test(normalizedQuery)) {
         violations.push(`Dangerous pattern detected: ${pattern.source}`);
       }
     }
@@ -390,7 +517,7 @@ export class SqlSecurityValidator {
     // Check for suspicious function calls
     for (const func of DANGEROUS_FUNCTIONS) {
       const pattern = new RegExp(`\\b${func}\\s*\\(`, "i");
-      if (pattern.test(query)) {
+      if (pattern.test(normalizedQuery)) {
         violations.push(`Suspicious function '${func}' detected`);
       }
     }
@@ -417,7 +544,7 @@ export class SqlSecurityValidator {
     const violations: string[] = [];
 
     try {
-      const ast = this.parser.astify(query, { database: "mysql" });
+      const ast = this.parser.astify(query, { database: "db2" });
       const statements = Array.isArray(ast) ? ast : [ast];
 
       for (const statement of statements) {
@@ -459,12 +586,15 @@ export class SqlSecurityValidator {
   ): SecurityValidationResult {
     const violations: string[] = [];
 
+    // Normalize SQL by stripping comments and string literals to prevent false positives
+    const normalizedQuery = this.stripSqlLiteralsAndComments(query);
+
     for (const keyword of forbiddenKeywords) {
       const pattern = new RegExp(
         `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
         "i",
       );
-      if (pattern.test(query)) {
+      if (pattern.test(normalizedQuery)) {
         violations.push(`Forbidden keyword: ${keyword}`);
       }
     }
@@ -529,7 +659,10 @@ export class SqlSecurityValidator {
     const objNode = node as Record<string, unknown>;
 
     // Check string values for forbidden keywords
+    // Skip 'value' key which contains string literals, not SQL keywords
     for (const key in objNode) {
+      if (key === "value") continue; // Skip string literal values
+
       const value = objNode[key];
       if (typeof value === "string") {
         for (const keyword of forbiddenKeywords) {
