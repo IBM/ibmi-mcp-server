@@ -78,9 +78,13 @@ tools:
     description: "Current numeric system values that affect performance"
     parameters: []
     statement: |
-      SELECT SYSTEM_VALUE_NAME, CURRENT_NUMERIC_VALUE 
-      FROM QSYS2.SYSTEM_VALUE_INFO 
-      WHERE CURRENT_NUMERIC_VALUE IS NOT NULL
+      SELECT system_value_name, system_value, text_description
+        FROM qsys2.system_value_info
+      WHERE system_value_name IN ('QMCHPOOL',
+        'QBASPOOL', 'QMAXACTLVL', 'QPFRADJ', 'QACTJOB', 'QADLACTJ', 'QMAXJOB', 'QMAXSPLF',
+        'QDBFSTCCOL', 'QDBRCVYWT', 'QSRVDMP', 'QPRCFEAT', 'QTHDRSCAFN', 'QTHDRSCADJ', 'QQRYDEGREE',
+        'QRYTIMLMT', 'QTSEPOOL', 'QPRCMLTTSK', 'QMLTTHDACN')
+      order by system_value_name
 
   collection_services:
     source: ibmi-system
