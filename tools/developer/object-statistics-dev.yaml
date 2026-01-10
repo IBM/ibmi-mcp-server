@@ -10,20 +10,23 @@ sources:
     ignore-unauthorized: true
 
 tools:
-  # 1. Find recently used objects
-  find_recently_used_objects:
+  # 1. Find least recently used objects
+  find_least_recently_used_objects:
     source: ibmi-system
     responseFormat: markdown
-    description: Find objects that have been used within a specified time period, ordered by most recent first
+    description: Find Db2 for i objects that have been in existence for a specified time period but have never been used or are the least recently used, ordered by least recently ascending
     statement: |
-      SELECT * FROM TABLE (
-        qsys2.object_statistics(
-          object_schema => :object_schema, objtypelist => '*ALL', object_name => '*ALL')
-      ) WHERE last_used_object = 'YES' AND (sql_object_type = 'TABLE' OR objattribute IN ('PF', 'LF')) AND
-          last_used_timestamp < current_timestamp - :months_unused MONTHS
-      ORDER BY COALESCE(last_used_timestamp, objcreated) DESC
+      SELECT objname, objtype, DATE(last_used_timestamp) AS last_used,
+       TIMESTAMP(objcreated, 0) AS created, objsize, days_used_count, objlongschema, text,
+       sql_object_type
+      FROM TABLE(qsys2.object_statistics(
+        object_schema => :library_name, objtypelist => '*ALL', object_name => '*ALL'))
+     WHERE last_used_object = 'YES' AND (sql_object_type = 'TABLE' OR objattribute IN ('PF', 'LF')) AND
+        objcreated < current_timestamp - :months_unused MONTHS AND (last_used_timestamp IS null OR
+          last_used_timestamp < current_timestamp - :months_unused MONTHS)
+     ORDER BY COALESCE(last_used_timestamp, objcreated) ASC
     parameters:
-      - name: object_schema
+      - name: library_name
         type: string
         description: "Library name. Examples: 'MYLIB', '*LIBL', '*USRLIBL', '*ALLUSR'"
         required: true
