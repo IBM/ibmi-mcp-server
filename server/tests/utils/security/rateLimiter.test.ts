@@ -70,9 +70,8 @@ describe("RateLimiter", () => {
 
     // We need to re-import the module to get the updated environment
     vi.resetModules();
-    const { RateLimiter: TestRateLimiter } = await import(
-      "../../../src/utils/security/rateLimiter"
-    );
+    const { RateLimiter: TestRateLimiter } =
+      await import("../../../src/utils/security/rateLimiter");
 
     const rateLimiter = new TestRateLimiter({
       windowMs: 1000,
