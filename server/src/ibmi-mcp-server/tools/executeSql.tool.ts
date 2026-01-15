@@ -395,7 +395,7 @@ const executeSqlResponseFormatter = (
 // Tool Definition
 // =============================================================================
 
-export default defineTool({
+export const executeSqlTool = defineTool({
   name: TOOL_NAME,
   title: "Execute SQL",
   description: toolConfig.description || TOOL_DESCRIPTION,

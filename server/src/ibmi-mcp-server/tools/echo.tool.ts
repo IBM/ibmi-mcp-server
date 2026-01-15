@@ -68,7 +68,7 @@ async function echoLogic(
 // Tool Definition
 // =============================================================================
 
-export default defineTool({
+export const echoTool = defineTool({
   name: "echo_test",
   title: "Echo Test",
   description:

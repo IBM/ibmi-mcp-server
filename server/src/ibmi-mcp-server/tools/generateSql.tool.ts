@@ -332,7 +332,7 @@ const generateSqlResponseFormatter = (
 // Tool Definition
 // =============================================================================
 
-export default defineTool({
+export const generateSqlTool = defineTool({
   name: "describe_sql_object",
   title: "Generate SQL DDL",
   description:
