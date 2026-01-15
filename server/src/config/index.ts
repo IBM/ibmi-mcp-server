@@ -472,30 +472,30 @@ export const config = {
   llmDefaultMinP: env.LLM_DEFAULT_MIN_P,
   oauthProxy:
     env.OAUTH_PROXY_AUTHORIZATION_URL ||
-      env.OAUTH_PROXY_TOKEN_URL ||
-      env.OAUTH_PROXY_REVOCATION_URL ||
-      env.OAUTH_PROXY_ISSUER_URL ||
-      env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL ||
-      env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS
+    env.OAUTH_PROXY_TOKEN_URL ||
+    env.OAUTH_PROXY_REVOCATION_URL ||
+    env.OAUTH_PROXY_ISSUER_URL ||
+    env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL ||
+    env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS
       ? {
-        authorizationUrl: env.OAUTH_PROXY_AUTHORIZATION_URL,
-        tokenUrl: env.OAUTH_PROXY_TOKEN_URL,
-        revocationUrl: env.OAUTH_PROXY_REVOCATION_URL,
-        issuerUrl: env.OAUTH_PROXY_ISSUER_URL,
-        serviceDocumentationUrl: env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL,
-        defaultClientRedirectUris:
-          env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS?.split(",")
-            .map((uri) => uri.trim())
-            .filter(Boolean),
-      }
+          authorizationUrl: env.OAUTH_PROXY_AUTHORIZATION_URL,
+          tokenUrl: env.OAUTH_PROXY_TOKEN_URL,
+          revocationUrl: env.OAUTH_PROXY_REVOCATION_URL,
+          issuerUrl: env.OAUTH_PROXY_ISSUER_URL,
+          serviceDocumentationUrl: env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL,
+          defaultClientRedirectUris:
+            env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS?.split(",")
+              .map((uri) => uri.trim())
+              .filter(Boolean),
+        }
       : undefined,
   supabase:
     env.SUPABASE_URL && env.SUPABASE_ANON_KEY
       ? {
-        url: env.SUPABASE_URL,
-        anonKey: env.SUPABASE_ANON_KEY,
-        serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-      }
+          url: env.SUPABASE_URL,
+          anonKey: env.SUPABASE_ANON_KEY,
+          serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+        }
       : undefined,
   openTelemetry: {
     enabled: env.OTEL_ENABLED,
@@ -512,11 +512,11 @@ export const config = {
   db2i:
     env.DB2i_HOST && env.DB2i_USER && env.DB2i_PASS
       ? {
-        host: env.DB2i_HOST,
-        user: env.DB2i_USER,
-        password: env.DB2i_PASS,
-        ignoreUnauthorized: env.DB2i_IGNORE_UNAUTHORIZED,
-      }
+          host: env.DB2i_HOST,
+          user: env.DB2i_USER,
+          password: env.DB2i_PASS,
+          ignoreUnauthorized: env.DB2i_IGNORE_UNAUTHORIZED,
+        }
       : undefined,
 
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
