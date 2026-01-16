@@ -17,6 +17,7 @@ import {
   type RequestContext,
 } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
+import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
 import {
   logOperationStart,
   logOperationSuccess,
@@ -32,21 +33,6 @@ import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 const TOOL_NAME = "execute_sql";
 const TOOL_DESCRIPTION =
   "Executes a SELECT query on the IBM i database and returns the results. Use this tool to retrieve data from database tables and views.";
-
-/**
- * SQL keywords that are restricted in read-only mode
- */
-const RESTRICTED_KEYWORDS = [
-  "DROP",
-  "DELETE",
-  "TRUNCATE",
-  "INSERT",
-  "UPDATE",
-  "ALTER",
-  "CREATE",
-  "GRANT",
-  "REVOKE",
-] as const;
 
 /**
  * Configuration for the execute SQL tool
@@ -187,6 +173,7 @@ type ExecuteSqlResponse = z.infer<typeof ExecuteSqlResponseSchema>;
 
 /**
  * Validates SQL query against security restrictions
+ * Delegates to centralized SqlSecurityValidator
  * @param sql - SQL query to validate
  * @param appContext - Request context for logging
  * @throws McpError if query violates security restrictions
@@ -194,46 +181,13 @@ type ExecuteSqlResponse = z.infer<typeof ExecuteSqlResponseSchema>;
 function validateSqlSecurity(sql: string, appContext: RequestContext): void {
   const config = getExecuteSqlConfig();
 
-  // Check query length
-  const maxLength = config.security?.maxQueryLength ?? 10000;
-  if (sql.length > maxLength) {
-    throw new McpError(
-      JsonRpcErrorCode.InvalidParams,
-      `SQL query exceeds maximum length of ${maxLength} characters`,
-      {
-        queryLength: sql.length,
-        maxLength,
-      },
-    );
-  }
+  const securityConfig = {
+    readOnly: config.security?.readOnly ?? true,
+    maxQueryLength: config.security?.maxQueryLength ?? 10000,
+  };
 
-  // Check for restricted keywords in read-only mode
-  if (config.security?.readOnly ?? true) {
-    const upperSql = sql.toUpperCase();
-    for (const keyword of RESTRICTED_KEYWORDS) {
-      // Use word boundaries to avoid false positives
-      const pattern = new RegExp(`\\b${keyword}\\b`, "i");
-      if (pattern.test(upperSql)) {
-        logger.warning(
-          {
-            ...appContext,
-            keyword,
-            sqlPreview: sql.substring(0, 100),
-          },
-          `Blocked SQL query containing restricted keyword: ${keyword}`,
-        );
-        throw new McpError(
-          JsonRpcErrorCode.InvalidParams,
-          `SQL query contains restricted keyword '${keyword}'. Only SELECT queries are allowed in read-only mode.`,
-          {
-            keyword,
-            readOnlyMode: true,
-            restrictedKeywords: RESTRICTED_KEYWORDS,
-          },
-        );
-      }
-    }
-  }
+  // Use centralized validator
+  SqlSecurityValidator.validateQuery(sql, securityConfig, appContext);
 }
 
 // =============================================================================
