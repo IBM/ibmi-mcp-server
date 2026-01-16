@@ -326,6 +326,9 @@ const EnvSchema = z.object({
     .transform((val) => val === "true" || val === "1"),
 
   SELECTED_TOOLSETS: z.string().optional(),
+
+  /**Enable built-in execute_sql tool for ad-hoc SELECT queries */
+  IBMI_ENABLE_EXECUTE_SQL: z.boolean().default(false),
 });
 
 const parsedEnv = EnvSchema.safeParse(process.env);
@@ -549,6 +552,7 @@ export const config = {
   selectedToolsets: env.SELECTED_TOOLSETS?.split(",")
     .map((ts) => ts.trim())
     .filter(Boolean) as string[] | undefined,
+  ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
 };
 
 if (config.ibmiHttpAuth.enabled) {

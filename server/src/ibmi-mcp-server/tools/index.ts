@@ -6,7 +6,6 @@
  * @module tools/definitions
  */
 
-import { echoTool } from "./echo.tool.js";
 import { executeSqlTool } from "./executeSql.tool.js";
 import { generateSqlTool } from "./generateSql.tool.js";
 
@@ -20,4 +19,4 @@ import { generateSqlTool } from "./generateSql.tool.js";
  *
  * The ToolRegistry will automatically register all tools in this array.
  */
-export const allToolDefinitions = [echoTool, executeSqlTool, generateSqlTool];
+export const allToolDefinitions = [executeSqlTool, generateSqlTool];

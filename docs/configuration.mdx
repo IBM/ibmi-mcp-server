@@ -525,6 +525,77 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 
 </Accordion>
 
+## Built-in Tools
+
+**Control access to compiled SQL tools.** The server includes two built-in database tools: `describe_sql_object` (always enabled) and `execute_sql` (disabled by default). These complement YAML-defined tools with direct database operations.
+
+| Tool | Status | Purpose | Configuration |
+|------|--------|---------|---------------|
+| `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | None required |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SELECT queries | `IBMI_ENABLE_EXECUTE_SQL` |
+
+### Execute SQL Tool Configuration
+
+| Variable | Description | Default | Options |
+|----------|-------------|---------|---------|
+| `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
+
+<Warning>
+**Security**: `execute_sql` allows clients to run arbitrary SELECT queries. Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access.
+</Warning>
+
+<Tabs>
+  <Tab title="Development (Enabled)">
+    ```bash
+    IBMI_ENABLE_EXECUTE_SQL=true
+    ```
+
+    **Use for**: Rapid prototyping, debugging, exploration
+  </Tab>
+
+  <Tab title="Production (Disabled)">
+    ```bash
+    IBMI_ENABLE_EXECUTE_SQL=false
+    TOOLS_YAML_PATH=/app/configs
+    ```
+
+    **Use for**: Production with curated YAML tools
+  </Tab>
+</Tabs>
+
+**Tool Capabilities:**
+
+<AccordionGroup>
+  <Accordion title="describe_sql_object (Always Available)" icon="database">
+    Generates SQL DDL for IBM i database objects using `QSYS2.GENERATE_SQL`:
+
+    - **Input**: Object name, library, type (TABLE, VIEW, INDEX, etc.)
+    - **Output**: Complete DDL with constraints, indexes, and properties
+    - **Security**: Read-only, describes objects without modification
+    - **Use case**: Schema discovery, documentation, AI context
+  </Accordion>
+
+  <Accordion title="execute_sql (Requires Configuration)" icon="code">
+    Executes ad-hoc SELECT queries with built-in security controls:
+
+    - **Allowed**: SELECT queries up to 10,000 characters
+    - **Blocked**: DROP, DELETE, TRUNCATE, INSERT, UPDATE, ALTER, CREATE, GRANT, REVOKE
+    - **Security**: Read-only enforcement, keyword blocking, query length limits
+    - **Use case**: Development exploration, debugging queries
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+**Built-in vs YAML Tools**:
+- **Built-in tools**: Compiled TypeScript, controlled by feature flags
+- **YAML tools**: User-defined, curated queries with parameters
+- **Recommendation**: Use YAML tools in production for explicit query control
+
+See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
+</Note>
+
+---
+
 ## Observability & Monitoring
 
 **Track server performance, debug issues, and monitor operations.** Observability features help you understand server behavior through logging, distributed tracing (OpenTelemetry), and performance metrics. These settings are crucial for production deployments and troubleshooting.

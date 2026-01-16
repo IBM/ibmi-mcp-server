@@ -1483,6 +1483,130 @@ npx ibmi-mcp-server --toolsets performance,security
 </details>
 
 <details>
+<summary><strong>🛠️ Built-in Tools Configuration</strong></summary>
+
+Settings for controlling built-in MCP tools compiled into the server. These are separate from YAML-defined tools.
+
+## Built-in Tools Overview
+
+The IBM i MCP Server includes two built-in tools for database operations:
+
+| Tool | Status | Purpose | Configuration |
+|------|--------|---------|---------------|
+| `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | None (always available) |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SELECT queries | `IBMI_ENABLE_EXECUTE_SQL` |
+
+---
+
+### Describe SQL Object Tool
+
+The `describe_sql_object` tool generates SQL DDL (Data Definition Language) statements for IBM i database objects using the `QSYS2.GENERATE_SQL` procedure. This tool is **always enabled** and extremely useful for providing AI models with detailed object structure information.
+
+**Features:**
+- Generates CREATE statements with full DDL syntax
+- Supports all major database object types (TABLE, VIEW, INDEX, PROCEDURE, FUNCTION, etc.)
+- Read-only operation - only describes objects, never modifies them
+- Returns complete DDL including columns, constraints, indexes, and object-specific properties
+
+**Supported Object Types:**
+ALIAS, CONSTRAINT, FUNCTION, INDEX, MASK, PERMISSION, PROCEDURE, SCHEMA, SEQUENCE, TABLE, TRIGGER, TYPE, VARIABLE, VIEW, XSR
+
+**Use Cases:**
+- **Schema Discovery**: Help AI understand database structure before generating queries
+- **Documentation**: Generate CREATE statements for version control or documentation
+- **Migration**: Capture object definitions for recreating in other environments
+- **Debugging**: Understand object structure when troubleshooting issues
+
+**Example Usage:**
+```json
+{
+  "object_name": "CUSTOMER",
+  "object_library": "SALES",
+  "object_type": "TABLE"
+}
+```
+
+**Returns:**
+```sql
+CREATE TABLE SALES.CUSTOMER (
+  CUSTID INTEGER NOT NULL,
+  CUSTNAME VARCHAR(100),
+  EMAIL VARCHAR(255),
+  CREATED_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (CUSTID)
+);
+```
+
+> **Note:** This tool has no configuration - it's always available as a safe, read-only operation.
+
+---
+
+### Execute SQL Tool
+
+The `execute_sql` tool allows MCP clients to run ad-hoc SELECT queries against your IBM i Db2 database. This tool is **disabled by default** for security reasons.
+
+| Variable | Description | Type | Default | Required |
+|----------|-------------|------|---------|----------|
+| `IBMI_ENABLE_EXECUTE_SQL` | Enable the built-in `execute_sql` tool | boolean | `false` | No |
+
+**Security Features:**
+The execute_sql tool includes multiple layers of protection:
+- **Read-only by default**: Only SELECT queries are allowed
+- **Keyword blocking**: Prevents execution of destructive SQL (DROP, DELETE, TRUNCATE, INSERT, UPDATE, ALTER, CREATE, GRANT, REVOKE)
+- **Query length limit**: Maximum 10,000 characters per query
+- **Connection pooling**: Uses existing database connection pool with configured credentials
+
+**When to Enable:**
+- ✅ **Development**: Enable for rapid prototyping and debugging
+- ✅ **Trusted environments**: Enable when all MCP clients are trusted
+- ✅ **Read-only use cases**: Enable when you need ad-hoc query capabilities
+- ❌ **Production**: Consider using YAML-defined tools with explicit, curated queries instead
+- ❌ **Untrusted clients**: Keep disabled if any client might abuse query capabilities
+
+**Examples:**
+
+```bash
+# Development: Enable ad-hoc SQL queries
+IBMI_ENABLE_EXECUTE_SQL=true
+DB2i_HOST=ibmi-dev.local
+DB2i_USER=DEVUSER
+DB2i_PASS=devpass
+
+# Production: Use YAML tools instead (more controlled)
+IBMI_ENABLE_EXECUTE_SQL=false
+TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
+```
+
+---
+
+### Comparison: Built-in Tools vs YAML Tools
+
+| Feature | Built-in Tools | YAML SQL Tools |
+|---------|----------------|----------------|
+| **Definition** | Compiled into server (TypeScript) | Defined in YAML files |
+| **Queries** | Ad-hoc (client provides SQL) or fixed logic | Pre-defined (curated by admin) |
+| **Control** | Feature flag only | Full query + parameter control |
+| **Security** | Keyword blocking (execute_sql) | Explicit whitelist of queries |
+| **Use Case** | Development & exploration | Production & controlled access |
+| **Configuration** | Environment variables | `TOOLS_YAML_PATH` |
+| **Examples** | `execute_sql`, `describe_sql_object` | Custom performance monitoring, security checks |
+
+**Recommendation:**
+- Use **`describe_sql_object`** freely - it's safe and helps AI understand your database schema
+- Use **`execute_sql`** in development for quick exploration
+- Use **YAML tools** in production for controlled, curated query access
+
+YAML tools allow you to:
+- Curate specific queries with documentation
+- Control parameters and validation
+- Organize tools into logical toolsets
+- Provide explicit descriptions for each query
+
+See [Tools Documentation](../tools/README.md) for creating YAML SQL tools.
+
+</details>
+
+<details>
 <summary><strong>📊 OpenTelemetry (Observability)</strong></summary>
 
 Configuration for distributed tracing and metrics using OpenTelemetry.
