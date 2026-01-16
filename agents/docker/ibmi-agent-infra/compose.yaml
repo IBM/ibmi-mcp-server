@@ -1,6 +1,12 @@
 services:
   pgvector:
-    image: agnohq/pgvector:16
+    build:
+      context: ./pgvector
+      dockerfile: Dockerfile
+      args:
+        PG_MAJOR: "17"
+        PGVECTOR_VERSION: "v0.8.1"
+    image: pgvector:test
     restart: unless-stopped
     ports:
       - "5432:5432"
