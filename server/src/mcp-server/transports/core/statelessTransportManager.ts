@@ -21,12 +21,8 @@ import {
   requestContextService,
 } from "@/utils/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { ServerResponse } from "http";
-import { Readable } from "stream";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { BaseTransportManager } from "./baseTransportManager.js";
-import { convertNodeHeadersToWebHeaders } from "./headerUtils.js";
-import { HonoStreamResponse } from "./honoNodeBridge.js";
 import { McpTransportRequest } from "./transportRequest.js";
 import { HttpStatusCode, TransportResponse } from "./transportTypes.js";
 
@@ -41,13 +37,13 @@ export class StatelessTransportManager extends BaseTransportManager {
    * handles the request, and ensures resources are cleaned up only after the
    * response stream is closed.
    *
-   * @param headers - The incoming request headers.
+   * @param webRequest - The Web Standard Request object.
    * @param body - The parsed body of the request.
    * @param context - The request context for logging and tracing.
    * @returns A promise resolving to a streaming TransportResponse.
    */
   async handleRequest({
-    headers,
+    webRequest,
     body,
     context,
   }: McpTransportRequest): Promise<TransportResponse> {
@@ -61,12 +57,12 @@ export class StatelessTransportManager extends BaseTransportManager {
     );
 
     let server: McpServer | undefined;
-    let transport: StreamableHTTPServerTransport | undefined;
+    let transport: WebStandardStreamableHTTPServerTransport | undefined;
 
     try {
       // 1. Create ephemeral instances for this request.
       server = await this.createServerInstanceFn();
-      transport = new StreamableHTTPServerTransport({
+      transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         onsessioninitialized: undefined,
       });
@@ -74,36 +70,35 @@ export class StatelessTransportManager extends BaseTransportManager {
       await server.connect(transport);
       logger.debug(opContext, "Ephemeral server connected to transport.");
 
-      // 2. Set up the Node.js-to-Web stream bridge.
-      const mockReq = {
-        headers,
-        method: "POST",
-      } as import("http").IncomingMessage;
-      const mockResBridge = new HonoStreamResponse();
-
-      // 3. Defer cleanup until the stream is fully processed.
-      // This is the critical fix to prevent premature resource release.
-      this.setupDeferredCleanup(mockResBridge, server, transport, opContext);
-
-      // 4. Process the request using the MCP transport.
-      const mockRes = mockResBridge as unknown as ServerResponse;
-      await transport.handleRequest(mockReq, mockRes, body);
+      // 2. Handle request using Web Standards API
+      const webResponse = await transport.handleRequest(webRequest, {
+        parsedBody: body,
+      });
 
       logger.info(opContext, "Stateless request handled successfully.");
 
-      // 5. Convert headers and create the final streaming response.
-      const responseHeaders = convertNodeHeadersToWebHeaders(
-        mockRes.getHeaders(),
-      );
-      const webStream = Readable.toWeb(
-        mockResBridge,
-      ) as ReadableStream<Uint8Array>;
+      // 3. Handle response based on whether it has a body
+      if (!webResponse.body) {
+        // No body - return buffered response and cleanup immediately
+        this.cleanup(server, transport, opContext);
+        return {
+          type: "buffered",
+          headers: webResponse.headers,
+          statusCode: webResponse.status as HttpStatusCode,
+          body: null,
+        };
+      }
 
+      // 4. Extract stream and schedule cleanup on stream completion
+      const stream = webResponse.body;
+      this.setupDeferredCleanup(stream, server, transport, opContext);
+
+      // 5. Return streaming response
       return {
         type: "stream",
-        headers: responseHeaders,
-        statusCode: mockRes.statusCode as HttpStatusCode,
-        stream: webStream,
+        headers: webResponse.headers,
+        statusCode: webResponse.status as HttpStatusCode,
+        stream: stream as ReadableStream<Uint8Array>,
       };
     } catch (error) {
       // If an error occurs before the stream is returned, we must clean up immediately.
@@ -122,38 +117,42 @@ export class StatelessTransportManager extends BaseTransportManager {
    * Attaches listeners to the response stream to trigger resource cleanup
    * only after the stream has been fully consumed or has errored.
    *
-   * @param stream - The response stream bridge.
+   * @param stream - The Web ReadableStream response body.
    * @param server - The ephemeral McpServer instance.
    * @param transport - The ephemeral transport instance.
    * @param context - The request context for logging.
    */
   private setupDeferredCleanup(
-    stream: HonoStreamResponse,
+    stream: ReadableStream,
     server: McpServer,
-    transport: StreamableHTTPServerTransport,
+    transport: WebStandardStreamableHTTPServerTransport,
     context: RequestContext,
   ): void {
     let cleanedUp = false;
-    const cleanupFn = (error?: Error) => {
+
+    const cleanupFn = async () => {
       if (cleanedUp) return;
       cleanedUp = true;
-
-      if (error) {
-        logger.warning(
-          {
-            ...context,
-            error,
-          },
-          "Stream ended with an error, proceeding to cleanup.",
-        );
-      }
-      // Cleanup is fire-and-forget.
       this.cleanup(server, transport, context);
     };
 
-    // 'close' is the most reliable event, firing on both normal completion and abrupt termination.
-    stream.on("close", () => cleanupFn());
-    stream.on("error", (err) => cleanupFn(err));
+    // Read stream to completion then cleanup
+    const reader = stream.getReader();
+    (async () => {
+      try {
+        while (true) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      } catch (error) {
+        logger.warning(
+          { ...context, error },
+          "Stream reading error, proceeding to cleanup.",
+        );
+      } finally {
+        await cleanupFn();
+      }
+    })();
   }
 
   /**
@@ -162,7 +161,7 @@ export class StatelessTransportManager extends BaseTransportManager {
    */
   private cleanup(
     server: McpServer | undefined,
-    transport: StreamableHTTPServerTransport | undefined,
+    transport: WebStandardStreamableHTTPServerTransport | undefined,
     context: RequestContext,
   ): void {
     const opContext = {

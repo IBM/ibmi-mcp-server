@@ -23,14 +23,10 @@ import {
   requestContextService,
 } from "@/utils/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import type { IncomingHttpHeaders, ServerResponse } from "http";
 import { randomUUID } from "node:crypto";
-import { Readable } from "stream";
 import { BaseTransportManager } from "./baseTransportManager.js";
-import { convertNodeHeadersToWebHeaders } from "./headerUtils.js";
-import { HonoStreamResponse } from "./honoNodeBridge.js";
 import { McpTransportRequest } from "./transportRequest.js";
 import {
   HttpStatusCode,
@@ -57,7 +53,7 @@ export class StatefulTransportManager
 {
   private readonly transports = new Map<
     string,
-    StreamableHTTPServerTransport
+    WebStandardStreamableHTTPServerTransport
   >();
   private readonly servers = new Map<string, McpServer>();
   private readonly sessions = new Map<string, TransportSession>();
@@ -91,14 +87,14 @@ export class StatefulTransportManager
   /**
    * Initializes a new stateful session and handles the first request.
    *
-   * @param headers - The incoming request headers.
+   * @param webRequest - The Web Standard Request object.
    * @param body - The parsed body of the request.
    * @param context - The request context.
    * @returns A promise resolving to a streaming TransportResponse with a session ID.
    * @private
    */
   private async initializeAndHandle(
-    headers: IncomingHttpHeaders,
+    webRequest: Request,
     body: unknown,
     context: RequestContext,
   ): Promise<TransportResponse> {
@@ -109,30 +105,35 @@ export class StatefulTransportManager
     logger.debug(opContext, "Initializing new stateful session.");
 
     let server: McpServer | undefined;
-    let transport: StreamableHTTPServerTransport | undefined;
+    let transport: WebStandardStreamableHTTPServerTransport | undefined;
 
     try {
       server = await this.createServerInstanceFn();
-      const mockRes = new HonoStreamResponse() as unknown as ServerResponse;
       const currentServer = server;
 
-      transport = new StreamableHTTPServerTransport({
+      // Create transport with session management
+      transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
+        onsessioninitialized: (sessionId: string) => {
           const sessionContext = { ...opContext, sessionId };
           this.transports.set(sessionId, transport!);
           this.servers.set(sessionId, currentServer);
           this.sessions.set(sessionId, {
             id: sessionId,
-            state: SessionState.ACTIVE, // Set initial state
+            state: SessionState.ACTIVE,
             createdAt: new Date(),
             lastAccessedAt: new Date(),
             activeRequests: 0,
           });
           logger.info(sessionContext, `MCP Session created: ${sessionId}`);
         },
+        onsessionclosed: (sessionId: string) => {
+          const closeContext = { ...opContext, sessionId };
+          logger.info(closeContext, `Session closed via DELETE: ${sessionId}`);
+        },
       });
 
+      // Set up transport.onclose handler
       transport.onclose = () => {
         const sessionId = transport!.sessionId;
         if (sessionId) {
@@ -149,30 +150,31 @@ export class StatefulTransportManager
       await server.connect(transport);
       logger.debug(opContext, "Server connected, handling initial request.");
 
-      const mockReq = {
-        headers,
-        method: "POST",
-        url: this.options.mcpHttpEndpointPath,
-      } as import("http").IncomingMessage;
-      await transport.handleRequest(mockReq, mockRes, body);
+      // Handle request using Web Standards API
+      const webResponse = await transport.handleRequest(webRequest, {
+        parsedBody: body,
+      });
 
-      const responseHeaders = convertNodeHeadersToWebHeaders(
-        mockRes.getHeaders(),
-      );
-      if (transport.sessionId) {
-        responseHeaders.set("Mcp-Session-Id", transport.sessionId);
+      const sessionId =
+        webResponse.headers.get("Mcp-Session-Id") || transport.sessionId;
+
+      // Handle response based on whether it has a body
+      if (!webResponse.body) {
+        return {
+          type: "buffered",
+          headers: webResponse.headers,
+          statusCode: webResponse.status as HttpStatusCode,
+          body: null,
+          sessionId,
+        };
       }
-
-      const webStream = Readable.toWeb(
-        mockRes as unknown as HonoStreamResponse,
-      ) as ReadableStream<Uint8Array>;
 
       return {
         type: "stream",
-        headers: responseHeaders,
-        statusCode: mockRes.statusCode as HttpStatusCode,
-        stream: webStream,
-        sessionId: transport.sessionId,
+        headers: webResponse.headers,
+        statusCode: webResponse.status as HttpStatusCode,
+        stream: webResponse.body as ReadableStream<Uint8Array>,
+        sessionId,
       };
     } catch (error) {
       logger.error(
@@ -212,9 +214,10 @@ export class StatefulTransportManager
   async handleRequest(
     request: McpTransportRequest,
   ): Promise<TransportResponse> {
-    const { headers, body, context, sessionId } = request;
+    const { webRequest, body, context, sessionId } = request;
 
     if (sessionId) {
+      // Handle subsequent request for existing session
       const sessionContext = {
         ...context,
         sessionId,
@@ -240,14 +243,13 @@ export class StatefulTransportManager
         };
       }
 
-      // Check session state before accepting the request
       if (session.state === SessionState.CLOSING) {
         logger.warning(
           sessionContext,
           `Request received for session in CLOSING state: ${sessionId}`,
         );
         throw new McpError(
-          JsonRpcErrorCode.Conflict, // Use Conflict status
+          JsonRpcErrorCode.Conflict,
           "Session is currently closing. Please start a new session.",
           sessionContext,
         );
@@ -261,27 +263,27 @@ export class StatefulTransportManager
       );
 
       try {
-        const mockReq = {
-          headers,
-          method: "POST",
-          url: this.options.mcpHttpEndpointPath,
-        } as import("http").IncomingMessage;
-        const mockRes = new HonoStreamResponse() as unknown as ServerResponse;
+        // Call Web Standards API
+        const webResponse = await transport.handleRequest(webRequest, {
+          parsedBody: body,
+        });
 
-        await transport.handleRequest(mockReq, mockRes, body);
-
-        const responseHeaders = convertNodeHeadersToWebHeaders(
-          mockRes.getHeaders(),
-        );
-        const webStream = Readable.toWeb(
-          mockRes as unknown as HonoStreamResponse,
-        ) as ReadableStream<Uint8Array>;
+        // Handle response based on whether it has a body
+        if (!webResponse.body) {
+          return {
+            type: "buffered",
+            headers: webResponse.headers,
+            statusCode: webResponse.status as HttpStatusCode,
+            body: null,
+            sessionId: transport.sessionId,
+          };
+        }
 
         return {
           type: "stream",
-          headers: responseHeaders,
-          statusCode: mockRes.statusCode as HttpStatusCode,
-          stream: webStream,
+          headers: webResponse.headers,
+          statusCode: webResponse.status as HttpStatusCode,
+          stream: webResponse.body as ReadableStream<Uint8Array>,
           sessionId: transport.sessionId,
         };
       } catch (error) {
@@ -301,7 +303,7 @@ export class StatefulTransportManager
     }
 
     if (isInitializeRequest(body)) {
-      return this.initializeAndHandle(headers, body, context);
+      return this.initializeAndHandle(webRequest, body, context);
     }
 
     throw new McpError(
