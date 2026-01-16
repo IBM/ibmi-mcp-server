@@ -13,7 +13,6 @@ import {
   requestContextService,
   withRequestContext,
 } from "../../../utils/index.js";
-import { convertWebHeadersToNodeHeaders } from "../core/headerUtils.js"; // Import the utility
 import { McpTransportRequest } from "../core/transportRequest.js";
 import { TransportManager, TransportResponse } from "../core/transportTypes.js";
 import { HonoNodeBindings } from "./httpTypes.js";
@@ -68,8 +67,7 @@ export const mcpTransportMiddleware = (
         c.set("requestId", requestId); // Store in context
 
         const transportRequest: McpTransportRequest = {
-          // Use the centralized utility
-          headers: convertWebHeadersToNodeHeaders(c.req.raw.headers),
+          webRequest: c.req.raw,
           body,
           context,
           sessionId: sessionId || undefined,
