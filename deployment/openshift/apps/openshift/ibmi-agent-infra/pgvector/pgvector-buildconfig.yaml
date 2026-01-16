@@ -1,0 +1,26 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: pgvector
+spec:
+  nodeSelector: null
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'pgvector:latest'
+  strategy:
+    type: Docker
+    dockerStrategy:
+      buildArgs:
+        - name: PG_MAJOR
+          value: "17"
+        - name: PGVECTOR_VERSION
+          value: "v0.8.1"
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/IBM/ibmi-mcp-server.git"
+      ref: chore/agent_deployment
+    contextDir: agents/docker/ibmi-agent-infra/pgvector
+  triggers:
+    - type: ConfigChange
