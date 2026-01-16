@@ -25,6 +25,7 @@ import {
 import { IBMiConnectionPool } from "../services/connectionPool.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
+import { config } from "../../config/index.js";
 
 // =============================================================================
 // Constants & Configuration
@@ -48,12 +49,13 @@ export interface ExecuteSqlToolConfig {
 
 /**
  * Default tool configuration
- * Tool is disabled by default for security reasons
+ * Readonly mode is controlled by IBMI_EXECUTE_SQL_READONLY environment variable (defaults to true)
+ * This ensures write operations are opt-in for security
  */
 let toolConfig: ExecuteSqlToolConfig = {
   enabled: true,
   security: {
-    readOnly: true,
+    readOnly: config.ibmi_executeSqlReadonly,
     maxQueryLength: 10000,
   },
 };
@@ -190,6 +192,99 @@ function validateSqlSecurity(sql: string, appContext: RequestContext): void {
   SqlSecurityValidator.validateQuery(sql, securityConfig, appContext);
 }
 
+/**
+ * Validate SQL query using IBM i PARSE_STATEMENT
+ * Verifies statement type matches readOnly configuration
+ * Uses IBM i's native SQL parser for authoritative statement type detection
+ *
+ * @param sql - SQL query to validate (should be pre-sanitized without trailing semicolons)
+ * @param readOnly - Whether readonly mode is enabled
+ * @param appContext - Request context for logging
+ * @throws {McpError} If validation fails (syntax error, non-query in readonly mode, or execution failure)
+ *
+ * @see https://www.ibm.com/docs/en/i/7.5?topic=services-parse-statement-table-function
+ */
+async function validateWithParseStatement(
+  sql: string,
+  readOnly: boolean,
+  appContext: RequestContext,
+): Promise<void> {
+  // Build PARSE_STATEMENT query with named parameters
+  const parseQuery = `
+    SELECT DISTINCT SQL_STATEMENT_TYPE
+    FROM TABLE(QSYS2.PARSE_STATEMENT(
+      SQL_STATEMENT => ?,
+      NAMING => '*SQL',
+      DECIMAL_POINT => '*PERIOD',
+      SQL_STRING_DELIMITER => '*APOSTSQL'
+    )) AS P
+  `.trim();
+
+  try {
+    // Execute PARSE_STATEMENT via connection pool
+    const result = await IBMiConnectionPool.executeQuery(
+      parseQuery,
+      [sql],
+      appContext,
+    );
+
+    // Empty result = syntax error (PARSE_STATEMENT returns no rows on parse failure)
+    if (!result.data || result.data.length === 0) {
+      throw new McpError(
+        JsonRpcErrorCode.ValidationError,
+        "SQL syntax error: Query could not be parsed by IBM i",
+        {
+          query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
+          validationMethod: "parse_statement",
+        },
+      );
+    }
+
+    // Extract statement type from first row
+    const firstRow = result.data[0] as { SQL_STATEMENT_TYPE?: string };
+    const statementType = (firstRow.SQL_STATEMENT_TYPE || "").toUpperCase();
+
+    // Validate statement type against readOnly mode
+    if (readOnly && statementType !== "QUERY") {
+      throw new McpError(
+        JsonRpcErrorCode.ValidationError,
+        `Non-query statement '${statementType}' not allowed in read-only mode`,
+        {
+          query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
+          sqlStatementType: statementType,
+          readOnly: true,
+          validationMethod: "parse_statement",
+        },
+      );
+    }
+
+    logger.debug(
+      {
+        ...appContext,
+        sqlStatementType: statementType,
+        readOnly,
+      },
+      "PARSE_STATEMENT validation passed",
+    );
+  } catch (error) {
+    // Re-throw McpError as-is
+    if (error instanceof McpError) {
+      throw error;
+    }
+
+    // Fail closed on unexpected errors
+    throw new McpError(
+      JsonRpcErrorCode.ValidationError,
+      "SQL validation failed: Unable to execute PARSE_STATEMENT",
+      {
+        query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
+        validationMethod: "parse_statement",
+        originalError: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 // =============================================================================
 // Business Logic
 // =============================================================================
@@ -203,20 +298,36 @@ async function executeSqlLogic(
   appContext: RequestContext,
   _sdkContext: SdkContext,
 ): Promise<ExecuteSqlResponse> {
+  // Sanitize SQL: Remove trailing semicolons (statement terminators)
+  // IBM i SQL execution and PARSE_STATEMENT expect pure SQL without terminators
+  const sanitizedSql = params.sql.trim().replace(/;+\s*$/, "");
+
   logger.debug(
-    { ...appContext, toolInput: params },
+    {
+      ...appContext,
+      toolInput: params,
+      sanitized: sanitizedSql !== params.sql,
+    },
     "Processing execute SQL logic.",
   );
 
   const startTime = Date.now();
 
   try {
-    // Validate security restrictions
-    validateSqlSecurity(params.sql, appContext);
+    // Validate security restrictions (AST/Regex - Layer 1)
+    validateSqlSecurity(sanitizedSql, appContext);
 
-    // Execute the query
+    // Validate with PARSE_STATEMENT (IBM i native validation - Layer 2)
+    const config = getExecuteSqlConfig();
+    await validateWithParseStatement(
+      sanitizedSql,
+      config.security?.readOnly ?? true,
+      appContext,
+    );
+
+    // Execute the query with sanitized SQL
     const result = await IBMiConnectionPool.executeQueryWithPagination(
-      params.sql,
+      sanitizedSql,
       [],
       appContext,
       1000, // Fetch 1000 rows at a time
@@ -233,7 +344,7 @@ async function executeSqlLogic(
           code: String(JsonRpcErrorCode.DatabaseError),
           message: "SQL query execution failed",
           details: {
-            sql: params.sql,
+            sql: sanitizedSql,
             sqlReturnCode: result.sql_rc,
           },
         },
@@ -277,7 +388,7 @@ async function executeSqlLogic(
       {
         ...appContext,
         error: error instanceof Error ? error.message : String(error),
-        sql: params.sql,
+        sql: sanitizedSql,
         executionTime,
       },
       "SQL query execution failed.",
@@ -304,7 +415,7 @@ async function executeSqlLogic(
         code: String(JsonRpcErrorCode.DatabaseError),
         message: `SQL query execution failed: ${error instanceof Error ? error.message : String(error)}`,
         details: {
-          sql: params.sql,
+          sql: sanitizedSql,
           originalError: error instanceof Error ? error.name : "Unknown",
         },
       },

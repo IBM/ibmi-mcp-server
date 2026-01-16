@@ -34,7 +34,9 @@ describe("DB2 CTE Query Parsing Test", () => {
       SqlSecurityValidator.validateQuery(query, readOnlyConfig, context),
     ).toThrow();
 
-    console.log("✓ Expected: Query REJECTED due to unsupported CONCAT operator syntax");
+    console.log(
+      "✓ Expected: Query REJECTED due to unsupported CONCAT operator syntax",
+    );
   });
 
   it("REWRITTEN: should PASS with CONCAT() function", () => {
@@ -64,7 +66,9 @@ describe("DB2 CTE Query Parsing Test", () => {
 
     try {
       SqlSecurityValidator.validateQuery(query, readOnlyConfig, context);
-      console.log("✓ Query validation PASSED - Parser accepts CONCAT() function");
+      console.log(
+        "✓ Query validation PASSED - Parser accepts CONCAT() function",
+      );
     } catch (error) {
       console.log("✗ Query validation FAILED");
       if (error instanceof Error) {

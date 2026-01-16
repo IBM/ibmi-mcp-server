@@ -166,15 +166,11 @@ export class SqlSecurityValidator {
     context: Record<string, unknown>,
     query: string,
   ): never {
-    throw new McpError(
-      JsonRpcErrorCode.ValidationError,
-      message,
-      {
-        violations,
-        ...context,
-        query: this.truncateQuery(query),
-      },
-    );
+    throw new McpError(JsonRpcErrorCode.ValidationError, message, {
+      violations,
+      ...context,
+      query: this.truncateQuery(query),
+    });
   }
 
   /**
@@ -205,9 +201,7 @@ export class SqlSecurityValidator {
       return Array.isArray(ast) ? ast : [ast];
     } catch (parseError) {
       const errorMessage =
-        parseError instanceof Error
-          ? parseError.message
-          : String(parseError);
+        parseError instanceof Error ? parseError.message : String(parseError);
 
       if (failClosed) {
         logger.warning(
@@ -565,9 +559,7 @@ export class SqlSecurityValidator {
       const dangerousFunctions = this.findDangerousFunctionsInAST(statement);
       if (dangerousFunctions.length > 0) {
         violations.push(
-          ...dangerousFunctions.map(
-            (f: string) => `Dangerous function: ${f}`,
-          ),
+          ...dangerousFunctions.map((f: string) => `Dangerous function: ${f}`),
         );
       }
     }

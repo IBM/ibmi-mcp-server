@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { SqlSecurityValidator } from "../../../src/ibmi-mcp-server/utils/security/sqlSecurityValidator.js";
-import { McpError, JsonRpcErrorCode } from "../../../src/types-global/errors.js";
+import {
+  McpError,
+  JsonRpcErrorCode,
+} from "../../../src/types-global/errors.js";
 import { createRequestContext } from "../../../src/utils/internal/requestContext.js";
 
 describe("SqlSecurityValidator", () => {
