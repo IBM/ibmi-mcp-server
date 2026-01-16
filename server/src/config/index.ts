@@ -328,7 +328,18 @@ const EnvSchema = z.object({
   SELECTED_TOOLSETS: z.string().optional(),
 
   /**Enable built-in execute_sql tool for ad-hoc SELECT queries */
-  IBMI_ENABLE_EXECUTE_SQL: z.boolean().default(false),
+  IBMI_ENABLE_EXECUTE_SQL: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true"),
+
+  /** Control readonly mode for execute_sql tool. When true (default), only SELECT queries are allowed. */
+  IBMI_EXECUTE_SQL_READONLY: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
 });
 
 const parsedEnv = EnvSchema.safeParse(process.env);
@@ -553,6 +564,7 @@ export const config = {
     .map((ts) => ts.trim())
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
+  ibmi_executeSqlReadonly: env.IBMI_EXECUTE_SQL_READONLY,
 };
 
 if (config.ibmiHttpAuth.enabled) {

@@ -1,0 +1,207 @@
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  check_ptf_currency:
+    source: ibmi-system
+    description: "Check PTF group currency status for the current system release. Shows which PTF groups are current, outdated, or have updates available."
+    statement: |
+      WITH iLevel(iVersion, iRelease) AS (
+        SELECT OS_VERSION, OS_RELEASE 
+        FROM SYSIBMADM.ENV_SYS_INFO
+      )
+      SELECT P.PTF_GROUP_CURRENCY,
+             P.PTF_GROUP_ID,
+             P.PTF_GROUP_TITLE,
+             P.PTF_GROUP_LEVEL_INSTALLED,
+             P.PTF_GROUP_LEVEL_AVAILABLE,
+             P.LAST_UPDATED_BY_IBM,
+             P.PTF_GROUP_RELEASE,
+             P.PTF_GROUP_STATUS_ON_SYSTEM,
+             (P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) AS LEVELS_BEHIND
+      FROM iLevel, SYSTOOLS.GROUP_PTF_CURRENCY P
+      WHERE PTF_GROUP_RELEASE = 'R' CONCAT iVersion CONCAT iRelease CONCAT '0'
+        AND (:currency_filter = '*ALL' OR P.PTF_GROUP_CURRENCY LIKE '%' CONCAT :currency_filter CONCAT '%')
+      ORDER BY PTF_GROUP_LEVEL_AVAILABLE - PTF_GROUP_LEVEL_INSTALLED DESC
+      FETCH FIRST 100 ROWS ONLY
+    parameters:
+      - name: currency_filter
+        type: string
+        description: "Filter by currency status (e.g., 'UPDATE AVAILABLE', 'CURRENT', '*ALL')"
+        default: "*ALL"
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "system"
+      category: "ptf-management"
+
+  list_outdated_ptf_groups:
+    source: ibmi-system
+    description: "List only PTF groups that have updates available, showing how many levels behind each group is."
+    statement: |
+      WITH iLevel(iVersion, iRelease) AS (
+        SELECT OS_VERSION, OS_RELEASE 
+        FROM SYSIBMADM.ENV_SYS_INFO
+      )
+      SELECT P.PTF_GROUP_ID,
+             P.PTF_GROUP_TITLE,
+             P.PTF_GROUP_LEVEL_INSTALLED,
+             P.PTF_GROUP_LEVEL_AVAILABLE,
+             (P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) AS LEVELS_BEHIND,
+             P.LAST_UPDATED_BY_IBM,
+             P.PTF_GROUP_STATUS_ON_SYSTEM
+      FROM iLevel, SYSTOOLS.GROUP_PTF_CURRENCY P
+      WHERE PTF_GROUP_RELEASE = 'R' CONCAT iVersion CONCAT iRelease CONCAT '0'
+        AND P.PTF_GROUP_CURRENCY = 'UPDATE AVAILABLE'
+        AND (P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) >= :min_levels_behind
+      ORDER BY PTF_GROUP_LEVEL_AVAILABLE - PTF_GROUP_LEVEL_INSTALLED DESC
+      FETCH FIRST 50 ROWS ONLY
+    parameters:
+      - name: min_levels_behind
+        type: integer
+        description: "Minimum number of levels behind to include in results (1-100)"
+        default: 1
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "system"
+      category: "ptf-management"
+
+  get_ptf_group_details:
+    source: ibmi-system
+    description: "Get detailed information about a specific PTF group, including all installed levels and their status."
+    statement: |
+      SELECT PTF_GROUP_NAME,
+             PTF_GROUP_DESCRIPTION,
+             PTF_GROUP_LEVEL,
+             PTF_GROUP_TARGET_RELEASE,
+             PTF_GROUP_STATUS,
+             COLLECTED_TIME
+      FROM QSYS2.GROUP_PTF_INFO
+      WHERE PTF_GROUP_NAME LIKE :ptf_group_name CONCAT '%'
+      ORDER BY PTF_GROUP_LEVEL DESC
+      FETCH FIRST 20 ROWS ONLY
+    parameters:
+      - name: ptf_group_name
+        type: string
+        description: "PTF group name or prefix (e.g., 'SF99730', 'SF997'), 2-10 characters"
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "system"
+      category: "ptf-management"
+
+  list_installed_ptf_groups:
+    source: ibmi-system
+    description: "List all PTF groups currently installed on the system with optional filtering by status and release."
+    statement: |
+      SELECT PTF_GROUP_NAME,
+             PTF_GROUP_DESCRIPTION,
+             PTF_GROUP_LEVEL,
+             PTF_GROUP_TARGET_RELEASE,
+             PTF_GROUP_STATUS
+      FROM QSYS2.GROUP_PTF_INFO
+      WHERE (:status_filter = '*ALL' OR PTF_GROUP_STATUS = :status_filter)
+        AND (:release_filter = '*ALL' OR PTF_GROUP_TARGET_RELEASE LIKE :release_filter CONCAT '%')
+      ORDER BY PTF_GROUP_NAME, PTF_GROUP_LEVEL DESC
+      FETCH FIRST 100 ROWS ONLY
+    parameters:
+      - name: status_filter
+        type: string
+        description: "Filter by status: 'INSTALLED', 'APPLY AT NEXT IPL', or '*ALL'"
+        default: "*ALL"
+      - name: release_filter
+        type: string
+        description: "Filter by release (e.g., 'R740', 'R750') or '*ALL'"
+        default: "*ALL"
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "system"
+      category: "ptf-management"
+
+  summarize_ptf_status:
+    source: ibmi-system
+    description: "Get a high-level summary of PTF currency status including counts of current, outdated, and unavailable groups."
+    statement: |
+      WITH iLevel(iVersion, iRelease) AS (
+        SELECT OS_VERSION, OS_RELEASE 
+        FROM SYSIBMADM.ENV_SYS_INFO
+      )
+      SELECT 
+        COUNT(*) AS TOTAL_PTF_GROUPS,
+        SUM(CASE WHEN P.PTF_GROUP_CURRENCY LIKE '%CURRENT%' THEN 1 ELSE 0 END) AS CURRENT_GROUPS,
+        SUM(CASE WHEN P.PTF_GROUP_CURRENCY = 'UPDATE AVAILABLE' THEN 1 ELSE 0 END) AS UPDATES_AVAILABLE,
+        SUM(CASE WHEN P.PTF_GROUP_CURRENCY LIKE '%NOT AVAILABLE%' THEN 1 ELSE 0 END) AS INFO_NOT_AVAILABLE,
+        AVG(P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) AS AVG_LEVELS_BEHIND,
+        MAX(P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) AS MAX_LEVELS_BEHIND
+      FROM iLevel, SYSTOOLS.GROUP_PTF_CURRENCY P
+      WHERE PTF_GROUP_RELEASE = 'R' CONCAT iVersion CONCAT iRelease CONCAT '0'
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "system"
+      category: "ptf-management"
+
+  find_critical_ptf_updates:
+    source: ibmi-system
+    description: "Identify PTF groups that are significantly behind (critical updates needed), sorted by severity."
+    statement: |
+      WITH iLevel(iVersion, iRelease) AS (
+        SELECT OS_VERSION, OS_RELEASE 
+        FROM SYSIBMADM.ENV_SYS_INFO
+      )
+      SELECT P.PTF_GROUP_ID,
+             P.PTF_GROUP_TITLE,
+             P.PTF_GROUP_LEVEL_INSTALLED,
+             P.PTF_GROUP_LEVEL_AVAILABLE,
+             (P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) AS LEVELS_BEHIND,
+             P.LAST_UPDATED_BY_IBM,
+             P.PTF_GROUP_STATUS_ON_SYSTEM,
+             P.PTF_GROUP_CURRENCY
+      FROM iLevel, SYSTOOLS.GROUP_PTF_CURRENCY P
+      WHERE PTF_GROUP_RELEASE = 'R' CONCAT iVersion CONCAT iRelease CONCAT '0'
+        AND (P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) >= :critical_threshold
+      ORDER BY (P.PTF_GROUP_LEVEL_AVAILABLE - P.PTF_GROUP_LEVEL_INSTALLED) DESC
+      FETCH FIRST 25 ROWS ONLY
+    parameters:
+      - name: critical_threshold
+        type: integer
+        description: "Number of levels behind to consider critical (1-100, default: 5)"
+        default: 5
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "system"
+      category: "ptf-management"
+
+toolsets:
+  ptf_management:
+    title: "PTF Management Tools"
+    description: "Tools for monitoring and managing Program Temporary Fixes (PTFs) and PTF groups on IBM i systems"
+    tools:
+      - check_ptf_currency
+      - list_outdated_ptf_groups
+      - get_ptf_group_details
+      - list_installed_ptf_groups
+      - summarize_ptf_status
+      - find_critical_ptf_updates
+
+# Made with Bob

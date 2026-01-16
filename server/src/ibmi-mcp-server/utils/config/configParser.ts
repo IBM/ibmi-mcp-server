@@ -21,8 +21,10 @@ import {
 import {
   SqlToolsConfigSchema,
   SqlToolParameterSchema,
+  SqlToolSecurityConfig,
 } from "@/ibmi-mcp-server/schemas/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { SqlSecurityValidator } from "../security/sqlSecurityValidator.js";
 
 /**
  * YAML configuration parser with validation and environment variable interpolation
@@ -144,6 +146,26 @@ export class ConfigParser {
           return {
             success: false,
             errors: toolValidationErrors,
+          };
+        }
+
+        // Validate SQL security at load time (fail-fast)
+        const securityValidationErrors = this.validateSqlSecurity(
+          config,
+          operationContext,
+        );
+        if (securityValidationErrors.length > 0) {
+          logger.error(
+            {
+              ...operationContext,
+              errors: securityValidationErrors,
+            },
+            "SQL security validation failed at load time",
+          );
+
+          return {
+            success: false,
+            errors: securityValidationErrors,
           };
         }
 
@@ -337,6 +359,71 @@ export class ConfigParser {
       // All tools must have a statement
       if (!tool.statement || tool.statement.trim().length === 0) {
         errors.push(`Tool '${toolName}' must have a non-empty statement field`);
+      }
+    });
+
+    return errors;
+  }
+
+  /**
+   * Validate SQL statements for security at load time
+   * Fails server startup if security violations found
+   * @param config - Parsed YAML configuration
+   * @param context - Request context for logging
+   * @returns Array of validation errors
+   * @private
+   */
+  private static validateSqlSecurity(
+    config: SqlToolsConfig,
+    context: RequestContext,
+  ): string[] {
+    const errors: string[] = [];
+
+    // Skip if no tools defined
+    if (!config.tools) {
+      return errors;
+    }
+
+    Object.entries(config.tools).forEach(([toolName, tool]) => {
+      // Skip disabled tools
+      if (tool.enabled === false) {
+        return;
+      }
+
+      // Skip tools without statements
+      if (!tool.statement?.trim()) {
+        return;
+      }
+
+      try {
+        // Build security config from tool
+        const securityConfig: SqlToolSecurityConfig = {
+          readOnly: tool.security?.readOnly ?? true,
+          maxQueryLength: tool.security?.maxQueryLength ?? 10000,
+          forbiddenKeywords: tool.security?.forbiddenKeywords,
+        };
+
+        // Validate SQL statement at load time
+        SqlSecurityValidator.validateQuery(
+          tool.statement,
+          securityConfig,
+          context,
+        );
+
+        logger.debug(
+          { ...context, toolName },
+          `SQL security validation passed at load time for tool: ${toolName}`,
+        );
+      } catch (error) {
+        if (error instanceof McpError) {
+          errors.push(
+            `Tool '${toolName}' has security violation: ${error.message}`,
+          );
+        } else {
+          errors.push(
+            `Tool '${toolName}' validation failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
     });
 

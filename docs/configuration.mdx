@@ -532,25 +532,38 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 | Tool | Status | Purpose | Configuration |
 |------|--------|---------|---------------|
 | `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | None required |
-| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SELECT queries | `IBMI_ENABLE_EXECUTE_SQL` |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `IBMI_ENABLE_EXECUTE_SQL`<br/>`IBMI_EXECUTE_SQL_READONLY` |
 
 ### Execute SQL Tool Configuration
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
+| `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | `true` | `true`, `false` |
 
 <Warning>
-**Security**: `execute_sql` allows clients to run arbitrary SELECT queries. Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access.
+**Security**: `execute_sql` allows clients to run ad-hoc SQL queries. By default (`IBMI_EXECUTE_SQL_READONLY=true`), only SELECT queries are allowed. Set `IBMI_EXECUTE_SQL_READONLY=false` to enable write operations (INSERT, UPDATE, DELETE). Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access.
 </Warning>
 
 <Tabs>
-  <Tab title="Development (Enabled)">
+  <Tab title="Readonly Mode (Default)">
     ```bash
     IBMI_ENABLE_EXECUTE_SQL=true
+    IBMI_EXECUTE_SQL_READONLY=true  # Default - only SELECT queries
     ```
 
-    **Use for**: Rapid prototyping, debugging, exploration
+    **Use for**: Development exploration, debugging SELECT queries, safe ad-hoc queries
+  </Tab>
+
+  <Tab title="Write Mode (Opt-in)">
+    ```bash
+    IBMI_ENABLE_EXECUTE_SQL=true
+    IBMI_EXECUTE_SQL_READONLY=false  # Allow INSERT/UPDATE/DELETE
+    ```
+
+    **Use for**: Development when write operations are explicitly needed
+
+    ⚠️ **Warning**: Only use in trusted environments with proper authentication
   </Tab>
 
   <Tab title="Production (Disabled)">
@@ -559,7 +572,7 @@ TOOLS_YAML_PATH=configs/**/*.yaml
     TOOLS_YAML_PATH=/app/configs
     ```
 
-    **Use for**: Production with curated YAML tools
+    **Use for**: Production with curated YAML tools for controlled access
   </Tab>
 </Tabs>
 
@@ -576,20 +589,24 @@ TOOLS_YAML_PATH=configs/**/*.yaml
   </Accordion>
 
   <Accordion title="execute_sql (Requires Configuration)" icon="code">
-    Executes ad-hoc SELECT queries with built-in security controls:
+    Executes ad-hoc SQL queries with multi-layered security controls:
 
-    - **Allowed**: SELECT queries up to 10,000 characters
-    - **Blocked**: DROP, DELETE, TRUNCATE, INSERT, UPDATE, ALTER, CREATE, GRANT, REVOKE
-    - **Security**: Read-only enforcement, keyword blocking, query length limits
-    - **Use case**: Development exploration, debugging queries
+    - **Readonly by default**: Only SELECT/QUERY statements allowed when `IBMI_EXECUTE_SQL_READONLY=true` (default)
+    - **Write operations opt-in**: Set `IBMI_EXECUTE_SQL_READONLY=false` to enable INSERT, UPDATE, DELETE, etc.
+    - **PARSE_STATEMENT validation**: Uses IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) for authoritative statement type detection
+    - **AST/Regex validation**: Fast pattern matching to catch dangerous SQL keywords
+    - **Fail-closed security**: All validation failures result in query rejection
+    - **Query length limit**: Maximum 10,000 characters per query
+    - **Use case**: Development exploration, debugging queries, ad-hoc data analysis
   </Accordion>
 </AccordionGroup>
 
 <Note>
 **Built-in vs YAML Tools**:
-- **Built-in tools**: Compiled TypeScript, controlled by feature flags
-- **YAML tools**: User-defined, curated queries with parameters
-- **Recommendation**: Use YAML tools in production for explicit query control
+- **Built-in tools**: Compiled TypeScript, controlled by feature flags, runtime validation with PARSE_STATEMENT
+- **YAML tools**: User-defined, curated queries with parameters, explicit query control
+- **Security**: Built-in tools use IBM i's SQL parser for defense-in-depth; YAML tools use explicit query whitelisting
+- **Recommendation**: Use YAML tools in production for explicit query control and parameterization
 
 See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 </Note>

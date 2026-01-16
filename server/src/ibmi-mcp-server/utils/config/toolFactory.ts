@@ -45,55 +45,6 @@ export class SQLToolFactory {
   }
 
   /**
-   * Validate SQL statement for common issues
-   * @param statement - SQL statement to validate
-   * @param toolName - Tool name for error reporting
-   * @param context - Request context
-   * @private
-   */
-  static async validateSqlStatement(
-    statement: string,
-    toolName: string,
-    context: RequestContext,
-  ): Promise<void> {
-    logger.debug(
-      {
-        ...context,
-        statementLength: statement.length,
-      },
-      `Validating SQL statement for tool: ${toolName}`,
-    );
-
-    // Basic SQL validation
-    if (!statement?.trim()) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
-        `SQL statement cannot be empty for tool: ${toolName}`,
-        { toolName },
-      );
-    }
-
-    // Check for potential SQL injection patterns
-    const suspiciousPatterns = [
-      /;\s*(drop|delete|truncate|alter)\s+/i,
-      /union\s+select/i,
-      /exec\s*\(/i,
-    ];
-
-    for (const pattern of suspiciousPatterns) {
-      if (pattern.test(statement)) {
-        logger.warning(
-          {
-            ...context,
-            pattern: pattern.source,
-          },
-          `Potentially unsafe SQL pattern detected in tool: ${toolName}`,
-        );
-      }
-    }
-  }
-
-  /**
    * Execute a SQL statement with parameter binding
    * @param toolName - Name of the tool
    * @param sourceName - Source to execute against
