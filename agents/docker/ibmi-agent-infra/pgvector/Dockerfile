@@ -3,11 +3,10 @@ ARG DEBIAN_CODENAME=bookworm
 FROM postgres:$PG_MAJOR-$DEBIAN_CODENAME
 ARG PGVECTOR_VERSION=v0.8.1
 
-ADD https://github.com/pgvector/pgvector.git#$PGVECTOR_VERSION /tmp/pgvector
-
 RUN apt-get update && \
 		apt-mark hold locales && \
-		apt-get install -y --no-install-recommends build-essential postgresql-server-dev-$PG_MAJOR && \
+		apt-get install -y --no-install-recommends build-essential postgresql-server-dev-$PG_MAJOR ca-certificates git && \
+		git clone --branch $PGVECTOR_VERSION --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
 		cd /tmp/pgvector && \
 		make clean && \
 		make OPTFLAGS="" && \
