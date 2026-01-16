@@ -1,0 +1,17 @@
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: agent-ui
+spec:
+  to:
+    kind: Service
+    name: agent-ui
+    weight: 100
+  port:
+    targetPort: 3000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+
+

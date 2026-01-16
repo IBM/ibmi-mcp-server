@@ -1,5 +1,5 @@
 # Multi-stage build for better optimization
-FROM agnohq/python:3.12 AS base
+FROM python:3.12 AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -18,6 +18,9 @@ ARG APP_DIR=/app
 RUN groupadd -g ${GID} ${USER} \
     && useradd -g ${GID} -u ${UID} -ms /bin/bash -d ${APP_DIR} ${USER}
 
+# Install uv
+RUN pip install uv --no-cache-dir
+
 # Development stage for dependencies
 FROM base AS deps
 
@@ -27,6 +30,9 @@ WORKDIR ${APP_DIR}
 COPY requirements.txt pyproject.toml ./
 
 # Install dependencies with uv for faster installation
+# # Some packages are not available on PyPI and cannot be built from source on Power, so we use an internal index from IBM to install them
+# RUN uv pip sync --index-strategy unsafe-best-match --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux requirements.txt --system \
+#     && uv cache clean
 RUN uv pip sync requirements.txt --system \
     && uv cache clean
 
@@ -49,7 +55,8 @@ COPY --chown=61000:61000 . .
 
 # Create necessary directories and set permissions
 RUN mkdir -p /tmp/uv-cache /var/log/app \
-    && chown -R ${USER}:${USER} ${APP_DIR} /tmp/uv-cache /var/log/app
+    && chown -R ${USER}:${USER} ${APP_DIR} /tmp/uv-cache /var/log/app \
+    && chmod 755 ${APP_DIR}
 
 # Switch to non-root user
 USER ${USER}

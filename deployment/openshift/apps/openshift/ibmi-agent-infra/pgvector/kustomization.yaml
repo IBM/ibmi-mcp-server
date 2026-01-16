@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: pgvector
+      app: pgvector
+    includeTemplates: true
+
+resources:
+  - pgvector-serviceaccount.yaml
+  - pgvector-rolebinding.yaml
+  - pgvector-buildconfig.yaml
+  - pgvector-imagestream.yaml
+  - pgvector-pvc.yaml
+  - pgvector-deployment.yaml
+  - pgvector-service.yaml
+
+replacements:
+- source:
+    kind: Deployment
+    name: pgvector
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      kind: Deployment
+      name: pgvector
+    fieldPaths:
+      - metadata.annotations.image\.openshift\.io/triggers
+    options:
+      delimiter: '"'
+      index: 13 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+  - select:
+      kind: Deployment
+      name: pgvector
+    fieldPaths:
+      - spec.template.spec.containers.[name=pgvector].image
+    options:
+      delimiter: /
+      index: 1 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+
+secretGenerator:
+- name: pgvector-secrets
+  literals:
+  - POSTGRES_USER=ai
+  - POSTGRES_PASSWORD=ai
+  - POSTGRES_DB=ai
