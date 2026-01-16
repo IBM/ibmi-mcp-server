@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-os-api
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"agent-os-api:latest","namespace":"NAMESPACE_PLACEHOLDER"},"fieldPath":"spec.template.spec.containers[?(@.name==\"agent-os-api\")].image","paused":false}]'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-os-api
+  template:
+    metadata:
+      labels:
+        app: agent-os-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: agent-os-api
+          image: image-registry.openshift-image-registry.svc:5000/NAMESPACE_PLACEHOLDER/agent-os-api
+          command: ["uvicorn"]
+          args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          env:
+            - name: DB_HOST
+              value: pgvector
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-secrets
+                  key: db-user
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-secrets
+                  key: db-password
+            - name: DB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-secrets
+                  key: db-name
+            - name: WAIT_FOR_DB
+              value: "True"
+            - name: PRINT_ENV_ON_LOAD
+              value: "True"
+          envFrom:
+            - configMapRef:
+                name: agent-os-api-config
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+
