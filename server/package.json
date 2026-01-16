@@ -103,7 +103,7 @@
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "glob": "^10.5.0",
     "pino-pretty": "^13.0.0",
-    "pino-roll": "^1.1.0"
+    "pino-roll": "^4.0.0"
   },
   "devDependencies": {
     "vite": "^6.3.5",
