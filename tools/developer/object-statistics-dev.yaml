@@ -21,7 +21,7 @@ tools:
        sql_object_type
       FROM TABLE(qsys2.object_statistics(
         object_schema => :library_name, objtypelist => '*ALL', object_name => '*ALL'))
-     WHERE last_used_object = 'YES' AND (sql_object_type = 'TABLE' OR objattribute IN ('PF', 'LF')) AND
+      WHERE last_used_object = 'YES' AND (sql_object_type = 'TABLE' OR objattribute IN ('PF', 'LF')) AND
         objcreated < current_timestamp - :months_unused MONTHS AND (last_used_timestamp IS null OR
           last_used_timestamp < current_timestamp - :months_unused MONTHS)
         ORDER BY COALESCE(last_used_timestamp, objcreated) ASC
