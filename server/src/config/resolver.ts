@@ -12,8 +12,10 @@ import type { CliArguments } from "../ibmi-mcp-server/utils/cli/argumentParser.j
 type BaseConfig = typeof config;
 
 // Create a resolved configuration type that includes the CLI-overridable fields
-export interface ResolvedConfig
-  extends Omit<BaseConfig, "mcpTransportType" | "selectedToolsets"> {
+export interface ResolvedConfig extends Omit<
+  BaseConfig,
+  "mcpTransportType" | "selectedToolsets"
+> {
   toolsYamlPath: string | undefined;
   mcpTransportType: "stdio" | "http";
   selectedToolsets?: string[];

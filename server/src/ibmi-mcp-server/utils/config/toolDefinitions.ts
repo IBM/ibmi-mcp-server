@@ -125,10 +125,10 @@ export interface SqlFormatterConfig {
  * });
  * ```
  */
-export const sqlResponseFormatter = (
+export function sqlResponseFormatter(
   result: StandardSqlToolOutput,
   config?: SqlFormatterConfig,
-): ContentBlock[] => {
+): ContentBlock[] {
   const tableFormat = config?.tableFormat || "markdown";
   const maxDisplayRows = config?.maxDisplayRows || 100;
 
@@ -322,16 +322,15 @@ export const sqlResponseFormatter = (
   mdBuilder.h3("Summary").list(summaryItems);
 
   return [{ type: "text", text: mdBuilder.build() }];
-};
+}
 
 /**
- * Formats successful SQL tool output into a text block that highlights
- * row counts and execution timing for quick operator feedback.
+ * Default formatter for successful responses (fallback).
+ * Returns a simple JSON representation of the result.
  */
-// Default formatter for successful responses (fallback)
-export const defaultResponseFormatter = (result: unknown): ContentBlock[] => [
-  { type: "text", text: JSON.stringify(result, null, 2) },
-];
+export function defaultResponseFormatter(result: unknown): ContentBlock[] {
+  return [{ type: "text", text: JSON.stringify(result, null, 2) }];
+}
 
 /**
  * Creates an MCP-compatible handler from a declarative tool definition.

@@ -78,9 +78,8 @@ describe("OpenTelemetry Instrumentation", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    instrumentation = await import(
-      "../../../src/utils/telemetry/instrumentation.js"
-    );
+    instrumentation =
+      await import("../../../src/utils/telemetry/instrumentation.js");
   });
 
   afterEach(() => {

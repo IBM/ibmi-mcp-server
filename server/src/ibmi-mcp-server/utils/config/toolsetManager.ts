@@ -15,14 +15,14 @@ import {
   RequestContext,
 } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
-import { TOOL_NAME } from "../../tools/generateSql/registration.js";
+import { generateSqlTool } from "../../tools/generateSql.tool.js";
 
 /**
  * Global tools that are automatically added to all toolsets
  * These tools are typically TypeScript-based tools that provide universal functionality
  */
 export const GLOBAL_TOOLS = [
-  TOOL_NAME, // SQL DDL generation tool - available to all toolsets
+  generateSqlTool.name, // SQL DDL generation tool - available to all toolsets
 ] as const;
 
 /**
