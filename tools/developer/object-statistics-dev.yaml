@@ -125,7 +125,7 @@ tools:
 toolsets:
   developer_tools:
     tools:
-      - find_recently_used_objects
+      - find_least_recently_used_objects
       - find_stale_objects
       - find_dependent_objects
       - find_dependent_objects_by_type
