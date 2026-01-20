@@ -23,6 +23,7 @@ import {
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { BaseTransportManager } from "./baseTransportManager.js";
+import { createCleanupTransformStream } from "./cleanupTransformStream.js";
 import { McpTransportRequest } from "./transportRequest.js";
 import { HttpStatusCode, TransportResponse } from "./transportTypes.js";
 
@@ -80,7 +81,7 @@ export class StatelessTransportManager extends BaseTransportManager {
       // 3. Handle response based on whether it has a body
       if (!webResponse.body) {
         // No body - return buffered response and cleanup immediately
-        this.cleanup(server, transport, opContext);
+        await this.cleanup(server, transport, opContext);
         return {
           type: "buffered",
           headers: webResponse.headers,
@@ -89,21 +90,23 @@ export class StatelessTransportManager extends BaseTransportManager {
         };
       }
 
-      // 4. Extract stream and schedule cleanup on stream completion
+      // 4. Wrap stream with cleanup transform
       const stream = webResponse.body;
-      this.setupDeferredCleanup(stream, server, transport, opContext);
+      const wrappedStream = createCleanupTransformStream(stream, async () =>
+        this.cleanup(server, transport, opContext),
+      );
 
       // 5. Return streaming response
       return {
         type: "stream",
         headers: webResponse.headers,
         statusCode: webResponse.status as HttpStatusCode,
-        stream: stream as ReadableStream<Uint8Array>,
+        stream: wrappedStream as ReadableStream<Uint8Array>,
       };
     } catch (error) {
       // If an error occurs before the stream is returned, we must clean up immediately.
       if (server || transport) {
-        this.cleanup(server, transport, opContext);
+        await this.cleanup(server, transport, opContext);
       }
       throw ErrorHandler.handleError(error, {
         operation: "StatelessTransportManager.handleRequest",
@@ -114,75 +117,31 @@ export class StatelessTransportManager extends BaseTransportManager {
   }
 
   /**
-   * Attaches listeners to the response stream to trigger resource cleanup
-   * only after the stream has been fully consumed or has errored.
-   *
-   * @param stream - The Web ReadableStream response body.
-   * @param server - The ephemeral McpServer instance.
-   * @param transport - The ephemeral transport instance.
-   * @param context - The request context for logging.
-   */
-  private setupDeferredCleanup(
-    stream: ReadableStream,
-    server: McpServer,
-    transport: WebStandardStreamableHTTPServerTransport,
-    context: RequestContext,
-  ): void {
-    let cleanedUp = false;
-
-    const cleanupFn = async () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      this.cleanup(server, transport, context);
-    };
-
-    // Read stream to completion then cleanup
-    const reader = stream.getReader();
-    (async () => {
-      try {
-        while (true) {
-          const { done } = await reader.read();
-          if (done) break;
-        }
-      } catch (error) {
-        logger.warning(
-          { ...context, error },
-          "Stream reading error, proceeding to cleanup.",
-        );
-      } finally {
-        await cleanupFn();
-      }
-    })();
-  }
-
-  /**
    * Performs the actual cleanup of ephemeral resources.
-   * This method is designed to be "fire-and-forget".
    */
-  private cleanup(
+  private async cleanup(
     server: McpServer | undefined,
     transport: WebStandardStreamableHTTPServerTransport | undefined,
     context: RequestContext,
-  ): void {
+  ): Promise<void> {
     const opContext = {
       ...context,
       operation: "StatelessTransportManager.cleanup",
     };
-    logger.debug(opContext, "Scheduling cleanup for ephemeral resources.");
+    logger.debug(opContext, "Cleaning up ephemeral resources.");
 
-    Promise.all([transport?.close(), server?.close()])
-      .then(() => {
-        logger.debug(opContext, "Ephemeral resources cleaned up successfully.");
-      })
-      .catch((cleanupError) => {
-        logger.warning(
-          {
-            ...opContext,
-            error: cleanupError as Error,
-          },
-          "Error during stateless resource cleanup.",
-        );
-      });
+    try {
+      await Promise.all([transport?.close(), server?.close()]);
+      logger.debug(opContext, "Ephemeral resources cleaned up successfully.");
+    } catch (cleanupError) {
+      logger.warning(
+        {
+          ...opContext,
+          error: cleanupError as Error,
+        },
+        "Error during stateless resource cleanup.",
+      );
+    }
   }
 
   /**
