@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, it } from "vitest";
 import pkg from "node-sql-parser";
 const { Parser } = pkg;
