@@ -10,6 +10,7 @@ from agents.ibmi_agents import (
     get_sysadmin_browse_agent,
     get_sysadmin_search_agent,
 )
+from fastapi.middleware.cors import CORSMiddleware
 
 # Initialize agent configuration manager
 # Uses infra/config.yaml by default, or AGENT_CONFIG_PATH env var if set
@@ -42,6 +43,16 @@ agent_os = AgentOS(
     enable_mcp_server=True,
 )
 app = agent_os.get_app()
+
+origins = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if __name__ == "__main__":
     # Simple run to generate and record a session
