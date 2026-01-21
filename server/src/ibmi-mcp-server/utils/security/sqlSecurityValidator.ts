@@ -11,6 +11,7 @@ import { logger } from "@/utils/internal/logger.js";
 import { RequestContext } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolSecurityConfig } from "../../schemas/index.js";
+import { IbmiSqlParser } from "./ibmiSqlParser.js";
 
 /**
  * Security validation result
@@ -32,7 +33,7 @@ export const DANGEROUS_OPERATIONS = [
   "INSERT",
   "UPDATE",
   "DELETE",
-  "REPLACE",
+  // "REPLACE",
   "MERGE",
   "TRUNCATE",
   // Schema operations
@@ -112,6 +113,8 @@ export const DANGEROUS_PATTERNS = [
   /;\s*(DROP|DELETE|INSERT|UPDATE|CREATE|ALTER)/i,
   // Union-based attacks (SQL injection via UNION with dangerous operations)
   /\bUNION\s+(ALL\s+)?\s*\(\s*(DROP|DELETE|INSERT|UPDATE)/i,
+  // REPLACE statement (MySQL-specific write operation)
+  /\bREPLACE\s+INTO\b/i,
 ] as const;
 
 /**
@@ -422,13 +425,46 @@ export class SqlSecurityValidator {
     query: string,
     context: RequestContext,
   ): void {
+    // Try IBM i-specific regex parser first (understands IBM i syntax)
+    const ibmiResult = IbmiSqlParser.parseQuery(query, context);
+
+    if (ibmiResult.success) {
+      // If IBM i parser successfully validated, use its results
+      if (!ibmiResult.isReadOnly) {
+        this.throwValidationError(
+          `Write operations detected: ${ibmiResult.violations.join(', ')}`,
+          ibmiResult.violations,
+          { readOnly: true, validatedBy: 'ibmi-regex', hasIbmiFeatures: ibmiResult.hasIbmiFeatures },
+          query,
+        );
+      }
+
+      logger.debug(
+        {
+          ...context,
+          validatedBy: 'ibmi-regex',
+          hasIbmiFeatures: ibmiResult.hasIbmiFeatures,
+          statementTypes: ibmiResult.statementTypes,
+        },
+        'Read-only validation passed using IBM i regex parser'
+      );
+
+      return; // Success - skip node-sql-parser fallback
+    }
+
+    // Fall back to existing node-sql-parser + regex validation
+    logger.debug(
+      { ...context },
+      'Falling back to node-sql-parser for validation'
+    );
+
     // Try AST-based validation first (more reliable)
     const astResult = this.validateQueryAST(query, context);
     if (!astResult.isValid) {
       this.throwValidationError(
         `Write operations detected: ${astResult.violations.join(", ")}`,
         astResult.violations,
-        { readOnly: true },
+        { readOnly: true, validatedBy: 'node-sql-parser' },
         query,
       );
     }
@@ -439,7 +475,7 @@ export class SqlSecurityValidator {
       this.throwValidationError(
         `Write operations detected: ${regexResult.violations.join(", ")}`,
         regexResult.violations,
-        { readOnly: true },
+        { readOnly: true, validatedBy: 'regex' },
         query,
       );
     }

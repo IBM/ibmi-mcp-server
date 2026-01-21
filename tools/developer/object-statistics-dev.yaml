@@ -21,10 +21,10 @@ tools:
        sql_object_type
       FROM TABLE(qsys2.object_statistics(
         object_schema => :library_name, objtypelist => '*ALL', object_name => '*ALL'))
-     WHERE last_used_object = 'YES' AND (sql_object_type = 'TABLE' OR objattribute IN ('PF', 'LF')) AND
+      WHERE last_used_object = 'YES' AND (sql_object_type = 'TABLE' OR objattribute IN ('PF', 'LF')) AND
         objcreated < current_timestamp - :months_unused MONTHS AND (last_used_timestamp IS null OR
           last_used_timestamp < current_timestamp - :months_unused MONTHS)
-     ORDER BY COALESCE(last_used_timestamp, objcreated) ASC
+      ORDER BY COALESCE(last_used_timestamp, objcreated) ASC
     parameters:
       - name: library_name
         type: string
@@ -125,7 +125,6 @@ tools:
 toolsets:
   developer_tools:
     tools:
-      - find_recently_used_objects
       - find_stale_objects
       - find_dependent_objects
       - find_dependent_objects_by_type
