@@ -6,7 +6,7 @@ services:
       args:
         PG_MAJOR: "17"
         PGVECTOR_VERSION: "v0.8.1"
-    image: pgvector:test
+    image: pgvector:v0.8.1
     restart: unless-stopped
     ports:
       - "5432:5432"

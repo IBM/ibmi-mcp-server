@@ -10,13 +10,11 @@ spec:
       name: 'agent-os-api:latest'
   strategy:
     type: Docker
-    dockerStrategy:
-      dockerfilePath: Dockerfile
   source:
     type: Git
     git:
       uri: "https://github.com/IBM/ibmi-mcp-server.git"
-      ref: main
+      ref: chore/agent_deployment
     contextDir: agents/docker/ibmi-agent-infra
   triggers:
     - type: ConfigChange
