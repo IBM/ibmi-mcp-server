@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: agent-os-api
+      app: agent-os-api
+    includeTemplates: true
+
+resources:
+  - api-buildconfig.yaml
+  - api-imagestream.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-route.yaml
+
+replacements:
+- source:
+    kind: Deployment
+    name: agent-os-api
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      kind: Deployment
+      name: agent-os-api
+    fieldPaths:
+      - metadata.annotations.image\.openshift\.io/triggers
+    options:
+      delimiter: '"'
+      index: 13 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+  - select:
+      kind: Deployment
+      name: agent-os-api
+    fieldPaths:
+      - spec.template.spec.containers.[name=agent-os-api].image
+    options:
+      delimiter: /
+      index: 1 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
+
+secretGenerator:
+  - name: agent-os-api-secrets
+    envs:
+      - .env
+    type: Opaque
+
+configMapGenerator:
+  - name: agent-os-api-env
+    literals:
+      - DB_PORT=5432
+      - DB_USER=ai
+      - DB_PASS=ai
+      - DB_DATABASE=ai
+      - DB_HOST=pgvector
+      - WAIT_FOR_DB=True
+      - PRINT_ENV_ON_LOAD=True
+      - MCP_URL=http://ibmi-mcp-server:3010/mcp
+      - MCP_TRANSPORT=streamable-http

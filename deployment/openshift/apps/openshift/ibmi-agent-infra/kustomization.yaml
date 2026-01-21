@@ -3,5 +3,5 @@ kind: Kustomization
 
 resources:
   - pgvector/
-  # - api/
+  - agent-os-api/
   # - agent-ui/
