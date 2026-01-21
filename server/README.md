@@ -1494,7 +1494,7 @@ The IBM i MCP Server includes two built-in tools for database operations:
 | Tool | Status | Purpose | Configuration |
 |------|--------|---------|---------------|
 | `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | None (always available) |
-| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SELECT queries | `IBMI_ENABLE_EXECUTE_SQL` |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `IBMI_ENABLE_EXECUTE_SQL`<br/>`IBMI_EXECUTE_SQL_READONLY` |
 
 ---
 
@@ -1543,31 +1543,45 @@ CREATE TABLE SALES.CUSTOMER (
 
 ### Execute SQL Tool
 
-The `execute_sql` tool allows MCP clients to run ad-hoc SELECT queries against your IBM i Db2 database. This tool is **disabled by default** for security reasons.
+The `execute_sql` tool allows MCP clients to run ad-hoc SQL queries against your IBM i Db2 database. This tool is **disabled by default** for security reasons.
 
 | Variable | Description | Type | Default | Required |
 |----------|-------------|------|---------|----------|
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable the built-in `execute_sql` tool | boolean | `false` | No |
+| `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | boolean | `true` | No |
 
 **Security Features:**
 The execute_sql tool includes multiple layers of protection:
-- **Read-only by default**: Only SELECT queries are allowed
-- **Keyword blocking**: Prevents execution of destructive SQL (DROP, DELETE, TRUNCATE, INSERT, UPDATE, ALTER, CREATE, GRANT, REVOKE)
+- **Read-only by default**: When `IBMI_EXECUTE_SQL_READONLY=true` (default), only SELECT/QUERY statements are allowed
+- **PARSE_STATEMENT validation**: Uses IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) to validate query syntax and statement types
+- **AST/Regex validation**: Fast pattern matching to catch dangerous SQL keywords before execution
+- **Write operations opt-in**: Set `IBMI_EXECUTE_SQL_READONLY=false` to explicitly enable INSERT, UPDATE, DELETE, and other write operations
 - **Query length limit**: Maximum 10,000 characters per query
+- **Fail-closed security**: All validation failures result in query rejection
 - **Connection pooling**: Uses existing database connection pool with configured credentials
 
 **When to Enable:**
-- ✅ **Development**: Enable for rapid prototyping and debugging
+- ✅ **Development (readonly)**: Enable with `IBMI_EXECUTE_SQL_READONLY=true` for rapid prototyping and debugging with SELECT queries
+- ✅ **Development (write)**: Enable with `IBMI_EXECUTE_SQL_READONLY=false` only when you explicitly need INSERT/UPDATE/DELETE operations
 - ✅ **Trusted environments**: Enable when all MCP clients are trusted
-- ✅ **Read-only use cases**: Enable when you need ad-hoc query capabilities
+- ✅ **Read-only use cases**: Safe to enable with default readonly mode for ad-hoc query capabilities
 - ❌ **Production**: Consider using YAML-defined tools with explicit, curated queries instead
 - ❌ **Untrusted clients**: Keep disabled if any client might abuse query capabilities
+- ❌ **Write access in production**: Never enable write mode (`IBMI_EXECUTE_SQL_READONLY=false`) in production without strict authentication and authorization
 
 **Examples:**
 
 ```bash
-# Development: Enable ad-hoc SQL queries
+# Development: Enable ad-hoc SELECT queries (readonly mode)
 IBMI_ENABLE_EXECUTE_SQL=true
+IBMI_EXECUTE_SQL_READONLY=true  # Default - only SELECT queries allowed
+DB2i_HOST=ibmi-dev.local
+DB2i_USER=DEVUSER
+DB2i_PASS=devpass
+
+# Development: Enable write operations (INSERT/UPDATE/DELETE)
+IBMI_ENABLE_EXECUTE_SQL=true
+IBMI_EXECUTE_SQL_READONLY=false  # Allow write operations
 DB2i_HOST=ibmi-dev.local
 DB2i_USER=DEVUSER
 DB2i_PASS=devpass
@@ -1577,6 +1591,8 @@ IBMI_ENABLE_EXECUTE_SQL=false
 TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
 ```
 
+> **⚠️ Security Recommendation:** Keep `IBMI_EXECUTE_SQL_READONLY=true` (default) unless you explicitly need write operations. For production use cases requiring write access, consider using YAML-defined tools with parameterized queries instead of ad-hoc SQL.
+
 ---
 
 ### Comparison: Built-in Tools vs YAML Tools
@@ -1585,8 +1601,8 @@ TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
 |---------|----------------|----------------|
 | **Definition** | Compiled into server (TypeScript) | Defined in YAML files |
 | **Queries** | Ad-hoc (client provides SQL) or fixed logic | Pre-defined (curated by admin) |
-| **Control** | Feature flag only | Full query + parameter control |
-| **Security** | Keyword blocking (execute_sql) | Explicit whitelist of queries |
+| **Control** | Feature flag + readonly mode | Full query + parameter control |
+| **Security** | PARSE_STATEMENT + AST/Regex validation | Explicit whitelist of queries |
 | **Use Case** | Development & exploration | Production & controlled access |
 | **Configuration** | Environment variables | `TOOLS_YAML_PATH` |
 | **Examples** | `execute_sql`, `describe_sql_object` | Custom performance monitoring, security checks |

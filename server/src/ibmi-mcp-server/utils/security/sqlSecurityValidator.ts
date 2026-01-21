@@ -78,6 +78,15 @@ export const DANGEROUS_OPERATIONS = [
 ] as const;
 
 /**
+ * All SQL statement types for AST node identification
+ * Combines DANGEROUS_OPERATIONS with SELECT for complete statement type recognition
+ */
+const STATEMENT_TYPES: Set<string> = new Set([
+  "SELECT",
+  ...DANGEROUS_OPERATIONS,
+]);
+
+/**
  * Dangerous SQL functions that should be monitored/blocked
  */
 export const DANGEROUS_FUNCTIONS = [
@@ -89,27 +98,19 @@ export const DANGEROUS_FUNCTIONS = [
   "EXEC",
   "EXECUTE_IMMEDIATE",
   "EVAL",
-  "CONCAT",
-  "CHAR",
-  "VARCHAR", // Can be used for dynamic SQL construction
+  // Removed: CONCAT, CHAR, VARCHAR - these are benign functions with high false-positive rates
+  // They are not execution primitives and don't represent security risks
 ] as const;
 
 /**
  * Dangerous SQL patterns that should be detected
+ * Note: Individual function calls (SYSTEM, QCMDEXC, etc.) are handled by DANGEROUS_FUNCTIONS
+ * This array is for structural attack patterns that can't be expressed as simple function names
  */
 export const DANGEROUS_PATTERNS = [
-  // Dynamic SQL patterns
-  /\bCONCAT\s*\(/i,
-  /\b(CHAR|VARCHAR|CLOB)\s*\(/i,
-  // System function patterns
-  /\bSYSTEM\s*\(/i,
-  /\bLOAD_EXTENSION\s*\(/i,
-  /\bQCMDEXC\s*\(/i,
-  // Comment-based bypass attempts
-  /\/\*.*?(DROP|DELETE|INSERT|UPDATE).*?\*\//i,
-  // Multiple statement patterns
+  // Multiple statement patterns (SQL injection via statement chaining)
   /;\s*(DROP|DELETE|INSERT|UPDATE|CREATE|ALTER)/i,
-  // Union-based attacks
+  // Union-based attacks (SQL injection via UNION with dangerous operations)
   /\bUNION\s+(ALL\s+)?\s*\(\s*(DROP|DELETE|INSERT|UPDATE)/i,
 ] as const;
 
@@ -118,6 +119,184 @@ export const DANGEROUS_PATTERNS = [
  */
 export class SqlSecurityValidator {
   private static parser = new Parser();
+
+  /**
+   * Truncate query string for error messages and logging
+   * @param query - SQL query to truncate
+   * @param maxLength - Maximum length before truncation (default: 100)
+   * @returns Truncated query with ellipsis if needed
+   * @private
+   */
+  private static truncateQuery(query: string, maxLength = 100): string {
+    return query.length > maxLength
+      ? query.substring(0, maxLength) + "..."
+      : query;
+  }
+
+  /**
+   * Create standardized validation result
+   * @param violations - List of validation violations
+   * @param method - Validation method used
+   * @returns Security validation result object
+   * @private
+   */
+  private static createValidationResult(
+    violations: string[],
+    method: "ast" | "regex" | "combined",
+  ): SecurityValidationResult {
+    return {
+      isValid: violations.length === 0,
+      violations,
+      validationMethod: method,
+    };
+  }
+
+  /**
+   * Throw validation error with standardized format
+   * @param message - Error message
+   * @param violations - List of violations
+   * @param context - Additional context for error
+   * @param query - SQL query being validated
+   * @throws McpError with ValidationError code
+   * @private
+   */
+  private static throwValidationError(
+    message: string,
+    violations: string[],
+    context: Record<string, unknown>,
+    query: string,
+  ): never {
+    throw new McpError(JsonRpcErrorCode.ValidationError, message, {
+      violations,
+      ...context,
+      query: this.truncateQuery(query),
+    });
+  }
+
+  /**
+   * Parse SQL query to AST with error handling
+   * @param query - SQL query to parse
+   * @param context - Request context for logging
+   * @param failClosed - If true, returns null on parse error (fail-closed security); if false, allows fallback
+   * @returns Array of AST statements or null on error
+   * @private
+   */
+  private static parseQueryToStatements(
+    query: string,
+    context: RequestContext,
+    failClosed = false,
+  ): unknown[] | null {
+    try {
+      const ast = this.parser.astify(query, { database: "db2" });
+
+      logger.debug(
+        {
+          ...context,
+          astType: Array.isArray(ast) ? "multiple" : "single",
+          statementCount: Array.isArray(ast) ? ast.length : 1,
+        },
+        "SQL AST parsed successfully",
+      );
+
+      return Array.isArray(ast) ? ast : [ast];
+    } catch (parseError) {
+      const errorMessage =
+        parseError instanceof Error ? parseError.message : String(parseError);
+
+      if (failClosed) {
+        logger.warning(
+          {
+            ...context,
+            error: errorMessage,
+            queryLength: query.length,
+          },
+          "SQL AST parsing failed - rejecting query for security",
+        );
+        return null;
+      }
+
+      logger.debug(
+        {
+          ...context,
+          error: errorMessage,
+        },
+        "AST parsing failed - falling back to regex validation",
+      );
+
+      return null;
+    }
+  }
+
+  /**
+   * Recursively traverse AST and collect results from visitor function
+   * Generic traversal utility that eliminates duplicate traversal logic
+   * @param node - Current AST node to traverse
+   * @param visitor - Function to check each node, returns result or null
+   * @returns Array of collected results
+   * @private
+   */
+  private static traverseAST<T>(
+    node: unknown,
+    visitor: (node: Record<string, unknown>) => T | null,
+  ): T[] {
+    const results: T[] = [];
+
+    if (!node || typeof node !== "object") {
+      return results;
+    }
+
+    const objNode = node as Record<string, unknown>;
+
+    // Visit current node
+    const result = visitor(objNode);
+    if (result !== null) {
+      results.push(result);
+    }
+
+    // Recursively traverse all properties
+    for (const key in objNode) {
+      const value = objNode[key];
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          results.push(...this.traverseAST(item, visitor));
+        });
+      } else if (typeof value === "object" && value !== null) {
+        results.push(...this.traverseAST(value, visitor));
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Validate query against list of keywords using regex patterns
+   * Generic regex validation utility that eliminates duplicate regex iteration logic
+   * @param query - SQL query to validate
+   * @param keywords - Keywords to check for
+   * @param patternBuilder - Function to build regex pattern from keyword
+   * @param violationFormatter - Function to format violation message
+   * @returns Array of violation messages
+   * @private
+   */
+  private static validateWithRegexList(
+    query: string,
+    keywords: readonly string[] | string[],
+    patternBuilder: (keyword: string) => RegExp,
+    violationFormatter: (keyword: string) => string,
+  ): string[] {
+    const violations: string[] = [];
+    const normalizedQuery = this.stripSqlLiteralsAndComments(query);
+
+    for (const keyword of keywords) {
+      const pattern = patternBuilder(keyword);
+      if (pattern.test(normalizedQuery)) {
+        violations.push(violationFormatter(keyword));
+      }
+    }
+
+    return violations;
+  }
 
   /**
    * Validate SQL query against security configuration
@@ -178,7 +357,7 @@ export class SqlSecurityValidator {
         {
           queryLength: query.length,
           maxLength,
-          query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
+          query: this.truncateQuery(query),
         },
       );
     }
@@ -210,14 +389,11 @@ export class SqlSecurityValidator {
       context,
     );
     if (!astResult.isValid) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
+      this.throwValidationError(
         `Forbidden keywords detected: ${astResult.violations.join(", ")}`,
-        {
-          violations: astResult.violations,
-          forbiddenKeywords: securityConfig.forbiddenKeywords,
-          query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-        },
+        astResult.violations,
+        { forbiddenKeywords: securityConfig.forbiddenKeywords },
+        query,
       );
     }
 
@@ -227,14 +403,11 @@ export class SqlSecurityValidator {
       securityConfig.forbiddenKeywords,
     );
     if (!regexResult.isValid) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
+      this.throwValidationError(
         `Forbidden keywords detected: ${regexResult.violations.join(", ")}`,
-        {
-          violations: regexResult.violations,
-          forbiddenKeywords: securityConfig.forbiddenKeywords,
-          query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-        },
+        regexResult.violations,
+        { forbiddenKeywords: securityConfig.forbiddenKeywords },
+        query,
       );
     }
   }
@@ -252,34 +425,84 @@ export class SqlSecurityValidator {
     // Try AST-based validation first (more reliable)
     const astResult = this.validateQueryAST(query, context);
     if (!astResult.isValid) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
+      this.throwValidationError(
         `Write operations detected: ${astResult.violations.join(", ")}`,
-        {
-          violations: astResult.violations,
-          readOnly: true,
-          query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-        },
+        astResult.violations,
+        { readOnly: true },
+        query,
       );
     }
 
     // Fallback to regex validation for additional coverage
     const regexResult = this.validateQueryRegex(query, context);
     if (!regexResult.isValid) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
+      this.throwValidationError(
         `Write operations detected: ${regexResult.violations.join(", ")}`,
-        {
-          violations: regexResult.violations,
-          readOnly: true,
-          query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-        },
+        regexResult.violations,
+        { readOnly: true },
+        query,
       );
     }
   }
 
   /**
-   * Validate SQL query using AST parsing
+   * Strip string literals from SQL to prevent false positives in regex validation
+   * Comments are not allowed in DB2 SQL statements, so only string literals need stripping
+   * @param sql - Raw SQL query
+   * @returns Normalized SQL with strings replaced with empty literals
+   * @private
+   */
+  private static stripSqlLiteralsAndComments(sql: string): string {
+    let normalized = sql;
+
+    // Replace single-quoted strings with empty string literals
+    // Pattern handles escaped quotes: 'can''t' -> ''
+    normalized = normalized.replace(/'(?:''|[^'])*'/g, "''");
+
+    return normalized;
+  }
+
+  /**
+   * Determine if an AST node represents a SQL statement (vs expression/literal)
+   * @param node - AST node to check
+   * @returns True if node has a statement-type .type field
+   * @private
+   */
+  private static isStatementTypeNode(node: unknown): boolean {
+    if (!node || typeof node !== "object") return false;
+
+    const objNode = node as Record<string, unknown>;
+    if (!objNode.type || typeof objNode.type !== "string") return false;
+
+    const nodeType = objNode.type.toUpperCase();
+
+    // Use pre-computed STATEMENT_TYPES constant (derived from DANGEROUS_OPERATIONS + SELECT)
+    return STATEMENT_TYPES.has(nodeType);
+  }
+
+  /**
+   * Recursively traverse AST to find all statement nodes
+   * Uses generic AST traversal with visitor pattern
+   * @param node - Current AST node
+   * @param callback - Function to call for each statement node found
+   * @private
+   */
+  private static traverseAstForStatements(
+    node: unknown,
+    callback: (node: Record<string, unknown>) => void,
+  ): void {
+    this.traverseAST(node, (objNode) => {
+      // If this is a statement-type node, invoke callback
+      if (this.isStatementTypeNode(objNode)) {
+        callback(objNode);
+      }
+      return null;
+    });
+  }
+
+  /**
+   * Validate SQL query using AST parsing with fail-closed security model
+   * In read-only mode, enforces allowlist (only SELECT) and blocks SELECT INTO
    * @param query - SQL query to validate
    * @param context - Request context for logging
    * @private
@@ -290,78 +513,70 @@ export class SqlSecurityValidator {
   ): SecurityValidationResult {
     const violations: string[] = [];
 
-    try {
-      const ast = this.parser.astify(query, { database: "mysql" });
-
-      logger.debug(
-        {
-          ...context,
-          astType: Array.isArray(ast) ? "multiple" : "single",
-          statementCount: Array.isArray(ast) ? ast.length : 1,
-        },
-        "SQL AST parsed successfully",
+    // Parse query with fail-closed security (rejects on parse error)
+    const statements = this.parseQueryToStatements(query, context, true);
+    if (statements === null) {
+      return this.createValidationResult(
+        ["SQL parsing failed (cannot validate read-only safely)"],
+        "ast",
       );
+    }
 
-      const statements = Array.isArray(ast) ? ast : [ast];
+    // Phase 1: Top-level statement type validation (allowlist enforcement)
+    for (const statement of statements) {
+      if (!statement || typeof statement !== "object") continue;
 
-      for (const statement of statements) {
-        if (!statement || typeof statement !== "object") continue;
+      const objStmt = statement as unknown as Record<string, unknown>;
+      const stmtType = String(objStmt.type || "").toUpperCase();
 
-        const objStmt = statement as unknown as Record<string, unknown>;
-        const stmtType = String(objStmt.type || "").toUpperCase();
-
-        // 1. Check top-level statement type
-        if (
-          stmtType &&
-          (DANGEROUS_OPERATIONS as readonly string[]).includes(stmtType)
-        ) {
-          violations.push(`Dangerous statement type: ${stmtType}`);
-        }
-
-        // 2. Check for dangerous functions anywhere in the AST
-        const dangerousFunctions = this.findDangerousFunctionsInAST(statement);
-        if (dangerousFunctions.length > 0) {
-          violations.push(
-            ...dangerousFunctions.map(
-              (f: string) => `Dangerous function: ${f}`,
-            ),
-          );
-        }
-
-        // 3. Check for UNION-based attacks
-        if (this.hasUnionWithDangerousStatements(statement)) {
-          violations.push("UNION with dangerous statements detected");
-        }
+      // Allowlist: only SELECT is allowed in read-only mode
+      if (stmtType !== "SELECT") {
+        violations.push(`Non-read-only statement detected: ${stmtType}`);
       }
 
-      return {
-        isValid: violations.length === 0,
-        violations,
-        validationMethod: "ast",
-      };
-    } catch (parseError) {
-      logger.warning(
-        {
-          ...context,
-          error:
-            parseError instanceof Error
-              ? parseError.message
-              : String(parseError),
-          queryLength: query.length,
-        },
-        "SQL AST parsing failed, will use regex validation only",
-      );
-
-      return {
-        isValid: true, // Let regex validation handle it
-        violations: [],
-        validationMethod: "ast",
-      };
+      // Note: SELECT INTO detection via AST is unreliable with this parser
+      // Regex validation provides coverage for SELECT INTO patterns
     }
+
+    // Phase 2: Nested statement validation (CTEs, subqueries, unions)
+    // Traverse AST to find all statement nodes including nested ones
+    for (const statement of statements) {
+      this.traverseAstForStatements(statement, (node) => {
+        const nodeType = String(node.type || "").toUpperCase();
+
+        if (nodeType !== "SELECT") {
+          // Any non-SELECT statement in nested context is a violation
+          violations.push(
+            `Non-read-only statement in nested context: ${nodeType}`,
+          );
+        }
+        // Note: SELECT INTO checking is unreliable in AST, rely on regex instead
+      });
+    }
+
+    // Phase 3: Dangerous function scanning (keep existing logic)
+    for (const statement of statements) {
+      const dangerousFunctions = this.findDangerousFunctionsInAST(statement);
+      if (dangerousFunctions.length > 0) {
+        violations.push(
+          ...dangerousFunctions.map((f: string) => `Dangerous function: ${f}`),
+        );
+      }
+    }
+
+    // Phase 4: UNION validation (keep existing logic)
+    for (const statement of statements) {
+      if (this.hasUnionWithDangerousStatements(statement)) {
+        violations.push("UNION with dangerous statements detected");
+      }
+    }
+
+    return this.createValidationResult(violations, "ast");
   }
 
   /**
    * Validate SQL query using regex patterns
+   * Uses generic regex validation helper to eliminate duplication
    * @param query - SQL query to validate
    * @param _context - Request context for logging (unused but kept for consistency)
    * @private
@@ -372,34 +587,35 @@ export class SqlSecurityValidator {
   ): SecurityValidationResult {
     const violations: string[] = [];
 
-    // Check for dangerous operations
-    for (const operation of DANGEROUS_OPERATIONS) {
-      const pattern = new RegExp(`\\b${operation}\\b`, "i");
-      if (pattern.test(query)) {
-        violations.push(`Write operation '${operation}' detected`);
-      }
-    }
+    // Check for dangerous operations using helper
+    violations.push(
+      ...this.validateWithRegexList(
+        query,
+        DANGEROUS_OPERATIONS,
+        (op) => new RegExp(`\\b${op}\\b`, "i"),
+        (op) => `Write operation '${op}' detected`,
+      ),
+    );
 
-    // Check for dangerous patterns
+    // Check for dangerous patterns (already RegExp objects, different pattern)
+    const normalizedQuery = this.stripSqlLiteralsAndComments(query);
     for (const pattern of DANGEROUS_PATTERNS) {
-      if (pattern.test(query)) {
+      if (pattern.test(normalizedQuery)) {
         violations.push(`Dangerous pattern detected: ${pattern.source}`);
       }
     }
 
-    // Check for suspicious function calls
-    for (const func of DANGEROUS_FUNCTIONS) {
-      const pattern = new RegExp(`\\b${func}\\s*\\(`, "i");
-      if (pattern.test(query)) {
-        violations.push(`Suspicious function '${func}' detected`);
-      }
-    }
+    // Check for suspicious function calls using helper
+    violations.push(
+      ...this.validateWithRegexList(
+        query,
+        DANGEROUS_FUNCTIONS,
+        (func) => new RegExp(`\\b${func}\\s*\\(`, "i"),
+        (func) => `Suspicious function '${func}' detected`,
+      ),
+    );
 
-    return {
-      isValid: violations.length === 0,
-      violations,
-      validationMethod: "regex",
-    };
+    return this.createValidationResult(violations, "regex");
   }
 
   /**
@@ -416,39 +632,26 @@ export class SqlSecurityValidator {
   ): SecurityValidationResult {
     const violations: string[] = [];
 
-    try {
-      const ast = this.parser.astify(query, { database: "mysql" });
-      const statements = Array.isArray(ast) ? ast : [ast];
-
-      for (const statement of statements) {
-        const foundKeywords = this.findForbiddenKeywordsInAST(
-          statement,
-          forbiddenKeywords,
-        );
-        violations.push(...foundKeywords.map((k) => `Forbidden keyword: ${k}`));
-      }
-    } catch (parseError) {
-      logger.debug(
-        {
-          ...context,
-          error:
-            parseError instanceof Error
-              ? parseError.message
-              : String(parseError),
-        },
-        "AST parsing failed for forbidden keyword validation",
-      );
+    // Parse query with fail-open (allows regex fallback on parse error)
+    const statements = this.parseQueryToStatements(query, context, false);
+    if (statements === null) {
+      return this.createValidationResult([], "ast");
     }
 
-    return {
-      isValid: violations.length === 0,
-      violations,
-      validationMethod: "ast",
-    };
+    for (const statement of statements) {
+      const foundKeywords = this.findForbiddenKeywordsInAST(
+        statement,
+        forbiddenKeywords,
+      );
+      violations.push(...foundKeywords.map((k) => `Forbidden keyword: ${k}`));
+    }
+
+    return this.createValidationResult(violations, "ast");
   }
 
   /**
    * Validate forbidden keywords using regex patterns
+   * Uses generic regex validation helper to eliminate duplication
    * @param query - SQL query to validate
    * @param forbiddenKeywords - List of forbidden keywords
    * @private
@@ -457,63 +660,39 @@ export class SqlSecurityValidator {
     query: string,
     forbiddenKeywords: string[],
   ): SecurityValidationResult {
-    const violations: string[] = [];
+    const violations = this.validateWithRegexList(
+      query,
+      forbiddenKeywords,
+      (kw) =>
+        new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
+      (kw) => `Forbidden keyword: ${kw}`,
+    );
 
-    for (const keyword of forbiddenKeywords) {
-      const pattern = new RegExp(
-        `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-        "i",
-      );
-      if (pattern.test(query)) {
-        violations.push(`Forbidden keyword: ${keyword}`);
-      }
-    }
-
-    return {
-      isValid: violations.length === 0,
-      violations,
-      validationMethod: "regex",
-    };
+    return this.createValidationResult(violations, "regex");
   }
 
   /**
    * Find dangerous functions anywhere in the AST
+   * Uses generic AST traversal with visitor pattern
    * @param node - AST node to analyze
    * @private
    */
   private static findDangerousFunctionsInAST(node: unknown): string[] {
-    const violations: string[] = [];
-
-    if (!node || typeof node !== "object") return violations;
-
-    const objNode = node as Record<string, unknown>;
-
-    // Check if this node is a function call
-    if (objNode.type === "function" && objNode.name) {
-      const funcName = String(objNode.name).toUpperCase();
-
-      if ((DANGEROUS_FUNCTIONS as readonly string[]).includes(funcName)) {
-        violations.push(funcName);
+    return this.traverseAST(node, (objNode) => {
+      // Check if this node is a function call
+      if (objNode.type === "function" && objNode.name) {
+        const funcName = String(objNode.name).toUpperCase();
+        if ((DANGEROUS_FUNCTIONS as readonly string[]).includes(funcName)) {
+          return funcName;
+        }
       }
-    }
-
-    // Recursively check all properties
-    for (const key in objNode) {
-      const value = objNode[key];
-      if (Array.isArray(value)) {
-        value.forEach((item) =>
-          violations.push(...this.findDangerousFunctionsInAST(item)),
-        );
-      } else if (typeof value === "object") {
-        violations.push(...this.findDangerousFunctionsInAST(value));
-      }
-    }
-
-    return violations;
+      return null;
+    });
   }
 
   /**
    * Find forbidden keywords anywhere in the AST
+   * Uses generic AST traversal with visitor pattern
    * @param node - AST node to analyze
    * @param forbiddenKeywords - List of forbidden keywords
    * @private
@@ -522,39 +701,31 @@ export class SqlSecurityValidator {
     node: unknown,
     forbiddenKeywords: string[],
   ): string[] {
-    const violations: string[] = [];
+    const found = new Set<string>();
 
-    if (!node || typeof node !== "object") return violations;
+    this.traverseAST(node, (objNode) => {
+      // Check string values for forbidden keywords
+      // Skip 'value' key which contains string literals, not SQL keywords
+      for (const key in objNode) {
+        if (key === "value") continue; // Skip string literal values
 
-    const objNode = node as Record<string, unknown>;
-
-    // Check string values for forbidden keywords
-    for (const key in objNode) {
-      const value = objNode[key];
-      if (typeof value === "string") {
-        for (const keyword of forbiddenKeywords) {
-          const pattern = new RegExp(
-            `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-            "i",
-          );
-          if (pattern.test(value)) {
-            violations.push(keyword);
+        const value = objNode[key];
+        if (typeof value === "string") {
+          for (const keyword of forbiddenKeywords) {
+            const pattern = new RegExp(
+              `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+              "i",
+            );
+            if (pattern.test(value)) {
+              found.add(keyword);
+            }
           }
         }
-      } else if (Array.isArray(value)) {
-        value.forEach((item) =>
-          violations.push(
-            ...this.findForbiddenKeywordsInAST(item, forbiddenKeywords),
-          ),
-        );
-      } else if (typeof value === "object") {
-        violations.push(
-          ...this.findForbiddenKeywordsInAST(value, forbiddenKeywords),
-        );
       }
-    }
+      return null;
+    });
 
-    return violations;
+    return Array.from(found);
   }
 
   /**
