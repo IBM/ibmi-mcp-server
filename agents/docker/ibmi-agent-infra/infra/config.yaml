@@ -24,7 +24,7 @@ available_models:
 # ============================================================
 agents:
   # Default model for all agents (can be overridden per agent)
-  default_model: "anthropic:claude-haiku-4-5"
+  default_model: "openai:gpt-4o"
 
   # Performance monitoring agent
   ibmi-performance-monitor:
