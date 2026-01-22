@@ -8,6 +8,7 @@ sources:
 
 tools:
   describe_object:
+    enabled: false
     source: ibmi-system
     description: Describe an SQL object by generating DDL definition
     statement: |-

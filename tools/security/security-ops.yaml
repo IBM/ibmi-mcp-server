@@ -263,7 +263,7 @@ tools:
     statement: |
       SELECT objname, object_audit
         FROM TABLE (qsys2.object_statistics('QSYS', '*CMD'))
-        WHERE objname IN ({{command_names}})
+        WHERE objname IN (:command_names)
     security:
       readOnly: true
     annotations:
