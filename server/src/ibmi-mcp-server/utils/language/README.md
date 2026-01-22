@@ -27,7 +27,7 @@ The `Document` and `Statement` classes provide accurate detection of SQL stateme
 ## Related Projects
 
 - [vscode-db2i](https://github.com/codefori/vscode-db2i) - VS Code extension for Db2 for IBM i
-- [Code for IBM i](https://codefori.github.io/) - Development tools for IBM i
+- [Code for IBM i](https://codefori.github.io/docs) - Development tools for IBM i
 - [@ibm/mapepire-js](https://www.npmjs.com/package/@ibm/mapepire-js) - IBM i database driver (used by this MCP server)
 
 ---
