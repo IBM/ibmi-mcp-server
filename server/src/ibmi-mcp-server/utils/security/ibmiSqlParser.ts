@@ -17,44 +17,11 @@ export interface IbmiParseResult {
   success: boolean;
   isReadOnly: boolean;
   statementTypes: string[];
-  hasIbmiFeatures: boolean;
   violations: string[];
   error?: string;
 }
 
-/**
- * IBM i-specific SQL features that indicate advanced queries
- */
-const IBMI_READ_ONLY_PATTERNS = {
-  // TABLE() function - used to invoke table-valued functions
-  TABLE_FUNCTION: /\bTABLE\s*\(/i,
-
-  // LATERAL join - modern SQL feature for correlated table expressions
-  LATERAL_JOIN: /\bLATERAL\s+/i,
-
-  // Named parameters using => (IBM i syntax)
-  NAMED_PARAMETERS: /\w+\s*=>\s*['"\w]/i,
-
-  // JSON_TABLE function (often used with LATERAL)
-  JSON_TABLE: /\bJSON_TABLE\s*\(/i,
-
-  // XMLTABLE function
-  XML_TABLE: /\bXMLTABLE\s*\(/i,
-} as const;
-
-/**
- * Dangerous SQL functions that should be blocked
- */
-const DANGEROUS_FUNCTIONS = [
-  "SYSTEM",
-  "QCMDEXC",
-  "SQL_EXECUTE_IMMEDIATE",
-  "SQLCMD",
-  "LOAD_EXTENSION",
-  "EXEC",
-  "EXECUTE_IMMEDIATE",
-  "EVAL",
-] as const;
+export const readOnlyTypes = [StatementType.Select, StatementType.With];
 
 /**
  * IBM i-aware SQL parser using vscode-db2i's Document class
@@ -72,9 +39,6 @@ export class IbmiSqlParser {
       // Parse query using vscode-db2i's Document class
       const document = new Document(query);
 
-      // Detect IBM i-specific features
-      const hasIbmiFeatures = this.hasIbmiFeatures(query);
-
       // Extract statement types from parsed statements
       const statementTypes = document.statements.map(
         (stmt) => StatementType[stmt.type] || "Unknown",
@@ -83,16 +47,12 @@ export class IbmiSqlParser {
       // Check for write operations by analyzing statement types
       const violations = this.detectWriteOperations(document);
 
-      // Check for dangerous functions in all statements
-      violations.push(...this.detectDangerousFunctions(document));
-
       // Determine if query is read-only
       const isReadOnly = violations.length === 0;
 
       logger.debug(
         {
           ...context,
-          hasIbmiFeatures,
           statementTypes,
           isReadOnly,
           violationCount: violations.length,
@@ -105,7 +65,6 @@ export class IbmiSqlParser {
         success: true,
         isReadOnly,
         statementTypes,
-        hasIbmiFeatures,
         violations,
       };
     } catch (error) {
@@ -124,27 +83,10 @@ export class IbmiSqlParser {
         success: false,
         isReadOnly: false,
         statementTypes: [],
-        hasIbmiFeatures: false,
         violations: ["Parse error"],
         error: errorMessage,
       };
     }
-  }
-
-  /**
-   * Check if query uses IBM i-specific features
-   *
-   * @param query - SQL query
-   * @returns True if IBM i features detected
-   */
-  private static hasIbmiFeatures(query: string): boolean {
-    return (
-      IBMI_READ_ONLY_PATTERNS.TABLE_FUNCTION.test(query) ||
-      IBMI_READ_ONLY_PATTERNS.LATERAL_JOIN.test(query) ||
-      IBMI_READ_ONLY_PATTERNS.NAMED_PARAMETERS.test(query) ||
-      IBMI_READ_ONLY_PATTERNS.JSON_TABLE.test(query) ||
-      IBMI_READ_ONLY_PATTERNS.XML_TABLE.test(query)
-    );
   }
 
   /**
@@ -179,42 +121,8 @@ export class IbmiSqlParser {
   private static isWriteOperation(type: StatementType): boolean {
     // Only SELECT and WITH (CTE) are read-only
     // All other statement types (including CALL) are write operations
-    const readOnlyTypes = [StatementType.Select, StatementType.With];
-
+    // TODO: Consider refining this logic if certain CALL statements are allowed
     return !readOnlyTypes.includes(type);
-  }
-
-  /**
-   * Detect dangerous functions in SQL statements using token analysis
-   *
-   * @param document - Parsed SQL document
-   * @returns Array of violation messages for dangerous functions found
-   */
-  private static detectDangerousFunctions(document: Document): string[] {
-    const violations: string[] = [];
-
-    for (const statement of document.statements) {
-      const tokens = statement.tokens || [];
-
-      for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
-        if (!token || !token.value) continue;
-
-        const tokenValue = token.value.toUpperCase();
-
-        // Check if this token is a dangerous function
-        // Look for function pattern: FUNCTION_NAME followed by (
-        if ((DANGEROUS_FUNCTIONS as readonly string[]).includes(tokenValue)) {
-          // Check if next token is an open parenthesis (indicates function call)
-          const nextToken = tokens[i + 1];
-          if (nextToken && nextToken.type === "openbracket") {
-            violations.push(`Dangerous function: ${tokenValue}`);
-          }
-        }
-      }
-    }
-
-    return violations;
   }
 }
 

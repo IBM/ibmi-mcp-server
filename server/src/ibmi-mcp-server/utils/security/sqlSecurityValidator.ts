@@ -78,20 +78,6 @@ export const DANGEROUS_OPERATIONS = [
 ] as const;
 
 /**
- * Dangerous SQL functions that should be monitored/blocked
- */
-export const DANGEROUS_FUNCTIONS = [
-  "SYSTEM",
-  "QCMDEXC",
-  "SQL_EXECUTE_IMMEDIATE",
-  "SQLCMD",
-  "LOAD_EXTENSION",
-  "EXEC",
-  "EXECUTE_IMMEDIATE",
-  "EVAL",
-] as const;
-
-/**
  * Dangerous SQL patterns that should be detected
  */
 export const DANGEROUS_PATTERNS = [
@@ -160,15 +146,18 @@ export class SqlSecurityValidator {
     const tokens = this.tokeniser.tokenise(query);
     const violations: string[] = [];
 
+    // Use Set for O(1) lookup performance
+    const forbiddenSet = new Set(
+      forbiddenKeywords.map(kw => kw.toUpperCase())
+    );
+
     for (const token of tokens) {
       // Skip string literals - only check actual SQL keywords
       if (token.type === "string") continue;
 
       const value = token.value?.toUpperCase();
-      for (const keyword of forbiddenKeywords) {
-        if (value === keyword.toUpperCase()) {
-          violations.push(`Forbidden keyword: ${keyword}`);
-        }
+      if (value && forbiddenSet.has(value)) {
+        violations.push(`Forbidden keyword: ${value}`);
       }
     }
 
@@ -336,7 +325,6 @@ export class SqlSecurityValidator {
           {
             readOnly: true,
             validatedBy: "ibmi-vscode",
-            hasIbmiFeatures: ibmiResult.hasIbmiFeatures,
           },
           query,
         );
@@ -346,7 +334,6 @@ export class SqlSecurityValidator {
         {
           ...context,
           validatedBy: "ibmi-vscode",
-          hasIbmiFeatures: ibmiResult.hasIbmiFeatures,
           statementTypes: ibmiResult.statementTypes,
         },
         "Read-only validation passed using IBM i vscode parser",

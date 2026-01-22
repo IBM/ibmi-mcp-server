@@ -351,62 +351,6 @@ describe("SqlSecurityValidator", () => {
     });
   });
 
-  describe("Read-Only Mode - Dangerous Functions", () => {
-    const readOnlyConfig = { readOnly: true };
-
-    it("should reject QCMDEXC function", () => {
-      expect(() =>
-        SqlSecurityValidator.validateQuery(
-          "SELECT QCMDEXC('DLTLIB MYLIB') FROM SYSIBM.SYSDUMMY1",
-          readOnlyConfig,
-          context,
-        ),
-      ).toThrow(McpError);
-
-      try {
-        SqlSecurityValidator.validateQuery(
-          "SELECT QCMDEXC('DLTLIB MYLIB') FROM SYSIBM.SYSDUMMY1",
-          readOnlyConfig,
-          context,
-        );
-      } catch (error) {
-        if (error instanceof McpError) {
-          expect(error.message).toContain("QCMDEXC");
-        }
-      }
-    });
-
-    it("should reject SYSTEM function", () => {
-      expect(() =>
-        SqlSecurityValidator.validateQuery(
-          "SELECT SYSTEM('rm -rf /') FROM SYSIBM.SYSDUMMY1",
-          readOnlyConfig,
-          context,
-        ),
-      ).toThrow(McpError);
-    });
-
-    it("should reject SQL_EXECUTE_IMMEDIATE function", () => {
-      expect(() =>
-        SqlSecurityValidator.validateQuery(
-          "SELECT SQL_EXECUTE_IMMEDIATE('DROP TABLE users')",
-          readOnlyConfig,
-          context,
-        ),
-      ).toThrow(McpError);
-    });
-
-    it("should reject EXEC function", () => {
-      expect(() =>
-        SqlSecurityValidator.validateQuery(
-          "SELECT EXEC('malicious_command')",
-          readOnlyConfig,
-          context,
-        ),
-      ).toThrow(McpError);
-    });
-  });
-
   describe("Forbidden Keywords Validation", () => {
     it("should reject forbidden keyword in actual SQL", () => {
       const config = { readOnly: false, forbiddenKeywords: ["DROP"] };

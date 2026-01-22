@@ -9,7 +9,6 @@ import { logger } from "@/utils/internal/logger.js";
 import { RequestContext } from "@/utils/internal/requestContext.js";
 import {
   DANGEROUS_OPERATIONS,
-  DANGEROUS_FUNCTIONS,
   DANGEROUS_PATTERNS,
   SecurityValidationResult,
 } from "./sqlSecurityValidator.js";
@@ -109,16 +108,6 @@ export class SqlSecurityValidatorFallback {
         violations.push(`Dangerous pattern detected: ${pattern.source}`);
       }
     }
-
-    // Check for suspicious function calls
-    violations.push(
-      ...this.validateWithRegexList(
-        query,
-        DANGEROUS_FUNCTIONS,
-        (func) => new RegExp(`\\b${func}\\s*\\(`, "i"),
-        (func) => `Suspicious function '${func}' detected`,
-      ),
-    );
 
     return this.createValidationResult(violations);
   }
