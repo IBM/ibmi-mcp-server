@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, expect, test } from "vitest";
 import Document from "../../../src/ibmi-mcp-server/utils/language/document";
 

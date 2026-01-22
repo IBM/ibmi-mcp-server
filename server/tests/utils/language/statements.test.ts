@@ -1,5 +1,5 @@
-import { assert, describe, expect, test } from "vitest";
-import SQLTokeniser from "../../../src/ibmi-mcp-server/utils/language/tokens";
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+import { describe, expect, test } from "vitest";
 import Document, {
   getPositionData,
 } from "../../../src/ibmi-mcp-server/utils/language/document";
@@ -1274,8 +1274,8 @@ parserScenarios(`Offset reference tests`, ({ newDoc }) => {
 
     const ref = statement.getReferenceByOffset(21);
     expect(ref).toBeDefined();
-    expect(ref.object.schema).toBe(`sample`);
-    expect(ref.object.name).toBeUndefined();
+    expect(ref?.object.schema).toBe(`sample`);
+    expect(ref?.object.name).toBeUndefined();
   });
 
   test(`Writing select, invalid middle`, () => {
@@ -1293,8 +1293,8 @@ parserScenarios(`Offset reference tests`, ({ newDoc }) => {
 
     const ref = statement.getReferenceByOffset(9);
     expect(ref).toBeDefined();
-    expect(ref.object.schema).toBe(`b`);
-    expect(ref.object.name).toBeUndefined();
+    expect(ref?.object.schema).toBe(`b`);
+    expect(ref?.object.name).toBeUndefined();
   });
 });
 
@@ -2095,7 +2095,7 @@ describe(`Parameter statement tests`, () => {
     expect(callableC).toBeDefined();
     expect(callableC.tokens.length).toBe(4);
     expect(
-      callableC.tokens.some((t) => t.type === `block` && t.block.length === 3),
+      callableC.tokens.some((t) => t.type === `block` && t.block?.length === 3),
     ).toBeTruthy();
     expect(callableC.parentRef.object.schema).toBe(`qsys2`);
     expect(callableC.parentRef.object.name).toBe(`create_abcd`);
