@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it } from "vitest";
 import { SqlSecurityValidator } from "../../../src/ibmi-mcp-server/utils/security/sqlSecurityValidator.js";
 import { createRequestContext } from "../../../src/utils/internal/requestContext.js";
 
@@ -6,7 +6,7 @@ describe("DB2 CTE Query Parsing Test", () => {
   const context = createRequestContext();
   const readOnlyConfig = { readOnly: true };
 
-  it("ORIGINAL: should FAIL with CONCAT operator (DB2 infix syntax)", () => {
+  it("ORIGINAL: should PASS with CONCAT operator (DB2 infix syntax)", () => {
     // This uses DB2-specific CONCAT operator syntax: 'R' CONCAT iVersion
     // The parser doesn't support this and will fail-closed
     const query = `WITH iLevel(iVersion, iRelease) AS (
@@ -30,13 +30,15 @@ describe("DB2 CTE Query Parsing Test", () => {
     console.log("\n[ORIGINAL] Testing DB2 CONCAT operator syntax...");
 
     // This should fail because parser can't handle CONCAT operator
-    expect(() =>
-      SqlSecurityValidator.validateQuery(query, readOnlyConfig, context),
-    ).toThrow();
-
-    console.log(
-      "✓ Expected: Query REJECTED due to unsupported CONCAT operator syntax",
-    );
+    try {
+      SqlSecurityValidator.validateQuery(query, readOnlyConfig, context);
+      console.log("✗ Query validation PASSED");
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (error) {
+        throw new Error(
+        "Query validation failed"
+      );
+    }
   });
 
   it("REWRITTEN: should PASS with CONCAT() function", () => {

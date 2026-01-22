@@ -1,13 +1,12 @@
-
-import { describe, expect, test } from 'vitest'
-import Document from '../../../src/ibmi-mcp-server/utils/language/document';
+import { describe, expect, test } from "vitest";
+import Document from "../../../src/ibmi-mcp-server/utils/language/document";
 
 const parserScenarios = describe.each([
   { newDoc: (content: string) => new Document(content), isFormatted: false },
 ]);
 
 parserScenarios(`Block statement tests`, ({ newDoc, isFormatted }) => {
-  test('Block start tests', () => {
+  test("Block start tests", () => {
     const lines = [
       `CREATE ALIAS "TestDelimiters"."Delimited Alias" FOR "TestDelimiters"."Delimited Table";`,
       ``,
@@ -33,7 +32,7 @@ parserScenarios(`Block statement tests`, ({ newDoc, isFormatted }) => {
     expect(procedureDef.isCompoundStart()).toBeTruthy();
   });
 
-  test('Compound statement test', () => {
+  test("Compound statement test", () => {
     const lines = [
       `CREATE ALIAS "TestDelimiters"."Delimited Alias" FOR "TestDelimiters"."Delimited Table";`,
       ``,
@@ -73,7 +72,7 @@ parserScenarios(`Block statement tests`, ({ newDoc, isFormatted }) => {
     expect(beginBlock.isCompoundStart()).toBeTruthy();
   });
 
-  test('Statement groups', () => {
+  test("Statement groups", () => {
     const compoundStatement = [
       `BEGIN`,
       `  DECLARE already_exists SMALLINT DEFAULT 0;`,
@@ -106,44 +105,61 @@ parserScenarios(`Block statement tests`, ({ newDoc, isFormatted }) => {
     expect(groups.length).toBe(4);
 
     const aliasStatement = groups[0];
-    const aliasSubstring = doc.content.substring(aliasStatement.range.start, aliasStatement.range.end);
-    expect(aliasSubstring).toBe(`CREATE ALIAS "TestDelimiters"."Delimited Alias" FOR "TestDelimiters"."Delimited Table"`);
+    const aliasSubstring = doc.content.substring(
+      aliasStatement.range.start,
+      aliasStatement.range.end,
+    );
+    expect(aliasSubstring).toBe(
+      `CREATE ALIAS "TestDelimiters"."Delimited Alias" FOR "TestDelimiters"."Delimited Table"`,
+    );
 
     const functionStatement = groups[1];
-    const functionSubstring = doc.content.substring(functionStatement.range.start, functionStatement.range.end);
+    const functionSubstring = doc.content.substring(
+      functionStatement.range.start,
+      functionStatement.range.end,
+    );
 
     if (isFormatted) {
-      expect(functionSubstring).toBe([
-        `CREATE FUNCTION "TestDelimiters"."Delimited Function"(`,
-        `    "Delimited Parameter" INTEGER`,
-        `) RETURNS INTEGER LANGUAGE SQL BEGIN`,
-        `    RETURN "Delimited Parameter";`,
-        `END`,
-      ].join(`\r\n`));
+      expect(functionSubstring).toBe(
+        [
+          `CREATE FUNCTION "TestDelimiters"."Delimited Function"(`,
+          `    "Delimited Parameter" INTEGER`,
+          `) RETURNS INTEGER LANGUAGE SQL BEGIN`,
+          `    RETURN "Delimited Parameter";`,
+          `END`,
+        ].join(`\r\n`),
+      );
     } else {
-      expect(functionSubstring).toBe([
-        `CREATE FUNCTION "TestDelimiters"."Delimited Function" ("Delimited Parameter" INTEGER) `,
-        `RETURNS INTEGER LANGUAGE SQL BEGIN RETURN "Delimited Parameter"; END`
-      ].join(`\r\n`))
+      expect(functionSubstring).toBe(
+        [
+          `CREATE FUNCTION "TestDelimiters"."Delimited Function" ("Delimited Parameter" INTEGER) `,
+          `RETURNS INTEGER LANGUAGE SQL BEGIN RETURN "Delimited Parameter"; END`,
+        ].join(`\r\n`),
+      );
     }
     const beginStatement = groups[2];
     expect(beginStatement.statements.length).toBe(9);
-    const compoundSubstring = doc.content.substring(beginStatement.range.start, beginStatement.range.end);
+    const compoundSubstring = doc.content.substring(
+      beginStatement.range.start,
+      beginStatement.range.end,
+    );
 
     if (isFormatted) {
-      expect(compoundSubstring).toBe([
-        `BEGIN`,
-        `    DECLARE already_exists SMALLINT DEFAULT 0;`,
-        `    DECLARE dup_object_hdlr CONDITION FOR SQLSTATE '42710';`,
-        `    DECLARE CONTINUE HANDLER FOR dup_object_hdlr SET already_exists = 1;`,
-        `    CREATE TABLE table1(`,
-        `        col1 INT`,
-        `    );`,
-        `    IF already_exists > 0 THEN;`,
-        `        DELETE FROM table1;`,
-        `    END IF;`,
-        `END`,
-      ].join(`\r\n`));
+      expect(compoundSubstring).toBe(
+        [
+          `BEGIN`,
+          `    DECLARE already_exists SMALLINT DEFAULT 0;`,
+          `    DECLARE dup_object_hdlr CONDITION FOR SQLSTATE '42710';`,
+          `    DECLARE CONTINUE HANDLER FOR dup_object_hdlr SET already_exists = 1;`,
+          `    CREATE TABLE table1(`,
+          `        col1 INT`,
+          `    );`,
+          `    IF already_exists > 0 THEN;`,
+          `        DELETE FROM table1;`,
+          `    END IF;`,
+          `END`,
+        ].join(`\r\n`),
+      );
     } else {
       expect(compoundSubstring).toBe(compoundStatement);
     }
@@ -312,7 +328,7 @@ parserScenarios(`Definition tests`, ({ newDoc }) => {
     const handlerB = children[2];
     expect(handlerB.object.name).toBe(`CONTINUE`);
     expect(handlerB.createType).toBe(`Handler`);
-  })
+  });
 });
 
 test(`Procedure with depths`, () => {
@@ -515,24 +531,23 @@ test(`Procedure with depths`, () => {
   expect(groups.length).toBe(1);
 });
 
-test('CREATE statements', () => {
+test("CREATE statements", () => {
   const lines = [
-   `CREATE TABLE temp_t1`,
-   `(PK BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY,`,
-   ` RB TIMESTAMP(12) NOT NULL GENERATED ALWAYS AS ROW BEGIN,`,
-   ` RE TIMESTAMP(12) NOT NULL GENERATED ALWAYS AS ROW END,`,
-   ` TS TIMESTAMP(12) NOT NULL GENERATED ALWAYS AS TRANSACTION START ID,`,
-   ` C1 INT,`,
-   ` C2 char(10),`,
-   ` C3 NOT NULL GENERATED ALWAYS FOR EACH ROW  ON UPDATE AS ROW CHANGE TIMESTAMP IMPLICITLY HIDDEN,`,
-   ` PERIOD SYSTEM_TIME (RB, RE)`,
-   `);`,
-   ``,
-   ``,
-   `reate or replace view temp_v1t1 as select * from temp_t1 where RB<>RE with check option;`,
-   ``,
-   `nsert into temp_v1t1(c1, c2) values(1,'first part');`,
-   
+    `CREATE TABLE temp_t1`,
+    `(PK BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY,`,
+    ` RB TIMESTAMP(12) NOT NULL GENERATED ALWAYS AS ROW BEGIN,`,
+    ` RE TIMESTAMP(12) NOT NULL GENERATED ALWAYS AS ROW END,`,
+    ` TS TIMESTAMP(12) NOT NULL GENERATED ALWAYS AS TRANSACTION START ID,`,
+    ` C1 INT,`,
+    ` C2 char(10),`,
+    ` C3 NOT NULL GENERATED ALWAYS FOR EACH ROW  ON UPDATE AS ROW CHANGE TIMESTAMP IMPLICITLY HIDDEN,`,
+    ` PERIOD SYSTEM_TIME (RB, RE)`,
+    `);`,
+    ``,
+    ``,
+    `reate or replace view temp_v1t1 as select * from temp_t1 where RB<>RE with check option;`,
+    ``,
+    `nsert into temp_v1t1(c1, c2) values(1,'first part');`,
   ].join(`\n`);
 
   const doc = new Document(lines);
@@ -554,4 +569,4 @@ test(`ALTER with BEGIN`, () => {
   const doc = new Document(lines);
   const groups = doc.getStatementGroups();
   expect(groups.length).toBe(1);
-})
+});
