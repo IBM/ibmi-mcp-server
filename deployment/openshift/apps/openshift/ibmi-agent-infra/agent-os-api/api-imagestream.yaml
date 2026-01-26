@@ -1,0 +1,7 @@
+kind: ImageStream
+apiVersion: image.openshift.io/v1
+metadata:
+  name: agent-os-api
+spec:
+  lookupPolicy:
+    local: false

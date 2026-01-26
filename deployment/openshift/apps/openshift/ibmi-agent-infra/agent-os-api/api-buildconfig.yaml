@@ -1,0 +1,22 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: agent-os-api
+spec:
+  nodeSelector: null
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'agent-os-api:latest'
+  strategy:
+    type: Docker
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/IBM/ibmi-mcp-server.git"
+      ref: chore/agent_deployment
+    contextDir: agents/docker/ibmi-agent-infra
+  triggers:
+    - type: ConfigChange
+
+

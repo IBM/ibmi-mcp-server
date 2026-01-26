@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: agent-ui
+      app: agent-ui
+    includeTemplates: true
+
+resources:
+  - agent-ui-serviceaccount.yaml
+  - agent-ui-rolebinding.yaml
+  - agent-ui-deployment.yaml
+  - agent-ui-service.yaml
+  - agent-ui-route.yaml
+
+secretGenerator:
+- name: agent-ui-secrets
+  literals:
+  - POSTGRES_USER=ai
+  - POSTGRES_PASSWORD=ai
+  - POSTGRES_DB=ai

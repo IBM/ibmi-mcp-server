@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-ui
+  template:
+    spec:
+      serviceAccountName: agent-ui-sa
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: agent-ui
+          image: docker.io/williamxiang/agent-ui:ppc64le
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: http://agent-os-api:8000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20

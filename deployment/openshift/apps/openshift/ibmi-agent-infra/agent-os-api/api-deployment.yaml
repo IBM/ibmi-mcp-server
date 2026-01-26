@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-os-api
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"agent-os-api:latest","namespace":"NAMESPACE_PLACEHOLDER"},"fieldPath":"spec.template.spec.containers[?(@.name==\"agent-os-api\")].image","paused":false}]'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-os-api
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: agent-os-api
+          image: image-registry.openshift-image-registry.svc:5000/NAMESPACE_PLACEHOLDER/agent-os-api
+          command: ["uvicorn"]
+          args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: agent-os-api-env
+            - secretRef:
+                name: agent-os-api-secrets

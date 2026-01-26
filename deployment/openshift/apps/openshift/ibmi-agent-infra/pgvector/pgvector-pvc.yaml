@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pgvector-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi
