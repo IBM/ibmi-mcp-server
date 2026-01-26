@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.3.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.2.0...v0.3.0) (2026-01-26)
+
+
+### Features
+
+#### SQL Parser & Security Enhancements
+
+* **VS Code DB2i SQL Parser Integration**: Integrate experimental SQL parser from Code for IBM i VS Code extension ([#97](https://github.com/IBM/ibmi-mcp-server/issues/97)) ([f261684](https://github.com/IBM/ibmi-mcp-server/commit/f261684af08a73a8573876598f692fd79c219f8b))
+  - Add comprehensive SQL parsing capabilities for Db2 for i syntax
+  - Refactor SQL Security Validator to use VS Code DB2i parser for improved accuracy
+  - Implement regex-based fallback validation for unparseable SQL queries
+  - Add extensive test coverage for SQL tokenization, statement parsing, and security validation
+  - Enhance SQL token and statement analysis with 2,000+ lines of parsing logic
+  - See [language parser README](https://github.com/codefori/vscode-db2i/tree/main/src/language) for technical details
+
+* **Read-Only SQL Execution Mode**: Add security validation for read-only SQL operations ([#92](https://github.com/IBM/ibmi-mcp-server/issues/92)) ([4f7b396](https://github.com/IBM/ibmi-mcp-server/commit/4f7b3960cdef2f9e05cd27677ff9db4b404a39cf))
+  - Introduce `IBMI_EXECUTE_SQL_READONLY` environment variable to enforce read-only mode
+  - Implement SQL syntax validation using IBM i's native `PARSE_STATEMENT` stored procedure
+  - Prevent execution of write operations (INSERT, UPDATE, DELETE, CREATE, etc.) when enabled
+  - Add comprehensive security checks to detect forbidden keywords and operations
+  - Include detailed documentation and configuration examples for security-conscious deployments
+  - Add 500+ lines of unit tests covering various SQL scenarios and validation cases
+
+
+### Bug Fixes
+
+* **SQL Template Syntax**: Replace deprecated template syntax with named parameters ([#95](https://github.com/IBM/ibmi-mcp-server/issues/95)) ([cac3c22](https://github.com/IBM/ibmi-mcp-server/commit/cac3c222b9ee99bb9684f3281bf0e881fc92d106)), closes [#94](https://github.com/IBM/ibmi-mcp-server/issues/94)
+  - Update `check_command_audit_settings` tool to use `:command_names` named parameter syntax instead of deprecated `{{command_names}}` template syntax
+  - Ensures compatibility with latest Mapepire query parameter handling
+
+
+### Chores
+
+* **Tool Consolidation**: Streamline default tools and implement factory pattern ([#91](https://github.com/IBM/ibmi-mcp-server/issues/91)) ([3a5e1e6](https://github.com/IBM/ibmi-mcp-server/commit/3a5e1e6e7963ec9d3e2c7d5fb72605842b4f9bd1))
+  - Remove obsolete tools and test infrastructure (DuckDB service, cat fact fetcher, echo tool, image test tool)
+  - Consolidate `execute_sql` and `generate_sql` tools into single-file implementations
+  - Implement centralized factory pattern for tool registration and management
+  - Add configuration support for built-in `execute_sql` tool
+  - Clean up codebase with net reduction of ~3,600 lines across 55 files
+  - Add comprehensive unit tests for tool factory functionality
+
+* **Transport Layer Modernization**: Update dependencies and refactor transport managers ([#93](https://github.com/IBM/ibmi-mcp-server/issues/93)) ([d534e3c](https://github.com/IBM/ibmi-mcp-server/commit/d534e3c5783479f046e184bbf06128367ac5660a))
+  - Upgrade `@modelcontextprotocol/sdk` to version 1.25.2
+  - Add OpenTelemetry dependencies (`@opentelemetry/api`, `@opentelemetry/sdk-node`) for enhanced observability
+  - Refactor transport managers to use `WebStandardStreamableHTTPServerTransport`
+  - Migrate from Node.js-specific APIs to Web Standards API for better cross-platform compatibility
+  - Remove deprecated utility files (`headerUtils.ts`, `honoNodeBridge.ts`)
+  - Implement cleanup transform stream for improved resource management
+  - Simplify request handling with unified `webRequest` interface
+
+* **Developer Tools**: Add debug deployment script and update format script ([3bd2d2e](https://github.com/IBM/ibmi-mcp-server/commit/3bd2d2e860fe5dfff4b3bf3621ad1d247168830f))
+  - Enhance development workflow with debugging utilities
+  - Update code formatting scripts for consistency
+
 ## [0.2.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.1.2...v0.2.0) (2025-12-18)
 
 
