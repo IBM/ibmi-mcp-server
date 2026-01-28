@@ -1183,6 +1183,8 @@ The example below shows how to add a remote IBM i MCP server in IBM watsonx Orch
     --output "agent_name.agent.yaml
     ```
 
+> **Network Configuration for On-Premises Deployments:** If the MCP server is deployed on an on-premises IBM i system behind an enterprise firewall, proper network configuration must be implemented to ensure accessibility from IBM watsonx Orchestrate. IBM Cloud Satellite Connector provides a secure solution for this scenario by establishing connectivity between on-premises resources and IBM Cloud services. For detailed information, refer to the [IBM Cloud Satellite Connector documentation](https://cloud.ibm.com/docs/satellite?topic=satellite-understand-connectors).
+
 </details>
 
 ---
