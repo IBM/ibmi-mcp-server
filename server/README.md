@@ -1131,6 +1131,60 @@ if __name__ == "__main__":
 
 </details>
 
+<details>
+<summary><strong>IBM watsonx Orchestrate</strong></summary>
+
+MCP servers can be added directly in IBM watsonx Orchestrate GUI or using the Agent Development Kit (ADK). Refer to [Adding MCP servers in IBM watsonx Orchestrate](https://www.ibm.com/docs/en/watsonx/watson-orchestrate/base?topic=tools-mcp-servers#adding-mcp-servers) for more details.
+
+#### Local (Stdio)
+
+It's not supported to run a local IBM i MCP server in IBM watsonx Orchestrate for now. Support will be added in a later release.
+
+#### Remote (HTTP)
+
+The example below shows how to add a remote IBM i MCP server in IBM watsonx Orchestrate using using the Agent Development Kit (ADK). Refer to [Adding remote MCP server in IBM watsonx Orchestrate](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits) for more details.
+
+1. Create **Connections** to contain the environment variables and authentication token for the MCP server
+
+    ```bash
+    # create connection for environment variables
+    orchestrate connections add -a <application_id>
+    orchestrate connections configure -a <application_id> --env draft -t team -k key_value
+    orchestrate connections set-credentials -a application_id --env draft -e "DB2i_HOST=your-ibmi-host.com" -e "DB2i_USER=your-username" -e "DB2i_PASS=your-password" -e "DB2i_PORT=8076"
+    # create connection for credential user for authentication if authentication is enabled on the MCP server
+    orchestrate connections add -a <application_id>
+    orchestrate connections configure -a <application_id> --env draft --type team --kind bearer
+    orchestrate connections set-credentials -a <application_id> --env draft --token <bearer_token>
+    ```
+
+2. Import remote IBM i MCP server by **Importing remote MCP toolkits**
+
+    ```bash
+    orchestrate toolkits add \
+    --kind mcp \
+    --name <toolkit_name> \
+    --description "toolkit description"  \
+    --url "<mcp_url>"  \
+    --transport "streamable_http" \
+    --tools "*" \
+    --app-id "<connection_application_id>"
+    ```
+
+3. Create an agent to use the imported toolkit
+
+    ```bash
+    orchestrate agents create \
+    --name <agent_name> \
+    --kind native \
+    --description "agent description" \
+    --llm groq/openai/gpt-oss-120b \
+    --style default \
+    --tools <toolkit_name> \
+    --output "agent_name.agent.yaml
+    ```
+
+</details>
+
 ---
 
 ## 🧩 SQL Tool Configuration
