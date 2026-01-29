@@ -1,14 +1,18 @@
-# from text2sql_agent import agent
-from agno.os import AgentOS
-import json
+"""
+AgentOS server for the IBM i Text-to-SQL Agent.
 
-import httpx
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.tools import tool
+Provides a web-based interface for the Text-to-SQL agent using Agno's AgentOS.
+
+Usage:
+    python agentos.py
+    # or
+    uvicorn agentos:app --reload
+"""
+
+from agno.os import AgentOS
 from dotenv import load_dotenv
-from test2sql_agent import agent
+
+from text2sql_agent import agent
 
 load_dotenv()
 

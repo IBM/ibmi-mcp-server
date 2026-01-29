@@ -6,12 +6,10 @@ for IBM i (Db2 for i) databases. Uses MCP tools for schema discovery,
 query validation, and execution.
 
 Usage:
-    python -m agents.test2sql.text2sql_agent
-    # or
-    python agents/test2sql/text2sql_agent.py
+    python cli.py                                # Interactive mode
+    python cli.py -p "What tables are in QIWS?"  # Single query mode
 """
 
-import asyncio
 from textwrap import dedent
 
 from agno.agent import Agent
@@ -19,10 +17,6 @@ from agno.db.sqlite import SqliteDb
 from agno.models.anthropic import Claude
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
-
-from rich.console import Console
-from rich.prompt import Prompt
-from agno.utils import pprint
 
 load_dotenv(override=True)
 
@@ -94,6 +88,7 @@ TEXT2SQL_INSTRUCTIONS = dedent(
     When answering questions:
     1. Explain your understanding of the question
     2. Show the schema/table discovery process
+    3. Present the SQL query you plan to execute
     4. Show the validation result
     5. Display results in a formatted table
     6. Provide insights about the data
