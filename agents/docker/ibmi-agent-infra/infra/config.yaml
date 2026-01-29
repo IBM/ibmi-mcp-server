@@ -24,7 +24,7 @@ available_models:
 # ============================================================
 agents:
   # Default model for all agents (can be overridden per agent)
-  default_model: "anthropic:claude-haiku-4-5"
+  default_model: "anthropic:claude-sonnet-4-5"
 
   # Performance monitoring agent
   ibmi-performance-monitor:
