@@ -1,0 +1,179 @@
+# IBM i Text-to-SQL Tools
+# Simplified tools for AI agents to discover schemas, validate queries, and generate SQL
+# Version 1.0.0
+
+sources:
+  ibmi-system:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  list_tables_in_schema:
+    source: ibmi-system
+    description: "List tables, views, and physical files in a specific schema with metadata including row counts. Essential for understanding schema structure."
+    statement: |
+      SELECT T.TABLE_SCHEMA,
+             T.TABLE_NAME,
+             T.TABLE_TYPE,
+             T.TABLE_TEXT,
+             COALESCE(S.NUMBER_ROWS, 0) AS NUMBER_ROWS,
+             T.COLUMN_COUNT
+      FROM QSYS2.SYSTABLES T
+      LEFT JOIN QSYS2.SYSTABLESTAT S
+        ON T.TABLE_SCHEMA = S.TABLE_SCHEMA
+        AND T.TABLE_NAME = S.TABLE_NAME
+      WHERE T.TABLE_SCHEMA = UPPER(:schema_name)
+        AND T.TABLE_TYPE IN ('T', 'V', 'P')
+        AND (:table_filter = '*ALL' OR T.TABLE_NAME LIKE UPPER(:table_filter))
+      ORDER BY T.TABLE_TYPE, T.TABLE_NAME
+      FETCH FIRST 200 ROWS ONLY
+    parameters:
+      - name: schema_name
+        type: string
+        description: "Schema name to list tables from (e.g., 'QIWS', 'SAMPLE', 'MYLIB')"
+        required: true
+      - name: table_filter
+        type: string
+        description: "Filter tables by name pattern (e.g., 'CUST%', 'ORD%'). Use '*ALL' for all tables."
+        default: "*ALL"
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "development"
+      category: "text2sql"
+
+  # Query Validation
+  validate_query:
+    source: ibmi-system
+    description: "Validate SQL query syntax using IBM i's native SQL parser. Returns statement type and parsing results without executing the query. If no results are returned, the statement is invalid"
+    statement: |
+      SELECT *
+      FROM TABLE(QSYS2.PARSE_STATEMENT(
+        SQL_STATEMENT => :sql_statement,
+        NAMING => '*SQL',
+        DECIMAL_POINT => '*PERIOD',
+        SQL_STRING_DELIMITER => '*APOSTSQL'
+      )) AS P
+    parameters:
+      - name: sql_statement
+        type: string
+        description: "SQL statement to validate (e.g., 'SELECT * FROM QIWS.QCUSTCDT')"
+        required: true
+        minLength: 5
+        maxLength: 10000
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "development"
+      category: "text2sql"
+
+  # Data Sampling
+  sample_rows:
+    source: ibmi-system
+    description: "Generate a sample query for a table. Returns the SQL statement to use with execute_sql to fetch sample data. YAML tools cannot dynamically query arbitrary tables, so use this to generate the query then execute it separately."
+    statement: |
+      SELECT
+        'SELECT * FROM ' || TRIM(T.TABLE_SCHEMA) || '.' || TRIM(T.TABLE_NAME) ||
+        ' FETCH FIRST ' || CAST(:sample_size AS VARCHAR(10)) || ' ROWS ONLY' AS SAMPLE_QUERY,
+        T.TABLE_SCHEMA,
+        T.TABLE_NAME,
+        COALESCE(S.NUMBER_ROWS, 0) AS TOTAL_ROWS
+      FROM QSYS2.SYSTABLES T
+      LEFT JOIN QSYS2.SYSTABLESTAT S
+        ON T.TABLE_SCHEMA = S.TABLE_SCHEMA
+        AND T.TABLE_NAME = S.TABLE_NAME
+      WHERE T.TABLE_SCHEMA = UPPER(:schema_name)
+        AND T.TABLE_NAME = UPPER(:table_name)
+        AND T.TABLE_TYPE IN ('T', 'V', 'P')
+      FETCH FIRST 1 ROWS ONLY
+    parameters:
+      - name: schema_name
+        type: string
+        description: "Schema name containing the table (e.g., 'QIWS', 'SAMPLE')"
+        required: true
+      - name: table_name
+        type: string
+        description: "Table name to sample (e.g., 'QCUSTCDT', 'EMPLOYEE')"
+        required: true
+      - name: sample_size
+        type: integer
+        description: "Number of rows to include in sample query (1-100)"
+        default: 10
+        min: 1
+        max: 100
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "development"
+      category: "text2sql"
+
+  # Enhanced Table Statistics
+  get_table_statistics:
+    source: ibmi-system
+    description: "Get comprehensive statistics for a table including row count, physical size, last used timestamp, and I/O metrics. Combines data from SYSTABLES, SYSTABLESTAT, and OBJECT_STATISTICS."
+    statement: |
+      SELECT
+        T.TABLE_SCHEMA,
+        T.TABLE_NAME,
+        COALESCE(S.NUMBER_ROWS, 0) AS NUMBER_ROWS,
+        COALESCE(O.OBJSIZE, 0) AS SIZE_BYTES,
+        COALESCE(O.OBJSIZE / 1024, 0) AS SIZE_KB,
+        O.LAST_USED_TIMESTAMP,
+        O.DAYS_USED_COUNT,
+        COALESCE(S.NUMBER_DELETED_ROWS, 0) AS DELETED_ROWS,
+        S.LAST_CHANGE_TIMESTAMP,
+        T.LAST_ALTERED_TIMESTAMP
+      FROM QSYS2.SYSTABLES T
+      LEFT JOIN QSYS2.SYSTABLESTAT S
+        ON T.TABLE_SCHEMA = S.TABLE_SCHEMA
+        AND T.TABLE_NAME = S.TABLE_NAME
+      LEFT JOIN TABLE(QSYS2.OBJECT_STATISTICS(
+        OBJECT_SCHEMA => UPPER(:schema_name),
+        OBJTYPELIST => '*FILE',
+        OBJECT_NAME => UPPER(:table_name)
+      )) O
+        ON T.TABLE_NAME = O.OBJNAME
+      WHERE T.TABLE_SCHEMA = UPPER(:schema_name)
+        AND T.TABLE_NAME = UPPER(:table_name)
+      FETCH FIRST 1 ROWS ONLY
+    parameters:
+      - name: schema_name
+        type: string
+        description: "Schema name containing the table"
+        required: true
+      - name: table_name
+        type: string
+        description: "Table name to get statistics for"
+        required: true
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "development"
+      category: "text2sql"
+
+toolsets:
+  text2sql:
+    title: "Text-to-SQL Development Tools"
+    description: "Toolset for AI agents to discover schemas, validate queries, sample data, and execute SQL on IBM i. Supports the full text-to-SQL workflow."
+    tools:
+      - list_tables_in_schema
+      - validate_query
+      - sample_rows
+      - get_table_statistics
+
+metadata:
+  version: "1.0.0"
+  description: "Text-to-SQL tools for schema discovery, query validation, and data exploration"
+  domain: "development"
+  category: "text2sql"
