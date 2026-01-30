@@ -21,6 +21,6 @@ spec:
     git:
       uri: "https://github.com/IBM/ibmi-mcp-server.git"
       ref: chore/agent_deployment
-    contextDir: agents/docker/ibmi-agent-infra/pgvector
+    contextDir: app/pgvector
   triggers:
     - type: ConfigChange

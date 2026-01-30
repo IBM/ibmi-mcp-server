@@ -40,6 +40,7 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
 | **`agents/`** | AI agent examples and integrations | [Agents Guide](./agents/README.md) |
 | **`client/`** | Python client examples for testing | [Client README](./client/README.md) |
 | **`deployment/`** | Docker, Podman, OpenShift configs | [Deployment Guide](./deployment/README.md) |
+| **`app/`** | Example Full stack Agent app (AgentOS) | [App README](./app/README.md) |
 
 ### 📖 Quick Navigation
 
