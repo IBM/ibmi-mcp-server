@@ -1,6 +1,6 @@
 # OpenShift Deployment
 
-This directory contains Kubernetes/OpenShift manifests for deploying IBM i MCP Server and MCP Context Forge applications using Kustomize.
+This directory contains Kubernetes/OpenShift manifests for deploying IBM i MCP Server, MCP Context Forge and Agents using Kustomize.
 
 ## Overview
 
@@ -11,7 +11,7 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
 1. OpenShift cluster access
 2. `oc` CLI tool installed
 3. Kustomize installed
-4. A `.env` file in the `mcp-context-forge/` and `ibmi-mcp-server` directories with required environment variables
+4. A `.env` file in the `mcp-context-forge/`,  `ibmi-mcp-server`, and `ibmi-agent-infra/agent-os-api` directories with required environment variables
 5. Enable Red Hat OpenShift internal image registry following the instructions in this [link](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/registry/setting-up-and-configuring-the-registry)
 
 ## Deployment Instructions
@@ -32,6 +32,9 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
 
    # Copy tools and secrets directories into deployment directory
    cp -r ../../../../{tools,secrets} ibmi-mcp-server/
+
+   # Create env file in diractory ibmi-agent-infra/agent-os-api with your API keys (choose at least one model provider)
+   cp ./ibmi-agent-infra/agent-os-api/.env.example ./ibmi-agent-infra/agent-os-api/.env
    ```
 
 2. **Set your namespace**
@@ -55,6 +58,8 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    ```bash
    oc logs -f bc/mcp-context-forge
    oc logs -f bc/ibmi-mcp-server
+   oc logs -f bc/agent-os-api
+   oc logs -f bc/pgvector
    ```
 
 5. **Check deployment status**:
@@ -68,6 +73,7 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    ```bash
    echo "https://$(oc get route mcp-context-forge -o jsonpath='{.spec.host}')"
    echo "https://$(oc get route ibmi-mcp-server -o jsonpath='{.spec.host}')"
+   echo "https://$(oc get route agent-ui -o jsonpath='{.spec.host}')"
    ```
 
 6. **Trigger the build manually**:
@@ -76,9 +82,13 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    # Trigger a new build using the source from remote repo
    oc start-build mcp-context-forge
    oc start-build ibmi-mcp-server
+   oc start-build agent-os-api
+   oc start-build pgvector
    # Trigger a new build using the source from local
    oc start-build mcp-context-forge --from-dir=.
    oc start-build ibmi-mcp-server --from-dir=.
+   oc start-build agent-os-api --from-dir=.
+   oc start-build pgvector --from-dir=.
    ```
 
 ## Troubleshooting
