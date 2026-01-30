@@ -49,7 +49,7 @@ services:
   ibmi-mcp-server:
     image: ${IBMI_MCP_IMAGE:-ibmi-mcp-server:latest}
     build:
-      context: ../../../server      # Build from server directory (monorepo root/server)
+      context: ../server      # Build from server directory (monorepo root/server)
       dockerfile: ../Dockerfile  # Path to Dockerfile relative to server context
     container_name: ibmi-mcp-server
     restart: unless-stopped
@@ -58,13 +58,13 @@ services:
     networks:
       - agent-os
     env_file:
-      - ../../../.env     # Load environment variables from monorepo root .env
+      - ../.env     # Load environment variables from monorepo root .env
     environment:
       - YAML_AUTO_RELOAD=true
       - TOOLS_YAML_PATH=/usr/src/app/tools  # Tools path inside container
     volumes:
-      - ../../../tools:/usr/src/app/tools:rw          # Mount tools from monorepo root
-      - ../../../server/secrets:/usr/src/app/secrets:ro  # Mount secrets from server directory
+      - ../tools:/usr/src/app/tools:rw          # Mount tools from monorepo root
+      - ../server/secrets:/usr/src/app/secrets:ro  # Mount secrets from server directory
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
       interval: 30s

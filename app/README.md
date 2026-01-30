@@ -78,7 +78,7 @@ Get the IBM i Agent Infrastructure running in 3 steps:
 Navigate to the project directory:
 
 ```bash
-cd agents/docker/ibmi-agent-infra
+cd app
 ```
 Create `infra/.env` with your API keys (choose at least one provider):
 ```bash
