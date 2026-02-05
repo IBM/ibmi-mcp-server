@@ -21,6 +21,7 @@ import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { ParameterProcessor } from "../sql/parameterProcessor.js";
 import { authContext } from "@/mcp-server/transports/auth/index.js";
 import { QueryResult } from "@ibm/mapepire-js";
+import { SqlSecurityValidator } from "../security/sqlSecurityValidator.js";
 
 /**
  * SQL execution engine for YAML-defined tools
@@ -179,6 +180,17 @@ export class SQLToolFactory {
         }
 
         // Execute the query with auth-aware routing
+        // SECURITY: Always validate the *runtime* SQL before routing.
+        // The authenticated (IBMi token) execution path historically did not
+        // receive `securityConfig`, allowing bypass of YAML tool security.
+        if (securityConfig) {
+          SqlSecurityValidator.validateQuery(
+            processedSql,
+            securityConfig,
+            operationContext,
+          );
+        }
+
         const result = await this.executeWithAuthRouting<T>(
           processedSql,
           bindingParameters,
@@ -278,6 +290,7 @@ export class SQLToolFactory {
         sql,
         parameters,
         context,
+        securityConfig,
       );
     } else {
       // Fall back to regular source manager (environment credentials)
