@@ -45,6 +45,7 @@ jobs:
   # ---------------------------------------------------------------
   build:
     name: Build ${{ matrix.suffix }}
+    environment: Development
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +132,7 @@ jobs:
   # ---------------------------------------------------------------
   manifest:
     name: Create Manifest
+    environment: Development
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
