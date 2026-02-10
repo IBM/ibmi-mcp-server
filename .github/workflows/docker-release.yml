@@ -41,6 +41,8 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    environment: Release
+
     permissions:
       contents: read      # read repo info
       packages: write     # push Docker image
