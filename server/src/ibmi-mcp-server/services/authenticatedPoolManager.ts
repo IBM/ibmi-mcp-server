@@ -19,6 +19,7 @@ import {
   BaseConnectionPool,
   PoolConnectionConfig,
 } from "./baseConnectionPool.js";
+import { SqlToolSecurityConfig } from "@/ibmi-mcp-server/schemas/index.js";
 
 /**
  * Pool configuration options for authenticated sessions
@@ -182,6 +183,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
     query: string,
     params?: BindingValue[],
     context?: RequestContext,
+    securityConfig?: SqlToolSecurityConfig,
   ): Promise<QueryResult<T>> {
     const operationContext =
       context ||
@@ -219,6 +221,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
           query,
           params,
           operationContext,
+          securityConfig,
         );
 
         logger.debug(
