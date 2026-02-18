@@ -3,13 +3,15 @@
 # ===============================================================
 #
 # This workflow builds container images for multiple architectures:
-#   - linux/amd64 (native on ubuntu-latest) - built on all triggers
-#   - linux/arm64 (native on ubuntu-24.04-arm) - skipped on PRs
-#   - linux/ppc64le (QEMU emulation on ubuntu-latest) - skipped on PRs
+#   - linux/amd64 (native on ubuntu-latest)
+#   - linux/arm64 (native on ubuntu-24.04-arm)
+#   - linux/ppc64le (QEMU emulation on ubuntu-latest)
 #
 # Pipeline:
-#   1. Build platform images in parallel (amd64 only on PRs)
-#   2. Create multiplatform manifest (skipped on PRs)
+#   1. Build platform images in parallel
+#   2. Create multiplatform manifest
+#
+# Trigger: Only on version tags (v*)
 #
 # ===============================================================
 
@@ -17,16 +19,8 @@ name: Multiplatform Docker Build
 
 on:
   push:
-    branches: ["main"]
-    tags: ["v*"]
-    paths:
-      - 'server/**'
-      - '.github/workflows/docker-multiplatform.yml'
-  pull_request:
-    branches: ["main"]
-    paths:
-      - 'server/**'
-      - '.github/workflows/docker-multiplatform.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -45,7 +39,7 @@ jobs:
   # ---------------------------------------------------------------
   build:
     name: Build ${{ matrix.suffix }}
-    environment: Development
+    environment: Release
     strategy:
       fail-fast: false
       matrix:
@@ -54,46 +48,43 @@ jobs:
             runner: ubuntu-latest
             suffix: amd64
             cache_mode: max
-            run_on_pr: true   # Always build amd64
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
             suffix: arm64
             cache_mode: max
-            run_on_pr: false  # Skip on PRs to speed up CI
           - platform: linux/ppc64le
             runner: ubuntu-latest
             suffix: ppc64le
             qemu: true
             cache_mode: min
-            run_on_pr: false  # Skip on PRs (QEMU is slow)
 
     runs-on: ${{ matrix.runner }}
 
-    # Skip non-amd64 builds on PRs for faster CI feedback
-    # Condition: run if ((run_on_pr is true) OR (not a pull_request)) AND (not tag_only OR is a tag)
     steps:
       - name: Checkout code
-        if: (matrix.run_on_pr || github.event_name != 'pull_request') && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
         uses: actions/checkout@v5
 
+      - name: Extract tag name
+        id: tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
       - name: Set image name lowercase
-        if: (matrix.run_on_pr || github.event_name != 'pull_request') && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
         run: |
           IMAGE_NAME_LC=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME_LC=${IMAGE_NAME_LC}" >> $GITHUB_ENV
 
       - name: Set up QEMU
-        if: matrix.qemu && (matrix.run_on_pr || github.event_name != 'pull_request') && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
+        if: matrix.qemu
         uses: docker/setup-qemu-action@v3
         with:
           platforms: ${{ matrix.platform }}
 
       - name: Set up Docker Buildx
-        if: (matrix.run_on_pr || github.event_name != 'pull_request') && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: (matrix.run_on_pr || github.event_name != 'pull_request') && github.event_name != 'pull_request' && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -101,26 +92,21 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
-        if: (matrix.run_on_pr || github.event_name != 'pull_request') && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
           tags: |
-            type=raw,value=${{ matrix.suffix }}-${{ github.sha }}
+            type=raw,value=${{ matrix.suffix }}-${{ steps.tag.outputs.tag }}
 
       - name: Build and push
-        if: (matrix.run_on_pr || github.event_name != 'pull_request') && (!matrix.tag_only || startsWith(github.ref, 'refs/tags/'))
         id: build
         uses: docker/build-push-action@v6
         with:
           context: ./server
           file: ./server/Dockerfile
           platforms: ${{ matrix.platform }}
-
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
-
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=build-${{ matrix.suffix }}
@@ -132,12 +118,17 @@ jobs:
   # ---------------------------------------------------------------
   manifest:
     name: Create Manifest
-    environment: Development
+    environment: Release
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
 
     steps:
+      - name: Extract tag name
+        id: tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
       - name: Set image name lowercase
         run: |
           IMAGE_NAME_LC=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
@@ -155,22 +146,26 @@ jobs:
 
       - name: Create and push manifest
         run: |
-          SHA=${{ github.sha }}
+          TAG=${{ steps.tag.outputs.tag }}
           IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
 
-          echo "Creating multiplatform manifest..."
+          echo "Creating multiplatform manifest for tag: $TAG"
 
-          # Base images (always included)
-          IMAGES="${IMAGE}:amd64-${SHA} ${IMAGE}:arm64-${SHA} ${IMAGE}:ppc64le-${SHA}"
+          # Platform-specific images
+          IMAGES="${IMAGE}:amd64-${TAG} ${IMAGE}:arm64-${TAG} ${IMAGE}:ppc64le-${TAG}"
 
           docker buildx imagetools create \
-            --tag "${IMAGE}:${SHA}" \
+            --tag "${IMAGE}:${TAG}" \
+            --tag "${IMAGE}:latest" \
             $IMAGES
 
           echo "Manifest created successfully"
 
       - name: Inspect manifest
         run: |
+          TAG=${{ steps.tag.outputs.tag }}
           IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
-          echo "Inspecting multiplatform manifest..."
-          docker buildx imagetools inspect "${IMAGE}:${SHA}"
+          echo "Inspecting multiplatform manifest for tag: $TAG"
+          docker buildx imagetools inspect "${IMAGE}:${TAG}"
+          echo "Inspecting latest tag..."
+          docker buildx imagetools inspect "${IMAGE}:latest"
