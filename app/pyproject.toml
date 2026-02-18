@@ -9,6 +9,7 @@ authors = [{ name = "Agno", email = "hello@agno.com" }]
 dependencies = [
   "agno==2.4.7",
   "agno-infra==1.0.7",
+  "ddgs",
   "fastapi[standard]",
   "openai",
   "pgvector",

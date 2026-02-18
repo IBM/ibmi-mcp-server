@@ -15,6 +15,7 @@ charset-normalizer==3.4.3
 click==8.3.0
 cryptography==46.0.1
 cyclopts==3.24.0
+ddgs==9.6.0
 distro==1.9.0
 dnspython==2.8.0
 docstring-parser==0.17.0
@@ -66,6 +67,7 @@ pandas==2.2.3
 parse==1.20.2
 pathable==0.4.4
 pgvector==0.4.1
+primp==1.0.0
 psycopg==3.2.10
 psycopg-binary==3.2.10
 pycparser==2.23
