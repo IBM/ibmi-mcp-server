@@ -30,10 +30,9 @@ WORKDIR ${APP_DIR}
 COPY requirements.txt pyproject.toml ./
 
 # Install dependencies with uv for faster installation
-# # Some packages are not available on PyPI and cannot be built from source on Power, so we use an internal index from IBM to install them
-# RUN uv pip sync --index-strategy unsafe-best-match --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux requirements.txt --system \
-#     && uv cache clean
-RUN uv pip sync requirements.txt --system \
+# Install primp from an internal index from IBM on Power, for other architectures, use PyPI
+RUN uv pip install primp --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux-1.0.0 --system \
+    && uv pip sync requirements.txt --system \
     && uv cache clean
 
 # Production stage
