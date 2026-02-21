@@ -173,6 +173,10 @@ Key variables (set in `.env` or environment):
 - SCREAMING_SNAKE_CASE for constants
 - snake_case for tool names in YAML
 
+## Git Commit Requirements
+
+All commits MUST include a DCO sign-off. Always pass `-s` to `git commit`.
+
 ## Key Conventions
 
 - Use Zod schemas for all input validation
