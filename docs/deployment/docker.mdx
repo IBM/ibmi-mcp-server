@@ -1,0 +1,352 @@
+---
+title: "Docker & Podman"
+description: "Run the IBM i MCP Server using pre-built container images with Docker or Podman."
+---
+
+Run the IBM i MCP Server as a container using the official pre-built images from GitHub Container Registry. Supports **amd64**, **arm64**, and **ppc64le** architectures.
+
+---
+
+## Quick Start
+
+Pull and run the server in under a minute:
+
+<Tabs>
+  <Tab title="Docker">
+    ```bash
+    # Pull the image (replace TAG with your architecture)
+    docker pull ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+
+    # Run the server
+    docker run -d \
+      --name ibmi-mcp-server \
+      -p 3010:3010 \
+      -e DB2i_HOST=your-ibmi-host \
+      -e DB2i_USER=your-username \
+      -e DB2i_PASS=your-password \
+      -e DB2i_PORT=8076 \
+      -e DB2i_IGNORE_UNAUTHORIZED=true \
+      -e MCP_TRANSPORT_TYPE=http \
+      -e MCP_HTTP_PORT=3010 \
+      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    ```
+  </Tab>
+  <Tab title="Podman">
+    ```bash
+    # Pull the image (replace TAG with your architecture)
+    podman pull ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+
+    # Run the server
+    podman run -d \
+      --name ibmi-mcp-server \
+      -p 3010:3010 \
+      -e DB2i_HOST=your-ibmi-host \
+      -e DB2i_USER=your-username \
+      -e DB2i_PASS=your-password \
+      -e DB2i_PORT=8076 \
+      -e DB2i_IGNORE_UNAUTHORIZED=true \
+      -e MCP_TRANSPORT_TYPE=http \
+      -e MCP_HTTP_PORT=3010 \
+      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    ```
+  </Tab>
+</Tabs>
+
+Verify the server is running:
+
+```bash
+curl http://localhost:3010/healthz
+```
+
+<Warning>
+Replace the `DB2i_*` values with your actual IBM i credentials. Never commit credentials to source control.
+</Warning>
+
+---
+
+## Available Images
+
+Images are published to [GitHub Container Registry](https://github.com/IBM/ibmi-mcp-server/pkgs/container/ibmi-mcp-server) on each release:
+
+| Architecture | Image Tag | Platform |
+|-------------|-----------|----------|
+| **x86-64** | `ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1` | Standard servers, cloud VMs |
+| **ARM 64-bit** | `ghcr.io/ibm/ibmi-mcp-server:arm64-v0.3.1` | Apple Silicon, ARM cloud instances |
+| **Power (LE)** | `ghcr.io/ibm/ibmi-mcp-server:ppc64le-v0.3.1` | IBM Power Systems |
+
+<Tip>
+Running on **IBM Power Systems**? Use the `ppc64le` image to run the MCP server natively on the same hardware as your IBM i partition — no emulation overhead.
+</Tip>
+
+---
+
+## Using an Environment File
+
+For easier management, store your configuration in a `.env` file:
+
+```ini
+# .env
+DB2i_HOST=your-ibmi-host
+DB2i_USER=your-username
+DB2i_PASS=your-password
+DB2i_PORT=8076
+DB2i_IGNORE_UNAUTHORIZED=true
+
+MCP_TRANSPORT_TYPE=http
+MCP_HTTP_PORT=3010
+MCP_LOG_LEVEL=info
+```
+
+Then run with the env file:
+
+<Tabs>
+  <Tab title="Docker">
+    ```bash
+    docker run -d \
+      --name ibmi-mcp-server \
+      -p 3010:3010 \
+      --env-file .env \
+      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    ```
+  </Tab>
+  <Tab title="Podman">
+    ```bash
+    podman run -d \
+      --name ibmi-mcp-server \
+      -p 3010:3010 \
+      --env-file .env \
+      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Mounting Custom SQL Tools
+
+To use your own YAML tool configurations, mount them into the container:
+
+<Tabs>
+  <Tab title="Docker">
+    ```bash
+    docker run -d \
+      --name ibmi-mcp-server \
+      -p 3010:3010 \
+      --env-file .env \
+      -v $(pwd)/tools:/usr/src/app/tools:ro \
+      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1 \
+      npx ibmi-mcp-server --tools /usr/src/app/tools
+    ```
+  </Tab>
+  <Tab title="Podman">
+    ```bash
+    podman run -d \
+      --name ibmi-mcp-server \
+      -p 3010:3010 \
+      --env-file .env \
+      -v $(pwd)/tools:/usr/src/app/tools:ro \
+      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1 \
+      npx ibmi-mcp-server --tools /usr/src/app/tools
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+The `:ro` flag mounts the directory as read-only inside the container, which is a security best practice.
+</Note>
+
+---
+
+## Docker Compose
+
+For a more complete setup, use Docker Compose to run the MCP server alongside supporting services.
+
+### Standalone Server
+
+Create a `docker-compose.yml`:
+
+```yaml
+services:
+  ibmi-mcp-server:
+    image: ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    ports:
+      - "3010:3010"
+    env_file:
+      - .env
+    volumes:
+      - ./tools:/usr/src/app/tools:ro
+    command: ["npx", "ibmi-mcp-server", "--tools", "/usr/src/app/tools"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3010/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+```
+
+Start the service:
+
+<Tabs>
+  <Tab title="Docker">
+    ```bash
+    docker compose up -d
+    ```
+  </Tab>
+  <Tab title="Podman">
+    ```bash
+    podman-compose up -d
+    ```
+  </Tab>
+</Tabs>
+
+### With MCP Context Forge Gateway
+
+The repository includes a full-stack Docker Compose configuration with [MCP Context Forge](https://github.com/IBM/mcp-context-forge) — a gateway that provides tool federation, authentication, rate limiting, and an admin UI.
+
+```bash
+# Clone the repository
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your IBM i credentials
+
+# Start the full stack
+docker compose -f deployment/mcpgateway/docker-compose.yml up -d
+```
+
+This starts the following services:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **MCP Context Forge** | 4444 | Gateway with admin UI, tool federation, auth |
+| **IBM i MCP Server** | 3010 | SQL tools MCP server |
+| **PostgreSQL** | — | Gateway metadata storage (internal) |
+| **Redis** | 6379 | Session cache |
+| **pgAdmin** | 5050 | Database admin UI |
+| **Redis Insight** | 5540 | Cache admin UI |
+
+<Info>
+The MCP Context Forge Gateway image must be built locally before starting the stack. See the [MCP Context Forge docs](https://ibm.github.io/mcp-context-forge/deployment/) for build instructions.
+</Info>
+
+---
+
+## Container Management
+
+### Viewing Logs
+
+<Tabs>
+  <Tab title="Docker">
+    ```bash
+    # Follow logs
+    docker logs -f ibmi-mcp-server
+
+    # Last 100 lines
+    docker logs --tail=100 ibmi-mcp-server
+    ```
+  </Tab>
+  <Tab title="Podman">
+    ```bash
+    # Follow logs
+    podman logs -f ibmi-mcp-server
+
+    # Last 100 lines
+    podman logs --tail=100 ibmi-mcp-server
+    ```
+  </Tab>
+</Tabs>
+
+### Stopping and Removing
+
+<Tabs>
+  <Tab title="Docker">
+    ```bash
+    docker stop ibmi-mcp-server
+    docker rm ibmi-mcp-server
+    ```
+  </Tab>
+  <Tab title="Podman">
+    ```bash
+    podman stop ibmi-mcp-server
+    podman rm ibmi-mcp-server
+    ```
+  </Tab>
+</Tabs>
+
+### Health Checks
+
+The server exposes a health endpoint at `/healthz`:
+
+```bash
+# From the host
+curl http://localhost:3010/healthz
+
+# From inside the container
+docker exec ibmi-mcp-server curl http://localhost:3010/healthz
+```
+
+---
+
+## Building from Source
+
+If you need to build the image locally instead of pulling from GHCR:
+
+```bash
+git clone https://github.com/IBM/ibmi-mcp-server.git
+cd ibmi-mcp-server
+docker build -t ibmi-mcp-server:local -f Dockerfile server/
+```
+
+The Dockerfile uses a multi-stage build:
+1. **deps** — Installs production Node.js dependencies
+2. **builder** — Installs all dependencies and compiles TypeScript
+3. **runner** — Final minimal image with only production deps and compiled output
+
+<Note>
+The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed by default.
+</Note>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Container won't start">
+    Check the container logs for error details:
+    ```bash
+    docker logs ibmi-mcp-server
+    ```
+    Common causes:
+    - Missing or incorrect `DB2i_*` environment variables
+    - Mapepire not running on the IBM i system
+    - Network connectivity issues to IBM i host
+  </Accordion>
+
+  <Accordion title="Cannot connect to IBM i from container">
+    Verify the container can reach your IBM i system:
+    ```bash
+    docker exec ibmi-mcp-server nc -zv your-ibmi-host 8076
+    ```
+    If using Docker Desktop on macOS/Windows, ensure the IBM i host is reachable from within the VM.
+  </Accordion>
+
+  <Accordion title="Port conflicts">
+    If port 3010 is already in use, map to a different host port:
+    ```bash
+    docker run -d -p 3011:3010 --env-file .env ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied on mounted volumes">
+    The container runs as a non-root user. Ensure mounted files are readable:
+    ```bash
+    chmod -R 644 tools/
+    ```
+    On SELinux-enabled systems (RHEL/Fedora), add the `:z` flag:
+    ```bash
+    -v $(pwd)/tools:/usr/src/app/tools:ro,z
+    ```
+  </Accordion>
+</AccordionGroup>

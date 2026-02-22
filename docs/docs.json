@@ -74,6 +74,9 @@
           {
             "group": "Deployment",
             "pages": [
+              "deployment/overview",
+              "deployment/docker",
+              "deployment/openshift"
             ]
           }
         ]

@@ -1,0 +1,66 @@
+---
+title: "Deployment Overview"
+description: "Deploy the IBM i MCP Server using container images, Docker Compose, or OpenShift with Kustomize."
+---
+
+Deploy the IBM i MCP Server in containerized environments for production use, team access, or integration with AI gateway platforms.
+
+---
+
+## Deployment Options
+
+<CardGroup cols={2}>
+  <Card title="Docker & Podman" icon="docker" href="/deployment/docker">
+    Run the server using pre-built container images from GitHub Container Registry. Supports **amd64**, **arm64**, and **ppc64le** architectures.
+  </Card>
+  <Card title="OpenShift" icon="cloud" href="/deployment/openshift">
+    Deploy to Red Hat OpenShift using Kustomize with source-to-image (S2I) builds, auto-redeployment triggers, and enterprise-grade routing.
+  </Card>
+</CardGroup>
+
+---
+
+## Container Images
+
+Official container images are published to GitHub Container Registry on each release:
+
+```
+ghcr.io/ibm/ibmi-mcp-server
+```
+
+| Architecture | Tag Pattern | Use Case |
+|-------------|-------------|----------|
+| **amd64** | `amd64-v0.3.1` | Standard x86-64 servers and cloud VMs |
+| **arm64** | `arm64-v0.3.1` | Apple Silicon Macs, ARM-based cloud instances |
+| **ppc64le** | `ppc64le-v0.3.1` | IBM Power Systems, running alongside IBM i |
+
+<Info>
+Images are built automatically by GitHub Actions when a new version tag is pushed. Each architecture gets its own tagged image.
+</Info>
+
+---
+
+## Prerequisites
+
+All deployment methods require:
+
+1. **Mapepire running on IBM i** — The WebSocket-based SQL gateway that the MCP server connects to. See the [Setup Mapepire guide](/setup-mapepire) if not already configured.
+2. **IBM i credentials** — Hostname, user profile, and password with database authorities.
+3. **Network connectivity** — The container must be able to reach your IBM i system on the Mapepire port (default: 8076).
+
+---
+
+## Quick Comparison
+
+| | Docker / Podman | OpenShift |
+|---|---|---|
+| **Best for** | Local development, small teams, standalone deployments | Enterprise production, multi-tenant, CI/CD pipelines |
+| **Setup time** | 5 minutes | 30 minutes |
+| **Scaling** | Manual (docker-compose replicas) | Automatic (pod autoscaling) |
+| **TLS** | Manual (reverse proxy) | Built-in (OpenShift Routes) |
+| **Image builds** | Pre-built from GHCR | Source-to-Image (S2I) from Git |
+| **Monitoring** | Container logs | OpenShift console, OpenTelemetry |
+
+<Card title="Not ready for containers?" icon="terminal" href="/quickstart">
+  Run the server directly with **npx** or from source — no container runtime required. See the Quick Start Guide.
+</Card>

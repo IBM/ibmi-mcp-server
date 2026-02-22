@@ -1,0 +1,253 @@
+---
+title: "OpenShift"
+description: "Deploy the IBM i MCP Server to Red Hat OpenShift using Kustomize and source-to-image builds."
+---
+
+Deploy the IBM i MCP Server on Red Hat OpenShift using Kustomize with source-to-image (S2I) builds. New image builds automatically trigger redeployment.
+
+---
+
+## Overview
+
+The OpenShift deployment uses:
+
+- **Source-to-Image (S2I)** builds from the GitHub repository
+- **Kustomize** for configuration management
+- **ImageStreamTag** triggers for automatic redeployment on new builds
+- **OpenShift Routes** for TLS-terminated external access
+
+The manifests deploy the IBM i MCP Server alongside optional components including MCP Context Forge Gateway and agent infrastructure.
+
+---
+
+## Prerequisites
+
+<Steps>
+  <Step title="OpenShift Cluster Access">
+    You need access to an OpenShift cluster with permissions to create BuildConfigs, Deployments, Services, and Routes.
+
+    ```bash
+    # Verify CLI access
+    oc whoami
+    oc project
+    ```
+  </Step>
+
+  <Step title="Install Required Tools">
+    - **`oc` CLI**: [Install guide](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/cli_tools/openshift-cli-oc)
+    - **Kustomize**: [Install guide](https://kubectl.docs.kubernetes.io/installation/kustomize/)
+  </Step>
+
+  <Step title="Enable Internal Image Registry">
+    The S2I builds require the OpenShift internal image registry. Follow the [Red Hat documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/registry/setting-up-and-configuring-the-registry) to enable it if not already active.
+  </Step>
+
+  <Step title="Prepare Environment Files">
+    You will need `.env` files with IBM i credentials and server configuration for the deployment.
+  </Step>
+</Steps>
+
+---
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/IBM/ibmi-mcp-server.git
+    cd ibmi-mcp-server/deployment/openshift/apps/openshift
+    ```
+  </Step>
+
+  <Step title="Prepare Configuration Files">
+    Copy required configuration files into the deployment directories:
+
+    ```bash
+    # Get env file for the MCP server
+    cp ../../../../.env.example ./ibmi-mcp-server/.env
+    # Edit with your IBM i credentials
+    vi ./ibmi-mcp-server/.env
+
+    # Copy SQL tools and secrets directories
+    cp -r ../../../../tools ./ibmi-mcp-server/
+    cp -r ../../../../secrets ./ibmi-mcp-server/
+    ```
+
+    <Warning>
+    Edit the `.env` file with your actual IBM i credentials before deploying. The file should contain `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and other required variables.
+    </Warning>
+  </Step>
+
+  <Step title="Set Your Namespace">
+    Update the root `kustomization.yaml` with your OpenShift namespace:
+
+    Replace `<NAMESPACE_PLACEHOLDER>` with your actual namespace, then switch to it:
+
+    ```bash
+    oc project your-namespace
+    ```
+  </Step>
+
+  <Step title="Deploy with Kustomize">
+    ```bash
+    kustomize build . | oc apply -f -
+    ```
+
+    This creates all required resources: BuildConfig, ImageStream, Deployment, Service, and Route.
+  </Step>
+
+  <Step title="Monitor the Build">
+    Watch the S2I build progress:
+
+    ```bash
+    oc logs -f bc/ibmi-mcp-server
+    ```
+
+    The build clones the repository, runs the Dockerfile multi-stage build, and pushes the resulting image to the internal registry.
+  </Step>
+
+  <Step title="Verify Deployment">
+    ```bash
+    # Check pod status
+    oc get pods
+
+    # Get the external URL
+    echo "https://$(oc get route ibmi-mcp-server -o jsonpath='{.spec.host}')"
+    ```
+  </Step>
+</Steps>
+
+---
+
+## What Gets Deployed
+
+The Kustomize manifests create the following OpenShift resources:
+
+### IBM i MCP Server
+
+| Resource | Purpose |
+|----------|---------|
+| **BuildConfig** | S2I build from GitHub repository |
+| **ImageStream** | Tracks built images, triggers redeployment |
+| **Deployment** | Runs the MCP server pod |
+| **Service** | Internal cluster networking (port 3010) |
+| **Route** | External TLS-terminated access |
+
+### Optional Components
+
+The full Kustomize overlay can also deploy:
+
+| Component | Description |
+|-----------|-------------|
+| **MCP Context Forge** | Gateway with tool federation, auth, admin UI |
+| **Agent UI** | Web interface for interacting with agents |
+| **Agent OS API** | Backend API for agent infrastructure |
+| **pgvector** | PostgreSQL with vector extension for embeddings |
+
+<Note>
+Edit the root `kustomization.yaml` to select which components to deploy. You can deploy only the IBM i MCP Server if you don't need the full agent infrastructure.
+</Note>
+
+---
+
+## Triggering Rebuilds
+
+### Automatic
+
+New image builds are triggered automatically when the ImageStreamTag is updated. Push a code change and start a build:
+
+```bash
+oc start-build ibmi-mcp-server
+```
+
+### From Local Source
+
+Build directly from your local working directory:
+
+```bash
+oc start-build ibmi-mcp-server --from-dir=.
+```
+
+This uploads your local source code to OpenShift for building, useful for testing changes before pushing to Git.
+
+### From Remote Repository
+
+```bash
+# Trigger a new build from the configured Git source
+oc start-build ibmi-mcp-server
+```
+
+---
+
+## Manifest Structure
+
+The deployment manifests are organized under `deployment/openshift/apps/openshift/`:
+
+```
+deployment/openshift/apps/openshift/
+├── kustomization.yaml                    # Root Kustomize config
+├── ibmi-mcp-server/
+│   ├── kustomization.yaml
+│   ├── ibmi-mcp-server-buildconfig.yaml  # S2I build configuration
+│   ├── ibmi-mcp-server-imagestream.yaml  # Image tracking
+│   ├── ibmi-mcp-server-deployment.yaml   # Pod specification
+│   ├── ibmi-mcp-server-service.yaml      # Internal networking
+│   └── ibmi-mcp-server-route.yaml        # External access
+├── mcpgateway/                           # MCP Context Forge (optional)
+└── ibmi-agent-infra/                     # Agent infrastructure (optional)
+```
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Build failures">
+    Check the build logs for detailed error information:
+    ```bash
+    oc logs -f bc/ibmi-mcp-server
+    ```
+    Common causes:
+    - Missing Dockerfile in the repository
+    - Node.js dependency installation failures
+    - Insufficient build resources (memory/CPU limits)
+  </Accordion>
+
+  <Accordion title="Pod crashes or restarts">
+    Check the pod logs:
+    ```bash
+    oc logs $(oc get pods -l app=ibmi-mcp-server -o name | head -1)
+    ```
+    Verify environment variables are set correctly:
+    ```bash
+    oc get deployment ibmi-mcp-server -o jsonpath='{.spec.template.spec.containers[0].env}'
+    ```
+  </Accordion>
+
+  <Accordion title="Route not accessible">
+    Verify the route exists and has an assigned host:
+    ```bash
+    oc get route ibmi-mcp-server
+    ```
+    Check that the service is targeting the correct port:
+    ```bash
+    oc get svc ibmi-mcp-server
+    ```
+  </Accordion>
+
+  <Accordion title="PVC not binding">
+    If persistent volume claims are pending:
+    ```bash
+    oc get pvc
+    oc describe pvc <pvc-name>
+    ```
+    Ensure your cluster has available storage classes with sufficient capacity.
+  </Accordion>
+
+  <Accordion title="Cannot connect to IBM i">
+    Verify that your OpenShift cluster has network access to the IBM i system. In restricted environments, you may need:
+    - Firewall rules allowing egress to IBM i on port 8076
+    - Network policies permitting the MCP server pod to reach external hosts
+    - DNS resolution for the IBM i hostname
+  </Accordion>
+</AccordionGroup>
