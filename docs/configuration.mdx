@@ -159,6 +159,51 @@ Below is the reference for core server configuration options. Each section inclu
 - `stateless`: Each request is independent, no session state
 </Info>
 
+### Rate Limiting (HTTP Only)
+
+**Control request rate limiting for the HTTP transport.** Rate limiting prevents abuse and manages server load. For agentic AI workflows that make many parallel tool calls (e.g., [Agno AgentOS](https://agno.com)), you can increase the limit or disable rate limiting entirely.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `MCP_RATE_LIMIT_ENABLED` | Enable or disable rate limiting | `true` | `false` |
+| `MCP_RATE_LIMIT_MAX_REQUESTS` | Max requests per window | `100` | `1000` |
+| `MCP_RATE_LIMIT_WINDOW_MS` | Window duration (ms) | `900000` (15 min) | `60000` |
+| `MCP_RATE_LIMIT_SKIP_DEV` | Skip in development mode | `false` | `true` |
+
+<Tabs>
+  <Tab title="Default">
+    ```bash
+    MCP_RATE_LIMIT_ENABLED=true
+    MCP_RATE_LIMIT_MAX_REQUESTS=100
+    MCP_RATE_LIMIT_WINDOW_MS=900000
+    ```
+
+    **Use for**: Standard deployments with moderate request volumes
+  </Tab>
+
+  <Tab title="Agentic Workflows">
+    ```bash
+    MCP_RATE_LIMIT_ENABLED=true
+    MCP_RATE_LIMIT_MAX_REQUESTS=1000
+    MCP_RATE_LIMIT_WINDOW_MS=60000
+    ```
+
+    **Use for**: AI agents (Agno, LangChain, etc.) making many parallel tool calls per turn
+  </Tab>
+
+  <Tab title="Disabled">
+    ```bash
+    MCP_RATE_LIMIT_ENABLED=false
+    ```
+
+    **Use for**: Trusted internal networks, development environments, Docker Compose setups with controlled access
+  </Tab>
+</Tabs>
+
+<Info>
+**Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these headers are absent (e.g., behind Docker without proxy header forwarding), the server falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting.
+</Info>
+
 ## Authentication Configuration
 
 ### Choosing an Authentication Mode
@@ -992,6 +1037,7 @@ services:
       DB2i_PASS: ${DB2i_PASS}
       TOOLS_YAML_PATH: /app/configs
       OTEL_ENABLED: "true"
+      MCP_RATE_LIMIT_MAX_REQUESTS: "1000"  # Higher limit for agentic workflows
     ports:
       - "3010:3010"
     volumes:
