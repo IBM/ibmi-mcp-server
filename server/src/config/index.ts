@@ -340,6 +340,36 @@ const EnvSchema = z.object({
     .optional()
     .default("true")
     .transform((val) => val === "true" || val === "1"),
+
+  // --- START: Rate Limiting Configuration ---
+  /** Enable or disable HTTP rate limiting. Default: true. */
+  MCP_RATE_LIMIT_ENABLED: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
+
+  /** Maximum requests allowed per rate limit window. Default: 100. */
+  MCP_RATE_LIMIT_MAX_REQUESTS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100),
+
+  /** Rate limit window duration in milliseconds. Default: 900000 (15 minutes). */
+  MCP_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(900_000),
+
+  /** Skip rate limiting when NODE_ENV=development. Default: false. */
+  MCP_RATE_LIMIT_SKIP_DEV: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
+  // --- END: Rate Limiting Configuration ---
 });
 
 const parsedEnv = EnvSchema.safeParse(process.env);
@@ -565,6 +595,14 @@ export const config = {
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
   ibmi_executeSqlReadonly: env.IBMI_EXECUTE_SQL_READONLY,
+
+  /** Rate limiting configuration for HTTP transport. From `MCP_RATE_LIMIT_*` environment variables. */
+  rateLimit: {
+    enabled: env.MCP_RATE_LIMIT_ENABLED,
+    maxRequests: env.MCP_RATE_LIMIT_MAX_REQUESTS,
+    windowMs: env.MCP_RATE_LIMIT_WINDOW_MS,
+    skipInDevelopment: env.MCP_RATE_LIMIT_SKIP_DEV,
+  },
 };
 
 if (config.ibmiHttpAuth.enabled) {

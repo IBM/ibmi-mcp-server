@@ -51,6 +51,7 @@ function getClientIp(c: Context<{ Bindings: HonoNodeBindings }>): string {
   return (
     (forwardedFor?.split(",")[0] ?? "").trim() ||
     c.req.header("x-real-ip") ||
+    c.env.incoming.socket?.remoteAddress ||
     "unknown_ip"
   );
 }
@@ -361,7 +362,18 @@ export function createHttpApp(
   }
 
   // Rate Limiting second (can now leverage auth context if available)
-  app.use(MCP_ENDPOINT_PATH, rateLimitHandler);
+  if (config.rateLimit.enabled) {
+    app.use(MCP_ENDPOINT_PATH, rateLimitHandler);
+    logger.info(
+      transportContext,
+      `Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms window.`,
+    );
+  } else {
+    logger.info(
+      transportContext,
+      "Rate limiting disabled via MCP_RATE_LIMIT_ENABLED=false.",
+    );
+  }
 
   app.onError(httpErrorHandler);
 
