@@ -4,7 +4,7 @@
  * @module src/utils/security/rateLimiter
  */
 import { trace } from "@opentelemetry/api";
-import { environment } from "@/config/index.js";
+import { config, environment } from "@/config/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import {
   logger,
@@ -259,9 +259,11 @@ export class RateLimiter {
 
 /**
  * Default singleton instance of the `RateLimiter`.
- * Initialized with default configuration. Use `rateLimiter.configure({})` to customize.
+ * Configured via `MCP_RATE_LIMIT_*` environment variables.
+ * Use `rateLimiter.configure({})` to customize at runtime.
  */
 export const rateLimiter = new RateLimiter({
-  windowMs: 15 * 60 * 1000, // Default: 15 minutes
-  maxRequests: 100, // Default: 100 requests per window
+  windowMs: config.rateLimit.windowMs,
+  maxRequests: config.rateLimit.maxRequests,
+  skipInDevelopment: config.rateLimit.skipInDevelopment,
 });

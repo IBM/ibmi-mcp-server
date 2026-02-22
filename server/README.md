@@ -1350,6 +1350,37 @@ MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS=3600000  # 1 hour
 </details>
 
 <details>
+<summary><strong>🛡️ Rate Limiting (HTTP Only)</strong></summary>
+
+Controls request rate limiting for the HTTP transport. Rate limiting prevents abuse and manages server load. For agentic AI workflows with parallel tool calls, increase the limit or disable rate limiting entirely.
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `MCP_RATE_LIMIT_ENABLED` | Enable or disable HTTP rate limiting | `true` | No |
+| `MCP_RATE_LIMIT_MAX_REQUESTS` | Maximum requests allowed per window | `100` | No |
+| `MCP_RATE_LIMIT_WINDOW_MS` | Rate limit window in milliseconds | `900000` (15 min) | No |
+| `MCP_RATE_LIMIT_SKIP_DEV` | Skip rate limiting when `NODE_ENV=development` | `false` | No |
+
+**Examples:**
+```bash
+# Default: 100 requests per 15 minutes
+MCP_RATE_LIMIT_ENABLED=true
+MCP_RATE_LIMIT_MAX_REQUESTS=100
+MCP_RATE_LIMIT_WINDOW_MS=900000
+
+# Agentic workflows: higher limit, shorter window
+MCP_RATE_LIMIT_MAX_REQUESTS=1000
+MCP_RATE_LIMIT_WINDOW_MS=60000
+
+# Disable rate limiting entirely (trusted environments)
+MCP_RATE_LIMIT_ENABLED=false
+```
+
+> **Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these are absent (e.g., behind Docker without proxy header forwarding), it falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting.
+
+</details>
+
+<details>
 <summary><strong>🔐 Authentication & Authorization</strong></summary>
 
 Security configuration for protecting the MCP server and authenticating clients.

@@ -173,6 +173,15 @@ Key variables (set in `.env` or environment):
 - SCREAMING_SNAKE_CASE for constants
 - snake_case for tool names in YAML
 
+## GitHub CLI
+
+Always use `--repo IBM/ibmi-mcp-server` for all `gh` commands (issues, PRs, releases, etc.). The repo has multiple remotes and `gh` will fail without explicit repo targeting.
+
+```bash
+gh issue view 111 --repo IBM/ibmi-mcp-server
+gh pr create --repo IBM/ibmi-mcp-server --head my-branch --base main --title "..."
+```
+
 ## Git Commit Requirements
 
 All commits MUST include a DCO sign-off. Always pass `-s` to `git commit`.
