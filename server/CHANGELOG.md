@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.3.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.3.0...v0.3.1) (2026-02-22)
+
+
+### Features
+
+* **Configurable Rate Limiting**: Control request rate limits via environment variables (`RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_SKIP_IN_DEV`) for fine-tuned protection in production deployments ([#112](https://github.com/IBM/ibmi-mcp-server/issues/112))
+* **Text-to-SQL Tools**: Add pre-built Text-to-SQL toolset and sample employee information toolset for natural language database querying ([#103](https://github.com/IBM/ibmi-mcp-server/issues/103))
+
+
+### Bug Fixes
+
+* **YAML Tool Security Validation**: Enforce SQL security validation on authenticated IBM i HTTP routes, closing a gap where YAML-defined tools bypassed read-only checks ([#108](https://github.com/IBM/ibmi-mcp-server/issues/108))
+
+
+### Chores
+
+* **Container Images**: Build and publish multi-architecture container images with release-triggered CI workflows
+
 ## [0.3.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.2.0...v0.3.0) (2026-01-26)
 
 
