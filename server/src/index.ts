@@ -32,6 +32,8 @@ import {
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
 import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
 import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
+import { IBMiConnectionPool } from "./ibmi-mcp-server/services/connectionPool.js";
+import { AuthenticatedPoolManager } from "./ibmi-mcp-server/services/authenticatedPoolManager.js";
 
 /**
  * List all available toolsets from YAML configuration and exit
@@ -266,6 +268,21 @@ const shutdown = async (signal: string): Promise<void> => {
     }
 
     await closePromise;
+
+    // Close IBM i connection pools to release QZDASOINIT jobs
+    try {
+      logOperationStart(shutdownContext, "Closing IBM i connection pools...");
+      await IBMiConnectionPool.close();
+      await AuthenticatedPoolManager.getInstance().shutdown();
+      logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
+    } catch (poolError) {
+      logOperationError(
+        shutdownContext,
+        "Error closing IBM i connection pools.",
+        poolError,
+      );
+    }
+
     // Cleanup YAML watchers before exit
     try {
       ToolProcessor.clearWatchers();
@@ -283,6 +300,13 @@ const shutdown = async (signal: string): Promise<void> => {
       "Critical error during shutdown process.",
       error,
     );
+    // Best-effort cleanup of connection pools even on error
+    try {
+      await IBMiConnectionPool.close();
+      await AuthenticatedPoolManager.getInstance().shutdown();
+    } catch {
+      // best-effort
+    }
     try {
       ToolProcessor.clearWatchers();
     } catch {
@@ -366,6 +390,13 @@ const start = async (): Promise<void> => {
       "[GLOBAL CATCH] A fatal, unhandled error occurred.",
       error,
     );
+    // Best-effort cleanup of connection pools
+    try {
+      await IBMiConnectionPool.close();
+      await AuthenticatedPoolManager.getInstance().shutdown();
+    } catch {
+      // ignore
+    }
     try {
       ToolProcessor.clearWatchers();
     } catch {
