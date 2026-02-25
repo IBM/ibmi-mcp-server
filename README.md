@@ -93,6 +93,18 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
    > - 📊 Performance monitoring (system status, memory pools, active jobs)
    > - See the [Tools Guide](https://ibm-d95bab6e.mintlify.app/sql-tools/using-default-tools) for more toolsets.
 
+   The MCP server can also run in a Docker container:
+
+   ```bash
+   docker run --rm --name ibmi-mcp-server \
+     -v /path/to/tools/:/tools \
+     -v /path/to/.env/:/.env \
+     -e MCP_SERVER_CONFIG=/.env \
+     -p 3010:3010 ghcr.io/ibm/ibmi-mcp-server:latest
+   ```
+
+   > Replace the volume paths with your actual local paths to the tools directory and `.env` file.
+
 4. **Verify it's running:**
    ```bash
    # Check server health
