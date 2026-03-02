@@ -40,25 +40,11 @@ const GetTableColumnsInputSchema = z.object({
 const GetTableColumnsOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(
-      z.object({
-        COLUMN_NAME: z.string().describe("Column name"),
-        DATA_TYPE: z.string().describe("SQL data type"),
-        LENGTH: z.number().nullable().describe("Column length"),
-        NUMERIC_SCALE: z
-          .number()
-          .nullable()
-          .describe("Numeric scale for decimal types"),
-        IS_NULLABLE: z.string().describe("Whether column allows NULL (Y/N)"),
-        HAS_DEFAULT: z.string().describe("Whether column has a default (Y/N)"),
-        COLUMN_DEFAULT: z.string().nullable().describe("Default value"),
-        COLUMN_TEXT: z.string().nullable().describe("Column description"),
-        ORDINAL_POSITION: z.number().describe("Column position in table"),
-        CCSID: z.number().nullable().describe("Character set ID"),
-      }),
-    )
+    .array(z.record(z.unknown()))
     .optional()
-    .describe("Array of column detail records."),
+    .describe(
+      "Array of column detail records. Each record contains: COLUMN_NAME, DATA_TYPE, LENGTH, NUMERIC_SCALE, IS_NULLABLE (Y/N), HAS_DEFAULT (Y/N), COLUMN_DEFAULT, COLUMN_TEXT, ORDINAL_POSITION, CCSID.",
+    ),
   rowCount: z.number().optional().describe("Number of columns returned."),
   executionTime: z
     .number()

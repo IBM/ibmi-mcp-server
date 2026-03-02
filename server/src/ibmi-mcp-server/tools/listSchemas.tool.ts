@@ -39,19 +39,11 @@ const ListSchemasInputSchema = z.object({
 const ListSchemasOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(
-      z.object({
-        SCHEMA_NAME: z.string().describe("Schema name"),
-        SCHEMA_TEXT: z.string().nullable().describe("Schema description"),
-        SYSTEM_SCHEMA_NAME: z
-          .string()
-          .nullable()
-          .describe("System schema name"),
-        SCHEMA_SIZE: z.number().nullable().describe("Schema size in bytes"),
-      }),
-    )
+    .array(z.record(z.unknown()))
     .optional()
-    .describe("Array of schema records."),
+    .describe(
+      "Array of schema records. Each record contains: SCHEMA_NAME, SCHEMA_TEXT, SYSTEM_SCHEMA_NAME, SCHEMA_SIZE.",
+    ),
   rowCount: z.number().optional().describe("Number of schemas returned."),
   executionTime: z
     .number()

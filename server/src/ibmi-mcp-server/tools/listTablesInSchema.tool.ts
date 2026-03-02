@@ -40,20 +40,11 @@ const ListTablesInputSchema = z.object({
 const ListTablesOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(
-      z.object({
-        TABLE_SCHEMA: z.string().describe("Schema containing the table"),
-        TABLE_NAME: z.string().describe("Table name"),
-        TABLE_TYPE: z
-          .string()
-          .describe("Table type: T=Table, V=View, P=Physical file"),
-        TABLE_TEXT: z.string().nullable().describe("Table description"),
-        NUMBER_ROWS: z.number().describe("Number of rows in the table"),
-        COLUMN_COUNT: z.number().nullable().describe("Number of columns"),
-      }),
-    )
+    .array(z.record(z.unknown()))
     .optional()
-    .describe("Array of table records."),
+    .describe(
+      "Array of table records. Each record contains: TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE (T=Table, V=View, P=Physical file), TABLE_TEXT, NUMBER_ROWS, COLUMN_COUNT.",
+    ),
   rowCount: z.number().optional().describe("Number of tables returned."),
   executionTime: z
     .number()
