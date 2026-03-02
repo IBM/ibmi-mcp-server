@@ -1381,6 +1381,35 @@ MCP_RATE_LIMIT_ENABLED=false
 </details>
 
 <details>
+<summary><strong>🔄 Connection Pool Timeouts</strong></summary>
+
+Controls automatic cleanup of idle Mapepire connection pools and query execution timeouts. Essential for cloud deployments (Railway, Heroku, etc.) where reverse proxies silently kill idle TCP connections, causing queries on stale WebSocket connections to hang indefinitely.
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `MCP_POOL_IDLE_TIMEOUT_MS` | Idle timeout for connection pools (ms). Pools closed after inactivity. Fresh connections established automatically on next request. Set to `0` to disable. | `300000` (5 min) | No |
+| `MCP_POOL_QUERY_TIMEOUT_MS` | Query execution timeout (ms). Queries aborted after this period. Pool re-initialized on next request after timeout. Set to `0` to disable. | `30000` (30s) | No |
+
+**Examples:**
+```bash
+# Default: 5-minute idle timeout, 30-second query timeout
+MCP_POOL_IDLE_TIMEOUT_MS=300000
+MCP_POOL_QUERY_TIMEOUT_MS=30000
+
+# Cloud deployment: shorter idle timeout for aggressive proxies
+MCP_POOL_IDLE_TIMEOUT_MS=60000
+MCP_POOL_QUERY_TIMEOUT_MS=30000
+
+# Disable both timeouts (stable network environments only)
+MCP_POOL_IDLE_TIMEOUT_MS=0
+MCP_POOL_QUERY_TIMEOUT_MS=0
+```
+
+> **How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed — the next query triggers transparent re-initialization via the existing lazy-init path. The query timeout wraps `pool.execute()` with `Promise.race()`, so dead connections fail fast instead of hanging. On timeout, the pool is marked unhealthy and closed for re-initialization.
+
+</details>
+
+<details>
 <summary><strong>🔐 Authentication & Authorization</strong></summary>
 
 Security configuration for protecting the MCP server and authenticating clients.
