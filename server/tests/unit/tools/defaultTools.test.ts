@@ -136,12 +136,17 @@ describe("Default Tools - list_schemas", () => {
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
-    const result = await listSchemasTool.logic({}, context, mockSdkContext);
+    const result = await listSchemasTool.logic(
+      { limit: 50, offset: 0 },
+      context,
+      mockSdkContext,
+    );
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
     expect(result.data).toHaveLength(2);
     expect(result.data![0].SCHEMA_NAME).toBe("MYLIB");
+    expect(result.hasMore).toBe(false);
   });
 
   it("should filter by schema name pattern", async () => {
@@ -161,16 +166,16 @@ describe("Default Tools - list_schemas", () => {
     );
 
     const result = await listSchemasTool.logic(
-      { filter: "MY%" },
+      { filter: "MY%", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
     expect(result.success).toBe(true);
-    // Verify the filter was passed as a bind parameter
+    // Verify the filter was passed as a bind parameter (with pagination params appended)
     expect(mockExecuteQuery).toHaveBeenCalledWith(
       expect.stringContaining("SCHEMA_NAME LIKE UPPER(?)"),
-      ["MY%"],
+      ["MY%", 0, 51],
       context,
     );
   });
@@ -182,11 +187,11 @@ describe("Default Tools - list_schemas", () => {
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
-    await listSchemasTool.logic({}, context, mockSdkContext);
+    await listSchemasTool.logic({ limit: 50, offset: 0 }, context, mockSdkContext);
 
     expect(mockExecuteQuery).toHaveBeenCalledWith(
       expect.stringContaining("SCHEMA_NAME NOT LIKE 'Q%'"),
-      undefined,
+      [0, 51],
       context,
     );
   });
@@ -199,14 +204,14 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     await listSchemasTool.logic(
-      { include_system: true },
+      { include_system: true, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
     expect(mockExecuteQuery).toHaveBeenCalledWith(
       expect.not.stringContaining("SCHEMA_NAME NOT LIKE"),
-      undefined,
+      [0, 51],
       context,
     );
   });
@@ -218,7 +223,11 @@ describe("Default Tools - list_schemas", () => {
 
     mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
 
-    const result = await listSchemasTool.logic({}, context, mockSdkContext);
+    const result = await listSchemasTool.logic(
+      { limit: 50, offset: 0 },
+      context,
+      mockSdkContext,
+    );
 
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain("Failed to list schemas");
@@ -234,7 +243,11 @@ describe("Default Tools - list_schemas", () => {
       new McpError(JsonRpcErrorCode.DatabaseError, "DB unavailable"),
     );
 
-    const result = await listSchemasTool.logic({}, context, mockSdkContext);
+    const result = await listSchemasTool.logic(
+      { limit: 50, offset: 0 },
+      context,
+      mockSdkContext,
+    );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe(String(JsonRpcErrorCode.DatabaseError));
@@ -248,11 +261,87 @@ describe("Default Tools - list_schemas", () => {
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
-    const result = await listSchemasTool.logic({}, context, mockSdkContext);
+    const result = await listSchemasTool.logic(
+      { limit: 50, offset: 0 },
+      context,
+      mockSdkContext,
+    );
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
     expect(result.rowCount).toBe(0);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("should return hasMore: true when results exceed limit", async () => {
+    const { listSchemasTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
+    );
+
+    // Mock returns 3 rows for limit=2 (limit+1 detection)
+    const mockData = [
+      { SCHEMA_NAME: "LIB1", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB1", SCHEMA_SIZE: 0 },
+      { SCHEMA_NAME: "LIB2", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB2", SCHEMA_SIZE: 0 },
+      { SCHEMA_NAME: "LIB3", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB3", SCHEMA_SIZE: 0 },
+    ];
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
+
+    const result = await listSchemasTool.logic(
+      { limit: 2, offset: 0 },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(result.data).toHaveLength(2); // Extra row trimmed
+    expect(result.rowCount).toBe(2);
+    expect(result.limit).toBe(2);
+    expect(result.offset).toBe(0);
+  });
+
+  it("should return hasMore: false when results are within limit", async () => {
+    const { listSchemasTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
+    );
+
+    const mockData = [
+      { SCHEMA_NAME: "LIB1", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB1", SCHEMA_SIZE: 0 },
+    ];
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
+
+    const result = await listSchemasTool.logic(
+      { limit: 5, offset: 0 },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.hasMore).toBe(false);
+    expect(result.data).toHaveLength(1);
+    expect(result.limit).toBe(5);
+    expect(result.offset).toBe(0);
+  });
+
+  it("should pass custom limit and offset as bind parameters", async () => {
+    const { listSchemasTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    await listSchemasTool.logic(
+      { limit: 10, offset: 20 },
+      context,
+      mockSdkContext,
+    );
+
+    // Bind params: [offset, fetchLimit] where fetchLimit = limit + 1
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.stringContaining("OFFSET ? ROWS FETCH FIRST ? ROWS ONLY"),
+      [20, 11],
+      context,
+    );
   });
 });
 
@@ -299,7 +388,7 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listTablesInSchemaTool.logic(
-      { schema_name: "QIWS" },
+      { schema_name: "QIWS", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -307,6 +396,7 @@ describe("Default Tools - list_tables_in_schema", () => {
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
     expect(result.data![0].TABLE_NAME).toBe("QCUSTCDT");
+    expect(result.hasMore).toBe(false);
   });
 
   it("should pass table_filter parameter correctly", async () => {
@@ -317,15 +407,15 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     await listTablesInSchemaTool.logic(
-      { schema_name: "MYLIB", table_filter: "CUST%" },
+      { schema_name: "MYLIB", table_filter: "CUST%", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
-    // The table_filter is passed twice (for the *ALL check and the LIKE)
+    // The table_filter is passed twice (for the *ALL check and the LIKE), plus pagination params
     expect(mockExecuteQuery).toHaveBeenCalledWith(
       expect.any(String),
-      ["MYLIB", "CUST%", "CUST%"],
+      ["MYLIB", "CUST%", "CUST%", 0, 51],
       context,
     );
   });
@@ -340,14 +430,14 @@ describe("Default Tools - list_tables_in_schema", () => {
     // Zod .default() applies during parse, so pass the default explicitly
     // (in production, the MCP SDK validates input before calling logic)
     await listTablesInSchemaTool.logic(
-      { schema_name: "MYLIB", table_filter: "*ALL" },
+      { schema_name: "MYLIB", table_filter: "*ALL", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
     expect(mockExecuteQuery).toHaveBeenCalledWith(
       expect.any(String),
-      ["MYLIB", "*ALL", "*ALL"],
+      ["MYLIB", "*ALL", "*ALL", 0, 51],
       context,
     );
   });
@@ -360,13 +450,85 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockRejectedValue(new Error("Schema not found"));
 
     const result = await listTablesInSchemaTool.logic(
-      { schema_name: "BADLIB" },
+      { schema_name: "BADLIB", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain("Failed to list tables");
+  });
+
+  it("should return hasMore: true when results exceed limit", async () => {
+    const { listTablesInSchemaTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
+    );
+
+    // Mock returns 4 rows for limit=3 (limit+1 detection)
+    const mockData = [
+      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T1", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 10, COLUMN_COUNT: 3 },
+      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T2", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 20, COLUMN_COUNT: 5 },
+      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T3", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 30, COLUMN_COUNT: 4 },
+      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T4", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 40, COLUMN_COUNT: 6 },
+    ];
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
+
+    const result = await listTablesInSchemaTool.logic(
+      { schema_name: "MYLIB", table_filter: "*ALL", limit: 3, offset: 0 },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(result.data).toHaveLength(3); // Extra row trimmed
+    expect(result.rowCount).toBe(3);
+    expect(result.limit).toBe(3);
+    expect(result.offset).toBe(0);
+  });
+
+  it("should return hasMore: false when results are within limit", async () => {
+    const { listTablesInSchemaTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
+    );
+
+    const mockData = [
+      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T1", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 10, COLUMN_COUNT: 3 },
+    ];
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
+
+    const result = await listTablesInSchemaTool.logic(
+      { schema_name: "MYLIB", table_filter: "*ALL", limit: 10, offset: 0 },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.hasMore).toBe(false);
+    expect(result.data).toHaveLength(1);
+    expect(result.limit).toBe(10);
+    expect(result.offset).toBe(0);
+  });
+
+  it("should pass custom limit and offset as bind parameters", async () => {
+    const { listTablesInSchemaTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    await listTablesInSchemaTool.logic(
+      { schema_name: "MYLIB", table_filter: "*ALL", limit: 25, offset: 50 },
+      context,
+      mockSdkContext,
+    );
+
+    // Bind params: [schema, filter, filter, offset, fetchLimit]
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.stringContaining("OFFSET ? ROWS FETCH FIRST ? ROWS ONLY"),
+      ["MYLIB", "*ALL", "*ALL", 50, 26],
+      context,
+    );
   });
 });
 

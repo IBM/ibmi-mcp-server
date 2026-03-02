@@ -34,6 +34,21 @@ const ListSchemasInputSchema = z.object({
     .describe(
       "Include system schemas (Q* and SYS* prefixed). Default: false.",
     ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(50)
+    .describe(
+      "Maximum number of rows to return per page (1-500, default 50).",
+    ),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .default(0)
+    .describe("Number of rows to skip for pagination (default 0)."),
 });
 
 const ListSchemasOutputSchema = z.object({
@@ -45,6 +60,12 @@ const ListSchemasOutputSchema = z.object({
       "Array of schema records. Each record contains: SCHEMA_NAME, SCHEMA_TEXT, SYSTEM_SCHEMA_NAME, SCHEMA_SIZE.",
     ),
   rowCount: z.number().optional().describe("Number of schemas returned."),
+  hasMore: z
+    .boolean()
+    .optional()
+    .describe("Whether more results exist beyond this page."),
+  limit: z.number().optional().describe("Page size used for this request."),
+  offset: z.number().optional().describe("Offset used for this request."),
   executionTime: z
     .number()
     .optional()
@@ -80,7 +101,7 @@ async function listSchemasLogic(
 
   // Build WHERE conditions dynamically
   const conditions: string[] = [];
-  const bindParams: string[] = [];
+  const bindParams: (string | number)[] = [];
 
   if (!params.include_system) {
     conditions.push(
@@ -104,13 +125,17 @@ async function listSchemasLogic(
     FROM QSYS2.SYSSCHEMAS
     ${whereClause}
     ORDER BY SCHEMA_NAME
-    FETCH FIRST 200 ROWS ONLY
+    OFFSET ? ROWS FETCH FIRST ? ROWS ONLY
   `.trim();
+
+  // Fetch limit+1 to detect if more rows exist beyond this page
+  const fetchLimit = params.limit + 1;
+  bindParams.push(params.offset, fetchLimit);
 
   try {
     const result = await IBMiConnectionPool.executeQuery(
       sql,
-      bindParams.length > 0 ? bindParams : undefined,
+      bindParams,
       appContext,
     );
 
@@ -121,16 +146,28 @@ async function listSchemasLogic(
         success: true,
         data: [],
         rowCount: 0,
+        hasMore: false,
+        limit: params.limit,
+        offset: params.offset,
         executionTime,
       };
     }
 
     const typedData = result.data as ListSchemasOutput["data"];
 
+    // Detect if more rows exist beyond this page
+    const hasMore = (typedData?.length ?? 0) > params.limit;
+    if (hasMore && typedData) {
+      typedData.pop(); // Remove the extra detection row
+    }
+
     return {
       success: true,
       data: typedData,
       rowCount: typedData?.length ?? 0,
+      hasMore,
+      limit: params.limit,
+      offset: params.offset,
       executionTime,
     };
   } catch (error) {
@@ -183,11 +220,16 @@ const listSchemasResponseFormatter = (
     return [{ type: "text", text: `Error: ${errorMessage}${errorDetails}` }];
   }
 
+  let paginationInfo = "";
+  if (result.hasMore !== undefined) {
+    paginationInfo = ` (offset ${result.offset}, limit ${result.limit}, hasMore: ${result.hasMore})`;
+  }
+
   const resultJson = JSON.stringify(result.data, null, 2);
   return [
     {
       type: "text",
-      text: `Found ${result.rowCount} schemas.\nExecution time: ${result.executionTime}ms\n\nSchemas:\n${resultJson}`,
+      text: `Found ${result.rowCount} schemas${paginationInfo}.\nExecution time: ${result.executionTime}ms\n\nSchemas:\n${resultJson}`,
     },
   ];
 };

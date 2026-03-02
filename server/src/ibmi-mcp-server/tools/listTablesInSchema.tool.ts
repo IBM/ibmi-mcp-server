@@ -35,6 +35,21 @@ const ListTablesInputSchema = z.object({
     .describe(
       "Filter tables by name pattern (e.g., 'CUST%', 'ORD%'). Use '*ALL' for all tables.",
     ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(50)
+    .describe(
+      "Maximum number of rows to return per page (1-500, default 50).",
+    ),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .default(0)
+    .describe("Number of rows to skip for pagination (default 0)."),
 });
 
 const ListTablesOutputSchema = z.object({
@@ -46,6 +61,12 @@ const ListTablesOutputSchema = z.object({
       "Array of table records. Each record contains: TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE (T=Table, V=View, P=Physical file), TABLE_TEXT, NUMBER_ROWS, COLUMN_COUNT.",
     ),
   rowCount: z.number().optional().describe("Number of tables returned."),
+  hasMore: z
+    .boolean()
+    .optional()
+    .describe("Whether more results exist beyond this page."),
+  limit: z.number().optional().describe("Page size used for this request."),
+  offset: z.number().optional().describe("Offset used for this request."),
   executionTime: z
     .number()
     .optional()
@@ -94,13 +115,16 @@ async function listTablesLogic(
       AND T.TABLE_TYPE IN ('T', 'V', 'P')
       AND (? = '*ALL' OR T.TABLE_NAME LIKE UPPER(?))
     ORDER BY T.TABLE_TYPE, T.TABLE_NAME
-    FETCH FIRST 200 ROWS ONLY
+    OFFSET ? ROWS FETCH FIRST ? ROWS ONLY
   `.trim();
+
+  // Fetch limit+1 to detect if more rows exist beyond this page
+  const fetchLimit = params.limit + 1;
 
   try {
     const result = await IBMiConnectionPool.executeQuery(
       sql,
-      [params.schema_name, params.table_filter, params.table_filter],
+      [params.schema_name, params.table_filter, params.table_filter, params.offset, fetchLimit],
       appContext,
     );
 
@@ -111,16 +135,28 @@ async function listTablesLogic(
         success: true,
         data: [],
         rowCount: 0,
+        hasMore: false,
+        limit: params.limit,
+        offset: params.offset,
         executionTime,
       };
     }
 
     const typedData = result.data as ListTablesOutput["data"];
 
+    // Detect if more rows exist beyond this page
+    const hasMore = (typedData?.length ?? 0) > params.limit;
+    if (hasMore && typedData) {
+      typedData.pop(); // Remove the extra detection row
+    }
+
     return {
       success: true,
       data: typedData,
       rowCount: typedData?.length ?? 0,
+      hasMore,
+      limit: params.limit,
+      offset: params.offset,
       executionTime,
     };
   } catch (error) {
@@ -175,11 +211,16 @@ const listTablesResponseFormatter = (
     return [{ type: "text", text: `Error: ${errorMessage}${errorDetails}` }];
   }
 
+  let paginationInfo = "";
+  if (result.hasMore !== undefined) {
+    paginationInfo = ` (offset ${result.offset}, limit ${result.limit}, hasMore: ${result.hasMore})`;
+  }
+
   const resultJson = JSON.stringify(result.data, null, 2);
   return [
     {
       type: "text",
-      text: `Found ${result.rowCount} tables.\nExecution time: ${result.executionTime}ms\n\nTables:\n${resultJson}`,
+      text: `Found ${result.rowCount} tables${paginationInfo}.\nExecution time: ${result.executionTime}ms\n\nTables:\n${resultJson}`,
     },
   ];
 };
