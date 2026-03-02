@@ -51,9 +51,13 @@ export interface ExecuteSqlToolConfig {
  * Default tool configuration
  * Readonly mode is controlled by IBMI_EXECUTE_SQL_READONLY environment variable (defaults to true)
  * This ensures write operations are opt-in for security
+ *
+ * Enabled when:
+ * - IBMI_ENABLE_EXECUTE_SQL=true (explicit override), OR
+ * - IBMI_ENABLE_DEFAULT_TOOLS=true (part of default text-to-SQL toolset)
  */
 let toolConfig: ExecuteSqlToolConfig = {
-  enabled: true,
+  enabled: config.ibmi_enableExecuteSql || config.ibmi_enableDefaultTools,
   security: {
     readOnly: config.ibmi_executeSqlReadonly,
     maxQueryLength: 10000,
