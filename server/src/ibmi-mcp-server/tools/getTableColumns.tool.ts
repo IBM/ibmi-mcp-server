@@ -43,7 +43,7 @@ const GetTableColumnsOutputSchema = z.object({
     .array(z.record(z.unknown()))
     .optional()
     .describe(
-      "Array of column detail records. Each record contains: COLUMN_NAME, DATA_TYPE, LENGTH, NUMERIC_SCALE, IS_NULLABLE (Y/N), HAS_DEFAULT (Y/N), COLUMN_DEFAULT, COLUMN_TEXT, ORDINAL_POSITION, CCSID.",
+      "Array of column detail records. Each record contains: COLUMN_NAME, SYSTEM_COLUMN_NAME (10-char DDS name), DATA_TYPE, LENGTH, NUMERIC_SCALE, NUMERIC_PRECISION, IS_NULLABLE (Y/N), HAS_DEFAULT (Y/N), COLUMN_DEFAULT, COLUMN_TEXT, COLUMN_HEADING (DDS heading), ORDINAL_POSITION, CCSID, HIDDEN (P=implicitly hidden, N=visible), IS_IDENTITY (YES/NO).",
     ),
   rowCount: z.number().optional().describe("Number of columns returned."),
   executionTime: z
@@ -81,16 +81,21 @@ async function getTableColumnsLogic(
 
   const sql = `
     SELECT COLUMN_NAME,
+           SYSTEM_COLUMN_NAME,
            DATA_TYPE,
            LENGTH,
            NUMERIC_SCALE,
+           NUMERIC_PRECISION,
            IS_NULLABLE,
            HAS_DEFAULT,
            COLUMN_DEFAULT,
            COLUMN_TEXT,
+           COLUMN_HEADING,
            ORDINAL_POSITION,
-           CCSID
-    FROM QSYS2.SYSCOLUMNS
+           CCSID,
+           HIDDEN,
+           IS_IDENTITY
+    FROM QSYS2.SYSCOLUMNS2
     WHERE TABLE_SCHEMA = UPPER(?)
       AND TABLE_NAME = UPPER(?)
     ORDER BY ORDINAL_POSITION

@@ -608,7 +608,7 @@ describe("Default Tools - get_table_columns", () => {
     );
 
     expect(mockExecuteQuery).toHaveBeenCalledWith(
-      expect.stringContaining("QSYS2.SYSCOLUMNS"),
+      expect.stringContaining("QSYS2.SYSCOLUMNS2"),
       ["MYLIB", "MYTABLE"],
       context,
     );
