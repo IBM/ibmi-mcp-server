@@ -17,6 +17,7 @@ import { config } from "@/config/index.js";
 import { handleAuthRequest, enforceTLS } from "@/ibmi-mcp-server/auth/index.js";
 import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
 import { JsonRpcErrorCode, McpError } from "../../../types-global/errors.js";
+import { SourceManager } from "@/ibmi-mcp-server/services/sourceManager.js";
 import {
   logger,
   rateLimiter,
@@ -378,9 +379,14 @@ export function createHttpApp(
   app.onError(httpErrorHandler);
 
   app.get("/healthz", (c) => {
+    const pools = SourceManager.getInstance().getHealthSummary();
+    const hasUnhealthy = Object.values(pools).some(
+      (p) => p.healthStatus === "unhealthy",
+    );
     return c.json({
-      status: "ok",
+      status: hasUnhealthy ? "degraded" : "ok",
       timestamp: new Date().toISOString(),
+      pools,
     });
   });
 

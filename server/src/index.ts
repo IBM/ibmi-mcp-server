@@ -31,6 +31,7 @@ import {
   validateToolsPath,
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
 import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
+import { SourceManager } from "@/ibmi-mcp-server/services/sourceManager.js";
 import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
 
 /**
@@ -266,6 +267,22 @@ const shutdown = async (signal: string): Promise<void> => {
     }
 
     await closePromise;
+
+    // Stop idle timer and close IBM i connection pools
+    try {
+      logOperationStart(shutdownContext, "Closing IBM i connection pools...");
+      const sourceManager = SourceManager.getInstance();
+      sourceManager.stopIdleTimer();
+      await sourceManager.closeAllSources();
+      logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
+    } catch (poolError) {
+      logOperationError(
+        shutdownContext,
+        "Error closing IBM i connection pools.",
+        poolError,
+      );
+    }
+
     // Cleanup YAML watchers before exit
     try {
       ToolProcessor.clearWatchers();
@@ -283,6 +300,14 @@ const shutdown = async (signal: string): Promise<void> => {
       "Critical error during shutdown process.",
       error,
     );
+    // Best-effort cleanup of connection pools even on error
+    try {
+      const sourceManager = SourceManager.getInstance();
+      sourceManager.stopIdleTimer();
+      await sourceManager.closeAllSources();
+    } catch {
+      // best-effort
+    }
     try {
       ToolProcessor.clearWatchers();
     } catch {
