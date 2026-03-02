@@ -272,9 +272,24 @@ const shutdown = async (signal: string): Promise<void> => {
     // Close IBM i connection pools to release QZDASOINIT jobs
     try {
       logOperationStart(shutdownContext, "Closing IBM i connection pools...");
-      await IBMiConnectionPool.close();
-      await AuthenticatedPoolManager.getInstance().shutdown();
-      logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
+      const poolResults = await Promise.allSettled([
+        IBMiConnectionPool.close(),
+        AuthenticatedPoolManager.getInstance().shutdown(),
+      ]);
+      const poolErrors = poolResults.filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+      if (poolErrors.length > 0) {
+        for (const result of poolErrors) {
+          logOperationError(
+            shutdownContext,
+            "Error closing IBM i connection pool.",
+            result.reason,
+          );
+        }
+      } else {
+        logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
+      }
     } catch (poolError) {
       logOperationError(
         shutdownContext,
@@ -302,8 +317,10 @@ const shutdown = async (signal: string): Promise<void> => {
     );
     // Best-effort cleanup of connection pools even on error
     try {
-      await IBMiConnectionPool.close();
-      await AuthenticatedPoolManager.getInstance().shutdown();
+      await Promise.allSettled([
+        IBMiConnectionPool.close(),
+        AuthenticatedPoolManager.getInstance().shutdown(),
+      ]);
     } catch {
       // best-effort
     }
@@ -392,8 +409,10 @@ const start = async (): Promise<void> => {
     );
     // Best-effort cleanup of connection pools
     try {
-      await IBMiConnectionPool.close();
-      await AuthenticatedPoolManager.getInstance().shutdown();
+      await Promise.allSettled([
+        IBMiConnectionPool.close(),
+        AuthenticatedPoolManager.getInstance().shutdown(),
+      ]);
     } catch {
       // ignore
     }
