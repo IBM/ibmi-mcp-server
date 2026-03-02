@@ -245,20 +245,22 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       return promise;
     }
 
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(
-            new McpError(
-              JsonRpcErrorCode.Timeout,
-              `Query timed out after ${timeoutMs}ms on pool '${String(poolId)}'. The connection may be stale. Pool will be re-initialized on the next request.`,
-              { poolId: String(poolId), timeoutMs },
-            ),
-          );
-        }, timeoutMs);
-      }),
-    ]).catch((error) => {
+    let timer!: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new McpError(
+            JsonRpcErrorCode.Timeout,
+            `Query timed out after ${timeoutMs}ms on pool '${String(poolId)}'. The connection may be stale. Pool will be re-initialized on the next request.`,
+            { poolId: String(poolId), timeoutMs },
+          ),
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } catch (error) {
       // If it's our timeout error, mark pool unhealthy and close it
       if (error instanceof McpError && error.code === JsonRpcErrorCode.Timeout) {
         const poolState = this.pools.get(poolId);
@@ -275,7 +277,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         });
       }
       throw error;
-    });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
