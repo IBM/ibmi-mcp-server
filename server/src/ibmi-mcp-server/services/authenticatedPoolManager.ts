@@ -365,22 +365,24 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
   /**
    * Shutdown all pools and cleanup
    */
-  async shutdown(): Promise<void> {
-    const context = requestContextService.createRequestContext({
-      operation: "authenticatedPoolManagerShutdown",
-    });
+  async shutdown(context?: RequestContext): Promise<void> {
+    const operationContext =
+      context ||
+      requestContextService.createRequestContext({
+        operation: "authenticatedPoolManagerShutdown",
+      });
 
     const poolCount = this.pools.size;
 
-    // Use base class method to close all pools
-    await this.closeAllPools(context);
+    // Base class handles stopIdleTimer + closeAllPools
+    await super.shutdown(operationContext);
 
     // Clean up credentials mapping
     this.credentialsMap.clear();
 
     logger.info(
       {
-        ...context,
+        ...operationContext,
         closedPools: poolCount,
       },
       "Authenticated pool manager shutdown completed",

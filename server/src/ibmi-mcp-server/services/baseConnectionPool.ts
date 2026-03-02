@@ -64,6 +64,14 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   protected initializationPromises: Map<TId, Promise<void>> = new Map();
   private idleCheckInterval: NodeJS.Timeout | null = null;
 
+  /** Registry of all BaseConnectionPool instances for coordinated shutdown */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private static readonly instances = new Set<BaseConnectionPool<any>>();
+
+  constructor() {
+    BaseConnectionPool.instances.add(this);
+  }
+
   /**
    * Create a daemon server configuration from connection config
    * @param config - Connection configuration
@@ -780,6 +788,62 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       },
       "All connection pools closed",
     );
+  }
+
+  /**
+   * Graceful shutdown for this pool instance.
+   * Stops the idle timer and closes all connections.
+   * Subclasses may override to clean up additional state.
+   * @param context - Request context for logging
+   */
+  async shutdown(context?: RequestContext): Promise<void> {
+    this.stopIdleTimer();
+    await this.closeAllPools(context);
+  }
+
+  /**
+   * Shut down all registered BaseConnectionPool instances.
+   * Each instance's shutdown() is called via Promise.allSettled
+   * so one failure does not prevent others from closing.
+   * @param context - Request context for logging
+   */
+  static async shutdownAll(context?: RequestContext): Promise<void> {
+    const operationContext =
+      context ||
+      requestContextService.createRequestContext({
+        operation: "ShutdownAllPools",
+      });
+
+    const instances = Array.from(BaseConnectionPool.instances);
+    if (instances.length === 0) {
+      return;
+    }
+
+    logger.info(
+      { ...operationContext, poolCount: instances.length },
+      `Shutting down ${instances.length} connection pool(s)`,
+    );
+
+    const results = await Promise.allSettled(
+      instances.map((instance) => instance.shutdown(operationContext)),
+    );
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        logger.error(
+          {
+            ...operationContext,
+            error:
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+          },
+          "Error during pool instance shutdown",
+        );
+      }
+    }
+
+    BaseConnectionPool.instances.clear();
   }
 
   /**

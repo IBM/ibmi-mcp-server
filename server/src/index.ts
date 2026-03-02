@@ -31,7 +31,7 @@ import {
   validateToolsPath,
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
 import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
-import { SourceManager } from "@/ibmi-mcp-server/services/sourceManager.js";
+import { BaseConnectionPool } from "@/ibmi-mcp-server/services/baseConnectionPool.js";
 import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
 
 /**
@@ -268,12 +268,10 @@ const shutdown = async (signal: string): Promise<void> => {
 
     await closePromise;
 
-    // Stop idle timer and close IBM i connection pools
+    // Close all IBM i connection pools (all types via registry)
     try {
       logOperationStart(shutdownContext, "Closing IBM i connection pools...");
-      const sourceManager = SourceManager.getInstance();
-      sourceManager.stopIdleTimer();
-      await sourceManager.closeAllSources();
+      await BaseConnectionPool.shutdownAll(shutdownContext);
       logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
     } catch (poolError) {
       logOperationError(
@@ -302,9 +300,7 @@ const shutdown = async (signal: string): Promise<void> => {
     );
     // Best-effort cleanup of connection pools even on error
     try {
-      const sourceManager = SourceManager.getInstance();
-      sourceManager.stopIdleTimer();
-      await sourceManager.closeAllSources();
+      await BaseConnectionPool.shutdownAll();
     } catch {
       // best-effort
     }
@@ -391,6 +387,11 @@ const start = async (): Promise<void> => {
       "[GLOBAL CATCH] A fatal, unhandled error occurred.",
       error,
     );
+    try {
+      await BaseConnectionPool.shutdownAll();
+    } catch {
+      // best-effort
+    }
     try {
       ToolProcessor.clearWatchers();
     } catch {
