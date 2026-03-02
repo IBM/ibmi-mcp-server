@@ -121,10 +121,17 @@ async function getTableColumnsLogic(
 
     const typedData = result.data as GetTableColumnsOutput["data"];
 
+    // Strip null/undefined values from each row to reduce response size
+    const filteredData = typedData?.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).filter(([, v]) => v != null),
+      ),
+    );
+
     return {
       success: true,
-      data: typedData,
-      rowCount: typedData?.length ?? 0,
+      data: filteredData,
+      rowCount: filteredData?.length ?? 0,
       executionTime,
     };
   } catch (error) {
