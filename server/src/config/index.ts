@@ -341,6 +341,13 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true" || val === "1"),
 
+  /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
+  IBMI_ENABLE_DEFAULT_TOOLS: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
+
   // --- START: Rate Limiting Configuration ---
   /** Enable or disable HTTP rate limiting. Default: true. */
   MCP_RATE_LIMIT_ENABLED: z
@@ -595,6 +602,7 @@ export const config = {
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
   ibmi_executeSqlReadonly: env.IBMI_EXECUTE_SQL_READONLY,
+  ibmi_enableDefaultTools: env.IBMI_ENABLE_DEFAULT_TOOLS,
 
   /** Rate limiting configuration for HTTP transport. From `MCP_RATE_LIMIT_*` environment variables. */
   rateLimit: {
