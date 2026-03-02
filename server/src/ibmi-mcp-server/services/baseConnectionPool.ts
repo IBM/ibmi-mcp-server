@@ -15,6 +15,7 @@ import {
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolSecurityConfig } from "@/ibmi-mcp-server/schemas/index.js";
 import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
+import { config } from "@/config/index.js";
 
 /**
  * Connection configuration for a pool instance
@@ -39,6 +40,7 @@ export interface PoolInstanceState {
   lastHealthCheck?: Date;
   healthStatus: "healthy" | "unhealthy" | "unknown";
   config: PoolConnectionConfig;
+  lastActivityAt: Date;
 }
 
 /**
@@ -50,6 +52,7 @@ export interface PoolHealth {
   lastError?: string;
   initialized: boolean;
   connecting: boolean;
+  lastActivity?: Date;
 }
 
 /**
@@ -59,6 +62,15 @@ export interface PoolHealth {
 export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   protected pools: Map<TId, PoolInstanceState> = new Map();
   protected initializationPromises: Map<TId, Promise<void>> = new Map();
+  private idleCheckInterval: NodeJS.Timeout | null = null;
+
+  /** Registry of all BaseConnectionPool instances for coordinated shutdown */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private static readonly instances = new Set<BaseConnectionPool<any>>();
+
+  constructor() {
+    BaseConnectionPool.instances.add(this);
+  }
 
   /**
    * Create a daemon server configuration from connection config
@@ -66,18 +78,18 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
    * @param context - Request context for logging
    */
   protected async createDaemonServer(
-    config: PoolConnectionConfig,
+    poolConfig: PoolConnectionConfig,
     context: RequestContext,
   ): Promise<DaemonServer> {
     const server: DaemonServer = {
-      host: config.host,
-      user: config.user,
-      password: config.password,
-      rejectUnauthorized: !(config.ignoreUnauthorized ?? true),
+      host: poolConfig.host,
+      user: poolConfig.user,
+      password: poolConfig.password,
+      rejectUnauthorized: !(poolConfig.ignoreUnauthorized ?? true),
     };
 
     // Get SSL certificate if needed
-    if (!(config.ignoreUnauthorized ?? true)) {
+    if (!(poolConfig.ignoreUnauthorized ?? true)) {
       logger.debug(context, "Fetching SSL certificate for secure connection");
       server.ca = await getRootCertificate(server);
     }
@@ -88,12 +100,12 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   /**
    * Initialize a connection pool for the given identifier
    * @param poolId - Unique identifier for the pool
-   * @param config - Connection configuration
+   * @param poolConfig - Connection configuration
    * @param context - Request context for logging
    */
   protected async initializePool(
     poolId: TId,
-    config: PoolConnectionConfig,
+    poolConfig: PoolConnectionConfig,
     context: RequestContext,
   ): Promise<void> {
     // Check if there's already an initialization in progress
@@ -113,7 +125,8 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         isInitialized: false,
         isConnecting: false,
         healthStatus: "unknown",
-        config,
+        config: poolConfig,
+        lastActivityAt: new Date(),
       };
       this.pools.set(poolId, poolState);
     }
@@ -190,6 +203,10 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       poolState.isInitialized = true;
       poolState.healthStatus = "healthy";
       poolState.lastHealthCheck = new Date();
+      poolState.lastActivityAt = new Date();
+
+      // Start idle timer (idempotent — safe to call on every init)
+      this.startIdleTimer();
 
       logger.info(
         context,
@@ -210,6 +227,141 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       throw handledError;
     } finally {
       poolState.isConnecting = false;
+    }
+  }
+
+  /**
+   * Wrap a promise with a configurable timeout.
+   * On timeout: marks pool unhealthy, closes it async so next request re-inits.
+   * If queryTimeoutMs <= 0, passes through without timeout (disabled).
+   */
+  private async executeWithTimeout<T>(
+    poolId: TId,
+    promise: Promise<T>,
+    context: RequestContext,
+  ): Promise<T> {
+    const timeoutMs = config.poolTimeouts.queryTimeoutMs;
+    if (timeoutMs <= 0) {
+      return promise;
+    }
+
+    let timer!: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new McpError(
+            JsonRpcErrorCode.Timeout,
+            `Query timed out after ${timeoutMs}ms on pool '${String(poolId)}'. The connection may be stale. Pool will be re-initialized on the next request.`,
+            { poolId: String(poolId), timeoutMs },
+          ),
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } catch (error) {
+      // If it's our timeout error, mark pool unhealthy and close it
+      if (error instanceof McpError && error.code === JsonRpcErrorCode.Timeout) {
+        const poolState = this.pools.get(poolId);
+        if (poolState) {
+          poolState.healthStatus = "unhealthy";
+        }
+        logger.error(
+          { ...context, timeoutMs, poolId: String(poolId) },
+          `Query timed out on pool '${String(poolId)}'. Closing pool for re-initialization.`,
+        );
+        // Close pool async — don't await, let it clean up in background
+        this.closePool(poolId, context).catch(() => {
+          // best-effort
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Start the idle pool check timer. Idempotent — safe to call multiple times.
+   * Uses interval of max(10s, timeout/2) following existing StatefulTransportManager pattern.
+   * If idleTimeoutMs <= 0, this is a no-op (disabled).
+   */
+  protected startIdleTimer(): void {
+    const idleTimeoutMs = config.poolTimeouts.idleTimeoutMs;
+    if (idleTimeoutMs <= 0 || this.idleCheckInterval) {
+      return;
+    }
+
+    const checkIntervalMs = Math.max(10_000, Math.floor(idleTimeoutMs / 2));
+
+    this.idleCheckInterval = setInterval(() => {
+      this.closeIdlePools();
+    }, checkIntervalMs);
+
+    // Don't let the timer prevent process exit
+    this.idleCheckInterval.unref();
+
+    logger.info(
+      requestContextService.createRequestContext({
+        operation: "StartIdleTimer",
+      }),
+      `Pool idle timer started: checking every ${checkIntervalMs}ms, closing pools idle for ${idleTimeoutMs}ms`,
+    );
+  }
+
+  /**
+   * Stop the idle pool check timer. Called during shutdown.
+   */
+  public stopIdleTimer(): void {
+    if (this.idleCheckInterval) {
+      clearInterval(this.idleCheckInterval);
+      this.idleCheckInterval = null;
+      logger.debug(
+        requestContextService.createRequestContext({
+          operation: "StopIdleTimer",
+        }),
+        "Pool idle timer stopped",
+      );
+    }
+  }
+
+  /**
+   * Close pools that have been idle longer than the configured timeout.
+   * The existing lazy-init path in executeQuery() will re-initialize on next use.
+   */
+  private closeIdlePools(): void {
+    const idleTimeoutMs = config.poolTimeouts.idleTimeoutMs;
+    if (idleTimeoutMs <= 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const context = requestContextService.createRequestContext({
+      operation: "CloseIdlePools",
+    });
+
+    for (const [poolId, poolState] of this.pools.entries()) {
+      if (!poolState.isInitialized || !poolState.pool) {
+        continue;
+      }
+
+      const idleDuration = now - poolState.lastActivityAt.getTime();
+      if (idleDuration > idleTimeoutMs) {
+        logger.info(
+          {
+            ...context,
+            poolId: String(poolId),
+            idleDurationMs: idleDuration,
+            idleTimeoutMs,
+          },
+          `Closing idle pool '${String(poolId)}' (idle for ${Math.round(idleDuration / 1000)}s)`,
+        );
+        // Close async — don't block the interval
+        this.closePool(poolId, context).catch(() => {
+          // best-effort
+        });
+      }
     }
   }
 
@@ -317,9 +469,13 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           );
         }
 
-        const result = await poolState.pool.execute(query, {
-          parameters: params,
-        });
+        const result = await this.executeWithTimeout<QueryResult<T>>(
+          poolId,
+          poolState.pool.execute(query, {
+            parameters: params,
+          }) as Promise<QueryResult<T>>,
+          operationContext,
+        );
 
         logger.debug(
           {
@@ -332,9 +488,10 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           `Query executed successfully on pool: ${String(poolId)}`,
         );
 
-        // Update health status on successful query
+        // Update health status and activity timestamp on successful query
         poolState.healthStatus = "healthy";
         poolState.lastHealthCheck = new Date();
+        poolState.lastActivityAt = new Date();
 
         return result as QueryResult<T>;
       },
@@ -418,8 +575,12 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         // Create query object with parameters
         const queryObj = poolState.pool.query(query, { parameters: params });
 
-        // Execute initial query
-        let result = await queryObj.execute();
+        // Execute initial query — wrap with timeout to catch stale connections
+        let result = await this.executeWithTimeout(
+          poolId,
+          queryObj.execute(),
+          operationContext,
+        );
         const allData: unknown[] = [];
 
         if (result.success && result.data) {
@@ -462,6 +623,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           },
           "Paginated query completed",
         );
+
+        // Update activity timestamp on successful paginated query
+        poolState.lastActivityAt = new Date();
 
         return {
           data: allData,
@@ -509,6 +673,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           status: "unknown",
           initialized: false,
           connecting: poolState.isConnecting,
+          lastActivity: poolState.lastActivityAt,
         };
       }
 
@@ -533,6 +698,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         lastCheck: poolState.lastHealthCheck,
         initialized: true,
         connecting: false,
+        lastActivity: poolState.lastActivityAt,
       };
     } catch (error) {
       poolState.healthStatus = "unhealthy";
@@ -553,6 +719,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         lastCheck: new Date(),
         initialized: poolState.isInitialized,
         connecting: poolState.isConnecting,
+        lastActivity: poolState.lastActivityAt,
       };
     }
   }
@@ -603,9 +770,6 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
   /**
    * Close all connection pools gracefully
-
-  /**
-   * Close all connection pools gracefully
    * @param context - Request context for logging
    */
   async closeAllPools(context?: RequestContext): Promise<void> {
@@ -631,6 +795,62 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   }
 
   /**
+   * Graceful shutdown for this pool instance.
+   * Stops the idle timer and closes all connections.
+   * Subclasses may override to clean up additional state.
+   * @param context - Request context for logging
+   */
+  async shutdown(context?: RequestContext): Promise<void> {
+    this.stopIdleTimer();
+    await this.closeAllPools(context);
+  }
+
+  /**
+   * Shut down all registered BaseConnectionPool instances.
+   * Each instance's shutdown() is called via Promise.allSettled
+   * so one failure does not prevent others from closing.
+   * @param context - Request context for logging
+   */
+  static async shutdownAll(context?: RequestContext): Promise<void> {
+    const operationContext =
+      context ||
+      requestContextService.createRequestContext({
+        operation: "ShutdownAllPools",
+      });
+
+    const instances = Array.from(BaseConnectionPool.instances);
+    if (instances.length === 0) {
+      return;
+    }
+
+    logger.info(
+      { ...operationContext, poolCount: instances.length },
+      `Shutting down ${instances.length} connection pool(s)`,
+    );
+
+    const results = await Promise.allSettled(
+      instances.map((instance) => instance.shutdown(operationContext)),
+    );
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        logger.error(
+          {
+            ...operationContext,
+            error:
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+          },
+          "Error during pool instance shutdown",
+        );
+      }
+    }
+
+    BaseConnectionPool.instances.clear();
+  }
+
+  /**
    * Get status of a specific pool
    * @param poolId - Pool identifier
    */
@@ -638,6 +858,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     initialized: boolean;
     connecting: boolean;
     healthStatus: string;
+    lastActivityAt?: Date;
   } | null {
     const poolState = this.pools.get(poolId);
     if (!poolState) {
@@ -648,6 +869,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       initialized: poolState.isInitialized,
       connecting: poolState.isConnecting,
       healthStatus: poolState.healthStatus,
+      lastActivityAt: poolState.lastActivityAt,
     };
   }
 
@@ -662,6 +884,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
    * Clear all pools (for testing)
    */
   protected clearAllPools(): void {
+    this.stopIdleTimer();
     this.pools.clear();
     this.initializationPromises.clear();
   }

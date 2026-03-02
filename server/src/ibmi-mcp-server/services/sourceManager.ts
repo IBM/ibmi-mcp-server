@@ -96,6 +96,7 @@ export class SourceManager extends BaseConnectionPool<string> {
           isConnecting: false,
           healthStatus: "unknown",
           config: poolConfig,
+          lastActivityAt: new Date(),
         });
 
         logger.info(
@@ -193,6 +194,15 @@ export class SourceManager extends BaseConnectionPool<string> {
   }
 
   /**
+   * Graceful shutdown: close all pools and clear source configs.
+   * @param context - Request context for logging
+   */
+  async shutdown(context?: RequestContext): Promise<void> {
+    await super.shutdown(context);
+    this.sourceConfigs.clear();
+  }
+
+  /**
    * Get list of registered source names
    */
   getRegisteredSources(): string[] {
@@ -219,6 +229,40 @@ export class SourceManager extends BaseConnectionPool<string> {
     }
 
     return status;
+  }
+
+  /**
+   * Get a lightweight health summary for all sources.
+   * Reads cached pool state only — no SQL queries executed.
+   * Suitable for health probe endpoints.
+   */
+  getHealthSummary(): Record<
+    string,
+    {
+      initialized: boolean;
+      connecting: boolean;
+      healthStatus: string;
+      lastActivityAt?: Date;
+    }
+  > {
+    const summary: Record<
+      string,
+      {
+        initialized: boolean;
+        connecting: boolean;
+        healthStatus: string;
+        lastActivityAt?: Date;
+      }
+    > = {};
+
+    for (const sourceName of this.getRegisteredPools()) {
+      const poolStatus = this.getPoolStatus(sourceName);
+      if (poolStatus) {
+        summary[sourceName] = poolStatus;
+      }
+    }
+
+    return summary;
   }
 
   /**

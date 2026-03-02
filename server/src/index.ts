@@ -31,6 +31,7 @@ import {
   validateToolsPath,
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
 import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
+import { BaseConnectionPool } from "@/ibmi-mcp-server/services/baseConnectionPool.js";
 import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
 
 /**
@@ -266,6 +267,20 @@ const shutdown = async (signal: string): Promise<void> => {
     }
 
     await closePromise;
+
+    // Close all IBM i connection pools (all types via registry)
+    try {
+      logOperationStart(shutdownContext, "Closing IBM i connection pools...");
+      await BaseConnectionPool.shutdownAll(shutdownContext);
+      logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
+    } catch (poolError) {
+      logOperationError(
+        shutdownContext,
+        "Error closing IBM i connection pools.",
+        poolError,
+      );
+    }
+
     // Cleanup YAML watchers before exit
     try {
       ToolProcessor.clearWatchers();
@@ -283,6 +298,12 @@ const shutdown = async (signal: string): Promise<void> => {
       "Critical error during shutdown process.",
       error,
     );
+    // Best-effort cleanup of connection pools even on error
+    try {
+      await BaseConnectionPool.shutdownAll();
+    } catch {
+      // best-effort
+    }
     try {
       ToolProcessor.clearWatchers();
     } catch {
@@ -366,6 +387,11 @@ const start = async (): Promise<void> => {
       "[GLOBAL CATCH] A fatal, unhandled error occurred.",
       error,
     );
+    try {
+      await BaseConnectionPool.shutdownAll();
+    } catch {
+      // best-effort
+    }
     try {
       ToolProcessor.clearWatchers();
     } catch {

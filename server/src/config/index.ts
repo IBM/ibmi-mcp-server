@@ -370,6 +370,22 @@ const EnvSchema = z.object({
     .default("false")
     .transform((val) => val === "true" || val === "1"),
   // --- END: Rate Limiting Configuration ---
+
+  // --- START: Connection Pool Timeout Configuration ---
+  /** Idle timeout for Mapepire connection pools (ms). Pools closed after inactivity. Set to 0 to disable. Default: 300000 (5 minutes). */
+  MCP_POOL_IDLE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(300_000),
+
+  /** Query execution timeout (ms). Queries aborted after this period. Set to 0 to disable. Default: 30000 (30 seconds). */
+  MCP_POOL_QUERY_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(30_000),
+  // --- END: Connection Pool Timeout Configuration ---
 });
 
 const parsedEnv = EnvSchema.safeParse(process.env);
@@ -602,6 +618,12 @@ export const config = {
     maxRequests: env.MCP_RATE_LIMIT_MAX_REQUESTS,
     windowMs: env.MCP_RATE_LIMIT_WINDOW_MS,
     skipInDevelopment: env.MCP_RATE_LIMIT_SKIP_DEV,
+  },
+
+  /** Connection pool timeout configuration. From `MCP_POOL_*` environment variables. */
+  poolTimeouts: {
+    idleTimeoutMs: env.MCP_POOL_IDLE_TIMEOUT_MS,
+    queryTimeoutMs: env.MCP_POOL_QUERY_TIMEOUT_MS,
   },
 };
 

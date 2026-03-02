@@ -204,6 +204,52 @@ Below is the reference for core server configuration options. Each section inclu
 **Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these headers are absent (e.g., behind Docker without proxy header forwarding), the server falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting.
 </Info>
 
+### Connection Pool Timeouts
+
+**Control automatic cleanup of idle database connections and query timeouts.** In cloud deployments (Railway, Heroku, etc.), reverse proxies silently kill idle TCP connections. The Mapepire connection pool may still report as initialized, but queries sent over a dead WebSocket will hang indefinitely. These settings prevent that by proactively closing idle pools and aborting stale queries.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `MCP_POOL_IDLE_TIMEOUT_MS` | Idle timeout for connection pools (ms). Pools are closed after this period of inactivity. | `300000` (5 min) | `60000` |
+| `MCP_POOL_QUERY_TIMEOUT_MS` | Query execution timeout (ms). Queries are aborted if they exceed this duration. | `30000` (30s) | `60000` |
+
+<Tabs>
+  <Tab title="Default">
+    ```bash
+    MCP_POOL_IDLE_TIMEOUT_MS=300000
+    MCP_POOL_QUERY_TIMEOUT_MS=30000
+    ```
+
+    **Use for**: Most deployments — 5-minute idle timeout and 30-second query timeout
+  </Tab>
+
+  <Tab title="Cloud Deployment">
+    ```bash
+    MCP_POOL_IDLE_TIMEOUT_MS=60000
+    MCP_POOL_QUERY_TIMEOUT_MS=30000
+    ```
+
+    **Use for**: Cloud platforms with aggressive proxy timeouts (Railway, Heroku, etc.)
+  </Tab>
+
+  <Tab title="Disabled">
+    ```bash
+    MCP_POOL_IDLE_TIMEOUT_MS=0
+    MCP_POOL_QUERY_TIMEOUT_MS=0
+    ```
+
+    **Use for**: Stable network environments where connections are long-lived and reliable
+  </Tab>
+</Tabs>
+
+<Info>
+**How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed automatically. The next query triggers a transparent re-initialization through the existing lazy-init path — no manual intervention needed. The query timeout uses `Promise.race()` to abort queries on stale connections, marking the pool unhealthy so it is re-created on the next request.
+</Info>
+
+<Warning>
+**Setting `MCP_POOL_QUERY_TIMEOUT_MS=0` disables query timeouts entirely.** This means queries on dead connections will hang until the client's own timeout fires. Only disable this in trusted, stable network environments.
+</Warning>
+
 ## Authentication Configuration
 
 ### Choosing an Authentication Mode
@@ -1005,6 +1051,10 @@ DB2i_PASS=${IBM_PASS}
 DB2i_PORT=8076
 DB2i_IGNORE_UNAUTHORIZED=false
 
+# Connection Pool Timeouts (recommended for cloud deployments)
+MCP_POOL_IDLE_TIMEOUT_MS=300000
+MCP_POOL_QUERY_TIMEOUT_MS=30000
+
 # Tools
 TOOLS_YAML_PATH=/app/configs
 SELECTED_TOOLSETS=production,monitoring
@@ -1038,6 +1088,8 @@ services:
       TOOLS_YAML_PATH: /app/configs
       OTEL_ENABLED: "true"
       MCP_RATE_LIMIT_MAX_REQUESTS: "1000"  # Higher limit for agentic workflows
+      MCP_POOL_IDLE_TIMEOUT_MS: "300000"
+      MCP_POOL_QUERY_TIMEOUT_MS: "30000"
     ports:
       - "3010:3010"
     volumes:
