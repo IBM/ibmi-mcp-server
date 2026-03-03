@@ -203,9 +203,8 @@ export class ToolProcessor {
           sourceCount: Object.keys(this.yamlConfig?.sources || {}).length,
           stats: {
             toolsProcessed: this.processedTools.length,
-            sourcesRegistered: Object.keys(
-              this.sourceManager.getSourcesStatus(),
-            ).length,
+            sourcesRegistered:
+              this.sourceManager.getRegisteredSources().length,
             toolsetMappings: this.toolsetManager.getToolsetStats().totalTools,
           },
         };

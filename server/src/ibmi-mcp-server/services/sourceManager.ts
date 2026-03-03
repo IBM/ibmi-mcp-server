@@ -20,6 +20,7 @@ import {
   BaseConnectionPool,
   PoolConnectionConfig,
   PoolHealth,
+  PoolHealthStatus,
 } from "./baseConnectionPool.js";
 
 /**
@@ -210,28 +211,6 @@ export class SourceManager extends BaseConnectionPool<string> {
   }
 
   /**
-   * Get detailed status of all sources
-   */
-  getSourcesStatus(): Record<
-    string,
-    { initialized: boolean; connecting: boolean; healthStatus: string }
-  > {
-    const status: Record<
-      string,
-      { initialized: boolean; connecting: boolean; healthStatus: string }
-    > = {};
-
-    for (const sourceName of this.getRegisteredPools()) {
-      const poolStatus = this.getPoolStatus(sourceName);
-      if (poolStatus) {
-        status[sourceName] = poolStatus;
-      }
-    }
-
-    return status;
-  }
-
-  /**
    * Get a lightweight health summary for all sources.
    * Reads cached pool state only — no SQL queries executed.
    * Suitable for health probe endpoints.
@@ -241,7 +220,7 @@ export class SourceManager extends BaseConnectionPool<string> {
     {
       initialized: boolean;
       connecting: boolean;
-      healthStatus: string;
+      healthStatus: PoolHealthStatus;
       lastActivityAt?: Date;
     }
   > {
@@ -250,7 +229,7 @@ export class SourceManager extends BaseConnectionPool<string> {
       {
         initialized: boolean;
         connecting: boolean;
-        healthStatus: string;
+        healthStatus: PoolHealthStatus;
         lastActivityAt?: Date;
       }
     > = {};
