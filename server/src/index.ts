@@ -14,6 +14,7 @@ import { shutdownOpenTelemetry } from "@/utils/telemetry/instrumentation.js";
 import { config, environment } from "@/config/index.js";
 import { initializeAndStartServer } from "@/mcp-server/server.js";
 import { requestContextService } from "@/utils/index.js";
+import type { RequestContext } from "@/utils/internal/requestContext.js";
 import {
   logFatal,
   logOperationError,
@@ -222,6 +223,35 @@ if (cliArgs.toolsets && cliArgs.toolsets.length > 0) {
 let mcpStdioServer: McpServer | undefined;
 let actualHttpServer: http.Server | undefined;
 
+/**
+ * Best-effort cleanup of connection pools and YAML file watchers.
+ * When a context is provided, logs progress; otherwise runs silently.
+ */
+async function performCleanup(context?: RequestContext): Promise<void> {
+  try {
+    if (context) {
+      logOperationStart(context, "Closing IBM i connection pools...");
+    }
+    await BaseConnectionPool.shutdownAll(context);
+    if (context) {
+      logOperationSuccess(context, "IBM i connection pools closed.");
+    }
+  } catch (error) {
+    if (context) {
+      logOperationError(
+        context,
+        "Error closing IBM i connection pools.",
+        error,
+      );
+    }
+  }
+  try {
+    ToolProcessor.clearWatchers();
+  } catch {
+    // best-effort
+  }
+}
+
 const shutdown = async (signal: string): Promise<void> => {
   const shutdownContext = requestContextService.createRequestContext({
     operation: "ServerShutdown",
@@ -268,25 +298,7 @@ const shutdown = async (signal: string): Promise<void> => {
 
     await closePromise;
 
-    // Close all IBM i connection pools (all types via registry)
-    try {
-      logOperationStart(shutdownContext, "Closing IBM i connection pools...");
-      await BaseConnectionPool.shutdownAll(shutdownContext);
-      logOperationSuccess(shutdownContext, "IBM i connection pools closed.");
-    } catch (poolError) {
-      logOperationError(
-        shutdownContext,
-        "Error closing IBM i connection pools.",
-        poolError,
-      );
-    }
-
-    // Cleanup YAML watchers before exit
-    try {
-      ToolProcessor.clearWatchers();
-    } catch {
-      // best-effort
-    }
+    await performCleanup(shutdownContext);
     logOperationSuccess(
       shutdownContext,
       "Graceful shutdown completed successfully. Exiting.",
@@ -298,17 +310,7 @@ const shutdown = async (signal: string): Promise<void> => {
       "Critical error during shutdown process.",
       error,
     );
-    // Best-effort cleanup of connection pools even on error
-    try {
-      await BaseConnectionPool.shutdownAll();
-    } catch {
-      // best-effort
-    }
-    try {
-      ToolProcessor.clearWatchers();
-    } catch {
-      // best-effort
-    }
+    await performCleanup();
     process.exit(1);
   }
 };
@@ -387,16 +389,7 @@ const start = async (): Promise<void> => {
       "[GLOBAL CATCH] A fatal, unhandled error occurred.",
       error,
     );
-    try {
-      await BaseConnectionPool.shutdownAll();
-    } catch {
-      // best-effort
-    }
-    try {
-      ToolProcessor.clearWatchers();
-    } catch {
-      // ignore
-    }
+    await performCleanup();
     process.exit(1);
   }
 })();

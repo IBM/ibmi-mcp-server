@@ -18,6 +18,11 @@ import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js"
 import { config } from "@/config/index.js";
 
 /**
+ * Pool health status values used across pool interfaces and return types
+ */
+export type PoolHealthStatus = "healthy" | "unhealthy" | "unknown";
+
+/**
  * Connection configuration for a pool instance
  */
 export interface PoolConnectionConfig {
@@ -38,7 +43,7 @@ export interface PoolInstanceState {
   isInitialized: boolean;
   isConnecting: boolean;
   lastHealthCheck?: Date;
-  healthStatus: "healthy" | "unhealthy" | "unknown";
+  healthStatus: PoolHealthStatus;
   config: PoolConnectionConfig;
   lastActivityAt: Date;
 }
@@ -47,7 +52,7 @@ export interface PoolInstanceState {
  * Health status information
  */
 export interface PoolHealth {
-  status: "healthy" | "unhealthy" | "unknown";
+  status: PoolHealthStatus;
   lastCheck?: Date;
   lastError?: string;
   initialized: boolean;
@@ -337,9 +342,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     }
 
     const now = Date.now();
-    const context = requestContextService.createRequestContext({
-      operation: "CloseIdlePools",
-    });
+    let context: RequestContext | undefined;
 
     for (const [poolId, poolState] of this.pools.entries()) {
       if (!poolState.isInitialized || !poolState.pool) {
@@ -348,6 +351,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
       const idleDuration = now - poolState.lastActivityAt.getTime();
       if (idleDuration > idleTimeoutMs) {
+        context ??= requestContextService.createRequestContext({
+          operation: "CloseIdlePools",
+        });
         logger.info(
           {
             ...context,
@@ -857,7 +863,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   getPoolStatus(poolId: TId): {
     initialized: boolean;
     connecting: boolean;
-    healthStatus: string;
+    healthStatus: PoolHealthStatus;
     lastActivityAt?: Date;
   } | null {
     const poolState = this.pools.get(poolId);
@@ -887,5 +893,6 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     this.stopIdleTimer();
     this.pools.clear();
     this.initializationPromises.clear();
+    BaseConnectionPool.instances.delete(this);
   }
 }
