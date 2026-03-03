@@ -6,6 +6,7 @@
  * - list_tables_in_schema
  * - get_table_columns
  * - validate_query
+ * - get_related_objects
  *
  * Also tests the config flag behavior for IBMI_ENABLE_DEFAULT_TOOLS.
  *
@@ -765,6 +766,247 @@ describe("Default Tools - validate_query", () => {
   });
 });
 
+describe("Default Tools - get_related_objects", () => {
+  const context = createRequestContext();
+  const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should have correct tool metadata", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+    expect(getRelatedObjectsTool.name).toBe("get_related_objects");
+    expect(getRelatedObjectsTool.annotations?.readOnlyHint).toBe(true);
+    expect(getRelatedObjectsTool.annotations?.destructiveHint).toBe(false);
+  });
+
+  it("should return dependent objects for a file", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    const mockData = [
+      {
+        SOURCE_SCHEMA_NAME: "APPLIB",
+        SOURCE_SQL_NAME: "ORDERS",
+        SQL_OBJECT_TYPE: "INDEX",
+        SCHEMA_NAME: "APPLIB",
+        SQL_NAME: "ORDERS_IDX1",
+        LIBRARY_NAME: "APPLIB",
+        SYSTEM_NAME: "ORDIDX1",
+        OBJECT_OWNER: "QSECOFR",
+        LONG_COMMENT: null,
+        OBJECT_TEXT: "Order index",
+        LAST_ALTERED: "2024-01-15T10:00:00",
+      },
+      {
+        SOURCE_SCHEMA_NAME: "APPLIB",
+        SOURCE_SQL_NAME: "ORDERS",
+        SQL_OBJECT_TYPE: "VIEW",
+        SCHEMA_NAME: "APPLIB",
+        SQL_NAME: "ORDERS_V1",
+        LIBRARY_NAME: "APPLIB",
+        SYSTEM_NAME: "ORDV1",
+        OBJECT_OWNER: "QSECOFR",
+        LONG_COMMENT: null,
+        OBJECT_TEXT: "Active orders view",
+        LAST_ALTERED: "2024-02-20T14:30:00",
+      },
+    ];
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
+
+    const result = await getRelatedObjectsTool.logic(
+      { library_name: "APPLIB", file_name: "ORDERS" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.rowCount).toBe(2);
+    expect(result.data![0].SQL_OBJECT_TYPE).toBe("INDEX");
+    expect(result.data![1].SQL_OBJECT_TYPE).toBe("VIEW");
+  });
+
+  it("should pass library and file as bind parameters", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    await getRelatedObjectsTool.logic(
+      { library_name: "MYLIB", file_name: "MYTABLE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.stringContaining("SYSTOOLS.RELATED_OBJECTS"),
+      ["MYLIB", "MYTABLE"],
+      context,
+    );
+  });
+
+  it("should filter by object_type_filter when provided", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([
+        {
+          SOURCE_SCHEMA_NAME: "APPLIB",
+          SOURCE_SQL_NAME: "ORDERS",
+          SQL_OBJECT_TYPE: "INDEX",
+          SCHEMA_NAME: "APPLIB",
+          SQL_NAME: "ORDERS_IDX1",
+        },
+      ]),
+    );
+
+    await getRelatedObjectsTool.logic(
+      { library_name: "APPLIB", file_name: "ORDERS", object_type_filter: "INDEX" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE SQL_OBJECT_TYPE = ?"),
+      ["APPLIB", "ORDERS", "INDEX"],
+      context,
+    );
+  });
+
+  it("should not include WHERE clause when object_type_filter is omitted", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    await getRelatedObjectsTool.logic(
+      { library_name: "APPLIB", file_name: "ORDERS" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.not.stringContaining("WHERE"),
+      ["APPLIB", "ORDERS"],
+      context,
+    );
+  });
+
+  it("should return empty array for non-existent file", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    const result = await getRelatedObjectsTool.logic(
+      { library_name: "MYLIB", file_name: "NONEXISTENT" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+    expect(result.rowCount).toBe(0);
+  });
+
+  it("should return empty array for null data", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
+
+    const result = await getRelatedObjectsTool.logic(
+      { library_name: "MYLIB", file_name: "SOMEFILE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+    expect(result.rowCount).toBe(0);
+  });
+
+  it("should strip null values from result rows", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    const mockData = [
+      {
+        SOURCE_SCHEMA_NAME: "APPLIB",
+        SOURCE_SQL_NAME: "ORDERS",
+        SQL_OBJECT_TYPE: "INDEX",
+        SCHEMA_NAME: "APPLIB",
+        SQL_NAME: "IDX1",
+        LONG_COMMENT: null,
+        OBJECT_TEXT: null,
+      },
+    ];
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
+
+    const result = await getRelatedObjectsTool.logic(
+      { library_name: "APPLIB", file_name: "ORDERS" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data![0]).not.toHaveProperty("LONG_COMMENT");
+    expect(result.data![0]).not.toHaveProperty("OBJECT_TEXT");
+    expect(result.data![0].SQL_OBJECT_TYPE).toBe("INDEX");
+  });
+
+  it("should handle database errors gracefully", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
+
+    const result = await getRelatedObjectsTool.logic(
+      { library_name: "BADLIB", file_name: "BADFILE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain("Failed to get related objects");
+    expect(result.error?.message).toContain("Connection failed");
+  });
+
+  it("should handle McpError gracefully", async () => {
+    const { getRelatedObjectsTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
+    );
+
+    mockExecuteQuery.mockRejectedValue(
+      new McpError(JsonRpcErrorCode.DatabaseError, "DB unavailable"),
+    );
+
+    const result = await getRelatedObjectsTool.logic(
+      { library_name: "MYLIB", file_name: "MYFILE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe(String(JsonRpcErrorCode.DatabaseError));
+    expect(result.error?.message).toBe("DB unavailable");
+  });
+});
+
 describe("Default Tools - Tool Registry", () => {
   it("should include default tools when IBMI_ENABLE_DEFAULT_TOOLS is true", async () => {
     const { allToolDefinitions } = await import(
@@ -775,17 +1017,18 @@ describe("Default Tools - Tool Registry", () => {
     expect(toolNames).toContain("list_schemas");
     expect(toolNames).toContain("list_tables_in_schema");
     expect(toolNames).toContain("get_table_columns");
+    expect(toolNames).toContain("get_related_objects");
     expect(toolNames).toContain("validate_query");
     expect(toolNames).toContain("execute_sql");
     expect(toolNames).toContain("describe_sql_object");
   });
 
-  it("should have 6 total tools when defaults are enabled", async () => {
+  it("should have 7 total tools when defaults are enabled", async () => {
     const { allToolDefinitions } = await import(
       "../../../src/ibmi-mcp-server/tools/index.js"
     );
 
-    expect(allToolDefinitions).toHaveLength(6);
+    expect(allToolDefinitions).toHaveLength(7);
   });
 
   it("should mark all default tools as read-only", async () => {
@@ -797,6 +1040,7 @@ describe("Default Tools - Tool Registry", () => {
       "list_schemas",
       "list_tables_in_schema",
       "get_table_columns",
+      "get_related_objects",
       "validate_query",
     ];
 

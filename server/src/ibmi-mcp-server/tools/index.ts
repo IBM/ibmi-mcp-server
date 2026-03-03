@@ -15,14 +15,15 @@ import { listSchemasTool } from "./listSchemas.tool.js";
 import { listTablesInSchemaTool } from "./listTablesInSchema.tool.js";
 import { getTableColumnsTool } from "./getTableColumns.tool.js";
 import { validateQueryTool } from "./validateQuery.tool.js";
+import { getRelatedObjectsTool } from "./getRelatedObjects.tool.js";
 
 /**
  * Default text-to-SQL toolset, enabled via IBMI_ENABLE_DEFAULT_TOOLS (default: true).
  * These tools provide schema discovery and query validation for LLM workflows:
- *   list_schemas → list_tables_in_schema → get_table_columns → validate_query → execute_sql
+ *   list_schemas → list_tables_in_schema → get_table_columns → get_related_objects → validate_query → execute_sql
  */
 const defaultTools = config.ibmi_enableDefaultTools
-  ? [listSchemasTool, listTablesInSchemaTool, getTableColumnsTool, validateQueryTool]
+  ? [listSchemasTool, listTablesInSchemaTool, getTableColumnsTool, getRelatedObjectsTool, validateQueryTool]
   : [];
 
 /**
