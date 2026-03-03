@@ -247,7 +247,7 @@ export const getRelatedObjectsTool = defineTool({
   name: "get_related_objects",
   title: "Get Related Objects",
   description:
-    "Get all objects that depend on a database file (views, indexes, triggers, foreign keys, logical files, etc.). Use this for impact analysis before schema changes or to understand a table's dependency graph. Returns no results for SQL aliases, program-described files, or nonexistent files.",
+    "Get all objects that depend on a database file — views, indexes, triggers, foreign keys, logical files, and more. Use for impact analysis before schema changes or to understand a table's dependency graph.",
   inputSchema: GetRelatedObjectsInputSchema,
   outputSchema: GetRelatedObjectsOutputSchema,
   logic: getRelatedObjectsLogic,

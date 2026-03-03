@@ -233,7 +233,7 @@ export const listTablesInSchemaTool = defineTool({
   name: "list_tables_in_schema",
   title: "List Tables in Schema",
   description:
-    "List tables, views, and physical files in a specific schema with metadata including row counts. Essential for understanding schema structure.",
+    "List tables, views, and physical files in a specific schema with metadata including row counts. Use after list_schemas to find tables before querying column details.",
   inputSchema: ListTablesInputSchema,
   outputSchema: ListTablesOutputSchema,
   logic: listTablesLogic,

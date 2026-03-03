@@ -204,7 +204,7 @@ export const getTableColumnsTool = defineTool({
   name: "get_table_columns",
   title: "Get Table Columns",
   description:
-    "Get column details for a table including name, data type, length, nullable, default value, and description. Use this to understand table structure before writing queries.",
+    "Get column metadata for a table including names, data types, lengths, nullability, defaults, and descriptions. Use this to understand table structure before writing SQL queries.",
   inputSchema: GetTableColumnsInputSchema,
   outputSchema: GetTableColumnsOutputSchema,
   logic: getTableColumnsLogic,

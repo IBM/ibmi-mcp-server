@@ -33,7 +33,7 @@ import { config } from "../../config/index.js";
 
 const TOOL_NAME = "execute_sql";
 const TOOL_DESCRIPTION =
-  "Executes a SELECT query on the IBM i database and returns the results. Use this tool to retrieve data from database tables and views.";
+  "Executes a SELECT query on the IBM i database and returns the results. Use this after validating your query with validate_query.";
 
 /**
  * Configuration for the execute SQL tool
