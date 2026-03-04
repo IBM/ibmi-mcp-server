@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.3.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.3.1...v0.3.2) (2026-03-04)
+
+
+### Features
+
+* **Connection Pool Timeouts**: Configure idle connection cleanup and per-query timeouts to prevent resource leaks and long-running queries. Set `IBMI_POOL_IDLE_TIMEOUT_MS` and `IBMI_POOL_QUERY_TIMEOUT_MS` environment variables to tune pool behavior for your workload ([#121](https://github.com/IBM/ibmi-mcp-server/issues/121)), closes [#117](https://github.com/IBM/ibmi-mcp-server/issues/117)
+
+
+### Documentation
+
+* **Container Deployment Guide**: Add comprehensive instructions for running the MCP server in Docker, Podman, and OpenShift containers, including multi-architecture image support ([#116](https://github.com/IBM/ibmi-mcp-server/issues/116))
+
 ### [0.3.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.3.0...v0.3.1) (2026-02-22)
 
 
