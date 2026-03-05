@@ -764,6 +764,219 @@ describe("Default Tools - validate_query", () => {
     expect(result.data).toEqual([]);
     expect(result.rowCount).toBe(0);
   });
+
+  it("should cross-reference valid tables and columns against system catalog", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    // 1st call: PARSE_STATEMENT returns table + column refs
+    const parseData = [
+      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "CUSNUM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "LSTNAM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+    // 2nd call: SYSTABLES confirms the table exists
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+    // 3rd call: SYSCOLUMNS2 confirms both columns exist
+    const columnsData = [
+      { TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT", COLUMN_NAME: "CUSNUM" },
+      { TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT", COLUMN_NAME: "LSTNAM" },
+    ];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData))
+      .mockResolvedValueOnce(createMockQueryResult(columnsData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT CUSNUM, LSTNAM FROM QIWS.QCUSTCDT" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation).toBeDefined();
+    expect(result.objectValidation!.tables.valid).toEqual(["QIWS.QCUSTCDT"]);
+    expect(result.objectValidation!.tables.invalid).toEqual([]);
+    expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
+    expect(result.objectValidation!.columns.valid).toContain("LSTNAM");
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+  });
+
+  it("should detect hallucinated table names", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    const parseData = [
+      { NAME_TYPE: "TABLE", NAME: "FAKE_TABLE", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+    // SYSTABLES returns empty — table doesn't exist
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult([]));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT * FROM QIWS.FAKE_TABLE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation).toBeDefined();
+    expect(result.objectValidation!.tables.invalid).toEqual(["QIWS.FAKE_TABLE"]);
+    expect(result.objectValidation!.tables.valid).toEqual([]);
+    // No column validation when no valid tables exist
+    expect(result.objectValidation!.columns.valid).toEqual([]);
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+  });
+
+  it("should detect hallucinated column names", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    const parseData = [
+      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "CUSNUM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "FAKE_COL", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+    // SYSCOLUMNS2 only returns CUSNUM, not FAKE_COL
+    const columnsData = [
+      { TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT", COLUMN_NAME: "CUSNUM" },
+    ];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData))
+      .mockResolvedValueOnce(createMockQueryResult(columnsData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT CUSNUM, FAKE_COL FROM QIWS.QCUSTCDT" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
+    expect(result.objectValidation!.columns.invalid).toContain("FAKE_COL");
+  });
+
+  it("should resolve qualified columns against their specific table", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    // Aliased columns have SCHEMA and NAME populated
+    const parseData = [
+      { NAME_TYPE: "COLUMN", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: "CUSNUM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+    const columnsData = [
+      { TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT", COLUMN_NAME: "CUSNUM" },
+    ];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData))
+      .mockResolvedValueOnce(createMockQueryResult(columnsData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT A.CUSNUM FROM QIWS.QCUSTCDT A" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+  });
+
+  it("should skip object validation when no schema-qualified tables exist", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    // TABLE row without SCHEMA (unqualified)
+    const parseData = [
+      { NAME_TYPE: "TABLE", NAME: "SOMETABLE", SCHEMA: null, COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+
+    mockExecuteQuery.mockResolvedValueOnce(createMockQueryResult(parseData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT * FROM SOMETABLE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    // Only one executeQuery call (PARSE_STATEMENT) — no catalog queries
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(result.objectValidation).toBeUndefined();
+  });
+
+  it("should handle SELECT * with no column references gracefully", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    // SELECT * returns only TABLE row, no COLUMN rows
+    const parseData = [
+      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT * FROM QIWS.QCUSTCDT" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation).toBeDefined();
+    expect(result.objectValidation!.tables.valid).toEqual(["QIWS.QCUSTCDT"]);
+    // No column validation needed (no columns to check)
+    expect(result.objectValidation!.columns.valid).toEqual([]);
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+    // Only 2 calls: PARSE_STATEMENT + SYSTABLES (no SYSCOLUMNS2)
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("should gracefully degrade when catalog query fails", async () => {
+    const { validateQueryTool } = await import(
+      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
+    );
+
+    const parseData = [
+      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ];
+
+    // PARSE_STATEMENT succeeds, but SYSTABLES query fails
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockRejectedValueOnce(new Error("Catalog query timeout"));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT * FROM QIWS.QCUSTCDT" },
+      context,
+      mockSdkContext,
+    );
+
+    // Still succeeds with parse data (nulls stripped), just no objectValidation
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([
+      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+    ]);
+    expect(result.objectValidation).toBeUndefined();
+  });
 });
 
 describe("Default Tools - get_related_objects", () => {

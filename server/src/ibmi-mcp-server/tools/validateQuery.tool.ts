@@ -1,9 +1,9 @@
 /**
  * Validate Query Tool
  *
- * Validates SQL query syntax using IBM i's native PARSE_STATEMENT table function.
- * Returns statement type and parsing results without executing the query.
- * Promoted from YAML tool definition.
+ * Validates SQL query syntax using IBM i's native PARSE_STATEMENT table function,
+ * then cross-references parsed table and column names against the system catalog
+ * (SYSTABLES / SYSCOLUMNS2) to detect hallucinated object names.
  *
  * @module validateQuery.tool
  */
@@ -16,6 +16,26 @@ import { logger } from "../../utils/internal/logger.js";
 import { IBMiConnectionPool } from "../services/connectionPool.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface TableRef {
+  schema: string;
+  name: string;
+}
+
+interface ColumnRef {
+  columnName: string;
+  schema?: string;
+  tableName?: string;
+}
+
+interface ObjectValidation {
+  tables: { valid: string[]; invalid: string[] };
+  columns: { valid: string[]; invalid: string[] };
+}
 
 // =============================================================================
 // Schemas
@@ -31,6 +51,19 @@ const ValidateQueryInputSchema = z.object({
     ),
 });
 
+const ObjectValidationSchema = z.object({
+  tables: z.object({
+    valid: z.array(z.string()).describe("Tables confirmed to exist."),
+    invalid: z.array(z.string()).describe("Tables not found in system catalog."),
+  }),
+  columns: z.object({
+    valid: z.array(z.string()).describe("Columns confirmed to exist."),
+    invalid: z
+      .array(z.string())
+      .describe("Columns not found in any referenced table."),
+  }),
+});
+
 const ValidateQueryOutputSchema = z.object({
   success: z.boolean().describe("Whether the validation executed successfully."),
   data: z
@@ -44,6 +77,9 @@ const ValidateQueryOutputSchema = z.object({
     .number()
     .optional()
     .describe("Validation execution time in milliseconds."),
+  objectValidation: ObjectValidationSchema.optional().describe(
+    "Cross-reference results of parsed table/column names against the system catalog.",
+  ),
   error: z
     .object({
       code: z.string().describe("Error code"),
@@ -56,6 +92,157 @@ const ValidateQueryOutputSchema = z.object({
 
 type ValidateQueryInput = z.infer<typeof ValidateQueryInputSchema>;
 type ValidateQueryOutput = z.infer<typeof ValidateQueryOutputSchema>;
+
+// =============================================================================
+// Object Reference Extraction
+// =============================================================================
+
+function extractObjectReferences(parseResults: Record<string, unknown>[]): {
+  tables: TableRef[];
+  columns: ColumnRef[];
+} {
+  const tableMap = new Map<string, TableRef>();
+  const columns: ColumnRef[] = [];
+
+  for (const row of parseResults) {
+    const nameType = row.NAME_TYPE as string | null;
+
+    if (nameType === "TABLE") {
+      const schema = row.SCHEMA as string | null;
+      const name = row.NAME as string | null;
+      if (schema && name) {
+        const key = `${schema}.${name}`;
+        if (!tableMap.has(key)) {
+          tableMap.set(key, { schema, name });
+        }
+      }
+    } else if (nameType === "COLUMN") {
+      const columnName = row.COLUMN_NAME as string | null;
+      if (columnName) {
+        const schema = row.SCHEMA as string | null;
+        const tableName = row.NAME as string | null;
+        columns.push({
+          columnName,
+          ...(schema ? { schema } : {}),
+          ...(tableName ? { tableName } : {}),
+        });
+      }
+    }
+  }
+
+  return { tables: [...tableMap.values()], columns };
+}
+
+// =============================================================================
+// Catalog Cross-Reference
+// =============================================================================
+
+async function validateTables(
+  tables: TableRef[],
+  context: RequestContext,
+): Promise<{ existingTables: Set<string>; validation: ObjectValidation["tables"] }> {
+  if (tables.length === 0) {
+    return { existingTables: new Set(), validation: { valid: [], invalid: [] } };
+  }
+
+  const valuesPlaceholders = tables.map(() => "(?, ?)").join(", ");
+  const params = tables.flatMap((t) => [t.schema, t.name]);
+
+  const sql = `SELECT TABLE_SCHEMA, TABLE_NAME FROM QSYS2.SYSTABLES WHERE (TABLE_SCHEMA, TABLE_NAME) IN (VALUES ${valuesPlaceholders})`;
+
+  const result = await IBMiConnectionPool.executeQuery(sql, params, context);
+  const rows = (result.data as Record<string, unknown>[]) ?? [];
+
+  const existingTables = new Set(
+    rows.map(
+      (r) => `${r.TABLE_SCHEMA as string}.${r.TABLE_NAME as string}`,
+    ),
+  );
+
+  const valid: string[] = [];
+  const invalid: string[] = [];
+
+  for (const table of tables) {
+    const key = `${table.schema}.${table.name}`;
+    if (existingTables.has(key)) {
+      valid.push(key);
+    } else {
+      invalid.push(key);
+    }
+  }
+
+  return { existingTables, validation: { valid, invalid } };
+}
+
+async function validateColumns(
+  columns: ColumnRef[],
+  validTables: Set<string>,
+  context: RequestContext,
+): Promise<ObjectValidation["columns"]> {
+  if (columns.length === 0 || validTables.size === 0) {
+    return { valid: [], invalid: [] };
+  }
+
+  // Build the set of (schema, table) pairs to check against
+  const tablePairs = [...validTables].map((key) => {
+    const dotIndex = key.indexOf(".");
+    return { schema: key.substring(0, dotIndex), name: key.substring(dotIndex + 1) };
+  });
+
+  // Collect unique column names to check
+  const uniqueColumnNames = [...new Set(columns.map((c) => c.columnName))];
+
+  const tableValuesPlaceholders = tablePairs.map(() => "(?, ?)").join(", ");
+  const columnPlaceholders = uniqueColumnNames.map(() => "?").join(", ");
+  const params = [
+    ...tablePairs.flatMap((t) => [t.schema, t.name]),
+    ...uniqueColumnNames,
+  ];
+
+  const sql = `SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM QSYS2.SYSCOLUMNS2 WHERE (TABLE_SCHEMA, TABLE_NAME) IN (VALUES ${tableValuesPlaceholders}) AND COLUMN_NAME IN (${columnPlaceholders})`;
+
+  const result = await IBMiConnectionPool.executeQuery(sql, params, context);
+  const rows = (result.data as Record<string, unknown>[]) ?? [];
+
+  // Build lookup: column name → set of "SCHEMA.TABLE" where it exists
+  const columnExistence = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const colName = row.COLUMN_NAME as string;
+    const tableKey = `${row.TABLE_SCHEMA as string}.${row.TABLE_NAME as string}`;
+    if (!columnExistence.has(colName)) {
+      columnExistence.set(colName, new Set());
+    }
+    columnExistence.get(colName)!.add(tableKey);
+  }
+
+  // Validate each unique column
+  const valid: string[] = [];
+  const invalid: string[] = [];
+
+  for (const colName of uniqueColumnNames) {
+    const col = columns.find((c) => c.columnName === colName)!;
+    const existsIn = columnExistence.get(colName);
+
+    if (col.schema && col.tableName) {
+      // Qualified column: check specific table
+      const qualifiedKey = `${col.schema}.${col.tableName}`;
+      if (existsIn?.has(qualifiedKey)) {
+        valid.push(colName);
+      } else {
+        invalid.push(colName);
+      }
+    } else {
+      // Unqualified column: check if it exists in ANY referenced valid table
+      if (existsIn && existsIn.size > 0) {
+        valid.push(colName);
+      } else {
+        invalid.push(colName);
+      }
+    }
+  }
+
+  return { valid, invalid };
+}
 
 // =============================================================================
 // Business Logic
@@ -90,15 +277,58 @@ async function validateQueryLogic(
       appContext,
     );
 
+    const rawData = (result.data as Record<string, unknown>[]) ?? [];
+
+    // Cross-reference against system catalog if parse returned results
+    let objectValidation: ObjectValidation | undefined;
+    if (rawData.length > 0) {
+      try {
+        const refs = extractObjectReferences(rawData);
+
+        if (refs.tables.length > 0) {
+          const { existingTables, validation: tableValidation } =
+            await validateTables(refs.tables, appContext);
+
+          const columnValidation = await validateColumns(
+            refs.columns,
+            existingTables,
+            appContext,
+          );
+
+          objectValidation = {
+            tables: tableValidation,
+            columns: columnValidation,
+          };
+        }
+      } catch (catalogError) {
+        logger.warning(
+          {
+            ...appContext,
+            error:
+              catalogError instanceof Error
+                ? catalogError.message
+                : String(catalogError),
+          },
+          "Object validation against system catalog failed; returning parse results without cross-reference.",
+        );
+      }
+    }
+
     const executionTime = Date.now() - startTime;
 
-    const typedData = (result.data as Record<string, unknown>[]) ?? [];
+    // Strip null values from parse results to reduce response size
+    const cleanedData = rawData.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).filter(([, v]) => v != null),
+      ),
+    );
 
     return {
       success: true,
-      data: typedData,
-      rowCount: typedData.length,
+      data: cleanedData,
+      rowCount: cleanedData.length,
       executionTime,
+      ...(objectValidation ? { objectValidation } : {}),
     };
   } catch (error) {
     const executionTime = Date.now() - startTime;
@@ -157,18 +387,38 @@ const validateQueryResponseFormatter = (
     return [
       {
         type: "text",
-        text: `SQL validation result: The statement could not be parsed. This typically indicates a syntax error.\nExecution time: ${result.executionTime}ms`,
+        text: `SQL validation failed: The statement could not be parsed. This typically indicates a syntax error.\nExecution time: ${result.executionTime}ms`,
       },
     ];
   }
 
+  const ov = result.objectValidation;
+  const invalidTables = ov?.tables.invalid ?? [];
+  const invalidColumns = ov?.columns.invalid ?? [];
+  const hasInvalidObjects = invalidTables.length > 0 || invalidColumns.length > 0;
+
+  const parts: string[] = [];
+
+  if (hasInvalidObjects) {
+    parts.push("SQL validation failed: Statement references objects that do not exist.");
+    const errors: string[] = [];
+    if (invalidTables.length > 0) {
+      errors.push(`  Tables not found: ${invalidTables.join(", ")}`);
+    }
+    if (invalidColumns.length > 0) {
+      errors.push(`  Columns not found: ${invalidColumns.join(", ")}`);
+    }
+    parts.push(errors.join("\n"));
+  } else {
+    parts.push("SQL validation passed.");
+  }
+
+  parts.push(`Execution time: ${result.executionTime}ms`);
+
   const resultJson = JSON.stringify(result.data, null, 2);
-  return [
-    {
-      type: "text",
-      text: `SQL validation passed.\nExecution time: ${result.executionTime}ms\n\nParse results:\n${resultJson}`,
-    },
-  ];
+  parts.push(`\nParse results:\n${resultJson}`);
+
+  return [{ type: "text", text: parts.join("\n") }];
 };
 
 // =============================================================================
@@ -179,7 +429,7 @@ export const validateQueryTool = defineTool({
   name: "validate_query",
   title: "Validate Query",
   description:
-    "Validate SQL query syntax using IBM i's native SQL parser. Returns statement type and parsing results without executing the query. If no results are returned, the statement is invalid.",
+    "Validate SQL query syntax and verify that referenced tables and columns exist in the system catalog. Uses PARSE_STATEMENT for syntax checking, then cross-references parsed object names against SYSTABLES and SYSCOLUMNS2 to detect hallucinated or incorrect table/column names.",
   inputSchema: ValidateQueryInputSchema,
   outputSchema: ValidateQueryOutputSchema,
   logic: validateQueryLogic,
