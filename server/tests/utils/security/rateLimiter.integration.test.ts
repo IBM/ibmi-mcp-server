@@ -21,16 +21,8 @@ const RateLimitEnvSchema = z.object({
     .optional()
     .default("true")
     .transform((val) => val === "true" || val === "1"),
-  MCP_RATE_LIMIT_MAX_REQUESTS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(100),
-  MCP_RATE_LIMIT_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(900_000),
+  MCP_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  MCP_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   MCP_RATE_LIMIT_SKIP_DEV: z
     .string()
     .optional()
@@ -120,9 +112,8 @@ describe("Rate Limiter Config Integration", () => {
     });
 
     it("should create a RateLimiter with custom config values", async () => {
-      const { RateLimiter } = await import(
-        "../../../src/utils/security/rateLimiter"
-      );
+      const { RateLimiter } =
+        await import("../../../src/utils/security/rateLimiter");
 
       const limiter = new RateLimiter({
         windowMs: 60_000,
@@ -153,9 +144,8 @@ describe("Rate Limiter Config Integration", () => {
     });
 
     it("should reflect configured window duration in error messages", async () => {
-      const { RateLimiter } = await import(
-        "../../../src/utils/security/rateLimiter"
-      );
+      const { RateLimiter } =
+        await import("../../../src/utils/security/rateLimiter");
 
       const limiter = new RateLimiter({
         windowMs: 120_000, // 2 minutes
@@ -176,9 +166,8 @@ describe("Rate Limiter Config Integration", () => {
     });
 
     it("should enforce per-key isolation with configured limits", async () => {
-      const { RateLimiter } = await import(
-        "../../../src/utils/security/rateLimiter"
-      );
+      const { RateLimiter } =
+        await import("../../../src/utils/security/rateLimiter");
 
       const limiter = new RateLimiter({
         windowMs: 60_000,
@@ -211,7 +200,10 @@ describe("Rate Limiter Config Integration", () => {
      * since the function is not exported. This mirrors the implementation
      * in httpTransport.ts:49-57.
      */
-    function getClientIp(headers: Record<string, string | undefined>, socketAddress?: string): string {
+    function getClientIp(
+      headers: Record<string, string | undefined>,
+      socketAddress?: string,
+    ): string {
       const forwardedFor = headers["x-forwarded-for"];
       return (
         (forwardedFor?.split(",")[0] ?? "").trim() ||
@@ -292,12 +284,10 @@ describe("Rate Limiter Config Integration", () => {
     });
 
     it("should produce McpError with RateLimited code and structured details", async () => {
-      const { RateLimiter } = await import(
-        "../../../src/utils/security/rateLimiter"
-      );
-      const { JsonRpcErrorCode, McpError } = await import(
-        "../../../src/types-global/errors"
-      );
+      const { RateLimiter } =
+        await import("../../../src/utils/security/rateLimiter");
+      const { JsonRpcErrorCode, McpError } =
+        await import("../../../src/types-global/errors");
 
       const limiter = new RateLimiter({
         windowMs: 30_000,
@@ -327,9 +317,8 @@ describe("Rate Limiter Config Integration", () => {
     });
 
     it("should correctly calculate wait time as window approaches reset", async () => {
-      const { RateLimiter } = await import(
-        "../../../src/utils/security/rateLimiter"
-      );
+      const { RateLimiter } =
+        await import("../../../src/utils/security/rateLimiter");
 
       const limiter = new RateLimiter({
         windowMs: 10_000, // 10 seconds

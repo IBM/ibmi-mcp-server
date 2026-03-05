@@ -148,7 +148,7 @@ export class SqlSecurityValidator {
 
     // Use Set for O(1) lookup performance
     const forbiddenSet = new Set(
-      forbiddenKeywords.map(kw => kw.toUpperCase())
+      forbiddenKeywords.map((kw) => kw.toUpperCase()),
     );
 
     for (const token of tokens) {

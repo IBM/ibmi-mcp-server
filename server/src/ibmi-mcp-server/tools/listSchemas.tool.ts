@@ -31,18 +31,14 @@ const ListSchemasInputSchema = z.object({
   include_system: z
     .boolean()
     .default(false)
-    .describe(
-      "Include system schemas (Q* and SYS* prefixed). Default: false.",
-    ),
+    .describe("Include system schemas (Q* and SYS* prefixed). Default: false."),
   limit: z
     .number()
     .int()
     .min(1)
     .max(500)
     .default(50)
-    .describe(
-      "Maximum number of rows to return per page (1-500, default 50).",
-    ),
+    .describe("Maximum number of rows to return per page (1-500, default 50)."),
   offset: z
     .number()
     .int()

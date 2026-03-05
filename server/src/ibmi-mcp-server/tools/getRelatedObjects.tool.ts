@@ -50,9 +50,7 @@ const GetRelatedObjectsInputSchema = z.object({
     .string()
     .min(1, "Library name cannot be empty.")
     .max(10, "Library name cannot exceed 10 characters.")
-    .describe(
-      "Library containing the database file (e.g., 'APPLIB', 'MYLIB')",
-    ),
+    .describe("Library containing the database file (e.g., 'APPLIB', 'MYLIB')"),
   file_name: z
     .string()
     .min(1, "File name cannot be empty.")
@@ -157,9 +155,7 @@ async function getRelatedObjectsLogic(
 
     // Strip null/undefined values from each row to reduce response size
     const filteredData = typedData?.map((row) =>
-      Object.fromEntries(
-        Object.entries(row).filter(([, v]) => v != null),
-      ),
+      Object.fromEntries(Object.entries(row).filter(([, v]) => v != null)),
     );
 
     return {

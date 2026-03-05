@@ -41,9 +41,7 @@ const ListTablesInputSchema = z.object({
     .min(1)
     .max(500)
     .default(50)
-    .describe(
-      "Maximum number of rows to return per page (1-500, default 50).",
-    ),
+    .describe("Maximum number of rows to return per page (1-500, default 50)."),
   offset: z
     .number()
     .int()
@@ -124,7 +122,13 @@ async function listTablesLogic(
   try {
     const result = await IBMiConnectionPool.executeQuery(
       sql,
-      [params.schema_name, params.table_filter, params.table_filter, params.offset, fetchLimit],
+      [
+        params.schema_name,
+        params.table_filter,
+        params.table_filter,
+        params.offset,
+        fetchLimit,
+      ],
       appContext,
     );
 

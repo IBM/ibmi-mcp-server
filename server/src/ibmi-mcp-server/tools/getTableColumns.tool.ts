@@ -32,9 +32,7 @@ const GetTableColumnsInputSchema = z.object({
     .string()
     .min(1, "Table name cannot be empty.")
     .max(128, "Table name cannot exceed 128 characters.")
-    .describe(
-      "Table name to get columns for (e.g., 'QCUSTCDT', 'EMPLOYEE')",
-    ),
+    .describe("Table name to get columns for (e.g., 'QCUSTCDT', 'EMPLOYEE')"),
 });
 
 const GetTableColumnsOutputSchema = z.object({
@@ -123,9 +121,7 @@ async function getTableColumnsLogic(
 
     // Strip null/undefined values from each row to reduce response size
     const filteredData = typedData?.map((row) =>
-      Object.fromEntries(
-        Object.entries(row).filter(([, v]) => v != null),
-      ),
+      Object.fromEntries(Object.entries(row).filter(([, v]) => v != null)),
     );
 
     return {
@@ -179,8 +175,7 @@ const getTableColumnsResponseFormatter = (
   result: GetTableColumnsOutput,
 ): ContentBlock[] => {
   if (!result.success) {
-    const errorMessage =
-      result.error?.message || "Failed to get table columns";
+    const errorMessage = result.error?.message || "Failed to get table columns";
     const errorDetails = result.error?.details
       ? `\n\nDetails:\n${JSON.stringify(result.error.details, null, 2)}`
       : "";

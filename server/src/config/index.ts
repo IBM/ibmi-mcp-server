@@ -357,18 +357,10 @@ const EnvSchema = z.object({
     .transform((val) => val === "true" || val === "1"),
 
   /** Maximum requests allowed per rate limit window. Default: 100. */
-  MCP_RATE_LIMIT_MAX_REQUESTS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(100),
+  MCP_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
 
   /** Rate limit window duration in milliseconds. Default: 900000 (15 minutes). */
-  MCP_RATE_LIMIT_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(900_000),
+  MCP_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
 
   /** Skip rate limiting when NODE_ENV=development. Default: false. */
   MCP_RATE_LIMIT_SKIP_DEV: z

@@ -23,7 +23,13 @@ import { getRelatedObjectsTool } from "./getRelatedObjects.tool.js";
  *   list_schemas → list_tables_in_schema → get_table_columns → get_related_objects → validate_query → execute_sql
  */
 const defaultTools = config.ibmi_enableDefaultTools
-  ? [listSchemasTool, listTablesInSchemaTool, getTableColumnsTool, getRelatedObjectsTool, validateQueryTool]
+  ? [
+      listSchemasTool,
+      listTablesInSchemaTool,
+      getTableColumnsTool,
+      getRelatedObjectsTool,
+      validateQueryTool,
+    ]
   : [];
 
 /**

@@ -107,18 +107,16 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should have correct tool metadata", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
     expect(listSchemasTool.name).toBe("list_schemas");
     expect(listSchemasTool.annotations?.readOnlyHint).toBe(true);
     expect(listSchemasTool.annotations?.destructiveHint).toBe(false);
   });
 
   it("should return schemas successfully", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     const mockData = [
       {
@@ -151,9 +149,8 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should filter by schema name pattern", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockResolvedValue(
       createMockQueryResult([
@@ -182,13 +179,16 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should exclude system schemas by default", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
-    await listSchemasTool.logic({ limit: 50, offset: 0 }, context, mockSdkContext);
+    await listSchemasTool.logic(
+      { limit: 50, offset: 0 },
+      context,
+      mockSdkContext,
+    );
 
     expect(mockExecuteQuery).toHaveBeenCalledWith(
       expect.stringContaining("SCHEMA_NAME NOT LIKE 'Q%'"),
@@ -198,9 +198,8 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should include system schemas when requested", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -218,9 +217,8 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should handle database errors gracefully", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
 
@@ -236,9 +234,8 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should handle McpError gracefully", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockRejectedValue(
       new McpError(JsonRpcErrorCode.DatabaseError, "DB unavailable"),
@@ -256,9 +253,8 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should return empty array for null data", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
@@ -275,15 +271,29 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should return hasMore: true when results exceed limit", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     // Mock returns 3 rows for limit=2 (limit+1 detection)
     const mockData = [
-      { SCHEMA_NAME: "LIB1", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB1", SCHEMA_SIZE: 0 },
-      { SCHEMA_NAME: "LIB2", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB2", SCHEMA_SIZE: 0 },
-      { SCHEMA_NAME: "LIB3", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB3", SCHEMA_SIZE: 0 },
+      {
+        SCHEMA_NAME: "LIB1",
+        SCHEMA_TEXT: "",
+        SYSTEM_SCHEMA_NAME: "LIB1",
+        SCHEMA_SIZE: 0,
+      },
+      {
+        SCHEMA_NAME: "LIB2",
+        SCHEMA_TEXT: "",
+        SYSTEM_SCHEMA_NAME: "LIB2",
+        SCHEMA_SIZE: 0,
+      },
+      {
+        SCHEMA_NAME: "LIB3",
+        SCHEMA_TEXT: "",
+        SYSTEM_SCHEMA_NAME: "LIB3",
+        SCHEMA_SIZE: 0,
+      },
     ];
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
@@ -302,12 +312,16 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should return hasMore: false when results are within limit", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     const mockData = [
-      { SCHEMA_NAME: "LIB1", SCHEMA_TEXT: "", SYSTEM_SCHEMA_NAME: "LIB1", SCHEMA_SIZE: 0 },
+      {
+        SCHEMA_NAME: "LIB1",
+        SCHEMA_TEXT: "",
+        SYSTEM_SCHEMA_NAME: "LIB1",
+        SCHEMA_SIZE: 0,
+      },
     ];
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
@@ -325,9 +339,8 @@ describe("Default Tools - list_schemas", () => {
   });
 
   it("should pass custom limit and offset as bind parameters", async () => {
-    const { listSchemasTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listSchemas.tool.js"
-    );
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -355,17 +368,15 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should have correct tool metadata", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
     expect(listTablesInSchemaTool.name).toBe("list_tables_in_schema");
     expect(listTablesInSchemaTool.annotations?.readOnlyHint).toBe(true);
   });
 
   it("should return tables for a schema", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     const mockData = [
       {
@@ -401,9 +412,8 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should pass table_filter parameter correctly", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -422,9 +432,8 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should use *ALL default for table_filter", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -444,9 +453,8 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should handle database errors gracefully", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     mockExecuteQuery.mockRejectedValue(new Error("Schema not found"));
 
@@ -461,16 +469,43 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should return hasMore: true when results exceed limit", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     // Mock returns 4 rows for limit=3 (limit+1 detection)
     const mockData = [
-      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T1", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 10, COLUMN_COUNT: 3 },
-      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T2", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 20, COLUMN_COUNT: 5 },
-      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T3", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 30, COLUMN_COUNT: 4 },
-      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T4", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 40, COLUMN_COUNT: 6 },
+      {
+        TABLE_SCHEMA: "MYLIB",
+        TABLE_NAME: "T1",
+        TABLE_TYPE: "T",
+        TABLE_TEXT: "",
+        NUMBER_ROWS: 10,
+        COLUMN_COUNT: 3,
+      },
+      {
+        TABLE_SCHEMA: "MYLIB",
+        TABLE_NAME: "T2",
+        TABLE_TYPE: "T",
+        TABLE_TEXT: "",
+        NUMBER_ROWS: 20,
+        COLUMN_COUNT: 5,
+      },
+      {
+        TABLE_SCHEMA: "MYLIB",
+        TABLE_NAME: "T3",
+        TABLE_TYPE: "T",
+        TABLE_TEXT: "",
+        NUMBER_ROWS: 30,
+        COLUMN_COUNT: 4,
+      },
+      {
+        TABLE_SCHEMA: "MYLIB",
+        TABLE_NAME: "T4",
+        TABLE_TYPE: "T",
+        TABLE_TEXT: "",
+        NUMBER_ROWS: 40,
+        COLUMN_COUNT: 6,
+      },
     ];
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
@@ -489,12 +524,18 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should return hasMore: false when results are within limit", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     const mockData = [
-      { TABLE_SCHEMA: "MYLIB", TABLE_NAME: "T1", TABLE_TYPE: "T", TABLE_TEXT: "", NUMBER_ROWS: 10, COLUMN_COUNT: 3 },
+      {
+        TABLE_SCHEMA: "MYLIB",
+        TABLE_NAME: "T1",
+        TABLE_TYPE: "T",
+        TABLE_TEXT: "",
+        NUMBER_ROWS: 10,
+        COLUMN_COUNT: 3,
+      },
     ];
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
@@ -512,9 +553,8 @@ describe("Default Tools - list_tables_in_schema", () => {
   });
 
   it("should pass custom limit and offset as bind parameters", async () => {
-    const { listTablesInSchemaTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js"
-    );
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -542,17 +582,15 @@ describe("Default Tools - get_table_columns", () => {
   });
 
   it("should have correct tool metadata", async () => {
-    const { getTableColumnsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js"
-    );
+    const { getTableColumnsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js");
     expect(getTableColumnsTool.name).toBe("get_table_columns");
     expect(getTableColumnsTool.annotations?.readOnlyHint).toBe(true);
   });
 
   it("should return columns for a table", async () => {
-    const { getTableColumnsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js"
-    );
+    const { getTableColumnsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js");
 
     const mockData = [
       {
@@ -596,9 +634,8 @@ describe("Default Tools - get_table_columns", () => {
   });
 
   it("should pass schema and table as bind parameters", async () => {
-    const { getTableColumnsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js"
-    );
+    const { getTableColumnsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -616,9 +653,8 @@ describe("Default Tools - get_table_columns", () => {
   });
 
   it("should return empty array for non-existent table", async () => {
-    const { getTableColumnsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js"
-    );
+    const { getTableColumnsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -634,9 +670,8 @@ describe("Default Tools - get_table_columns", () => {
   });
 
   it("should handle database errors gracefully", async () => {
-    const { getTableColumnsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js"
-    );
+    const { getTableColumnsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getTableColumns.tool.js");
 
     mockExecuteQuery.mockRejectedValue(new Error("Authorization failure"));
 
@@ -660,17 +695,15 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should have correct tool metadata", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
     expect(validateQueryTool.name).toBe("validate_query");
     expect(validateQueryTool.annotations?.readOnlyHint).toBe(true);
   });
 
   it("should return parse results for valid SQL", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     const mockData = [
       {
@@ -693,9 +726,8 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should call PARSE_STATEMENT with correct parameters", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -713,9 +745,8 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should return empty data for invalid SQL (syntax error)", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -731,9 +762,8 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should handle database errors gracefully", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     mockExecuteQuery.mockRejectedValue(new Error("Connection timeout"));
 
@@ -748,9 +778,8 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should handle null data in result", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
@@ -766,15 +795,35 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should cross-reference valid tables and columns against system catalog", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     // 1st call: PARSE_STATEMENT returns table + column refs
     const parseData = [
-      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "CUSNUM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
-      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "LSTNAM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
-      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "CUSNUM",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "LSTNAM",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
     // 2nd call: SYSTABLES confirms the table exists
     const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
@@ -802,15 +851,23 @@ describe("Default Tools - validate_query", () => {
     expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
     expect(result.objectValidation!.columns.valid).toContain("LSTNAM");
     expect(result.objectValidation!.columns.invalid).toEqual([]);
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
   });
 
   it("should detect hallucinated table names", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     const parseData = [
-      { NAME_TYPE: "TABLE", NAME: "FAKE_TABLE", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "FAKE_TABLE",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
     // SYSTABLES returns empty — table doesn't exist
     mockExecuteQuery
@@ -825,22 +882,46 @@ describe("Default Tools - validate_query", () => {
 
     expect(result.success).toBe(true);
     expect(result.objectValidation).toBeDefined();
-    expect(result.objectValidation!.tables.invalid).toEqual(["QIWS.FAKE_TABLE"]);
+    expect(result.objectValidation!.tables.invalid).toEqual([
+      "QIWS.FAKE_TABLE",
+    ]);
     expect(result.objectValidation!.tables.valid).toEqual([]);
     // No column validation when no valid tables exist
     expect(result.objectValidation!.columns.valid).toEqual([]);
     expect(result.objectValidation!.columns.invalid).toEqual([]);
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
   });
 
   it("should detect hallucinated column names", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     const parseData = [
-      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "CUSNUM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
-      { NAME_TYPE: "COLUMN", NAME: null, SCHEMA: null, COLUMN_NAME: "FAKE_COL", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
-      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "CUSNUM",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "FAKE_COL",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
     const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
     // SYSCOLUMNS2 only returns CUSNUM, not FAKE_COL
@@ -862,17 +943,32 @@ describe("Default Tools - validate_query", () => {
     expect(result.success).toBe(true);
     expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
     expect(result.objectValidation!.columns.invalid).toContain("FAKE_COL");
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
   });
 
   it("should resolve qualified columns against their specific table", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     // Aliased columns have SCHEMA and NAME populated
     const parseData = [
-      { NAME_TYPE: "COLUMN", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: "CUSNUM", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
-      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: "CUSNUM",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
     const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
     const columnsData = [
@@ -893,16 +989,24 @@ describe("Default Tools - validate_query", () => {
     expect(result.success).toBe(true);
     expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
     expect(result.objectValidation!.columns.invalid).toEqual([]);
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
   });
 
   it("should skip object validation when no schema-qualified tables exist", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     // TABLE row without SCHEMA (unqualified)
     const parseData = [
-      { NAME_TYPE: "TABLE", NAME: "SOMETABLE", SCHEMA: null, COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "SOMETABLE",
+        SCHEMA: null,
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
 
     mockExecuteQuery.mockResolvedValueOnce(createMockQueryResult(parseData));
@@ -920,13 +1024,19 @@ describe("Default Tools - validate_query", () => {
   });
 
   it("should handle SELECT * with no column references gracefully", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     // SELECT * returns only TABLE row, no COLUMN rows
     const parseData = [
-      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
     const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
 
@@ -946,17 +1056,25 @@ describe("Default Tools - validate_query", () => {
     // No column validation needed (no columns to check)
     expect(result.objectValidation!.columns.valid).toEqual([]);
     expect(result.objectValidation!.columns.invalid).toEqual([]);
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
     // Only 2 calls: PARSE_STATEMENT + SYSTABLES (no SYSCOLUMNS2)
     expect(mockExecuteQuery).toHaveBeenCalledTimes(2);
   });
 
   it("should gracefully degrade when catalog query fails", async () => {
-    const { validateQueryTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/validateQuery.tool.js"
-    );
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
 
     const parseData = [
-      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", COLUMN_NAME: null, USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ];
 
     // PARSE_STATEMENT succeeds, but SYSTABLES query fails
@@ -973,9 +1091,334 @@ describe("Default Tools - validate_query", () => {
     // Still succeeds with parse data (nulls stripped), just no objectValidation
     expect(result.success).toBe(true);
     expect(result.data).toEqual([
-      { NAME_TYPE: "TABLE", NAME: "QCUSTCDT", SCHEMA: "QIWS", USAGE_TYPE: "QUERY", SQL_STATEMENT_TYPE: "QUERY" },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
     ]);
     expect(result.objectValidation).toBeUndefined();
+  });
+
+  it("should validate functions against SYSROUTINES", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    const parseData = [
+      {
+        NAME_TYPE: "FUNCTION",
+        NAME: "OBJECT_STATISTICS",
+        SCHEMA: "QSYS2",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+    const routinesData = [
+      { ROUTINE_SCHEMA: "QSYS2", ROUTINE_NAME: "OBJECT_STATISTICS" },
+    ];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData))
+      .mockResolvedValueOnce(createMockQueryResult(routinesData));
+
+    const result = await validateQueryTool.logic(
+      {
+        sql_statement:
+          "SELECT * FROM TABLE(QSYS2.OBJECT_STATISTICS('QIWS', '*ALL', '*ALLSIMPLE'))",
+      },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.routines.valid).toEqual([
+      "QSYS2.OBJECT_STATISTICS",
+    ]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
+  });
+
+  it("should detect hallucinated function names", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    const parseData = [
+      {
+        NAME_TYPE: "FUNCTION",
+        NAME: "FAKE_FUNCTION",
+        SCHEMA: "QSYS2",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+    // SYSROUTINES returns empty — function doesn't exist
+    const routinesData: Record<string, unknown>[] = [];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData))
+      .mockResolvedValueOnce(createMockQueryResult(routinesData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "SELECT * FROM TABLE(QSYS2.FAKE_FUNCTION('QIWS'))" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.routines.invalid).toEqual([
+      "QSYS2.FAKE_FUNCTION",
+    ]);
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+  });
+
+  it("should validate stored procedures against SYSROUTINES", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    const parseData = [
+      {
+        NAME_TYPE: "PROC",
+        NAME: "GENERATE_SQL",
+        SCHEMA: "QSYS2",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "CALL",
+      },
+    ];
+    const routinesData = [
+      { ROUTINE_SCHEMA: "QSYS2", ROUTINE_NAME: "GENERATE_SQL" },
+    ];
+
+    // No SYSTABLES query — validateTables([]) returns early with empty tables
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(routinesData));
+
+    const result = await validateQueryTool.logic(
+      { sql_statement: "CALL QSYS2.GENERATE_SQL('QIWS', 'QCUSTCDT', 'TABLE')" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.routines.valid).toEqual([
+      "QSYS2.GENERATE_SQL",
+    ]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
+  });
+
+  it("should skip unqualified column validation for UDTF queries", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    // UDTF output columns appear as unqualified COLUMNs (SCHEMA=null, NAME=null)
+    const parseData = [
+      {
+        NAME_TYPE: "FUNCTION",
+        NAME: "OBJECT_STATISTICS",
+        SCHEMA: "QSYS2",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "OBJNAME",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "OBJSIZE",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+    ];
+    const routinesData = [
+      { ROUTINE_SCHEMA: "QSYS2", ROUTINE_NAME: "OBJECT_STATISTICS" },
+    ];
+
+    // No SYSTABLES query — validateTables([]) returns early. No SYSCOLUMNS2 — unqualified columns skipped.
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(routinesData));
+
+    const result = await validateQueryTool.logic(
+      {
+        sql_statement:
+          "SELECT OBJNAME, OBJSIZE FROM TABLE(QSYS2.OBJECT_STATISTICS('QIWS', '*ALL', '*ALLSIMPLE'))",
+      },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.routines.valid).toEqual([
+      "QSYS2.OBJECT_STATISTICS",
+    ]);
+    // Unqualified UDTF output columns should NOT be flagged as invalid
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+  });
+
+  it("should skip unqualified column validation for CTE queries", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    // CTE aliases appear as unqualified COLUMNs
+    const parseData = [
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "LIB_NAME",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "OBJ_TYPE",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData));
+    // No SYSCOLUMNS2 call — unqualified columns skipped due to CTE
+
+    const result = await validateQueryTool.logic(
+      {
+        sql_statement:
+          "WITH cte(LIB_NAME, OBJ_TYPE) AS (SELECT LSTNAM, CUSNUM FROM QIWS.QCUSTCDT) SELECT * FROM cte",
+      },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    // Unqualified CTE alias columns should NOT be flagged as invalid
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+    expect(result.objectValidation!.routines.valid).toEqual([]);
+    expect(result.objectValidation!.routines.invalid).toEqual([]);
+  });
+
+  it("should still validate qualified columns when virtual columns are present", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    // Mix of qualified columns (from a real table) and unqualified UDTF output columns
+    const parseData = [
+      {
+        NAME_TYPE: "FUNCTION",
+        NAME: "OBJECT_STATISTICS",
+        SCHEMA: "QSYS2",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "OBJNAME",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: "CUSNUM",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: "FAKE_COL",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "TABLE",
+        NAME: "QCUSTCDT",
+        SCHEMA: "QIWS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+    ];
+    const tablesData = [{ TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT" }];
+    const routinesData = [
+      { ROUTINE_SCHEMA: "QSYS2", ROUTINE_NAME: "OBJECT_STATISTICS" },
+    ];
+    // SYSCOLUMNS2 returns CUSNUM but not FAKE_COL
+    const columnsData = [
+      { TABLE_SCHEMA: "QIWS", TABLE_NAME: "QCUSTCDT", COLUMN_NAME: "CUSNUM" },
+    ];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(tablesData))
+      .mockResolvedValueOnce(createMockQueryResult(routinesData))
+      .mockResolvedValueOnce(createMockQueryResult(columnsData));
+
+    const result = await validateQueryTool.logic(
+      {
+        sql_statement:
+          "SELECT A.CUSNUM, A.FAKE_COL, OBJNAME FROM QIWS.QCUSTCDT A, TABLE(QSYS2.OBJECT_STATISTICS('QIWS', '*ALL', '*ALLSIMPLE'))",
+      },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    // Qualified CUSNUM is valid
+    expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
+    // Qualified FAKE_COL is still caught as invalid
+    expect(result.objectValidation!.columns.invalid).toContain("FAKE_COL");
+    // Unqualified OBJNAME (UDTF output) is NOT flagged
+    expect(result.objectValidation!.columns.invalid).not.toContain("OBJNAME");
   });
 });
 
@@ -988,18 +1431,16 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should have correct tool metadata", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
     expect(getRelatedObjectsTool.name).toBe("get_related_objects");
     expect(getRelatedObjectsTool.annotations?.readOnlyHint).toBe(true);
     expect(getRelatedObjectsTool.annotations?.destructiveHint).toBe(false);
   });
 
   it("should return dependent objects for a file", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     const mockData = [
       {
@@ -1045,9 +1486,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should pass library and file as bind parameters", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -1065,9 +1505,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should filter by object_type_filter when provided", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockResolvedValue(
       createMockQueryResult([
@@ -1082,7 +1521,11 @@ describe("Default Tools - get_related_objects", () => {
     );
 
     await getRelatedObjectsTool.logic(
-      { library_name: "APPLIB", file_name: "ORDERS", object_type_filter: "INDEX" },
+      {
+        library_name: "APPLIB",
+        file_name: "ORDERS",
+        object_type_filter: "INDEX",
+      },
       context,
       mockSdkContext,
     );
@@ -1095,9 +1538,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should not include WHERE clause when object_type_filter is omitted", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -1115,9 +1557,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should return empty array for non-existent file", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
@@ -1133,9 +1574,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should return empty array for null data", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
@@ -1151,9 +1591,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should strip null values from result rows", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     const mockData = [
       {
@@ -1182,9 +1621,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should handle database errors gracefully", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
 
@@ -1200,9 +1638,8 @@ describe("Default Tools - get_related_objects", () => {
   });
 
   it("should handle McpError gracefully", async () => {
-    const { getRelatedObjectsTool } = await import(
-      "../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js"
-    );
+    const { getRelatedObjectsTool } =
+      await import("../../../src/ibmi-mcp-server/tools/getRelatedObjects.tool.js");
 
     mockExecuteQuery.mockRejectedValue(
       new McpError(JsonRpcErrorCode.DatabaseError, "DB unavailable"),
@@ -1222,9 +1659,8 @@ describe("Default Tools - get_related_objects", () => {
 
 describe("Default Tools - Tool Registry", () => {
   it("should include default tools when IBMI_ENABLE_DEFAULT_TOOLS is true", async () => {
-    const { allToolDefinitions } = await import(
-      "../../../src/ibmi-mcp-server/tools/index.js"
-    );
+    const { allToolDefinitions } =
+      await import("../../../src/ibmi-mcp-server/tools/index.js");
 
     const toolNames = allToolDefinitions.map((t) => t.name);
     expect(toolNames).toContain("list_schemas");
@@ -1237,17 +1673,15 @@ describe("Default Tools - Tool Registry", () => {
   });
 
   it("should have 7 total tools when defaults are enabled", async () => {
-    const { allToolDefinitions } = await import(
-      "../../../src/ibmi-mcp-server/tools/index.js"
-    );
+    const { allToolDefinitions } =
+      await import("../../../src/ibmi-mcp-server/tools/index.js");
 
     expect(allToolDefinitions).toHaveLength(7);
   });
 
   it("should mark all default tools as read-only", async () => {
-    const { allToolDefinitions } = await import(
-      "../../../src/ibmi-mcp-server/tools/index.js"
-    );
+    const { allToolDefinitions } =
+      await import("../../../src/ibmi-mcp-server/tools/index.js");
 
     const defaultToolNames = [
       "list_schemas",

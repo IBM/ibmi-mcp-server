@@ -33,11 +33,9 @@ describe("DB2 CTE Query Parsing Test", () => {
     try {
       SqlSecurityValidator.validateQuery(query, readOnlyConfig, context);
       console.log("✗ Query validation PASSED");
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-        throw new Error(
-        "Query validation failed"
-      );
+      throw new Error("Query validation failed");
     }
   });
 
