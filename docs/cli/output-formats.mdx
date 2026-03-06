@@ -1,0 +1,163 @@
+---
+title: "Output Formats"
+description: "Table, JSON, CSV, markdown, and NDJSON output formats for the IBM i CLI."
+---
+
+The CLI supports multiple output formats to suit different workflows — interactive terminal use, scripting, data export, and AI agent integration.
+
+---
+
+## Format Selection
+
+The output format is determined by this priority chain:
+
+1. `--raw` flag (shorthand for `--format json`)
+2. `--format <type>` flag (`table`, `json`, `csv`, `markdown`)
+3. `format:` in `.ibmi/config.yaml`
+4. **Auto-detect**: `table` when output is a TTY, `json` when piped
+
+This means interactive terminal sessions default to human-readable tables, while piped commands automatically switch to machine-parseable JSON.
+
+---
+
+## Table (Default for TTY)
+
+Formatted tables with box-drawing characters, column alignment, and a footer showing the system name, host, row count, and elapsed time.
+
+```bash
+ibmi sql "SELECT EMPNO, FIRSTNME, LASTNAME FROM SAMPLE.EMPLOYEE FETCH FIRST 3 ROWS ONLY"
+```
+
+```
+┌────────┬───────────┬──────────┐
+│ EMPNO  │ FIRSTNME  │ LASTNAME │
+├────────┼───────────┼──────────┤
+│ 000010 │ CHRISTINE │ HAAS     │
+│ 000020 │ MICHAEL   │ THOMPSON │
+│ 000030 │ SALLY     │ KWAN     │
+└────────┴───────────┴──────────┘
+[dev] myhost.com · 3 rows · 0.12s
+```
+
+---
+
+## JSON
+
+Structured JSON envelope with metadata. Default when output is piped to another command.
+
+```bash
+ibmi sql "SELECT EMPNO, FIRSTNME FROM SAMPLE.EMPLOYEE FETCH FIRST 2 ROWS ONLY" --raw
+```
+
+```json
+{
+  "ok": true,
+  "system": "dev",
+  "host": "myhost.com",
+  "command": "execute_sql",
+  "data": [
+    {"EMPNO": "000010", "FIRSTNME": "CHRISTINE"},
+    {"EMPNO": "000020", "FIRSTNME": "MICHAEL"}
+  ],
+  "meta": {
+    "rows": 2,
+    "hasMore": false,
+    "elapsed_ms": 120
+  }
+}
+```
+
+On error:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "SQL_ERROR",
+    "message": "SQL0204 - BADTABLE not found in SAMPLE"
+  }
+}
+```
+
+---
+
+## NDJSON (Streaming)
+
+One JSON object per row, separated by newlines. Ideal for streaming processing and large result sets.
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --stream
+```
+
+```
+{"EMPNO":"000010","FIRSTNME":"CHRISTINE","LASTNAME":"HAAS"}
+{"EMPNO":"000020","FIRSTNME":"MICHAEL","LASTNAME":"THOMPSON"}
+{"EMPNO":"000030","FIRSTNME":"SALLY","LASTNAME":"KWAN"}
+```
+
+Process rows incrementally:
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --stream | while IFS= read -r row; do
+  echo "$row" | jq '.EMPNO'
+done
+```
+
+---
+
+## CSV
+
+Comma-separated values with a header row. Useful for data export and spreadsheet import.
+
+```bash
+ibmi sql "SELECT EMPNO, FIRSTNME, LASTNAME FROM SAMPLE.EMPLOYEE" --format csv
+```
+
+```
+EMPNO,FIRSTNME,LASTNAME
+000010,CHRISTINE,HAAS
+000020,MICHAEL,THOMPSON
+000030,SALLY,KWAN
+```
+
+Export directly to a file:
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output employees.csv
+```
+
+---
+
+## Markdown
+
+Markdown-formatted table. Useful for documentation, reports, and chat tool output.
+
+```bash
+ibmi sql "SELECT EMPNO, FIRSTNME, LASTNAME FROM SAMPLE.EMPLOYEE FETCH FIRST 3 ROWS ONLY" --format markdown
+```
+
+```markdown
+| EMPNO  | FIRSTNME  | LASTNAME |
+|--------|-----------|----------|
+| 000010 | CHRISTINE | HAAS     |
+| 000020 | MICHAEL   | THOMPSON |
+| 000030 | SALLY     | KWAN     |
+```
+
+---
+
+## File Output
+
+Write output to a file instead of stdout using `--output`:
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output /tmp/employees.csv
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --raw --output /tmp/employees.json
+```
+
+Combine with `--watch` to continuously update a file:
+
+```bash
+ibmi sql "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS='RUN'" \
+  --format csv --output /tmp/active-jobs.csv --watch 10
+```

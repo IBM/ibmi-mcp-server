@@ -1,0 +1,192 @@
+---
+title: "Configuration"
+description: "Configure multi-system connections, output defaults, and credential management for the IBM i CLI."
+---
+
+The CLI uses YAML configuration files to manage system connections. You can configure multiple IBM i systems, set a default, and switch between them with the `--system` flag.
+
+---
+
+## Config File Locations
+
+The CLI loads configuration from two locations. Project-level config overrides user-level config:
+
+| Scope | Path | Use Case |
+|-------|------|----------|
+| **Project** | Nearest `.ibmi/config.yaml` walking up from `cwd` | Team-shared settings, project-specific systems |
+| **User** | `~/.ibmi/config.yaml` | Personal systems, global defaults |
+
+The CLI walks up the directory tree from your current working directory to find the nearest `.ibmi/config.yaml` — similar to how `.gitignore` files work.
+
+<Note>
+The `.ibmi/` directory is automatically added to `.gitignore` when you create your first system with `ibmi system add`. This prevents credentials from being committed to version control.
+</Note>
+
+---
+
+## Config File Format
+
+```yaml
+# Default system to use when --system is not specified
+default: dev
+
+# Default output format (optional)
+# Overrides TTY auto-detection when set
+format: table    # table | json | csv | markdown
+
+# Named system connections
+systems:
+  dev:
+    host: dev400.example.com
+    port: 8076
+    user: DEVUSER
+    password: ${DB2i_PASS}
+    readOnly: false
+    confirm: false
+    timeout: 60
+    maxRows: 5000
+    ignoreUnauthorized: true
+
+  prod:
+    host: prod400.example.com
+    port: 8076
+    user: ${PROD_USER}
+    password: ${PROD_PASS}
+    readOnly: true
+    confirm: true
+```
+
+### System Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `host` | string | *required* | IBM i hostname or IP address |
+| `port` | number | `8076` | Mapepire port |
+| `user` | string | *required* | IBM i user profile |
+| `password` | string | — | Password or `${ENV_VAR}` reference |
+| `description` | string | — | Human-readable label |
+| `defaultSchema` | string | — | Default schema for unqualified table names |
+| `readOnly` | boolean | `true` | Restrict to SELECT statements |
+| `confirm` | boolean | `false` | Prompt before executing write operations |
+| `timeout` | number | `30` | Query timeout in seconds |
+| `maxRows` | number | `5000` | Default row limit for queries |
+| `ignoreUnauthorized` | boolean | `false` | Accept self-signed TLS certificates |
+| `tools` | string | — | Default YAML tool path for this system |
+
+---
+
+## Environment Variable Expansion
+
+Use `${VAR_NAME}` syntax in config values to reference environment variables. These are expanded at load time:
+
+```yaml
+systems:
+  dev:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+```
+
+This lets you keep credentials in your shell environment or `.env` file rather than in the config file itself.
+
+---
+
+## System Resolution Order
+
+When a command needs a system connection, the CLI resolves it in this priority order:
+
+<Steps>
+  <Step title="--system flag">
+    Explicit flag always wins.
+
+    ```bash
+    ibmi sql "SELECT 1 FROM SYSIBM.SYSDUMMY1" --system prod
+    ```
+  </Step>
+
+  <Step title="IBMI_SYSTEM environment variable">
+    Set in your shell or `.env` file.
+
+    ```bash
+    export IBMI_SYSTEM=prod
+    ibmi schemas
+    ```
+  </Step>
+
+  <Step title="Config default">
+    The `default:` key in your config file.
+
+    ```yaml
+    default: dev
+    ```
+  </Step>
+
+  <Step title="Implicit single system">
+    If only one system is configured, it's used automatically.
+  </Step>
+
+  <Step title="Legacy DB2i_* environment variables">
+    Falls back to `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` from the environment. This provides zero-config compatibility with existing MCP server setups.
+  </Step>
+</Steps>
+
+---
+
+## Password Resolution
+
+When a system connection requires authentication:
+
+1. **Config `password` field** — including `${ENV_VAR}` expansion
+2. **Interactive prompt** — if running in a TTY, prompts for password with hidden input
+3. **Error** — if non-interactive (piped) and no password is available
+
+<Warning>
+Password values are never logged, displayed in `--watch` headers, or included in error output.
+</Warning>
+
+---
+
+## Managing Systems
+
+Use `ibmi system` subcommands to manage connections:
+
+```bash
+# Add a new system (interactive password prompt)
+ibmi system add staging --host staging400.example.com --user STGUSER
+
+# List all configured systems
+ibmi system list
+
+# Show details for a system
+ibmi system show dev
+
+# Set the default system
+ibmi system default prod
+
+# Test connectivity
+ibmi system test dev
+ibmi system test --all
+
+# Remove a system
+ibmi system remove staging
+
+# Show config file locations
+ibmi system config-path
+```
+
+---
+
+## Output Format Priority
+
+When determining the output format, the CLI checks in this order:
+
+1. `--raw` flag (equivalent to `--format json`)
+2. `--format <type>` flag
+3. `format:` in config file
+4. Auto-detect: `table` for TTY, `json` for piped output
+
+Set a default in your config to always get consistent output:
+
+```yaml
+format: table   # always render tables, even when piped
+```

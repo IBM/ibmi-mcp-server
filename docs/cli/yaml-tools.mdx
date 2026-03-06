@@ -1,0 +1,152 @@
+---
+title: "YAML Tool Execution"
+description: "Run YAML-defined SQL tools from the command line with automatic parameter mapping."
+---
+
+The CLI can execute any YAML-defined SQL tool as a command. Tool parameters are automatically converted to CLI flags, giving you a type-safe command-line interface for every tool in your YAML files.
+
+---
+
+## How It Works
+
+When you run `ibmi tool <name>`, the CLI:
+
+1. Loads the YAML file(s) specified by `--tools`
+2. Finds the tool by name
+3. Converts its parameters to Commander.js options (`snake_case` becomes `--kebab-case`)
+4. Validates required parameters and type constraints
+5. Executes the SQL with bind parameters
+6. Renders the result in the selected output format
+
+---
+
+## Running a Tool
+
+```bash
+ibmi tool system_status --tools ./tools/performance/performance.yaml
+```
+
+Pass parameters as flags:
+
+```bash
+ibmi tool active_job_info \
+  --limit 20 \
+  --tools ./tools/performance/performance.yaml
+```
+
+### Dry Run
+
+Preview the resolved SQL and parameters without executing:
+
+```bash
+ibmi tool active_job_info --limit 5 --dry-run --tools ./tools/performance/performance.yaml
+```
+
+```
+-- Dry Run: active_job_info
+-- Parameters: limit=5
+
+SELECT CPU_TIME, A.* FROM
+TABLE(QSYS2.ACTIVE_JOB_INFO(SUBSYSTEM_LIST_FILTER => 'QUSRWRK,QSYSWRK')) A
+ORDER BY CPU_TIME DESC
+FETCH FIRST ? ROWS ONLY
+
+Bind values: [5]
+```
+
+---
+
+## Discovering Tools
+
+### List All Tools
+
+```bash
+ibmi tools --tools ./tools/
+```
+
+### Filter by Toolset
+
+```bash
+ibmi tools --toolset performance --tools ./tools/
+```
+
+### Show Tool Details
+
+View a tool's description, parameters, and SQL statement:
+
+```bash
+ibmi tools show system_status --tools ./tools/
+```
+
+### List Toolsets
+
+```bash
+ibmi toolsets --tools ./tools/
+```
+
+---
+
+## Parameter Mapping
+
+YAML parameter definitions map directly to CLI flags:
+
+| YAML Parameter | CLI Flag | Type Handling |
+|----------------|----------|---------------|
+| `name: schema_name` | `--schema-name` | Underscore to kebab-case |
+| `type: string` | String value | Passed as-is |
+| `type: integer` | Number value | Parsed and validated |
+| `type: boolean` | Boolean flag | `--flag` or `--no-flag` |
+| `required: true` | Required option | Error if missing |
+| `default: 50` | Optional with default | Used when not specified |
+
+### Example
+
+Given this YAML tool definition:
+
+```yaml
+tools:
+  find_employees:
+    source: ibmi-system
+    description: "Find employees by department"
+    parameters:
+      - name: department
+        type: string
+        required: true
+        description: "Department code"
+      - name: limit
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 500
+    statement: |
+      SELECT EMPNO, FIRSTNME, LASTNAME, WORKDEPT
+      FROM SAMPLE.EMPLOYEE
+      WHERE WORKDEPT = :department
+      FETCH FIRST :limit ROWS ONLY
+```
+
+The CLI command would be:
+
+```bash
+ibmi tool find_employees --department A00 --limit 10 --tools ./tools/custom.yaml
+```
+
+---
+
+## Multiple YAML Files
+
+Load tools from multiple files or directories:
+
+```bash
+# Multiple files (comma-separated)
+ibmi tools --tools ./tools/performance/performance.yaml,./tools/security/security-ops.yaml
+
+# Entire directory
+ibmi tools --tools ./tools/
+```
+
+When loading a directory, all `.yaml` and `.yml` files are loaded and merged. Tool names must be unique across all loaded files.
+
+<Note>
+The `--tools` flag uses the same YAML format as the MCP server's `--tools` option. You can use the same tool files for both the CLI and the server.
+</Note>

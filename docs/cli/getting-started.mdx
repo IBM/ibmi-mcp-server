@@ -1,0 +1,154 @@
+---
+title: "Getting Started"
+description: "Set up the IBM i CLI, configure your first system connection, and run your first query in under 5 minutes."
+---
+
+Get the `ibmi` CLI running and connected to your IBM i system.
+
+---
+
+## Prerequisites
+
+- **Node.js 18+** installed on your development machine
+- **Mapepire** running on your IBM i system ([Setup Guide](/setup-mapepire))
+- IBM i hostname, username, and password
+
+---
+
+## Step 1: Install
+
+<Tabs>
+  <Tab title="NPM Package (Recommended)">
+    ```bash
+    npm install -g @ibm/ibmi-mcp-server
+    ibmi --help
+    ```
+  </Tab>
+
+  <Tab title="Build from Source">
+    ```bash
+    cd ibmi-mcp-server/server
+    npm install && npm run build && npm link
+    ibmi --help
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 2: Configure a System
+
+You have two options for connecting to your IBM i system:
+
+<Tabs>
+  <Tab title="Option A: Named System (Recommended)">
+    Create a named system connection stored in `.ibmi/config.yaml`:
+
+    ```bash
+    ibmi system add dev --host myhost.com --user MYUSER
+    ```
+
+    You'll be prompted for a password interactively (hidden input). Or pass it via environment variable:
+
+    ```bash
+    ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
+    ```
+
+    Test the connection:
+
+    ```bash
+    ibmi system test dev
+    ```
+
+    <Success>
+    You should see a success message confirming the connection to your IBM i system.
+    </Success>
+  </Tab>
+
+  <Tab title="Option B: Environment Variables (Zero Config)">
+    If you already have `DB2i_*` environment variables set (e.g., from your MCP server `.env` file), the CLI uses them automatically:
+
+    ```bash
+    export DB2i_HOST=myhost.com
+    export DB2i_USER=MYUSER
+    export DB2i_PASS=mypassword
+    export DB2i_PORT=8076
+
+    # No system config needed — just run commands
+    ibmi schemas
+    ```
+
+    <Note>
+    Named system connections take priority over environment variables. See [Configuration](/cli/configuration) for the full resolution order.
+    </Note>
+  </Tab>
+</Tabs>
+
+---
+
+## Step 3: Run Your First Query
+
+```bash
+# List available schemas
+ibmi schemas
+
+# List tables in a schema
+ibmi tables SAMPLE
+
+# Run a SQL query
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY"
+```
+
+You should see formatted table output like:
+
+```
+┌────────┬───────────┬──────────┐
+│ EMPNO  │ FIRSTNME  │ LASTNAME │
+├────────┼───────────┼──────────┤
+│ 000010 │ CHRISTINE │ HAAS     │
+│ 000020 │ MICHAEL   │ THOMPSON │
+│ 000030 │ SALLY     │ KWAN     │
+│ 000050 │ JOHN      │ GEYER    │
+│ 000060 │ IRVING    │ STERN    │
+└────────┴───────────┴──────────┘
+[dev] myhost.com · 5 rows · 0.12s
+```
+
+---
+
+## Step 4: Explore
+
+Try these commands to explore your IBM i system:
+
+```bash
+# Get column metadata for a table
+ibmi columns SAMPLE EMPLOYEE
+
+# Validate SQL syntax before executing
+ibmi validate "SELECT * FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000"
+
+# Find objects that depend on a database file
+ibmi related SAMPLE EMPLOYEE
+
+# Get JSON output instead of a table
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --raw
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Command Reference" icon="book" href="/cli/commands">
+    Full reference for all commands, options, and examples
+  </Card>
+  <Card title="Configuration" icon="gear" href="/cli/configuration">
+    Multi-system config, output format defaults, and YAML tool paths
+  </Card>
+  <Card title="Output Formats" icon="table" href="/cli/output-formats">
+    Table, JSON, CSV, markdown, and NDJSON streaming
+  </Card>
+  <Card title="YAML Tools" icon="file-code" href="/cli/yaml-tools">
+    Run YAML-defined SQL tools from the command line
+  </Card>
+</CardGroup>

@@ -58,6 +58,33 @@
         ]
       },
       {
+        "tab": "CLI",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "cli/overview",
+              "cli/getting-started"
+            ]
+          },
+          {
+            "group": "Usage Guide",
+            "pages": [
+              "cli/commands",
+              "cli/configuration",
+              "cli/output-formats",
+              "cli/yaml-tools"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "cli/agent-integration"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Agent Integrations",
         "groups": [
           {
