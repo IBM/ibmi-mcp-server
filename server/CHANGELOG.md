@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.4.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.0...v0.4.1) (2026-03-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** IBMI_ENABLE_DEFAULT_TOOLS now defaults to false. Users
+who relied on the default text-to-SQL toolset must pass --builtin-tools
+or set IBMI_ENABLE_DEFAULT_TOOLS=true.
+
+Signed-off-by: Adam Shedivy <ajshedivyaj@gmail.com>
+
+### Features
+
+* **cli:** add --builtin-tools and --execute-sql flags with opt-in defaults ([4437369](https://github.com/IBM/ibmi-mcp-server/commit/443736912b2c905acc43d394915e3f435611252a))
+* **env:** update .env.example with new tool configurations and rate limiting settings ([f2bbd12](https://github.com/IBM/ibmi-mcp-server/commit/f2bbd12a5ea283470b3fc86adc9bd3e3aaf025be))
+
 ## [0.4.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.3.2...v0.4.0) (2026-03-06)
 
 
