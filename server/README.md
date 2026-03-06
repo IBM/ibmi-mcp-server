@@ -315,34 +315,36 @@ npx -y @ibm/ibmi-mcp-server@latest [options]
 | `--toolsets <list>` | Comma-separated list of toolsets to load |
 | `--list-toolsets` | List all available toolsets and exit |
 | `--transport <type>` | Transport type: `stdio` (default) or `http` |
+| `--builtin-tools` | Enable built-in schema discovery tools (`list_schemas`, `list_tables_in_schema`, `get_table_columns`, `get_related_objects`, `validate_query`) |
+| `--execute-sql` | Enable the `execute_sql` tool for ad-hoc queries |
 | `--help` | Show help message |
 
 <details>
 <summary><strong>Common Examples</strong></summary>
 
-**Run server with stdio transport (for MCP clients):**
+**Full text-to-SQL workflow (schema discovery + query execution):**
 ```bash
-npx -y @ibm/ibmi-mcp-server@latest --transport stdio --tools ./tools
+npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql --transport http
 ```
 
-**Run HTTP server for testing:**
+**Schema discovery only (agents explore but can't run arbitrary SQL):**
+```bash
+npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --tools ./tools
+```
+
+**Run server with YAML tools only:**
 ```bash
 npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
 ```
 
 **Load specific toolsets only:**
 ```bash
-npx -y @ibm/ibmi-mcp-server@latest --toolsets performance,security
+npx -y @ibm/ibmi-mcp-server@latest --toolsets performance,security --tools ./tools
 ```
 
 **List available toolsets:**
 ```bash
 npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools ./tools
-```
-
-**Use custom tools directory:**
-```bash
-npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/custom-tools
 ```
 
 </details>
@@ -1605,12 +1607,19 @@ Settings for controlling built-in MCP tools compiled into the server. These are 
 
 ## Built-in Tools Overview
 
-The IBM i MCP Server includes two built-in tools for database operations:
+The IBM i MCP Server includes built-in tools for schema discovery, query validation, and SQL execution. All built-in tools are **disabled by default** (except `describe_sql_object`) and must be explicitly enabled via CLI flags or environment variables.
 
-| Tool | Status | Purpose | Configuration |
-|------|--------|---------|---------------|
-| `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | None (always available) |
-| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `IBMI_ENABLE_EXECUTE_SQL`<br/>`IBMI_EXECUTE_SQL_READONLY` |
+| Tool | Status | Purpose | CLI Flag | Env Variable |
+|------|--------|---------|----------|-------------|
+| `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | — | — |
+| `list_schemas` | Disabled by default | List available schemas/libraries | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `list_tables_in_schema` | Disabled by default | List tables, views, physical files in a schema | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `get_table_columns` | Disabled by default | Get column metadata for a table | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `get_related_objects` | Disabled by default | Find dependent objects for impact analysis | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `validate_query` | Disabled by default | Validate SQL syntax and verify referenced objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `--execute-sql` | `IBMI_ENABLE_EXECUTE_SQL` |
+
+> **Tip:** Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. Use `--builtin-tools` alone to let agents discover schema while routing queries through curated YAML tools.
 
 ---
 
@@ -1661,6 +1670,8 @@ CREATE TABLE SALES.CUSTOMER (
 
 The `execute_sql` tool allows MCP clients to run ad-hoc SQL queries against your IBM i Db2 database. This tool is **disabled by default** for security reasons.
 
+Enable via CLI flag `--execute-sql` or environment variables:
+
 | Variable | Description | Type | Default | Required |
 |----------|-------------|------|---------|----------|
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable the built-in `execute_sql` tool | boolean | `false` | No |
@@ -1688,23 +1699,23 @@ The execute_sql tool includes multiple layers of protection:
 **Examples:**
 
 ```bash
-# Development: Enable ad-hoc SELECT queries (readonly mode)
+# Via CLI flags (recommended for development)
+npx -y @ibm/ibmi-mcp-server@latest --execute-sql --transport http
+npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql --transport http
+
+# Via environment variables
 IBMI_ENABLE_EXECUTE_SQL=true
 IBMI_EXECUTE_SQL_READONLY=true  # Default - only SELECT queries allowed
 DB2i_HOST=ibmi-dev.local
 DB2i_USER=DEVUSER
 DB2i_PASS=devpass
 
-# Development: Enable write operations (INSERT/UPDATE/DELETE)
+# Enable write operations (INSERT/UPDATE/DELETE)
 IBMI_ENABLE_EXECUTE_SQL=true
 IBMI_EXECUTE_SQL_READONLY=false  # Allow write operations
-DB2i_HOST=ibmi-dev.local
-DB2i_USER=DEVUSER
-DB2i_PASS=devpass
 
 # Production: Use YAML tools instead (more controlled)
-IBMI_ENABLE_EXECUTE_SQL=false
-TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
+npx -y @ibm/ibmi-mcp-server@latest --tools /opt/mcp-tools/production.yaml
 ```
 
 > **⚠️ Security Recommendation:** Keep `IBMI_EXECUTE_SQL_READONLY=true` (default) unless you explicitly need write operations. For production use cases requiring write access, consider using YAML-defined tools with parameterized queries instead of ad-hoc SQL.
@@ -1721,12 +1732,13 @@ TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
 | **Security** | PARSE_STATEMENT + AST/Regex validation | Explicit whitelist of queries |
 | **Use Case** | Development & exploration | Production & controlled access |
 | **Configuration** | Environment variables | `TOOLS_YAML_PATH` |
-| **Examples** | `execute_sql`, `describe_sql_object` | Custom performance monitoring, security checks |
+| **Examples** | `list_schemas`, `get_table_columns`, `execute_sql`, `describe_sql_object` | Custom performance monitoring, security checks |
 
 **Recommendation:**
-- Use **`describe_sql_object`** freely - it's safe and helps AI understand your database schema
-- Use **`execute_sql`** in development for quick exploration
+- Use **`--builtin-tools`** for schema discovery — safe, read-only catalog queries that help AI understand your database
+- Use **`--execute-sql`** in development for quick ad-hoc query exploration
 - Use **YAML tools** in production for controlled, curated query access
+- Combine **`--builtin-tools` + YAML tools** to let agents discover schema while executing only curated queries
 
 YAML tools allow you to:
 - Curate specific queries with documentation

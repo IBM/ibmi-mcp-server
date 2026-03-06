@@ -41,6 +41,7 @@
             "expanded": true,
             "pages": [
               "sql-tools/overview",
+              "sql-tools/built-in-tools",
               {
                 "group": "Tool Reference",
                 "expanded": false,

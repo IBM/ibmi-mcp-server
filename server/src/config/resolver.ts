@@ -76,4 +76,12 @@ export function applyCliOverrides(cliArgs: CliArguments): void {
     // Store selected toolsets in config for access by other modules
     config.selectedToolsets = cliArgs.toolsets;
   }
+
+  if (cliArgs.builtinTools) {
+    config.ibmi_enableDefaultTools = true;
+  }
+
+  if (cliArgs.executeSql) {
+    config.ibmi_enableExecuteSql = true;
+  }
 }

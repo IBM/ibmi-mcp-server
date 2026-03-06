@@ -618,17 +618,27 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 
 ## Built-in Tools
 
-**Control access to compiled SQL tools.** The server includes two built-in database tools: `describe_sql_object` (always enabled) and `execute_sql` (disabled by default). These complement YAML-defined tools with direct database operations.
+**Control access to compiled SQL tools.** The server includes built-in tools for schema discovery, query validation, and SQL execution. All are **disabled by default** (except `describe_sql_object`) and must be explicitly enabled via CLI flags or environment variables.
 
-| Tool | Status | Purpose | Configuration |
-|------|--------|---------|---------------|
-| `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | None required |
-| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `IBMI_ENABLE_EXECUTE_SQL`<br/>`IBMI_EXECUTE_SQL_READONLY` |
+| Tool | Status | Purpose | CLI Flag | Env Variable |
+|------|--------|---------|----------|-------------|
+| `describe_sql_object` | ✅ Always enabled | Generate DDL for database objects | — | — |
+| `list_schemas` | Disabled by default | List available schemas/libraries | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `list_tables_in_schema` | Disabled by default | List tables, views, physical files | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `get_table_columns` | Disabled by default | Get column metadata for a table | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `get_related_objects` | Disabled by default | Find dependent objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `validate_query` | Disabled by default | Validate SQL syntax and verify objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `--execute-sql` | `IBMI_ENABLE_EXECUTE_SQL` |
 
-### Execute SQL Tool Configuration
+<Tip>
+Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. Use `--builtin-tools` alone to let agents discover schema while routing queries through curated YAML tools. See the [Built-in Tools Reference](/sql-tools/built-in-tools) for complete parameter and response documentation.
+</Tip>
+
+### Configuration Variables
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
+| `IBMI_ENABLE_DEFAULT_TOOLS` | Enable schema discovery tools | `false` | `true`, `false` |
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
 | `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | `true` | `true`, `false` |
 
@@ -637,19 +647,28 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 </Warning>
 
 <Tabs>
-  <Tab title="Readonly Mode (Default)">
+  <Tab title="Full Workflow (CLI)">
     ```bash
-    IBMI_ENABLE_EXECUTE_SQL=true
-    IBMI_EXECUTE_SQL_READONLY=true  # Default - only SELECT queries
+    # Schema discovery + query execution
+    npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql --transport http
     ```
 
-    **Use for**: Development exploration, debugging SELECT queries, safe ad-hoc queries
+    **Use for**: Development with full text-to-SQL capability
+  </Tab>
+
+  <Tab title="Schema Discovery Only">
+    ```bash
+    # Agents explore schema but can't run arbitrary SQL
+    npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --tools ./tools
+    ```
+
+    **Use for**: Production with curated YAML tools + schema exploration
   </Tab>
 
   <Tab title="Write Mode (Opt-in)">
     ```bash
-    IBMI_ENABLE_EXECUTE_SQL=true
-    IBMI_EXECUTE_SQL_READONLY=false  # Allow INSERT/UPDATE/DELETE
+    IBMI_EXECUTE_SQL_READONLY=false
+    npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
     ```
 
     **Use for**: Development when write operations are explicitly needed
@@ -657,10 +676,9 @@ TOOLS_YAML_PATH=configs/**/*.yaml
     ⚠️ **Warning**: Only use in trusted environments with proper authentication
   </Tab>
 
-  <Tab title="Production (Disabled)">
+  <Tab title="YAML Tools Only (Default)">
     ```bash
-    IBMI_ENABLE_EXECUTE_SQL=false
-    TOOLS_YAML_PATH=/app/configs
+    npx -y @ibm/ibmi-mcp-server@latest --tools ./tools
     ```
 
     **Use for**: Production with curated YAML tools for controlled access
@@ -670,6 +688,18 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 **Tool Capabilities:**
 
 <AccordionGroup>
+  <Accordion title="Schema Discovery Tools (--builtin-tools)" icon="magnifying-glass">
+    Five read-only tools that query IBM i system catalog views:
+
+    - **list_schemas**: Browse available schemas via `QSYS2.SYSSCHEMAS`
+    - **list_tables_in_schema**: Find tables, views, physical files via `QSYS2.SYSTABLES`
+    - **get_table_columns**: Inspect column metadata via `QSYS2.SYSCOLUMNS2`
+    - **get_related_objects**: Dependency analysis via `SYSTOOLS.RELATED_OBJECTS`
+    - **validate_query**: Multi-step SQL validation via `QSYS2.PARSE_STATEMENT`
+
+    All are safe, read-only catalog queries with zero risk to data.
+  </Accordion>
+
   <Accordion title="describe_sql_object (Always Available)" icon="database">
     Generates SQL DDL for IBM i database objects using `QSYS2.GENERATE_SQL`:
 
@@ -679,7 +709,7 @@ TOOLS_YAML_PATH=configs/**/*.yaml
     - **Use case**: Schema discovery, documentation, AI context
   </Accordion>
 
-  <Accordion title="execute_sql (Requires Configuration)" icon="code">
+  <Accordion title="execute_sql (--execute-sql)" icon="code">
     Executes ad-hoc SQL queries with multi-layered security controls:
 
     - **Readonly by default**: Only SELECT/QUERY statements allowed when `IBMI_EXECUTE_SQL_READONLY=true` (default)

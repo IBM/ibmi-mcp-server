@@ -32,11 +32,15 @@ export async function registerAllTools(server: McpServer): Promise<void> {
   );
 
   for (const toolDef of allToolDefinitions) {
-    if (toolDef.name === "execute_sql" && !config.ibmi_enableExecuteSql) {
-      // Skip execute_sql tool if disabled via IBMI_ENABLE_EXECUTE_SQL
+    if (
+      toolDef.name === "execute_sql" &&
+      !config.ibmi_enableExecuteSql &&
+      !config.ibmi_enableDefaultTools
+    ) {
+      // Skip execute_sql tool if disabled via both IBMI_ENABLE_EXECUTE_SQL and IBMI_ENABLE_DEFAULT_TOOLS
       logger.debug(
         context,
-        "Skipping registration of execute_sql tool (IBMI_ENABLE_EXECUTE_SQL=false)",
+        "Skipping registration of execute_sql tool (IBMI_ENABLE_EXECUTE_SQL=false, IBMI_ENABLE_DEFAULT_TOOLS=false)",
       );
       continue;
     }

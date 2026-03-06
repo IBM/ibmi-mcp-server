@@ -14,6 +14,8 @@ export interface CliArguments {
   transport?: mcpTransportType;
   toolsets?: string[];
   listToolsets?: boolean;
+  builtinTools?: boolean;
+  executeSql?: boolean;
   help?: boolean;
   errors?: string[];
   warnings?: string[];
@@ -81,6 +83,10 @@ export function parseCliArguments(): CliArguments {
       }
     } else if (arg === "--list-toolsets") {
       parsed.listToolsets = true;
+    } else if (arg === "--builtin-tools") {
+      parsed.builtinTools = true;
+    } else if (arg === "--execute-sql") {
+      parsed.executeSql = true;
     } else if (arg?.startsWith("--")) {
       parsed.warnings?.push(`Unknown argument detected: ${arg}`);
       i++;
@@ -146,22 +152,30 @@ Options:
   --toolsets, -ts <list>   Comma-separated list of toolsets (e.g., "performance,system")
   --list-toolsets   List all available toolsets and exit
   --transport, -t <type>   Transport type: "stdio" or "http"
+  --builtin-tools   Enable built-in schema discovery tools (list_schemas,
+                    list_tables_in_schema, get_table_columns, get_related_objects,
+                    validate_query)
+  --execute-sql     Enable the execute_sql tool (combine with --builtin-tools
+                    for the full text-to-SQL workflow)
 
   -h, --help        Show this help message
 
 Examples:
+  npx ibmi-mcp-server --builtin-tools --execute-sql
+  npx ibmi-mcp-server --builtin-tools --transport http
+  npx ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance.yaml
   npx ibmi-mcp-server --tools tools
-  npx ibmi-mcp-server --tools tools/performance.yaml
   npx ibmi-mcp-server --toolsets performance,system
   npx ibmi-mcp-server --list-toolsets --tools tools
-  npx ibmi-mcp-server --tools ../custom-tools/
-  npx ibmi-mcp-server --tools "configs/**/*.yaml"
 
 Environment Variables:
-  TOOLS_YAML_PATH         Path to YAML tools (CLI --tools takes precedence)
-  MCP_TRANSPORT_TYPE      Transport mode: 'stdio' (default) or 'http'
-  MCP_LOG_LEVEL           Log level: debug, info, warning, error
-  
+  TOOLS_YAML_PATH              Path to YAML tools (CLI --tools takes precedence)
+  MCP_TRANSPORT_TYPE           Transport mode: 'stdio' (default) or 'http'
+  MCP_LOG_LEVEL                Log level: debug, info, warning, error
+  IBMI_ENABLE_DEFAULT_TOOLS    Enable built-in tools (default: false)
+  IBMI_ENABLE_EXECUTE_SQL      Enable execute_sql tool (default: false)
+  IBMI_EXECUTE_SQL_READONLY    Restrict execute_sql to SELECT only (default: true)
+
   See .env.example for complete environment variable reference.
 
 Note: The server runs in stdio mode by default for MCP client integration.

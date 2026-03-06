@@ -345,7 +345,7 @@ const EnvSchema = z.object({
   IBMI_ENABLE_DEFAULT_TOOLS: z
     .string()
     .optional()
-    .default("true")
+    .default("false")
     .transform((val) => val === "true" || val === "1"),
 
   // --- START: Rate Limiting Configuration ---
