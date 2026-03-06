@@ -101,7 +101,6 @@
     "reflect-metadata": "^0.2.2",
     "sanitize-html": "^2.17.0",
     "tiktoken": "^1.0.22",
-    "ts-node": "^1.7.1",
     "validator": "^13.15.23",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
@@ -124,6 +123,7 @@
     "msw": "^2.10.5",
     "prettier": "^3.6.2",
     "standard-version": "^9.5.0",
+    "ts-node": "^1.7.1",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.20.4",
     "typedoc": "^0.28.10",

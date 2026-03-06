@@ -89,9 +89,13 @@ export function registerSqlCommand(program: Command): void {
 
         // Apply maxRows limit if not already in the query
         let execSql = sql!;
-        const maxRows = opts["limit"]
-          ? parseInt(opts["limit"] as string, 10)
-          : resolved.config.maxRows;
+        let maxRows = resolved.config.maxRows;
+        if (opts["limit"]) {
+          maxRows = parseInt(opts["limit"] as string, 10);
+          if (isNaN(maxRows) || maxRows < 0) {
+            throw new Error(`Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`);
+          }
+        }
 
         if (
           maxRows &&

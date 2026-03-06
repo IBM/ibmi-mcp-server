@@ -191,9 +191,14 @@ export function registerSystemCommand(program: Command): void {
           rl.close();
         }
 
+        const port = parseInt(opts["port"] as string, 10);
+        if (isNaN(port) || port <= 0 || port > 65535) {
+          throw new Error(`Invalid --port value: "${opts["port"]}". Must be a number between 1 and 65535.`);
+        }
+
         const system: SystemConfig = {
           host,
-          port: parseInt(opts["port"] as string, 10),
+          port,
           user,
           password: opts["password"] as string | undefined,
           description: opts["description"] as string | undefined,
@@ -262,11 +267,14 @@ export function registerSystemCommand(program: Command): void {
 
         if (opts["all"]) {
           const results = [];
+          let hasFailure = false;
           for (const [sysName, sys] of Object.entries(config.systems)) {
             const result = await testSystemConnection(sysName, sys);
             results.push(result);
+            if (result.STATUS === "error") hasFailure = true;
           }
           renderOutput(results, format, { rowCount: results.length });
+          if (hasFailure) process.exitCode = ExitCode.GENERAL;
           return;
         }
 
@@ -299,6 +307,10 @@ export function registerSystemCommand(program: Command): void {
           format,
           { rowCount: 1 },
         );
+
+        if (result.STATUS === "error") {
+          process.exitCode = ExitCode.GENERAL;
+        }
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         const classified = classifyError(error);

@@ -5,6 +5,7 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
+import { ExitCode } from "../utils/exit-codes.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
 export function registerSchemasCommand(program: Command): void {
@@ -16,6 +17,19 @@ export function registerSchemasCommand(program: Command): void {
     .option("--limit <n>", "Maximum rows to return", "50")
     .option("--offset <n>", "Rows to skip for pagination", "0")
     .action(async (opts, cmd: Command) => {
+      const limit = parseInt(opts["limit"] as string, 10);
+      const offset = parseInt(opts["offset"] as string, 10);
+      if (isNaN(limit) || limit < 0) {
+        process.stderr.write(`Error: Invalid --limit value: "${opts["limit"]}". Must be a positive integer.\n`);
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      if (isNaN(offset) || offset < 0) {
+        process.stderr.write(`Error: Invalid --offset value: "${opts["offset"]}". Must be a non-negative integer.\n`);
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+
       await withConnection(cmd, "list_schemas", async (_resolved, ctx) => {
         const { listSchemasLogic } = await import(
           "../../ibmi-mcp-server/tools/listSchemas.tool.js"
@@ -25,8 +39,8 @@ export function registerSchemasCommand(program: Command): void {
           {
             filter: opts["filter"] as string | undefined,
             include_system: opts["systemSchemas"] as boolean,
-            limit: parseInt(opts["limit"] as string, 10),
-            offset: parseInt(opts["offset"] as string, 10),
+            limit,
+            offset,
           },
           ctx,
           {} as SdkContext,

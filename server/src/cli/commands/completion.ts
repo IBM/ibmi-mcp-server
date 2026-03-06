@@ -4,6 +4,7 @@
  */
 
 import { Command } from "commander";
+import { ExitCode } from "../utils/exit-codes.js";
 
 /** Top-level commands. */
 const COMMANDS = [
@@ -236,7 +237,7 @@ export function registerCompletionCommand(program: Command): void {
           process.stderr.write(
             `Unknown shell: ${target}. Supported: bash, zsh, fish\n`,
           );
-          process.exitCode = 2;
+          process.exitCode = ExitCode.USAGE;
       }
     });
 }

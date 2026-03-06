@@ -25,7 +25,7 @@ export function expandEnvVars(value: string): string {
  * Returns the entered password string.
  */
 export async function promptPassword(prompt: string): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stderr, // Use stderr so it doesn't interfere with piped output
@@ -49,11 +49,13 @@ export async function promptPassword(prompt: string): Promise<string> {
           rl.close();
           resolve(password);
         } else if (c === "\u0003") {
-          // Ctrl+C
+          // Ctrl+C — throw to let withConnection's finally block run cleanup
           stdin.setRawMode(wasRaw ?? false);
           stdin.removeListener("data", onData);
+          process.stderr.write("\n");
           rl.close();
-          process.exit(1);
+          reject(new Error("Cancelled"));
+          return;
         } else if (c === "\u007f" || c === "\b") {
           // Backspace
           if (password.length > 0) {

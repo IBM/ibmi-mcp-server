@@ -138,6 +138,24 @@ export async function withConnection(
 }
 
 /**
+ * Strip sensitive flags (e.g. --password) from argv before displaying.
+ */
+function sanitizeArgsForDisplay(args: string[]): string {
+  const sensitiveFlags = ["--password"];
+  const sanitized: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (sensitiveFlags.some((f) => arg === f || arg.startsWith(`${f}=`))) {
+      if (!arg.includes("=")) i++; // skip next arg (the value)
+      sanitized.push("--password ****");
+      continue;
+    }
+    sanitized.push(arg);
+  }
+  return sanitized.join(" ");
+}
+
+/**
  * Run a command repeatedly at the specified interval.
  * Clears the screen between runs in table/markdown/csv mode (not JSON/NDJSON,
  * which are intended for piping). Shows a timestamp header on stderr.
@@ -168,7 +186,7 @@ async function runWithWatch(
 
       // Show timestamp header so the user knows when the last refresh happened
       const now = new Date().toLocaleString();
-      const args = process.argv.slice(2).join(" ");
+      const args = sanitizeArgsForDisplay(process.argv.slice(2));
       process.stderr.write(`Every ${intervalSeconds}s: ibmi ${args}  ${now}\n\n`);
 
       // Run one connect-execute-render cycle
