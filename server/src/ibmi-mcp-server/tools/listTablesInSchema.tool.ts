@@ -86,7 +86,7 @@ type ListTablesOutput = z.infer<typeof ListTablesOutputSchema>;
 // Business Logic
 // =============================================================================
 
-async function listTablesLogic(
+export async function listTablesLogic(
   params: ListTablesInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,

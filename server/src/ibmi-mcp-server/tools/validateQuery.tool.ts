@@ -346,7 +346,7 @@ async function validateRoutines(
 // Business Logic
 // =============================================================================
 
-async function validateQueryLogic(
+export async function validateQueryLogic(
   params: ValidateQueryInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,

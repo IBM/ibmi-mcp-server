@@ -14,6 +14,7 @@ import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
+import type { BindingValue } from "@ibm/mapepire-js";
 import { IBMiConnectionPool } from "../services/connectionPool.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
@@ -99,7 +100,7 @@ type GetRelatedObjectsOutput = z.infer<typeof GetRelatedObjectsOutputSchema>;
 // Business Logic
 // =============================================================================
 
-async function getRelatedObjectsLogic(
+export async function getRelatedObjectsLogic(
   params: GetRelatedObjectsInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,
@@ -111,7 +112,7 @@ async function getRelatedObjectsLogic(
 
   const startTime = Date.now();
 
-  const bindParams: (string | number)[] = [
+  const bindParams: BindingValue[] = [
     params.library_name,
     params.file_name,
   ];

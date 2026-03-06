@@ -65,7 +65,7 @@ type GetTableColumnsOutput = z.infer<typeof GetTableColumnsOutputSchema>;
 // Business Logic
 // =============================================================================
 
-async function getTableColumnsLogic(
+export async function getTableColumnsLogic(
   params: GetTableColumnsInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,
