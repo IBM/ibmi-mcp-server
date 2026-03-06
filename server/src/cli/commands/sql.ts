@@ -58,7 +58,7 @@ export function registerSqlCommand(program: Command): void {
         process.stderr.write(
           "Error: No SQL provided. Pass as argument, use --file, or pipe via stdin.\n",
         );
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 

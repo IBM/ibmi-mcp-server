@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createProgram } from "../../../src/cli/index";
+import { writeFileSync, unlinkSync } from "fs";
+import path from "path";
+import os from "os";
 
 describe("ibmi sql command", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    process.exitCode = undefined;
   });
 
   it("should register the sql command", () => {
@@ -69,6 +73,112 @@ describe("ibmi sql command", () => {
       expect(output).toContain("SELECT 1 FROM SYSIBM.SYSDUMMY1");
     } finally {
       process.stdout.write = originalWrite;
+    }
+  });
+
+  it("should write 'No SQL provided' to stderr when no SQL given", async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    const stderrWrites: string[] = [];
+    const originalStderrWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrWrites.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync(["node", "ibmi", "sql"]);
+
+      expect(stderrWrites.join("")).toContain("No SQL provided");
+    } finally {
+      process.stderr.write = originalStderrWrite;
+      Object.defineProperty(process.stdin, "isTTY", {
+        value: originalIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it("should read SQL from --file and print it with --dry-run", async () => {
+    const tmpFile = path.join(os.tmpdir(), `ibmi-sql-test-${Date.now()}.sql`);
+    writeFileSync(tmpFile, "SELECT * FROM MYLIB.MYTABLE", "utf-8");
+
+    const stdoutWrites: string[] = [];
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string) => {
+      stdoutWrites.push(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "sql", "--file", tmpFile, "--dry-run",
+      ]);
+
+      expect(stdoutWrites.join("")).toContain("SELECT * FROM MYLIB.MYTABLE");
+    } finally {
+      process.stdout.write = originalWrite;
+      try { unlinkSync(tmpFile); } catch { /* cleanup */ }
+    }
+  });
+
+  it("should write 'Error reading file' to stderr for non-existent --file", async () => {
+    const stderrWrites: string[] = [];
+    const originalStderrWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrWrites.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "sql", "--file", "/tmp/nonexistent-ibmi-test-file.sql",
+      ]);
+
+      expect(stderrWrites.join("")).toContain("Error reading file");
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+  });
+
+  it("should not attempt connection when using --dry-run with --file", async () => {
+    const tmpFile = path.join(os.tmpdir(), `ibmi-sql-dryrun-${Date.now()}.sql`);
+    writeFileSync(tmpFile, "SELECT COUNT(*) FROM QSYS2.SYSTABLES", "utf-8");
+
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    const originalStdout = process.stdout.write;
+    const originalStderr = process.stderr.write;
+
+    process.stdout.write = ((chunk: string) => {
+      stdoutWrites.push(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrWrites.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "sql", "--file", tmpFile, "--dry-run",
+      ]);
+
+      expect(stdoutWrites.join("")).toContain("SELECT COUNT(*) FROM QSYS2.SYSTABLES");
+      expect(stderrWrites.join("")).not.toContain("connect");
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+      try { unlinkSync(tmpFile); } catch { /* cleanup */ }
     }
   });
 });

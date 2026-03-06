@@ -22,9 +22,30 @@ const PROJECT_CONFIG_DIR = ".ibmi";
 /** User-level config directory. */
 const USER_CONFIG_DIR = path.join(homedir(), ".ibmi");
 
-/** Get the project-level config file path. */
+/**
+ * Walk up from cwd to find the nearest .ibmi/config.yaml.
+ * Stops at the filesystem root. Returns null if not found.
+ */
+function findProjectConfigPath(): string | null {
+  let dir = process.cwd();
+  const root = path.parse(dir).root;
+
+  while (true) {
+    const candidate = path.join(dir, PROJECT_CONFIG_DIR, CONFIG_FILE);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir || dir === root) {
+      return null;
+    }
+    dir = parent;
+  }
+}
+
+/** Get the project-level config file path (nearest .ibmi/config.yaml walking up from cwd). */
 export function getProjectConfigPath(): string {
-  return path.join(process.cwd(), PROJECT_CONFIG_DIR, CONFIG_FILE);
+  return findProjectConfigPath() ?? path.join(process.cwd(), PROJECT_CONFIG_DIR, CONFIG_FILE);
 }
 
 /** Get the user-level config file path. */

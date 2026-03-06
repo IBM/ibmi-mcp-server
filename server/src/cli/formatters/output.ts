@@ -9,12 +9,47 @@
  * @module cli/formatters/output
  */
 
+import { writeFileSync } from "fs";
 import { tableFormatter } from "@/utils/formatting/tableFormatter.js";
 import type { OutputFormat, ResolvedSystem } from "../config/types.js";
 import {
   classifyError,
   type ErrorCodeValue,
 } from "../utils/exit-codes.js";
+
+/** Module-level output file path set by --output global option. */
+let outputFilePath: string | undefined;
+let outputBuffer: string[] | undefined;
+
+/**
+ * Set the output file path. When set, all output is buffered and written
+ * to the file on `finalizeOutput()`.
+ */
+export function setOutputFile(filePath: string | undefined): void {
+  outputFilePath = filePath;
+  outputBuffer = filePath ? [] : undefined;
+}
+
+/**
+ * Finalize file output — write buffered content to file and print confirmation to stderr.
+ */
+export function finalizeOutput(): void {
+  if (outputBuffer && outputFilePath) {
+    writeFileSync(outputFilePath, outputBuffer.join(""), "utf-8");
+    process.stderr.write(`Output written to ${outputFilePath}\n`);
+    outputBuffer = undefined;
+    outputFilePath = undefined;
+  }
+}
+
+/** Write to the current output destination (file buffer or stdout). */
+function writeOutput(data: string): void {
+  if (outputBuffer) {
+    outputBuffer.push(data);
+  } else {
+    process.stdout.write(data);
+  }
+}
 
 /** Result metadata for output rendering. */
 export interface OutputMeta {
@@ -77,7 +112,7 @@ export function renderNdjson(
   data: Record<string, unknown>[],
 ): void {
   for (const row of data) {
-    process.stdout.write(JSON.stringify(row) + "\n");
+    writeOutput(JSON.stringify(row) + "\n");
   }
 }
 
@@ -99,7 +134,7 @@ function renderJson(
       ...(meta?.elapsedMs !== undefined ? { elapsed_ms: meta.elapsedMs } : {}),
     },
   };
-  process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  writeOutput(JSON.stringify(output, null, 2) + "\n");
 }
 
 /**
@@ -111,7 +146,7 @@ function renderCsv(data: Record<string, unknown>[]): void {
   const headers = Object.keys(data[0]!);
 
   // Header row
-  process.stdout.write(headers.map(escapeCsvField).join(",") + "\n");
+  writeOutput(headers.map(escapeCsvField).join(",") + "\n");
 
   // Data rows
   for (const row of data) {
@@ -119,7 +154,7 @@ function renderCsv(data: Record<string, unknown>[]): void {
       const val = row[h];
       return val === null || val === undefined ? "" : String(val);
     });
-    process.stdout.write(values.map(escapeCsvField).join(",") + "\n");
+    writeOutput(values.map(escapeCsvField).join(",") + "\n");
   }
 }
 
@@ -139,12 +174,12 @@ function renderTable(
   meta?: OutputMeta,
 ): void {
   if (data.length === 0) {
-    process.stdout.write("No results.\n");
+    writeOutput("No results.\n");
     return;
   }
 
   const table = tableFormatter.format(data, { style, headerStyle: "uppercase" });
-  process.stdout.write(table + "\n");
+  writeOutput(table + "\n");
 
   // Footer with metadata
   const parts: string[] = [];
@@ -162,7 +197,7 @@ function renderTable(
   }
 
   if (parts.length > 0) {
-    process.stdout.write(parts.join(" · ") + "\n");
+    writeOutput(parts.join(" · ") + "\n");
   }
 }
 
@@ -186,7 +221,7 @@ export function renderError(
         message: error.message,
       },
     };
-    process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+    writeOutput(JSON.stringify(output, null, 2) + "\n");
   } else {
     process.stderr.write(`Error: ${error.message}\n`);
   }
@@ -200,8 +235,8 @@ export function renderMessage(
   format: OutputFormat,
 ): void {
   if (format === "json") {
-    process.stdout.write(JSON.stringify({ ok: true, message }) + "\n");
+    writeOutput(JSON.stringify({ ok: true, message }) + "\n");
   } else {
-    process.stdout.write(message + "\n");
+    writeOutput(message + "\n");
   }
 }

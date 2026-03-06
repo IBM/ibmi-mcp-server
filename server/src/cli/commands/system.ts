@@ -22,7 +22,8 @@ import {
   renderError,
   renderMessage,
 } from "../formatters/output.js";
-import { ExitCode } from "../utils/exit-codes.js";
+import { ExitCode, classifyError } from "../utils/exit-codes.js";
+import { connectSystem } from "../utils/connection.js";
 
 /**
  * Get the effective output format from parent command options.
@@ -30,6 +31,44 @@ import { ExitCode } from "../utils/exit-codes.js";
 function getFormat(cmd: Command): OutputFormat {
   const opts = cmd.optsWithGlobals();
   return detectFormat(opts["format"] as OutputFormat | undefined, opts["raw"] as boolean | undefined);
+}
+
+/** Result of a connection test. */
+interface ConnectionTestResult {
+  NAME: string;
+  HOST: string;
+  PORT: number;
+  USER: string;
+  STATUS: string;
+  ERROR?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Test connectivity to an IBM i system by establishing and closing a connection.
+ */
+async function testSystemConnection(
+  name: string,
+  sys: SystemConfig,
+): Promise<ConnectionTestResult> {
+  const base = { NAME: name, HOST: sys.host, PORT: sys.port, USER: sys.user };
+
+  let cleanup: (() => Promise<void>) | undefined;
+  try {
+    const resolved = {
+      name,
+      config: sys,
+      source: "flag" as const,
+    };
+    cleanup = await connectSystem(resolved);
+
+    return { ...base, STATUS: "connected" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ...base, STATUS: "error", ERROR: msg };
+  } finally {
+    if (cleanup) await cleanup();
+  }
 }
 
 /**
@@ -224,12 +263,8 @@ export function registerSystemCommand(program: Command): void {
         if (opts["all"]) {
           const results = [];
           for (const [sysName, sys] of Object.entries(config.systems)) {
-            results.push({
-              NAME: sysName,
-              HOST: sys.host,
-              PORT: sys.port,
-              STATUS: "configured", // Actual connection test deferred until connection bridge is wired
-            });
+            const result = await testSystemConnection(sysName, sys);
+            results.push(result);
           }
           renderOutput(results, format, { rowCount: results.length });
           return;
@@ -252,33 +287,23 @@ export function registerSystemCommand(program: Command): void {
           throw new Error(`System "${targetName}" not found.`);
         }
 
-        // For now, report the config status. Connection testing will be
-        // wired in when the connection bridge is integrated.
+        const result = await testSystemConnection(targetName, sys);
         renderOutput(
           [
-            {
-              PROPERTY: "system",
-              VALUE: targetName,
-            },
-            {
-              PROPERTY: "host",
-              VALUE: `${sys.host}:${sys.port}`,
-            },
-            {
-              PROPERTY: "user",
-              VALUE: sys.user,
-            },
-            {
-              PROPERTY: "status",
-              VALUE: "configured (connection test requires active system)",
-            },
+            { PROPERTY: "system", VALUE: result.NAME },
+            { PROPERTY: "host", VALUE: `${result.HOST}:${result.PORT}` },
+            { PROPERTY: "user", VALUE: result.USER },
+            { PROPERTY: "status", VALUE: result.STATUS },
+            ...(result.ERROR ? [{ PROPERTY: "error", VALUE: result.ERROR }] : []),
           ],
           format,
           { rowCount: 1 },
         );
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = ExitCode.GENERAL;
+        const error = err instanceof Error ? err : new Error(String(err));
+        const classified = classifyError(error);
+        renderError(error, format, undefined, classified.errorCode);
+        process.exitCode = classified.exitCode;
       }
     });
 
