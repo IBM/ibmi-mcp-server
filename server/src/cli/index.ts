@@ -18,6 +18,8 @@ import { registerColumnsCommand } from "./commands/columns.js";
 import { registerRelatedCommand } from "./commands/related.js";
 import { registerValidateCommand } from "./commands/validate.js";
 import { registerSqlCommand } from "./commands/sql.js";
+import { registerToolCommand } from "./commands/tool.js";
+import { registerToolsCommand, registerToolsetsCommand } from "./commands/tools-list.js";
 
 /**
  * Load version from package.json.
@@ -59,7 +61,8 @@ export function createProgram(): Command {
     .option("--system <name>", "Target system name (overrides IBMI_SYSTEM and config default)")
     .option("--format <type>", "Output format: table, json, csv, markdown", undefined)
     .option("--raw", "Output as JSON (shorthand for --format json)")
-    .option("--no-color", "Disable colored output");
+    .option("--no-color", "Disable colored output")
+    .option("--tools <path>", "Path to YAML tool file(s) or directory (comma-separated)");
 
   // Register command groups
   registerSystemCommand(program);
@@ -69,6 +72,9 @@ export function createProgram(): Command {
   registerRelatedCommand(program);
   registerValidateCommand(program);
   registerSqlCommand(program);
+  registerToolCommand(program);
+  registerToolsCommand(program);
+  registerToolsetsCommand(program);
 
   // Add a helpful message for when no command is given
   program.action(() => {
