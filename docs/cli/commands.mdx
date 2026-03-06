@@ -1,0 +1,210 @@
+---
+title: "Command Reference"
+description: "Complete reference for all IBM i CLI commands, options, and usage examples."
+---
+
+All commands follow the pattern `ibmi <command> [arguments] [options]`. [Global options](/cli/configuration#output-format-priority) (`--system`, `--format`, `--raw`, `--stream`, `--watch`, `--output`, `--tools`, `--no-color`) apply to every command.
+
+---
+
+## SQL Execution
+
+### `ibmi sql [statement]`
+
+Execute a SQL query against the target system.
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 10 ROWS ONLY"
+ibmi sql --file query.sql
+cat query.sql | ibmi sql
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --dry-run
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output results.csv
+ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--file <path>` | Read SQL from a file | — |
+| `--limit <n>` | Maximum rows returned | system `maxRows` (5000) |
+| `--read-only` / `--no-read-only` | Enforce or disable read-only mode | `--read-only` |
+| `--dry-run` | Print resolved SQL without executing | — |
+
+**SQL source priority:** positional argument > `--file` > piped stdin.
+
+<Note>
+Read-only mode is enabled by default. To execute INSERT, UPDATE, DELETE, or DDL statements, pass `--no-read-only` explicitly or set `readOnly: false` in your system config.
+</Note>
+
+---
+
+## Schema Discovery
+
+### `ibmi schemas`
+
+List available schemas (libraries) on the system.
+
+```bash
+ibmi schemas
+ibmi schemas --filter "MY%"
+ibmi schemas --system-schemas         # include Q* and SYS* schemas
+ibmi schemas --limit 20 --offset 40   # pagination
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--filter <pattern>` | SQL LIKE pattern to filter schema names | — |
+| `--system-schemas` | Include system schemas (Q* and SYS*) | `false` |
+| `--limit <n>` | Rows per page | `50` |
+| `--offset <n>` | Skip rows for pagination | `0` |
+
+### `ibmi tables <schema>`
+
+List tables, views, and physical files in a schema.
+
+```bash
+ibmi tables SAMPLE
+ibmi tables QSYS2 --filter "SYS%"
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--filter <pattern>` | SQL LIKE pattern to filter table names | — |
+| `--limit <n>` | Rows per page | `50` |
+| `--offset <n>` | Skip rows for pagination | `0` |
+
+### `ibmi columns <schema> <table>`
+
+Get column metadata for a specific table.
+
+```bash
+ibmi columns SAMPLE EMPLOYEE
+```
+
+Returns column name, data type, length, nullable, default value, description, and ordinal position.
+
+### `ibmi related <library> <object>`
+
+Discover objects that depend on a database file (views, indexes, triggers, foreign keys, logical files).
+
+```bash
+ibmi related SAMPLE EMPLOYEE
+ibmi related SAMPLE EMPLOYEE --type INDEX
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--type <type>` | Filter by dependency type (e.g., INDEX, VIEW, TRIGGER) | — |
+
+### `ibmi validate "<sql>"`
+
+Validate SQL syntax and verify referenced objects exist without executing the query.
+
+```bash
+ibmi validate "SELECT * FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000"
+```
+
+Uses `QSYS2.PARSE_STATEMENT` and cross-references tables, columns, and routines against the system catalog.
+
+---
+
+## YAML Tool Execution
+
+### `ibmi tool <name>`
+
+Execute a YAML-defined SQL tool. Requires `--tools` to specify the YAML file(s).
+
+```bash
+ibmi tool system_status --tools ./tools/performance/performance.yaml
+ibmi tool active_job_info --limit 20 --tools ./tools/performance/performance.yaml
+ibmi tool memory_pools --dry-run --tools ./tools/performance/performance.yaml
+```
+
+Each tool's YAML parameters are automatically converted to CLI flags. Parameter names are converted from `snake_case` to `--kebab-case`:
+
+```yaml
+# YAML parameter: schema_name → CLI flag: --schema-name
+parameters:
+  - name: schema_name
+    type: string
+    required: true
+```
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Show resolved SQL and parameters without executing |
+
+### `ibmi tools`
+
+List available tools from loaded YAML files.
+
+```bash
+ibmi tools --tools ./tools/
+ibmi tools --toolset work_management --tools ./tools/
+ibmi tools show system_status --tools ./tools/
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| *(default)* | List all available tools |
+| `show <name>` | Show tool details (parameters, SQL statement) |
+
+| Option | Description |
+|--------|-------------|
+| `--toolset <name>` | Filter tools by toolset |
+
+### `ibmi toolsets`
+
+List available toolsets from loaded YAML files.
+
+```bash
+ibmi toolsets --tools ./tools/
+```
+
+---
+
+## System Management
+
+### `ibmi system <subcommand>`
+
+Manage named system connections in `.ibmi/config.yaml`.
+
+```bash
+ibmi system list                          # list all configured systems
+ibmi system show dev                      # show system details
+ibmi system add dev --host h --user u     # add (prompts for missing fields)
+ibmi system remove dev                    # remove a system
+ibmi system default dev                   # set default system
+ibmi system test dev                      # test connectivity
+ibmi system test --all                    # test all systems
+ibmi system config-path                   # show config file locations
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | Show all configured systems |
+| `show <name>` | Display details for a specific system |
+| `add <name>` | Add a new system connection |
+| `remove <name>` | Remove a system connection |
+| `default <name>` | Set the default system |
+| `test [name]` | Test connectivity (`--all` for all systems) |
+| `config-path` | Show config file locations |
+
+---
+
+## Shell Completions
+
+### `ibmi completion [shell]`
+
+Generate shell completion scripts for tab-completion of commands, options, and arguments.
+
+```bash
+# Auto-detect shell
+eval "$(ibmi completion)"
+
+# Explicit shell
+eval "$(ibmi completion bash)"    # add to ~/.bashrc
+eval "$(ibmi completion zsh)"     # add to ~/.zshrc
+ibmi completion fish | source     # add to Fish config
+```
+
+Supports bash, zsh, and fish.

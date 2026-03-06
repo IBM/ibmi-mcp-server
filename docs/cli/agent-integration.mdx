@@ -1,0 +1,168 @@
+---
+title: "Agent Integration"
+description: "Use the IBM i CLI in AI agent workflows, shell scripts, and CI/CD pipelines with structured output and semantic exit codes."
+---
+
+The CLI is designed for programmatic use by AI agents, shell scripts, and automation pipelines. It provides structured JSON output, streaming, semantic exit codes, and dry-run capabilities for safe tool planning.
+
+---
+
+## Automatic JSON Output
+
+When stdout is not a TTY (i.e., the CLI output is piped to another command), the CLI automatically switches to JSON output. Agents and scripts get structured data without specifying `--format json`:
+
+```bash
+# Returns JSON automatically when piped
+result=$(ibmi sql "SELECT COUNT(*) AS CNT FROM SAMPLE.EMPLOYEE")
+count=$(echo "$result" | jq '.data[0].CNT')
+echo "Employee count: $count"
+```
+
+---
+
+## Exit Codes
+
+The CLI uses semantic exit codes for programmatic error handling:
+
+| Code | Name | Meaning |
+|------|------|---------|
+| `0` | SUCCESS | Command completed successfully |
+| `1` | GENERAL | Connection failure or unexpected error |
+| `2` | USAGE | Invalid arguments or missing options |
+| `3` | QUERY | SQL execution error |
+| `4` | SECURITY | Read-only violation or forbidden operation |
+| `5` | AUTH | Authentication failure |
+
+### Exit Code Routing
+
+Agents can branch logic based on exit codes:
+
+```bash
+ibmi sql "SELECT 1 FROM SYSIBM.SYSDUMMY1" --system prod
+case $? in
+  0) echo "Connection OK" ;;
+  1) echo "Connection failed — check host/port" ;;
+  3) echo "SQL error — check query syntax" ;;
+  5) echo "Auth failed — check credentials" ;;
+esac
+```
+
+### Error Codes in JSON
+
+When output is JSON, errors include a machine-readable error code:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "SQL_ERROR",
+    "message": "SQL0204 - BADTABLE not found in SAMPLE"
+  }
+}
+```
+
+Error codes: `GENERAL_ERROR`, `USAGE_ERROR`, `CONNECTION_ERROR`, `QUERY_ERROR`, `SQL_ERROR`, `SECURITY_VIOLATION`, `AUTH_FAILURE`, `NOT_FOUND`, `TIMEOUT`
+
+---
+
+## NDJSON Streaming
+
+Use `--stream` for newline-delimited JSON — one object per row. This is ideal for incremental processing of large result sets:
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --stream | while IFS= read -r row; do
+  name=$(echo "$row" | jq -r '.FIRSTNME')
+  echo "Processing: $name"
+done
+```
+
+---
+
+## Dry Run for Planning
+
+Agents can use `--dry-run` to preview SQL without executing. This is useful for query planning and validation before committing to execution:
+
+```bash
+# Preview SQL from a direct query
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000" --dry-run
+
+# Preview resolved SQL from a YAML tool
+ibmi tool monthly_report --schema SAMPLE --month 3 --dry-run --tools ./tools.yaml
+```
+
+Dry run requires no database connection, making it safe for agent planning steps.
+
+---
+
+## File Output
+
+Write results directly to a file for pipeline processing:
+
+```bash
+# Export query results to CSV
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output /tmp/employees.csv
+
+# Export to JSON
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --raw --output /tmp/employees.json
+```
+
+---
+
+## Watch Mode for Monitoring
+
+Repeatedly execute a command at a fixed interval. Useful for monitoring dashboards and alerting:
+
+```bash
+# Monitor active jobs every 10 seconds
+ibmi sql "SELECT JOB_NAME, CPU_TIME FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS='RUN'" \
+  --watch 10
+
+# Write monitoring data to a file
+ibmi sql "SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS())" \
+  --format csv --output /tmp/status.csv --watch 30
+```
+
+Press `Ctrl+C` to stop.
+
+---
+
+## Multi-System Workflows
+
+Target different systems in sequence for cross-system operations:
+
+```bash
+# Compare row counts across environments
+dev_count=$(ibmi sql "SELECT COUNT(*) AS C FROM MYLIB.ORDERS" --system dev | jq '.data[0].C')
+prod_count=$(ibmi sql "SELECT COUNT(*) AS C FROM MYLIB.ORDERS" --system prod | jq '.data[0].C')
+echo "Dev: $dev_count, Prod: $prod_count"
+```
+
+---
+
+## Example: Agent Script
+
+A complete example of an AI agent using the CLI for a text-to-SQL workflow:
+
+```bash
+#!/bin/bash
+set -e
+
+# Step 1: Discover available schemas
+schemas=$(ibmi schemas --raw | jq -r '.data[].SCHEMA_NAME')
+
+# Step 2: Find tables in target schema
+tables=$(ibmi tables SAMPLE --raw | jq -r '.data[].TABLE_NAME')
+
+# Step 3: Get column metadata for query planning
+columns=$(ibmi columns SAMPLE EMPLOYEE --raw)
+
+# Step 4: Validate the generated query (no execution)
+ibmi validate "SELECT EMPNO, SALARY FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000"
+if [ $? -ne 0 ]; then
+  echo "Query validation failed"
+  exit 1
+fi
+
+# Step 5: Execute with confidence
+ibmi sql "SELECT EMPNO, SALARY FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000" --raw
+```
