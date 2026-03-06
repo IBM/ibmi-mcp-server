@@ -8,7 +8,8 @@
     "dist"
   ],
   "bin": {
-    "ibmi-mcp-server": "dist/index.js"
+    "ibmi-mcp-server": "dist/index.js",
+    "ibmi": "dist/cli/index.js"
   },
   "exports": {
     ".": {
@@ -27,7 +28,7 @@
   "homepage": "https://github.com/IBM/ibmi-mcp-server.git#readme",
   "scripts": {
     "build": "tsc && tsc-alias",
-    "postbuild": "tsx scripts/make-executable.ts dist/index.js",
+    "postbuild": "tsx scripts/make-executable.ts dist/index.js dist/cli/index.js",
     "devdocs": "ts-node --esm scripts/devdocs.ts",
     "start": "node dist/index.js",
     "start:stdio": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=stdio node dist/index.js",
@@ -84,6 +85,7 @@
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "axios": "^1.11.0",
     "chrono-node": "^2.8.0",
+    "commander": "^14.0.3",
     "dotenv": "^16.6.1",
     "glob": "^10.5.0",
     "hono": "^4.8.9",
