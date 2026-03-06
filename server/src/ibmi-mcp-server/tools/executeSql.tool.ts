@@ -33,7 +33,7 @@ import { config } from "../../config/index.js";
 
 const TOOL_NAME = "execute_sql";
 const TOOL_DESCRIPTION =
-  "Executes a SELECT query on the IBM i database and returns the results. Use this tool to retrieve data from database tables and views.";
+  "Executes a SELECT query on the IBM i database and returns the results. Use this after validating your query with validate_query.";
 
 /**
  * Configuration for the execute SQL tool
@@ -51,9 +51,13 @@ export interface ExecuteSqlToolConfig {
  * Default tool configuration
  * Readonly mode is controlled by IBMI_EXECUTE_SQL_READONLY environment variable (defaults to true)
  * This ensures write operations are opt-in for security
+ *
+ * Enabled when:
+ * - IBMI_ENABLE_EXECUTE_SQL=true (explicit override), OR
+ * - IBMI_ENABLE_DEFAULT_TOOLS=true (part of default text-to-SQL toolset)
  */
 let toolConfig: ExecuteSqlToolConfig = {
-  enabled: true,
+  enabled: config.ibmi_enableExecuteSql || config.ibmi_enableDefaultTools,
   security: {
     readOnly: config.ibmi_executeSqlReadonly,
     maxQueryLength: 10000,
