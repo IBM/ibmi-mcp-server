@@ -12,6 +12,12 @@ import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { registerSystemCommand } from "./commands/system.js";
+import { registerSchemasCommand } from "./commands/schemas.js";
+import { registerTablesCommand } from "./commands/tables.js";
+import { registerColumnsCommand } from "./commands/columns.js";
+import { registerRelatedCommand } from "./commands/related.js";
+import { registerValidateCommand } from "./commands/validate.js";
+import { registerSqlCommand } from "./commands/sql.js";
 
 /**
  * Load version from package.json.
@@ -57,6 +63,12 @@ export function createProgram(): Command {
 
   // Register command groups
   registerSystemCommand(program);
+  registerSchemasCommand(program);
+  registerTablesCommand(program);
+  registerColumnsCommand(program);
+  registerRelatedCommand(program);
+  registerValidateCommand(program);
+  registerSqlCommand(program);
 
   // Add a helpful message for when no command is given
   program.action(() => {
