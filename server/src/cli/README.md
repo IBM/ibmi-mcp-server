@@ -21,7 +21,7 @@ ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
 # The CLI falls back to DB2i_HOST, DB2i_USER, DB2i_PASS automatically
 
 # Run a query
-ibmi sql "SELECT * FROM QSYS2.SYSTABLES FETCH FIRST 5 ROWS ONLY"
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY"
 
 # Run a YAML-defined tool
 ibmi tool system_status --tools ../tools/work-management.yaml
@@ -53,11 +53,11 @@ These apply to every command:
 ### `ibmi sql [statement]` — Execute SQL
 
 ```bash
-ibmi sql "SELECT * FROM QSYS2.SYSTABLES"
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 10 ROWS ONLY"
 ibmi sql --file query.sql
 cat query.sql | ibmi sql
-ibmi sql "SELECT * FROM MYLIB.MYTABLE" --dry-run        # preview only
-ibmi sql "SELECT * FROM MYLIB.MYTABLE" --format csv --output results.csv
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --dry-run      # preview only
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output results.csv
 ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 ```
 
@@ -74,7 +74,7 @@ SQL source priority: positional argument > `--file` > piped stdin.
 
 ```bash
 ibmi tool system_status --tools ../tools/work-management.yaml
-ibmi tool get_table_data --schema MYLIB --table CUSTOMERS --tools ../tools/custom.yaml
+ibmi tool get_table_data --schema SAMPLE --table EMPLOYEE --tools ../tools/custom.yaml
 ibmi tool list_jobs --dry-run --tools ../tools/work-management.yaml
 ```
 
@@ -124,27 +124,27 @@ ibmi schemas --system-schemas             # include Q* and SYS* schemas
 ### `ibmi tables <schema>` — List Tables
 
 ```bash
-ibmi tables MYLIB
+ibmi tables SAMPLE
 ibmi tables QSYS2 --filter "SYS%"
 ```
 
 ### `ibmi columns <schema> <table>` — Column Metadata
 
 ```bash
-ibmi columns MYLIB CUSTOMERS
+ibmi columns SAMPLE EMPLOYEE
 ```
 
 ### `ibmi related <library> <object>` — Related Objects
 
 ```bash
-ibmi related MYLIB CUSTOMERS
-ibmi related MYLIB CUSTOMERS --type INDEX
+ibmi related SAMPLE EMPLOYEE
+ibmi related SAMPLE EMPLOYEE --type INDEX
 ```
 
 ### `ibmi validate "<sql>"` — Validate SQL
 
 ```bash
-ibmi validate "SELECT * FROM MYLIB.CUSTOMERS"
+ibmi validate "SELECT * FROM SAMPLE.EMPLOYEE"
 ```
 
 ### `ibmi completion [shell]` — Shell Completions
@@ -289,7 +289,7 @@ The CLI is designed for programmatic use by AI agents and shell scripts.
 When stdout is not a TTY, the CLI automatically outputs JSON. Agents can parse structured results without specifying `--format json`.
 
 ```bash
-result=$(ibmi sql "SELECT COUNT(*) AS CNT FROM MYLIB.ORDERS")
+result=$(ibmi sql "SELECT COUNT(*) AS CNT FROM SAMPLE.EMPLOYEE")
 count=$(echo "$result" | jq '.data[0].CNT')
 ```
 
@@ -298,8 +298,8 @@ count=$(echo "$result" | jq '.data[0].CNT')
 Use `--stream` to get one JSON object per row — ideal for incremental processing:
 
 ```bash
-ibmi sql "SELECT * FROM MYLIB.ORDERS" --stream | while IFS= read -r row; do
-  echo "$row" | jq '.ORDER_ID'
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --stream | while IFS= read -r row; do
+  echo "$row" | jq '.EMPNO'
 done
 ```
 
@@ -322,14 +322,14 @@ esac
 Agents can use `--dry-run` to preview SQL without executing:
 
 ```bash
-ibmi sql "SELECT * FROM MYLIB.MYTABLE" --dry-run
-ibmi tool my_report --schema MYLIB --dry-run --tools ./tools.yaml
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --dry-run
+ibmi tool my_report --schema SAMPLE --dry-run --tools ./tools.yaml
 ```
 
 ### File Output for Pipelines
 
 ```bash
-ibmi sql "SELECT * FROM MYLIB.ORDERS" --format csv --output /tmp/orders.csv
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output /tmp/employees.csv
 ```
 
 ### Watch for Monitoring
