@@ -1,11 +1,20 @@
 /**
  * @fileoverview Central output controller for the IBM i CLI.
  * Handles TTY detection, format routing, and consistent output rendering.
+ *
+ * Supports two JSON output modes:
+ * - **Envelope** (default): `{ok, system, host, command, data, meta}` — full result in one object
+ * - **NDJSON** (--stream): One JSON object per row, newline-delimited — for piped workflows
+ *
  * @module cli/formatters/output
  */
 
 import { tableFormatter } from "@/utils/formatting/tableFormatter.js";
 import type { OutputFormat, ResolvedSystem } from "../config/types.js";
+import {
+  classifyError,
+  type ErrorCodeValue,
+} from "../utils/exit-codes.js";
 
 /** Result metadata for output rendering. */
 export interface OutputMeta {
@@ -17,6 +26,8 @@ export interface OutputMeta {
   elapsedMs?: number;
   /** The resolved system used for this command. */
   system?: ResolvedSystem;
+  /** The command name (e.g., "schemas", "sql", "tool:system_status"). */
+  command?: string;
 }
 
 /**
@@ -58,7 +69,20 @@ export function renderOutput(
 }
 
 /**
- * Render as JSON to stdout.
+ * Render results as NDJSON (newline-delimited JSON) for streaming.
+ * Each row is a separate JSON object on its own line.
+ * Agents and tools like `jq` can process rows incrementally.
+ */
+export function renderNdjson(
+  data: Record<string, unknown>[],
+): void {
+  for (const row of data) {
+    process.stdout.write(JSON.stringify(row) + "\n");
+  }
+}
+
+/**
+ * Render as JSON envelope to stdout.
  */
 function renderJson(
   data: Record<string, unknown>[],
@@ -67,6 +91,7 @@ function renderJson(
   const output = {
     ok: true,
     ...(meta?.system ? { system: meta.system.name, host: meta.system.config.host } : {}),
+    ...(meta?.command ? { command: meta.command } : {}),
     data,
     meta: {
       rows: meta?.rowCount ?? data.length,
@@ -142,18 +167,22 @@ function renderTable(
 }
 
 /**
- * Render an error to stderr. In JSON mode, outputs structured error JSON to stdout.
+ * Render an error to stderr. In JSON mode, outputs structured error JSON to stdout
+ * with an error code for programmatic consumption.
  */
 export function renderError(
   error: Error,
   format: OutputFormat,
   system?: ResolvedSystem,
+  errorCode?: ErrorCodeValue,
 ): void {
   if (format === "json") {
+    const classified = classifyError(error);
     const output = {
       ok: false,
       ...(system ? { system: system.name } : {}),
       error: {
+        code: errorCode ?? classified.errorCode,
         message: error.message,
       },
     };

@@ -8,6 +8,7 @@ import { readFileSync } from "fs";
 import { Command } from "commander";
 import { withConnection, getFormat } from "../utils/command-helpers.js";
 import { renderMessage } from "../formatters/output.js";
+import { ExitCode } from "../utils/exit-codes.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
 /**
@@ -44,7 +45,7 @@ export function registerSqlCommand(program: Command): void {
           process.stderr.write(
             `Error reading file: ${err instanceof Error ? err.message : String(err)}\n`,
           );
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
       }

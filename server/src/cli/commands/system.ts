@@ -22,6 +22,7 @@ import {
   renderError,
   renderMessage,
 } from "../formatters/output.js";
+import { ExitCode } from "../utils/exit-codes.js";
 
 /**
  * Get the effective output format from parent command options.
@@ -69,7 +70,7 @@ export function registerSystemCommand(program: Command): void {
         renderOutput(data, format, { rowCount: data.length });
       } catch (err) {
         renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 
@@ -108,7 +109,7 @@ export function registerSystemCommand(program: Command): void {
         renderOutput(data, format, { rowCount: data.length });
       } catch (err) {
         renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 
@@ -172,7 +173,7 @@ export function registerSystemCommand(program: Command): void {
         );
       } catch (err) {
         renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 
@@ -191,7 +192,7 @@ export function registerSystemCommand(program: Command): void {
         }
       } catch (err) {
         renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 
@@ -206,7 +207,7 @@ export function registerSystemCommand(program: Command): void {
         renderMessage(`Default system set to "${name}".`, format);
       } catch (err) {
         renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 
@@ -277,7 +278,7 @@ export function registerSystemCommand(program: Command): void {
         );
       } catch (err) {
         renderError(err instanceof Error ? err : new Error(String(err)), format);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 

@@ -23,14 +23,17 @@ import {
 } from "../utils/yaml-to-commander.js";
 import {
   getFormat,
+  isStreaming,
   createCliContext,
 } from "../utils/command-helpers.js";
 import { resolveSystem } from "../config/resolver.js";
 import { connectSystem } from "../utils/connection.js";
 import {
   renderOutput,
+  renderNdjson,
   renderError,
 } from "../formatters/output.js";
+import { ExitCode, classifyError, ErrorCode } from "../utils/exit-codes.js";
 
 /**
  * Register `ibmi tool <name>` — dynamic YAML tool execution.
@@ -55,8 +58,10 @@ export function registerToolCommand(program: Command): void {
               "No tools path specified. Use --tools <path> to specify YAML tool file(s).",
             ),
             format,
+            undefined,
+            ErrorCode.USAGE_ERROR,
           );
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -72,8 +77,10 @@ export function registerToolCommand(program: Command): void {
               `Tool '${name}' not found. Available tools: ${available || "(none)"}`,
             ),
             format,
+            undefined,
+            ErrorCode.NOT_FOUND,
           );
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -87,8 +94,10 @@ export function registerToolCommand(program: Command): void {
           renderError(
             new Error(`Missing required parameter(s): ${flags}`),
             format,
+            undefined,
+            ErrorCode.USAGE_ERROR,
           );
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -102,11 +111,10 @@ export function registerToolCommand(program: Command): void {
         // Execute the tool
         await executeTool(name, tool, toolParams, cmd);
       } catch (err) {
-        renderError(
-          err instanceof Error ? err : new Error(String(err)),
-          format,
-        );
-        process.exitCode = 1;
+        const error = err instanceof Error ? err : new Error(String(err));
+        const classified = classifyError(error);
+        renderError(error, format, undefined, classified.errorCode);
+        process.exitCode = classified.exitCode;
       }
     });
 }
@@ -150,8 +158,13 @@ async function handleDryRun(
   const format = getFormat(cmd);
 
   if (!tool.statement) {
-    renderError(new Error(`Tool '${name}' has no SQL statement defined.`), format);
-    process.exitCode = 1;
+    renderError(
+      new Error(`Tool '${name}' has no SQL statement defined.`),
+      format,
+      undefined,
+      ErrorCode.USAGE_ERROR,
+    );
+    process.exitCode = ExitCode.USAGE;
     return;
   }
 
@@ -166,7 +179,7 @@ async function handleDryRun(
         },
       ],
       format,
-      { rowCount: 1 },
+      { rowCount: 1, command: `tool:${name}` },
     );
     return;
   }
@@ -204,11 +217,17 @@ async function executeTool(
   cmd: Command,
 ): Promise<void> {
   const format = getFormat(cmd);
+  const stream = isStreaming(cmd);
   const globalOpts = cmd.optsWithGlobals();
 
   if (!tool.statement) {
-    renderError(new Error(`Tool '${name}' has no SQL statement defined.`), format);
-    process.exitCode = 1;
+    renderError(
+      new Error(`Tool '${name}' has no SQL statement defined.`),
+      format,
+      undefined,
+      ErrorCode.USAGE_ERROR,
+    );
+    process.exitCode = ExitCode.USAGE;
     return;
   }
 
@@ -256,10 +275,17 @@ async function executeTool(
     const elapsedMs = Date.now() - startTime;
     const data = (result.data ?? []) as Record<string, unknown>[];
 
+    // NDJSON streaming: one JSON object per line
+    if (stream && format === "json") {
+      renderNdjson(data);
+      return;
+    }
+
     renderOutput(data, format, {
       rowCount: data.length,
       elapsedMs,
       system: resolved,
+      command: `tool:${name}`,
     });
   } finally {
     await cleanup();

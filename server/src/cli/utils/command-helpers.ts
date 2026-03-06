@@ -11,9 +11,11 @@ import type { OutputFormat, ResolvedSystem } from "../config/types.js";
 import type { RequestContext } from "../../utils/internal/requestContext.js";
 import { resolveSystem } from "../config/resolver.js";
 import { connectSystem } from "./connection.js";
+import { classifyError } from "./exit-codes.js";
 import {
   detectFormat,
   renderOutput,
+  renderNdjson,
   renderError,
   type OutputMeta,
 } from "../formatters/output.js";
@@ -27,6 +29,14 @@ export function getFormat(cmd: Command): OutputFormat {
     opts["format"] as OutputFormat | undefined,
     opts["raw"] as boolean | undefined,
   );
+}
+
+/**
+ * Check if --stream mode is enabled.
+ */
+export function isStreaming(cmd: Command): boolean {
+  const opts = cmd.optsWithGlobals();
+  return opts["stream"] === true;
 }
 
 /**
@@ -55,8 +65,9 @@ export interface CommandResult {
  * 1. Resolve target system from --system flag / env / config
  * 2. Connect (set env vars for IBMiConnectionPool)
  * 3. Run the action callback
- * 4. Render output in the requested format
+ * 4. Render output in the requested format (or NDJSON if --stream)
  * 5. Cleanup (close pool) in finally block
+ * 6. Set semantic exit code on error
  */
 export async function withConnection(
   cmd: Command,
@@ -67,6 +78,7 @@ export async function withConnection(
   ) => Promise<CommandResult>,
 ): Promise<void> {
   const format = getFormat(cmd);
+  const stream = isStreaming(cmd);
   let cleanup: (() => Promise<void>) | undefined;
   let resolved: ResolvedSystem | undefined;
 
@@ -80,19 +92,24 @@ export async function withConnection(
     const result = await action(resolved, ctx);
     const elapsedMs = Date.now() - startTime;
 
+    // NDJSON streaming: one JSON object per line, no envelope
+    if (stream && format === "json") {
+      renderNdjson(result.data);
+      return;
+    }
+
     renderOutput(result.data, format, {
       rowCount: result.data.length,
       elapsedMs,
       system: resolved,
+      command: toolName,
       ...result.meta,
     });
   } catch (err) {
-    renderError(
-      err instanceof Error ? err : new Error(String(err)),
-      format,
-      resolved,
-    );
-    process.exitCode = 1;
+    const error = err instanceof Error ? err : new Error(String(err));
+    const classified = classifyError(error);
+    renderError(error, format, resolved, classified.errorCode);
+    process.exitCode = classified.exitCode;
   } finally {
     if (cleanup) await cleanup();
   }

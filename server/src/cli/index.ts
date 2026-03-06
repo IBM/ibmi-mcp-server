@@ -62,7 +62,8 @@ export function createProgram(): Command {
     .option("--format <type>", "Output format: table, json, csv, markdown", undefined)
     .option("--raw", "Output as JSON (shorthand for --format json)")
     .option("--no-color", "Disable colored output")
-    .option("--tools <path>", "Path to YAML tool file(s) or directory (comma-separated)");
+    .option("--tools <path>", "Path to YAML tool file(s) or directory (comma-separated)")
+    .option("--stream", "Stream results as NDJSON (one JSON object per line)");
 
   // Register command groups
   registerSystemCommand(program);
@@ -97,7 +98,7 @@ async function main(): Promise<void> {
     process.stderr.write(
       `Error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
-    process.exitCode = 1;
+    process.exitCode = 1; // Top-level catch uses code 1 (general)
   }
 }
 

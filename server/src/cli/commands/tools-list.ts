@@ -22,6 +22,7 @@ import {
   renderError,
   renderMessage,
 } from "../formatters/output.js";
+import { ExitCode } from "../utils/exit-codes.js";
 
 /**
  * Resolve the --tools paths from command options.
@@ -65,7 +66,7 @@ export function registerToolsCommand(program: Command): void {
     try {
       const config = loadToolsConfig(cmd);
       if (!config) {
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -106,7 +107,7 @@ export function registerToolsCommand(program: Command): void {
         err instanceof Error ? err : new Error(String(err)),
         format,
       );
-      process.exitCode = 1;
+      process.exitCode = ExitCode.GENERAL;
     }
   });
 
@@ -119,7 +120,7 @@ export function registerToolsCommand(program: Command): void {
       try {
         const config = loadToolsConfig(cmd);
         if (!config) {
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -131,7 +132,7 @@ export function registerToolsCommand(program: Command): void {
             ),
             format,
           );
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -193,7 +194,7 @@ export function registerToolsCommand(program: Command): void {
           err instanceof Error ? err : new Error(String(err)),
           format,
         );
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 }
@@ -228,7 +229,7 @@ export function registerToolsetsCommand(program: Command): void {
       try {
         const config = loadToolsConfig(cmd);
         if (!config) {
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -252,7 +253,7 @@ export function registerToolsetsCommand(program: Command): void {
           err instanceof Error ? err : new Error(String(err)),
           format,
         );
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
     });
 }
