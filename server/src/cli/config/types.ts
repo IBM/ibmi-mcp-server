@@ -35,6 +35,8 @@ export interface SystemConfig {
 export interface CliConfig {
   /** Name of the default system to use. */
   default?: string;
+  /** Default output format (table, json, csv, markdown). Overrides TTY auto-detection. */
+  format?: OutputFormat;
   /** Named system configurations. */
   systems: Record<string, SystemConfig>;
 }

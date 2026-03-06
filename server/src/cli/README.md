@@ -44,7 +44,11 @@ These apply to every command:
 | `--tools <path>` | Path to YAML tool file(s), comma-separated |
 | `--no-color` | Disable colored output |
 
-**Format auto-detection:** When no `--format` is specified, the CLI outputs `table` to a terminal and `json` when piped. This means `ibmi sql "..." | jq .` works without extra flags.
+**Format priority:** `--raw` → `--format` → config `format` → auto-detect (TTY=table, piped=json). Set a default in your config to always get the same format regardless of TTY:
+
+```yaml
+format: table   # always render tables, even when piped
+```
 
 ---
 
@@ -176,6 +180,7 @@ Example `.ibmi/config.yaml`:
 
 ```yaml
 default: dev
+format: table    # optional: table, json, csv, markdown
 systems:
   dev:
     host: ${DB2i_HOST}

@@ -66,15 +66,18 @@ export interface OutputMeta {
 }
 
 /**
- * Detect the appropriate output format based on environment.
- * TTY → table, piped → json.
+ * Detect the appropriate output format.
+ *
+ * Priority: --raw → --format → config format → TTY auto-detect (table/json).
  */
 export function detectFormat(
   explicitFormat?: OutputFormat,
   raw?: boolean,
+  configFormat?: OutputFormat,
 ): OutputFormat {
   if (raw) return "json";
   if (explicitFormat) return explicitFormat;
+  if (configFormat) return configFormat;
   return process.stdout.isTTY ? "table" : "json";
 }
 

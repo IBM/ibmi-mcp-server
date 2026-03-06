@@ -21,9 +21,13 @@ export const SystemConfigSchema = z.object({
   tools: z.array(z.string()).optional(),
 });
 
+/** Valid output format values. */
+const OutputFormatEnum = z.enum(["table", "json", "csv", "markdown"]);
+
 /** Schema for the full CLI config file. */
 export const CliConfigSchema = z.object({
   default: z.string().optional(),
+  format: OutputFormatEnum.optional(),
   systems: z.record(z.string(), SystemConfigSchema).default({}),
 });
 

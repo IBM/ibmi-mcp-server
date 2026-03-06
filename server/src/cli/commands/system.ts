@@ -14,24 +14,15 @@ import {
   getUserConfigPath,
   getProjectConfigPath,
   type SystemConfig,
-  type OutputFormat,
 } from "../config/index.js";
 import {
-  detectFormat,
   renderOutput,
   renderError,
   renderMessage,
 } from "../formatters/output.js";
 import { ExitCode, classifyError } from "../utils/exit-codes.js";
 import { connectSystem } from "../utils/connection.js";
-
-/**
- * Get the effective output format from parent command options.
- */
-function getFormat(cmd: Command): OutputFormat {
-  const opts = cmd.optsWithGlobals();
-  return detectFormat(opts["format"] as OutputFormat | undefined, opts["raw"] as boolean | undefined);
-}
+import { getFormat } from "../utils/command-helpers.js";
 
 /** Result of a connection test. */
 interface ConnectionTestResult {

@@ -9,6 +9,7 @@
 import { Command } from "commander";
 import type { OutputFormat, ResolvedSystem } from "../config/types.js";
 import type { RequestContext } from "../../utils/internal/requestContext.js";
+import { loadConfig } from "../config/loader.js";
 import { resolveSystem } from "../config/resolver.js";
 import { connectSystem } from "./connection.js";
 import { classifyError } from "./exit-codes.js";
@@ -23,13 +24,22 @@ import {
 } from "../formatters/output.js";
 
 /**
- * Get the effective output format from parent command options.
+ * Get the effective output format from parent command options and config.
+ *
+ * Priority: --raw → --format → config format → TTY auto-detect.
  */
 export function getFormat(cmd: Command): OutputFormat {
   const opts = cmd.optsWithGlobals();
+  let configFormat: OutputFormat | undefined;
+  try {
+    configFormat = loadConfig().format;
+  } catch {
+    // Config may not exist — fall through to auto-detect
+  }
   return detectFormat(
     opts["format"] as OutputFormat | undefined,
     opts["raw"] as boolean | undefined,
+    configFormat,
   );
 }
 

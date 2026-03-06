@@ -86,6 +86,7 @@ function loadConfigFile(filePath: string): CliConfig | null {
 function expandSystemEnvVars(config: CliConfig): CliConfig {
   const expanded: CliConfig = {
     default: config.default,
+    format: config.format,
     systems: {},
   };
 
@@ -108,6 +109,7 @@ function expandSystemEnvVars(config: CliConfig): CliConfig {
 function mergeConfigs(target: CliConfig, source: CliConfig): CliConfig {
   return {
     default: source.default ?? target.default,
+    format: source.format ?? target.format,
     systems: {
       ...target.systems,
       ...source.systems,
