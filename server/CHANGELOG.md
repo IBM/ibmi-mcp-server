@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.4.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.3.2...v0.4.0) (2026-03-06)
+
+
+### Features
+
+* **IBM i CLI**: New command-line interface for querying and managing IBM i systems directly from the terminal. Includes multi-system configuration, YAML tool execution, and an interactive agent mode for natural language workflows ([#126](https://github.com/IBM/ibmi-mcp-server/issues/126))
+* **Default Text-to-SQL Toolset**: Ship a built-in toolset with paginated result support, enabling AI agents to query IBM i databases out of the box without custom YAML configuration ([#120](https://github.com/IBM/ibmi-mcp-server/issues/120))
+
+
+### Bug Fixes
+
+* **Security Dependency Updates**: Patch `hono` (4.11.4 → 4.12.5) and `@hono/node-server` (1.19.7 → 1.19.11) to fix arbitrary file access via serveStatic, authorization bypass via encoded slashes, SSE injection, and cookie attribute injection vulnerabilities ([#341](https://github.com/IBM/ibmi-mcp-server/issues/341), [#342](https://github.com/IBM/ibmi-mcp-server/issues/342), [#343](https://github.com/IBM/ibmi-mcp-server/issues/343), [#344](https://github.com/IBM/ibmi-mcp-server/issues/344))
+
+
+### Documentation
+
+* **CLI Reference Guide**: Add comprehensive CLI documentation with 7 pages covering getting started, commands, configuration, YAML tools, output formats, and agent integration ([#127](https://github.com/IBM/ibmi-mcp-server/issues/127))
+
 ### [0.3.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.3.1...v0.3.2) (2026-03-04)
 
 
