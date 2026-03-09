@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.4.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.1...v0.4.2) (2026-03-09)
+
+
+### Bug Fixes
+
+* **`--builtin-tools` CLI Flag**: Fix `--builtin-tools` flag not registering the default text-to-SQL toolset. ES module evaluation timing caused tool definitions to be captured before CLI overrides were applied; tool registration now defers config evaluation to runtime ([2134d79](https://github.com/IBM/ibmi-mcp-server/commit/2134d79f8be14e2e37637d9f10bb87da2b2e38be))
+
+* **UDTF Column Validation Transparency**: `validate_query` now reports columns from UDTF output (e.g., `TABLE(SYSTOOLS.AUDIT_JOURNAL_CP(...))`) as "skipped" instead of silently passing validation. Skipped columns are surfaced in the response so users can manually verify they match the function's result set ([2134d79](https://github.com/IBM/ibmi-mcp-server/commit/2134d79f8be14e2e37637d9f10bb87da2b2e38be))
+
 ### [0.4.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.0...v0.4.1) (2026-03-06)
 
 
