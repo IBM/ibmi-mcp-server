@@ -1285,6 +1285,84 @@ describe("Default Tools - validate_query", () => {
     ]);
     // Unqualified UDTF output columns should NOT be flagged as invalid
     expect(result.objectValidation!.columns.invalid).toEqual([]);
+    // They should be reported as skipped so callers know they weren't verified
+    expect(result.objectValidation!.columns.skipped).toEqual([
+      "OBJNAME",
+      "OBJSIZE",
+    ]);
+  });
+
+  it("should report bogus UDTF column names as skipped", async () => {
+    const { validateQueryTool } =
+      await import("../../../src/ibmi-mcp-server/tools/validateQuery.tool.js");
+
+    // Simulates a query with a typo in a UDTF output column name
+    // e.g., ENTRY_TIMESTAMPdsadasdas instead of ENTRY_TIMESTAMP
+    const parseData = [
+      {
+        NAME_TYPE: "FUNCTION",
+        NAME: "AUDIT_JOURNAL_CP",
+        SCHEMA: "SYSTOOLS",
+        COLUMN_NAME: null,
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "ENTRY_TIMESTAMPdsadasdas",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "USER_NAME",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+      {
+        NAME_TYPE: "COLUMN",
+        NAME: null,
+        SCHEMA: null,
+        COLUMN_NAME: "CHANGED_PROFILE",
+        USAGE_TYPE: "QUERY",
+        SQL_STATEMENT_TYPE: "QUERY",
+      },
+    ];
+    const routinesData = [
+      { ROUTINE_SCHEMA: "SYSTOOLS", ROUTINE_NAME: "AUDIT_JOURNAL_CP" },
+    ];
+
+    mockExecuteQuery
+      .mockResolvedValueOnce(createMockQueryResult(parseData))
+      .mockResolvedValueOnce(createMockQueryResult(routinesData));
+
+    const result = await validateQueryTool.logic(
+      {
+        sql_statement:
+          "SELECT ENTRY_TIMESTAMPdsadasdas, USER_NAME, CHANGED_PROFILE FROM TABLE(SYSTOOLS.AUDIT_JOURNAL_CP(STARTING_TIMESTAMP => CURRENT_TIMESTAMP - 180 DAYS))",
+      },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectValidation!.routines.valid).toEqual([
+      "SYSTOOLS.AUDIT_JOURNAL_CP",
+    ]);
+    // No columns should be invalid (they're skipped, not validated)
+    expect(result.objectValidation!.columns.invalid).toEqual([]);
+    // All unqualified UDTF columns — including the bogus one — should be skipped
+    expect(result.objectValidation!.columns.skipped).toContain(
+      "ENTRY_TIMESTAMPdsadasdas",
+    );
+    expect(result.objectValidation!.columns.skipped).toContain("USER_NAME");
+    expect(result.objectValidation!.columns.skipped).toContain(
+      "CHANGED_PROFILE",
+    );
   });
 
   it("should skip unqualified column validation for CTE queries", async () => {
@@ -1417,8 +1495,10 @@ describe("Default Tools - validate_query", () => {
     expect(result.objectValidation!.columns.valid).toContain("CUSNUM");
     // Qualified FAKE_COL is still caught as invalid
     expect(result.objectValidation!.columns.invalid).toContain("FAKE_COL");
-    // Unqualified OBJNAME (UDTF output) is NOT flagged
+    // Unqualified OBJNAME (UDTF output) is NOT flagged as invalid
     expect(result.objectValidation!.columns.invalid).not.toContain("OBJNAME");
+    // It should be reported as skipped instead
+    expect(result.objectValidation!.columns.skipped).toContain("OBJNAME");
   });
 });
 
@@ -1659,10 +1739,10 @@ describe("Default Tools - get_related_objects", () => {
 
 describe("Default Tools - Tool Registry", () => {
   it("should include default tools when IBMI_ENABLE_DEFAULT_TOOLS is true", async () => {
-    const { allToolDefinitions } =
+    const { getAllToolDefinitions } =
       await import("../../../src/ibmi-mcp-server/tools/index.js");
 
-    const toolNames = allToolDefinitions.map((t) => t.name);
+    const toolNames = getAllToolDefinitions().map((t) => t.name);
     expect(toolNames).toContain("list_schemas");
     expect(toolNames).toContain("list_tables_in_schema");
     expect(toolNames).toContain("get_table_columns");
@@ -1673,14 +1753,14 @@ describe("Default Tools - Tool Registry", () => {
   });
 
   it("should have 7 total tools when defaults are enabled", async () => {
-    const { allToolDefinitions } =
+    const { getAllToolDefinitions } =
       await import("../../../src/ibmi-mcp-server/tools/index.js");
 
-    expect(allToolDefinitions).toHaveLength(7);
+    expect(getAllToolDefinitions()).toHaveLength(7);
   });
 
   it("should mark all default tools as read-only", async () => {
-    const { allToolDefinitions } =
+    const { getAllToolDefinitions } =
       await import("../../../src/ibmi-mcp-server/tools/index.js");
 
     const defaultToolNames = [
@@ -1692,7 +1772,7 @@ describe("Default Tools - Tool Registry", () => {
     ];
 
     for (const name of defaultToolNames) {
-      const tool = allToolDefinitions.find((t) => t.name === name);
+      const tool = getAllToolDefinitions().find((t) => t.name === name);
       expect(tool, `Tool ${name} should exist`).toBeDefined();
       expect(
         tool?.annotations?.readOnlyHint,

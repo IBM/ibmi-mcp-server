@@ -477,5 +477,8 @@ export const executeSqlTool = defineTool({
     destructiveHint: !(toolConfig.security?.readOnly ?? true), // Destructive if not read-only
     openWorldHint: !(toolConfig.security?.readOnly ?? true), // Open world if not read-only
   },
-  enabled: () => toolConfig.enabled, // Use function to dynamically check enabled state
+  enabled: () =>
+    toolConfig.enabled ||
+    config.ibmi_enableExecuteSql ||
+    config.ibmi_enableDefaultTools, // Check both toolConfig and live config for CLI override support
 });

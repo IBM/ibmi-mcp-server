@@ -40,7 +40,7 @@ interface RoutineRef {
 
 interface ObjectValidation {
   tables: { valid: string[]; invalid: string[] };
-  columns: { valid: string[]; invalid: string[] };
+  columns: { valid: string[]; invalid: string[]; skipped?: string[] };
   routines: { valid: string[]; invalid: string[] };
 }
 
@@ -83,6 +83,12 @@ const ObjectValidationSchema = z.object({
     invalid: z
       .array(z.string())
       .describe("Columns not found in any referenced table."),
+    skipped: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Columns skipped during validation (e.g., unqualified columns from UDTFs or CTE aliases that cannot be verified against the system catalog).",
+      ),
   }),
   routines: z.object({
     valid: z
@@ -394,15 +400,27 @@ export async function validateQueryLogic(
             validateRoutines(refs.routines, appContext),
           ]);
 
-          // CTE aliases and UDTF output columns appear as unqualified COLUMNs.
-          // When virtual columns are possible, only validate qualified columns
-          // (where PARSE_STATEMENT resolved SCHEMA + NAME to a physical table).
+          // CTE aliases and UDTF output columns appear as unqualified COLUMNs
+          // in PARSE_STATEMENT results. These cannot be verified against
+          // SYSCOLUMNS, so we skip them but report which columns were skipped.
           const hasVirtualColumns =
             refs.hasVirtualColumns || CTE_REGEX.test(params.sql_statement);
 
+          let skippedColumns: string[] | undefined;
           const columnsToValidate = hasVirtualColumns
             ? refs.columns.filter((c) => c.schema && c.tableName)
             : refs.columns;
+
+          if (hasVirtualColumns) {
+            const skipped = refs.columns.filter(
+              (c) => !c.schema || !c.tableName,
+            );
+            if (skipped.length > 0) {
+              skippedColumns = [
+                ...new Set(skipped.map((c) => c.columnName)),
+              ];
+            }
+          }
 
           const columnValidation = await validateColumns(
             columnsToValidate,
@@ -412,7 +430,10 @@ export async function validateQueryLogic(
 
           objectValidation = {
             tables: tableValidation,
-            columns: columnValidation,
+            columns: {
+              ...columnValidation,
+              ...(skippedColumns ? { skipped: skippedColumns } : {}),
+            },
             routines: routineValidation,
           };
         }
@@ -506,6 +527,7 @@ const validateQueryResponseFormatter = (
   const invalidTables = ov?.tables.invalid ?? [];
   const invalidColumns = ov?.columns.invalid ?? [];
   const invalidRoutines = ov?.routines.invalid ?? [];
+  const skippedColumns = ov?.columns.skipped ?? [];
 
   const parts: string[] = [];
 
@@ -533,6 +555,13 @@ const validateQueryResponseFormatter = (
       "Note: The following references could not be verified against the system catalog. They may still be valid (e.g., system view columns, CTE aliases, UDTF outputs).",
     );
     parts.push(warnings.join("\n"));
+  }
+
+  // Report columns that were skipped during validation
+  if (skippedColumns.length > 0) {
+    parts.push(
+      `Skipped column validation: ${skippedColumns.join(", ")} (from UDTF output or CTE alias — not present in SYSCOLUMNS). Verify these column names match the function's result set.`,
+    );
   }
 
   parts.push(`Execution time: ${result.executionTime}ms`);
