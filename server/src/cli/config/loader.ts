@@ -28,9 +28,9 @@ const USER_CONFIG_DIR = path.join(homedir(), ".ibmi");
  * and at the filesystem root. Returns null if not found.
  */
 function findProjectConfigPath(): string | null {
-  let dir = process.cwd();
+  let dir = path.resolve(process.cwd());
   const root = path.parse(dir).root;
-  const home = homedir();
+  const home = path.resolve(homedir());
 
   while (true) {
     // ~/.ibmi/config.yaml is the user config — never treat it as project config

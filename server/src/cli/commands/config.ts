@@ -42,15 +42,20 @@ function findSystemOrigin(layers: ConfigLayer[], name: string): string {
   return "unknown";
 }
 
+/** Environment variables checked for config overrides. */
+const CONFIG_ENV_VARS = ["IBMI_SYSTEM", "DB2i_HOST", "DB2i_USER", "DB2i_PASS"];
+
+/** Env vars whose values must be masked in output. */
+const SENSITIVE_ENV_VARS = new Set(["DB2i_PASS"]);
+
 /** Return active environment variable overrides that affect config resolution. */
 function getActiveEnvOverrides(): { name: string; value: string }[] {
   const overrides: { name: string; value: string }[] = [];
-  const vars = ["IBMI_SYSTEM", "DB2i_HOST", "DB2i_USER", "DB2i_PASS"];
 
-  for (const name of vars) {
+  for (const name of CONFIG_ENV_VARS) {
     const value = process.env[name];
     if (value) {
-      overrides.push({ name, value: name.includes("PASS") ? "****" : value });
+      overrides.push({ name, value: SENSITIVE_ENV_VARS.has(name) ? "****" : value });
     }
   }
 
@@ -63,7 +68,10 @@ function getActiveEnvOverrides(): { name: string; value: string }[] {
 export function registerConfigCommand(program: Command): void {
   const config = program
     .command("config")
-    .description("Inspect CLI configuration");
+    .description("Inspect CLI configuration")
+    .action(() => {
+      config.outputHelp();
+    });
 
   config
     .command("show")

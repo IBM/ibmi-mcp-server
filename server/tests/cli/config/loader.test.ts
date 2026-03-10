@@ -333,6 +333,20 @@ systems:
       expect(layers[1]!.config).not.toBeNull();
     });
 
+    it("should propagate errors from malformed YAML", () => {
+      const userConfigPath = path.join(MOCK_HOME, ".ibmi", "config.yaml");
+      process.cwd = () => "/tmp/empty";
+
+      mockExistsSync.mockImplementation((p) => p === userConfigPath);
+      mockReadFileSync.mockReturnValue(`
+systems:
+  dev:
+    port: 8076
+`);
+      // Missing required host and user fields — loadConfigFile will throw
+      expect(() => loadConfigLayers()).toThrow("Invalid config");
+    });
+
     it("should not return home config as project layer", () => {
       const userConfigPath = path.join(MOCK_HOME, ".ibmi", "config.yaml");
       process.cwd = () => "/home/testuser/projects/myapp";
