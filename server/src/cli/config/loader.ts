@@ -24,13 +24,19 @@ const USER_CONFIG_DIR = path.join(homedir(), ".ibmi");
 
 /**
  * Walk up from cwd to find the nearest .ibmi/config.yaml.
- * Stops at the filesystem root. Returns null if not found.
+ * Stops at the home directory boundary (user config lives there)
+ * and at the filesystem root. Returns null if not found.
  */
 function findProjectConfigPath(): string | null {
   let dir = process.cwd();
   const root = path.parse(dir).root;
+  const home = homedir();
 
   while (true) {
+    // ~/.ibmi/config.yaml is the user config — never treat it as project config
+    if (dir === home) {
+      return null;
+    }
     const candidate = path.join(dir, PROJECT_CONFIG_DIR, CONFIG_FILE);
     if (existsSync(candidate)) {
       return candidate;
@@ -145,6 +151,47 @@ export function loadConfig(): CliConfig {
   }
 
   return expandSystemEnvVars(config);
+}
+
+/** Metadata about a single configuration layer (user or project). */
+export interface ConfigLayer {
+  /** Which config layer this represents. */
+  scope: "user" | "project";
+  /** Absolute path to the config file. */
+  path: string;
+  /** Whether the config file exists on disk. */
+  exists: boolean;
+  /** Parsed config, or null if the file doesn't exist. */
+  config: CliConfig | null;
+}
+
+/**
+ * Load individual config layers without merging.
+ * Used by `ibmi config show` to display per-setting origin information.
+ */
+export function loadConfigLayers(): ConfigLayer[] {
+  const userPath = getUserConfigPath();
+  const projectPath = findProjectConfigPath();
+
+  const layers: ConfigLayer[] = [
+    {
+      scope: "user",
+      path: userPath,
+      exists: existsSync(userPath),
+      config: loadConfigFile(userPath),
+    },
+  ];
+
+  if (projectPath) {
+    layers.push({
+      scope: "project",
+      path: projectPath,
+      exists: true,
+      config: loadConfigFile(projectPath),
+    });
+  }
+
+  return layers;
 }
 
 /**
