@@ -567,16 +567,28 @@ export const config = {
     logLevel: env.OTEL_LOG_LEVEL,
   },
 
-  /** IBM i DB2 configuration. Undefined if no related env vars are set. */
-  db2i:
-    env.DB2i_HOST && env.DB2i_USER && env.DB2i_PASS
-      ? {
-          host: env.DB2i_HOST,
-          user: env.DB2i_USER,
-          password: env.DB2i_PASS,
-          ignoreUnauthorized: env.DB2i_IGNORE_UNAUTHORIZED,
-        }
-      : undefined,
+  /**
+   * IBM i DB2 configuration. Undefined if no related env vars are set.
+   *
+   * Implemented as a getter so the CLI can set DB2i_* env vars at runtime
+   * (via connectSystem) after the config module has already been imported
+   * through the static import chain (logger → utils → config).
+   */
+  get db2i():
+    | { host: string; user: string; password: string; ignoreUnauthorized: boolean }
+    | undefined {
+    const host = process.env.DB2i_HOST;
+    const user = process.env.DB2i_USER;
+    const password = process.env.DB2i_PASS;
+    if (!host || !user || !password) return undefined;
+    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
+    return {
+      host,
+      user,
+      password,
+      ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",
+    };
+  },
 
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   toolsYamlPath: env.TOOLS_YAML_PATH,
