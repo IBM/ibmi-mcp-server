@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.4.4](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.3...v0.4.4) (2026-03-15)
+
+
+### Bug Fixes
+
+* **CLI Database Commands**: Fix `ibmi sql` and other database commands failing with "Db2i configuration not found" when run from directories without a `.env` file. The global config (`~/.ibmi/config.yaml`) now correctly provides credentials to all CLI commands regardless of working directory ([#131](https://github.com/IBM/ibmi-mcp-server/issues/131))
+
 ### [0.4.3](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.2...v0.4.3) (2026-03-15)
 
 
