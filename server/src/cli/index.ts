@@ -11,6 +11,7 @@ import { Command } from "commander";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { registerConfigCommand } from "./commands/config.js";
 import { registerSystemCommand } from "./commands/system.js";
 import { registerSchemasCommand } from "./commands/schemas.js";
 import { registerTablesCommand } from "./commands/tables.js";
@@ -69,6 +70,7 @@ export function createProgram(): Command {
     .option("--output <path>", "Write output to file instead of stdout");
 
   // Register command groups
+  registerConfigCommand(program);
   registerSystemCommand(program);
   registerSchemasCommand(program);
   registerTablesCommand(program);

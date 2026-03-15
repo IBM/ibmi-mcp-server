@@ -6,6 +6,7 @@
 export { CliConfigSchema, SystemConfigSchema, validateConfig } from "./schema.js";
 export {
   loadConfig,
+  loadConfigLayers,
   saveUserConfig,
   upsertSystem,
   removeSystem,
@@ -13,6 +14,7 @@ export {
   getProjectConfigPath,
   getUserConfigPath,
 } from "./loader.js";
+export type { ConfigLayer } from "./loader.js";
 export { resolveSystem } from "./resolver.js";
 export {
   expandEnvVars,

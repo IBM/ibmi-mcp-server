@@ -8,6 +8,7 @@ import { ExitCode } from "../utils/exit-codes.js";
 
 /** Top-level commands. */
 const COMMANDS = [
+  "config",
   "system",
   "schemas",
   "tables",
@@ -20,6 +21,9 @@ const COMMANDS = [
   "toolsets",
   "completion",
 ];
+
+/** Config subcommands. */
+const CONFIG_SUBCOMMANDS = ["show"];
 
 /** System subcommands. */
 const SYSTEM_SUBCOMMANDS = [
@@ -57,12 +61,13 @@ function generateBash(): string {
 # Add to ~/.bashrc: eval "$(ibmi completion bash)"
 
 _ibmi_completions() {
-  local cur prev commands system_commands global_opts format_choices
+  local cur prev commands config_commands system_commands global_opts format_choices
   COMPREPLY=()
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   commands="${COMMANDS.join(" ")}"
+  config_commands="${CONFIG_SUBCOMMANDS.join(" ")}"
   system_commands="${SYSTEM_SUBCOMMANDS.join(" ")}"
   global_opts="${GLOBAL_OPTIONS.join(" ")}"
   format_choices="${FORMAT_CHOICES.join(" ")}"
@@ -88,6 +93,12 @@ _ibmi_completions() {
   # Complete file paths for --file, --tools, --output
   if [[ "\${prev}" == "--file" || "\${prev}" == "--tools" || "\${prev}" == "--output" ]]; then
     COMPREPLY=( $(compgen -f -- "\${cur}") )
+    return 0
+  fi
+
+  # Complete config subcommands
+  if [[ "\${COMP_WORDS[1]}" == "config" && \${COMP_CWORD} -eq 2 ]]; then
+    COMPREPLY=( $(compgen -W "\${config_commands}" -- "\${cur}") )
     return 0
   fi
 
@@ -123,10 +134,14 @@ function generateZsh(): string {
 # Add to ~/.zshrc: eval "$(ibmi completion zsh)"
 
 _ibmi() {
-  local -a commands system_commands format_choices global_opts
+  local -a commands config_commands system_commands format_choices global_opts
 
   commands=(
 ${COMMANDS.map((c) => `    '${c}:${c} command'`).join("\n")}
+  )
+
+  config_commands=(
+${CONFIG_SUBCOMMANDS.map((c) => `    '${c}:${c}'`).join("\n")}
   )
 
   system_commands=(
@@ -159,6 +174,9 @@ ${SYSTEM_SUBCOMMANDS.map((c) => `    '${c}:${c}'`).join("\n")}
       ;;
     args)
       case $words[1] in
+        config)
+          _describe -t config_commands 'config subcommands' config_commands
+          ;;
         system)
           _describe -t system_commands 'system subcommands' system_commands
           ;;
@@ -188,6 +206,13 @@ function generateFish(): string {
   for (const cmd of COMMANDS) {
     lines.push(
       `complete -c ibmi -n '__fish_use_subcommand' -a '${cmd}' -d '${cmd} command'`,
+    );
+  }
+
+  lines.push("", "# Config subcommands");
+  for (const sub of CONFIG_SUBCOMMANDS) {
+    lines.push(
+      `complete -c ibmi -n '__fish_seen_subcommand_from config' -a '${sub}' -d '${sub}'`,
     );
   }
 
