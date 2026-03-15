@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.4.3](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.2...v0.4.3) (2026-03-15)
+
+
+### Features
+
+* **config:** add walk-up boundary and ibmi config show command ([#130](https://github.com/IBM/ibmi-mcp-server/issues/130)) ([d050991](https://github.com/IBM/ibmi-mcp-server/commit/d050991ae578105800adb63d3b5330c674b04956))
+
+
+### Bug Fixes
+
+* audit npm security fixes ([ecb451a](https://github.com/IBM/ibmi-mcp-server/commit/ecb451ad9f4a44d7c0dfc5b7ea5394db867056e8))
+
 ### [0.4.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.1...v0.4.2) (2026-03-09)
 
 
