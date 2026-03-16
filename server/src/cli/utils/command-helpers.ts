@@ -52,6 +52,14 @@ export function isStreaming(cmd: Command): boolean {
 }
 
 /**
+ * Check if the --system flag specifies multiple systems (comma-delimited).
+ */
+export function isMultiSystem(cmd: Command): boolean {
+  const system = cmd.optsWithGlobals()["system"] as string | undefined;
+  return !!system && system.includes(",");
+}
+
+/**
  * Create a minimal RequestContext for CLI tool execution.
  * Avoids importing the full server utils (which would trigger OpenTelemetry).
  */

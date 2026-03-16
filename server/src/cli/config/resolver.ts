@@ -121,3 +121,20 @@ export function resolveSystem(
       "  3. Set DB2i_HOST, DB2i_USER, DB2i_PASS environment variables",
   );
 }
+
+/**
+ * Resolve one or more systems from a potentially comma-delimited flag.
+ * Returns a single-element array for normal usage, multiple for `--system dev,test`.
+ */
+export function resolveSystems(
+  systemFlag?: string,
+  config?: CliConfig,
+): ResolvedSystem[] {
+  if (!systemFlag || !systemFlag.includes(",")) {
+    return [resolveSystem(systemFlag, config)];
+  }
+  const cfg = config ?? loadConfig();
+  return systemFlag
+    .split(",")
+    .map((name) => resolveSystem(name.trim(), cfg));
+}
