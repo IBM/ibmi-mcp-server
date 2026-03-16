@@ -24,7 +24,7 @@ import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 /**
  * Supported IBM i database object types for DDL generation.
  */
-const OBJECT_TYPES = [
+export const OBJECT_TYPES = [
   "ALIAS",
   "CONSTRAINT",
   "FUNCTION",

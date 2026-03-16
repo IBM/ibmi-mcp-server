@@ -7,26 +7,9 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
+import { OBJECT_TYPES } from "../../ibmi-mcp-server/tools/generateSql.tool.js";
+import { ExitCode } from "../utils/exit-codes.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
-
-/** Supported object types (mirrors generateSql.tool.ts OBJECT_TYPES). */
-const VALID_TYPES = [
-  "ALIAS",
-  "CONSTRAINT",
-  "FUNCTION",
-  "INDEX",
-  "MASK",
-  "PERMISSION",
-  "PROCEDURE",
-  "SCHEMA",
-  "SEQUENCE",
-  "TABLE",
-  "TRIGGER",
-  "TYPE",
-  "VARIABLE",
-  "VIEW",
-  "XSR",
-] as const;
 
 /**
  * Parse a qualified object reference into library and name.
@@ -35,6 +18,11 @@ const VALID_TYPES = [
  */
 function parseObjectRef(ref: string): { library?: string; name: string } {
   const parts = ref.trim().split(".");
+  if (parts.length > 2) {
+    throw new Error(
+      `Invalid object reference "${ref}". Expected LIBRARY.OBJECT or OBJECT.`,
+    );
+  }
   if (parts.length === 2) {
     return { library: parts[0]!.toUpperCase(), name: parts[1]!.toUpperCase() };
   }
@@ -49,16 +37,16 @@ export function registerDescribeCommand(program: Command): void {
     )
     .option(
       "--type <type>",
-      `Object type: ${VALID_TYPES.join(", ")}`,
+      `Object type: ${OBJECT_TYPES.join(", ")}`,
       "TABLE",
     )
     .action(async (objects: string, opts, cmd: Command) => {
       const objectType = (opts["type"] as string).toUpperCase();
-      if (!VALID_TYPES.includes(objectType as (typeof VALID_TYPES)[number])) {
+      if (!OBJECT_TYPES.includes(objectType as (typeof OBJECT_TYPES)[number])) {
         process.stderr.write(
-          `Error: Invalid --type "${opts["type"]}". Valid types: ${VALID_TYPES.join(", ")}\n`,
+          `Error: Invalid --type "${opts["type"]}". Valid types: ${OBJECT_TYPES.join(", ")}\n`,
         );
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -69,7 +57,7 @@ export function registerDescribeCommand(program: Command): void {
 
       if (refs.length === 0) {
         process.stderr.write("Error: No objects specified.\n");
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -90,7 +78,7 @@ export function registerDescribeCommand(program: Command): void {
               {
                 object_name: parsed.name,
                 object_library: parsed.library ?? "QSYS2",
-                object_type: objectType as (typeof VALID_TYPES)[number],
+                object_type: objectType as (typeof OBJECT_TYPES)[number],
               },
               ctx,
               {} as SdkContext,
