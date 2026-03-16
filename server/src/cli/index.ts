@@ -18,6 +18,7 @@ import { registerTablesCommand } from "./commands/tables.js";
 import { registerColumnsCommand } from "./commands/columns.js";
 import { registerRelatedCommand } from "./commands/related.js";
 import { registerValidateCommand } from "./commands/validate.js";
+import { registerDescribeCommand } from "./commands/describe.js";
 import { registerSqlCommand } from "./commands/sql.js";
 import { registerToolCommand } from "./commands/tool.js";
 import { registerToolsCommand, registerToolsetsCommand } from "./commands/tools-list.js";
@@ -77,6 +78,7 @@ export function createProgram(): Command {
   registerColumnsCommand(program);
   registerRelatedCommand(program);
   registerValidateCommand(program);
+  registerDescribeCommand(program);
   registerSqlCommand(program);
   registerToolCommand(program);
   registerToolsCommand(program);

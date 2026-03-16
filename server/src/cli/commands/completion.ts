@@ -15,6 +15,7 @@ const COMMANDS = [
   "columns",
   "related",
   "validate",
+  "describe",
   "sql",
   "tool",
   "tools",
