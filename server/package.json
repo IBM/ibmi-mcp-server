@@ -165,5 +165,8 @@
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "overrides": {
+    "flatted": "3.4.0"
   }
 }
