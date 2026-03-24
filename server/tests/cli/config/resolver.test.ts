@@ -1,36 +1,36 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { resolveSystem } from "../../../src/cli/config/resolver";
+import { resolveSystem, resolveSystems } from "../../../src/cli/config/resolver";
 import type { CliConfig } from "../../../src/cli/config/types";
 
-describe("resolveSystem", () => {
-  const originalEnv = { ...process.env };
+const originalEnv = { ...process.env };
 
-  const testConfig: CliConfig = {
-    default: "dev",
-    systems: {
-      dev: {
-        host: "dev400.com",
-        port: 8076,
-        user: "DEV",
-        readOnly: false,
-        confirm: false,
-        timeout: 60,
-        maxRows: 5000,
-        ignoreUnauthorized: true,
-      },
-      prod: {
-        host: "prod400.com",
-        port: 8076,
-        user: "PROD",
-        readOnly: true,
-        confirm: true,
-        timeout: 30,
-        maxRows: 1000,
-        ignoreUnauthorized: true,
-      },
+const testConfig: CliConfig = {
+  default: "dev",
+  systems: {
+    dev: {
+      host: "dev400.com",
+      port: 8076,
+      user: "DEV",
+      readOnly: false,
+      confirm: false,
+      timeout: 60,
+      maxRows: 5000,
+      ignoreUnauthorized: true,
     },
-  };
+    prod: {
+      host: "prod400.com",
+      port: 8076,
+      user: "PROD",
+      readOnly: true,
+      confirm: true,
+      timeout: 30,
+      maxRows: 1000,
+      ignoreUnauthorized: true,
+    },
+  },
+};
 
+describe("resolveSystem", () => {
   afterEach(() => {
     process.env = { ...originalEnv };
   });
@@ -110,5 +110,49 @@ describe("resolveSystem", () => {
     expect(() => resolveSystem(undefined, emptyConfig)).toThrow(
       /No IBM i system configured/,
     );
+  });
+});
+
+describe("resolveSystems", () => {
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("should return single-element array for non-comma flag", () => {
+    const result = resolveSystems("dev", testConfig);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("dev");
+    expect(result[0].config.host).toBe("dev400.com");
+  });
+
+  it("should return multiple systems for comma-separated flag", () => {
+    const result = resolveSystems("dev,prod", testConfig);
+    expect(result).toHaveLength(2);
+    expect(result[0].name).toBe("dev");
+    expect(result[0].config.host).toBe("dev400.com");
+    expect(result[1].name).toBe("prod");
+    expect(result[1].config.host).toBe("prod400.com");
+  });
+
+  it("should trim whitespace in system names", () => {
+    const result = resolveSystems("dev , prod", testConfig);
+    expect(result).toHaveLength(2);
+    expect(result[0].name).toBe("dev");
+    expect(result[1].name).toBe("prod");
+  });
+
+  it("should throw if any system in the list is not found", () => {
+    expect(() => resolveSystems("dev,nonexistent", testConfig)).toThrow(
+      /not found/,
+    );
+  });
+
+  it("should delegate to resolveSystem for single-system case", () => {
+    delete process.env["IBMI_SYSTEM"];
+    const result = resolveSystems("prod", testConfig);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("prod");
+    expect(result[0].source).toBe("flag");
+    expect(result[0].config.host).toBe("prod400.com");
   });
 });

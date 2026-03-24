@@ -16,6 +16,7 @@ import {
   classifyError,
   type ErrorCodeValue,
 } from "../utils/exit-codes.js";
+import type { MultiSystemResult } from "../utils/multi-connection.js";
 
 /** Module-level output file path set by --output global option. */
 let outputFilePath: string | undefined;
@@ -233,8 +234,6 @@ export function renderError(
 // =============================================================================
 // Multi-system output
 // =============================================================================
-
-import type { MultiSystemResult } from "../utils/multi-connection.js";
 
 /**
  * Render results from multiple systems.

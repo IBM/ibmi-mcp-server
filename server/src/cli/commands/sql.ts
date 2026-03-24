@@ -6,7 +6,7 @@
 
 import { readFileSync } from "fs";
 import { Command } from "commander";
-import { withConnection, getFormat } from "../utils/command-helpers.js";
+import { withConnection, getFormat, createCliContext } from "../utils/command-helpers.js";
 import { renderMessage, renderMultiSystemOutput, renderMultiSystemNdjson } from "../formatters/output.js";
 import { ExitCode } from "../utils/exit-codes.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
@@ -132,7 +132,7 @@ export function registerSqlCommand(program: Command): void {
         let maxRows = resolved.config.maxRows;
         if (opts["limit"]) {
           maxRows = parseInt(opts["limit"] as string, 10);
-          if (isNaN(maxRows) || maxRows < 0) {
+          if (isNaN(maxRows) || maxRows <= 0) {
             throw new Error(`Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`);
           }
         }
@@ -174,7 +174,7 @@ export function registerSqlCommand(program: Command): void {
 
 /**
  * Execute SQL against multiple systems in parallel via SourceManager.
- * Bypasses IBMiConnectionPool singleton — each system gets its own pool.
+ * Creates a temporary SourceManager — each system gets its own pool.
  */
 async function handleMultiSystemSql(
   sql: string,
@@ -191,11 +191,28 @@ async function handleMultiSystemSql(
 
     const systems = resolveSystems(systemFlag);
 
-    // Apply --limit (use first system's maxRows as default if not specified)
+    // Enforce read-only: true if CLI flag is set OR any target system requires it
+    const readOnly =
+      (opts["readOnly"] as boolean) ||
+      systems.some((s) => s.config.readOnly);
+
+    if (readOnly) {
+      const { SqlSecurityValidator } = await import(
+        "../../ibmi-mcp-server/utils/security/sqlSecurityValidator.js"
+      );
+      const ctx = createCliContext("multi_sql_security");
+      SqlSecurityValidator.validateQuery(
+        sql,
+        { readOnly: true, maxQueryLength: 10000 },
+        ctx,
+      );
+    }
+
+    // Respect the most restrictive system's row limit when none is explicit
     let maxRows: number | undefined;
     if (opts["limit"]) {
       maxRows = parseInt(opts["limit"] as string, 10);
-      if (isNaN(maxRows) || maxRows < 0) {
+      if (isNaN(maxRows) || maxRows <= 0) {
         process.stderr.write(
           `Error: Invalid --limit value: "${opts["limit"]}". Must be a positive integer.\n`,
         );
@@ -203,7 +220,6 @@ async function handleMultiSystemSql(
         return;
       }
     } else {
-      // Use the smallest maxRows across all systems
       maxRows = Math.min(
         ...systems.map((s) => s.config.maxRows ?? Infinity),
       );
