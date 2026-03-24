@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.4.5](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.4...v0.4.5) (2026-03-24)
+
+
+### Features
+
+* **`ibmi describe` command**: Generate DDL (CREATE statements) for one or more SQL objects using `QSYS2.GENERATE_SQL`. Accepts comma-delimited `LIBRARY.OBJECT` references with an optional `--type` flag for views, indexes, procedures, and other object types ([#132](https://github.com/IBM/ibmi-mcp-server/issues/132))
+* **Multi-system SQL execution**: Run the same SQL query against multiple IBM i systems in parallel with `ibmi sql "..." --system dev,prod`. Results include a `SYSTEM` column and per-system timing. JSON output provides an aggregate envelope with `systems_ok`/`systems_failed` counts ([#132](https://github.com/IBM/ibmi-mcp-server/issues/132))
+
+
+### Bug Fixes
+
+* **Container security**: Update Dockerfile base image and apply OS-level package upgrades to resolve CVEs in `libcrypto3`, `libssl3`, and bundled npm dependencies (`minimatch`, `tar`, `glob`, `cross-spawn`, `flatted`) ([#134](https://github.com/IBM/ibmi-mcp-server/issues/134))
+
 ### [0.4.4](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.3...v0.4.4) (2026-03-15)
 
 
