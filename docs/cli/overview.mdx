@@ -14,7 +14,7 @@ The `ibmi` CLI lets you interact with IBM i systems without starting the MCP ser
     Query IBM i databases and explore schemas without configuring an MCP client or AI agent
   </Card>
   <Card title="Multi-System" icon="server">
-    Configure and switch between development, test, and production systems with named connections
+    Configure named connections and run queries against multiple systems in parallel with `--system dev,prod`
   </Card>
   <Card title="Agent-Friendly" icon="robot">
     Structured JSON output, NDJSON streaming, semantic exit codes, and dry-run mode for AI agent integration
@@ -35,10 +35,17 @@ ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
 # Run a query
 ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY"
 
+# Run the same query against multiple systems in parallel
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY" --system dev,prod
+
 # Explore schema metadata
 ibmi schemas
 ibmi tables SAMPLE
 ibmi columns SAMPLE EMPLOYEE
+
+# Generate DDL for one or more objects
+ibmi describe "SAMPLE.EMPLOYEE"
+ibmi describe "SAMPLE.EMPLOYEE,SAMPLE.DEPARTMENT"
 
 # Execute a YAML tool
 ibmi tool system_status --tools ./tools/performance/performance.yaml

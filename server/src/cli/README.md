@@ -74,6 +74,35 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 
 SQL source priority: positional argument > `--file` > piped stdin.
 
+#### Multi-system execution
+
+Run the same query against multiple systems in parallel by passing comma-separated names to `--system`. Each name must be defined in your config file (`~/.ibmi/config.yaml` or project `.ibmi/config.yaml`).
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY" --system dev,prod
+ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --system dev,prod --format json
+ibmi sql "SELECT * FROM QSYS2.SYSTEM_STATUS_INFO" --system dev,prod --stream
+```
+
+Each row includes a `SYSTEM` column. JSON output includes a `systems` array with per-system row counts, timing, and errors. If one system is unreachable, its results appear as an error row without affecting the others. `--watch` is not supported with multiple systems.
+
+### `ibmi describe <objects>` — Generate DDL
+
+Generate DDL (CREATE statements) for one or more SQL objects via `QSYS2.GENERATE_SQL`.
+
+```bash
+ibmi describe "SAMPLE.EMPLOYEE"
+ibmi describe "SAMPLE.EMPLOYEE,SAMPLE.DEPARTMENT"
+ibmi describe "QSYS2.SYSCOLUMNS" --type VIEW
+ibmi describe "SYSCOLUMNS" --type VIEW          # defaults library to QSYS2
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--type <type>` | Object type (`TABLE`, `VIEW`, `INDEX`, `PROCEDURE`, `FUNCTION`, etc.) | `TABLE` |
+
+Objects are specified as `LIBRARY.OBJECT` or just `OBJECT` (defaults to `QSYS2`). When describing multiple objects, each is queried independently — a failure on one produces an `ERROR:` row without crashing.
+
 ### `ibmi tool <name>` — Run a YAML Tool
 
 ```bash
@@ -351,7 +380,8 @@ ibmi sql "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS = 'RUN'"
 src/cli/
 ├── index.ts                   # Program setup, global options, command registration
 ├── commands/
-│   ├── sql.ts                 # ibmi sql — direct SQL execution
+│   ├── sql.ts                 # ibmi sql — direct SQL execution (+ multi-system)
+│   ├── describe.ts            # ibmi describe — DDL generation
 │   ├── tool.ts                # ibmi tool — YAML tool execution
 │   ├── tools-list.ts          # ibmi tools / toolsets — tool discovery
 │   ├── system.ts              # ibmi system — connection management
@@ -372,6 +402,7 @@ src/cli/
 └── utils/
     ├── command-helpers.ts      # withConnection wrapper, watch mode, format helpers
     ├── connection.ts           # DB2i_* env bridge to IBMiConnectionPool
+    ├── multi-connection.ts     # Multi-system parallel execution via SourceManager
     ├── exit-codes.ts           # Semantic exit codes and error classification
     ├── yaml-loader.ts          # YAML tool file loading and merging
     └── yaml-to-commander.ts    # YAML parameters → Commander options

@@ -16,6 +16,7 @@ import {
   classifyError,
   type ErrorCodeValue,
 } from "../utils/exit-codes.js";
+import type { MultiSystemResult } from "../utils/multi-connection.js";
 
 /** Module-level output file path set by --output global option. */
 let outputFilePath: string | undefined;
@@ -227,6 +228,106 @@ export function renderError(
     writeOutput(JSON.stringify(output, null, 2) + "\n");
   } else {
     process.stderr.write(`Error: ${error.message}\n`);
+  }
+}
+
+// =============================================================================
+// Multi-system output
+// =============================================================================
+
+/**
+ * Render results from multiple systems.
+ * Prepends a SYSTEM column to every row so results are distinguishable.
+ */
+export function renderMultiSystemOutput(
+  results: MultiSystemResult[],
+  format: OutputFormat,
+): void {
+  // Merge all rows with SYSTEM column prepended
+  const merged: Record<string, unknown>[] = [];
+  for (const r of results) {
+    if (r.error) {
+      merged.push({ SYSTEM: r.system, ERROR: r.error });
+    } else {
+      for (const row of r.data) {
+        merged.push({ SYSTEM: r.system, ...row });
+      }
+    }
+  }
+
+  switch (format) {
+    case "json":
+      renderMultiSystemJson(results, merged);
+      break;
+    case "csv":
+      renderCsv(merged);
+      break;
+    case "markdown":
+      renderTable(merged, "markdown");
+      break;
+    case "table":
+    default:
+      renderTable(merged, "grid", {
+        rowCount: merged.length,
+      });
+      renderMultiSystemFooter(results);
+      break;
+  }
+}
+
+/** JSON envelope for multi-system results. */
+function renderMultiSystemJson(
+  results: MultiSystemResult[],
+  merged: Record<string, unknown>[],
+): void {
+  const totalRows = results.reduce((sum, r) => sum + r.rowCount, 0);
+  const output = {
+    ok: results.every((r) => !r.error),
+    data: merged,
+    systems: results.map((r) => ({
+      system: r.system,
+      host: r.host,
+      rows: r.rowCount,
+      elapsed_ms: r.elapsedMs,
+      ...(r.error ? { error: r.error } : {}),
+    })),
+    meta: {
+      total_rows: totalRows,
+      systems_queried: results.length,
+      systems_ok: results.filter((r) => !r.error).length,
+      systems_failed: results.filter((r) => r.error).length,
+    },
+  };
+  writeOutput(JSON.stringify(output, null, 2) + "\n");
+}
+
+/** Footer for multi-system table output showing per-system stats. */
+function renderMultiSystemFooter(results: MultiSystemResult[]): void {
+  const parts: string[] = [];
+  for (const r of results) {
+    if (r.error) {
+      parts.push(`[${r.system}] ERROR`);
+    } else {
+      parts.push(`[${r.system}] ${r.rowCount} row${r.rowCount !== 1 ? "s" : ""} · ${(r.elapsedMs / 1000).toFixed(2)}s`);
+    }
+  }
+  writeOutput(parts.join("  ") + "\n");
+}
+
+/**
+ * Render multi-system NDJSON. Each row gets a _system field.
+ */
+export function renderMultiSystemNdjson(
+  results: MultiSystemResult[],
+): void {
+  for (const r of results) {
+    if (r.error) {
+      writeOutput(JSON.stringify({ _system: r.system, _error: r.error }) + "\n");
+    } else {
+      for (const row of r.data) {
+        writeOutput(JSON.stringify({ _system: r.system, ...row }) + "\n");
+      }
+    }
   }
 }
 
