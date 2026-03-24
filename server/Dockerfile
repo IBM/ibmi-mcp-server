@@ -1,8 +1,19 @@
 # ---- Base Node ----
 # Use a specific Node.js version known to work, Alpine for smaller size
-FROM node:21-alpine AS base
+FROM node:bookworm-slim AS base
 WORKDIR /usr/src/app
 # NODE_ENV will be set by docker-compose from .env file
+
+# Update system packages and install security updates
+# This resolves all system-level CVEs
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        && \
+    npm install -g npm@latest && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # ---- Dependencies ----
 # Install dependencies first to leverage Docker cache
@@ -40,7 +51,7 @@ COPY --from=builder /usr/src/app/dist ./dist
 COPY package.json .
 
 # Create a non-root user and switch to it
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
 # Change ownership of app directory to appuser and create npm cache directory
 RUN chown -R appuser:appgroup /usr/src/app && \
