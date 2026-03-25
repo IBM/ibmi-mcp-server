@@ -1,13 +1,52 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { createProgram } from "../../src/index";
 
 vi.mock("../../src/utils/yaml-loader.js", () => ({
   loadYamlTools: vi.fn(),
 }));
 
+vi.mock("../../src/config/resolver.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/resolver.js")>();
+  return {
+    ...actual,
+    resolveSystem: vi.fn(),
+  };
+});
+
+vi.mock("../../src/utils/connection.js", () => ({
+  connectSystem: vi.fn().mockResolvedValue(vi.fn()),
+}));
+
+vi.mock("@ibm/ibmi-mcp-server/services", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@ibm/ibmi-mcp-server/services")>();
+  return {
+    ...actual,
+    IBMiConnectionPool: {
+      executeQuery: vi.fn().mockResolvedValue({ data: [{ OK: 1 }] }),
+    },
+    ParameterProcessor: {
+      process: vi.fn().mockResolvedValue({
+        sql: "SELECT 1",
+        parameters: [],
+        parameterNames: [],
+        missingParameters: [],
+        mode: "named",
+        stats: {
+          originalLength: 0,
+          processedLength: 0,
+          namedParametersFound: 0,
+          positionalParametersFound: 0,
+          parametersConverted: 0,
+        },
+      }),
+    },
+  };
+});
+
 describe("ibmi tool command", () => {
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     process.exitCode = undefined;
   });
 
@@ -41,7 +80,7 @@ describe("ibmi tool command", () => {
 
 describe("ibmi --tools global option", () => {
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     process.exitCode = undefined;
   });
 
@@ -55,7 +94,7 @@ describe("ibmi --tools global option", () => {
 
 describe("ibmi tool command — error paths", () => {
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     process.exitCode = undefined;
   });
 
@@ -278,5 +317,146 @@ describe("ibmi tool command — error paths", () => {
       process.stderr.write = originalStderr;
       process.stdout.write = originalStdout;
     }
+  });
+});
+
+describe("ibmi tool command — security validation", () => {
+  let stdoutOutput: string;
+  let stderrOutput: string;
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+
+  // Get references to mocked modules at import time
+  let mockLoadYamlTools: ReturnType<typeof vi.fn>;
+  let mockResolveSystem: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    stdoutOutput = "";
+    stderrOutput = "";
+    process.stdout.write = ((chunk: string) => {
+      stdoutOutput += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrOutput += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    const yamlLoader = await import("../../src/utils/yaml-loader.js");
+    mockLoadYamlTools = vi.mocked(yamlLoader.loadYamlTools);
+
+    const resolver = await import("../../src/config/resolver.js");
+    mockResolveSystem = vi.mocked(resolver.resolveSystem);
+  });
+
+  afterEach(() => {
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+  });
+
+  function mockToolWithStatement(
+    statement: string,
+    security?: { readOnly?: boolean },
+    systemReadOnly = false,
+  ) {
+    mockLoadYamlTools.mockReturnValue({
+      tools: {
+        test_tool: {
+          source: "test",
+          description: "Test tool",
+          statement,
+          parameters: [],
+          ...(security !== undefined ? { security } : {}),
+        },
+      },
+      toolsets: {},
+      sources: {},
+    });
+
+    mockResolveSystem.mockReturnValue({
+      name: "dev",
+      config: {
+        host: "dev400.com",
+        port: 8076,
+        user: "DEV",
+        readOnly: systemReadOnly,
+        confirm: false,
+        timeout: 60,
+        maxRows: 5000,
+        ignoreUnauthorized: true,
+      },
+      source: "flag",
+    });
+  }
+
+  it("should block DELETE when tool has security.readOnly: true", async () => {
+    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE EMPNO = '999'", { readOnly: true });
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
+
+    const output = stdoutOutput + stderrOutput;
+    expect(output).toMatch(/write operation/i);
+  });
+
+  it("should block INSERT when tool has no security config (defaults to readOnly)", async () => {
+    mockToolWithStatement("INSERT INTO SAMPLE.EMPLOYEE VALUES ('X')");
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
+
+    const output = stdoutOutput + stderrOutput;
+    expect(output).toMatch(/write operation/i);
+  });
+
+  it("should allow SELECT when tool has security.readOnly: true", async () => {
+    mockToolWithStatement("SELECT * FROM SYSIBM.SYSDUMMY1", { readOnly: true });
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
+
+    const output = stdoutOutput + stderrOutput;
+    expect(output).not.toMatch(/write operation/i);
+  });
+
+  it("should allow DELETE when tool has security.readOnly: false", async () => {
+    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0", { readOnly: false });
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
+
+    const output = stdoutOutput + stderrOutput;
+    expect(output).not.toMatch(/write operation/i);
+  });
+
+  it("should block DELETE when system readOnly overrides tool readOnly: false", async () => {
+    mockToolWithStatement(
+      "DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0",
+      { readOnly: false },
+      true, // system readOnly
+    );
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
+
+    const output = stdoutOutput + stderrOutput;
+    expect(output).toMatch(/write operation/i);
   });
 });
