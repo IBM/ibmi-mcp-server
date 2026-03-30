@@ -260,6 +260,9 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true" || val === "1"),
 
+  /** Comma-separated list of libraries for unqualified name resolution. From `DB2i_LIBRARY_LIST`. */
+  DB2i_LIBRARY_LIST: z.string().optional(),
+
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   TOOLS_YAML_PATH: z
     .string()
@@ -575,18 +578,23 @@ export const config = {
    * through the static import chain (logger → utils → config).
    */
   get db2i():
-    | { host: string; user: string; password: string; ignoreUnauthorized: boolean }
+    | { host: string; user: string; password: string; ignoreUnauthorized: boolean; libraryList?: string[] }
     | undefined {
     const host = process.env.DB2i_HOST;
     const user = process.env.DB2i_USER;
     const password = process.env.DB2i_PASS;
     if (!host || !user || !password) return undefined;
     const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
+    const libraryList = process.env.DB2i_LIBRARY_LIST
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     return {
       host,
       user,
       password,
       ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",
+      ...(libraryList?.length ? { libraryList } : {}),
     };
   },
 

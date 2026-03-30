@@ -33,6 +33,7 @@ export interface PoolConnectionConfig {
   ignoreUnauthorized?: boolean;
   maxSize?: number;
   startingSize?: number;
+  libraryList?: string[];
 }
 
 /**
@@ -190,6 +191,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           port: poolState.config.port || 8471,
           user: poolState.config.user.substring(0, 3) + "***",
           ignoreUnauthorized: poolState.config.ignoreUnauthorized ?? true,
+          ...(poolState.config.libraryList?.length
+            ? { libraryList: poolState.config.libraryList }
+            : {}),
         },
         `Initializing connection pool: ${String(poolId).substring(0, 7)}***`,
       );
@@ -202,6 +206,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         creds: server,
         maxSize: poolState.config.maxSize || 10,
         startingSize: poolState.config.startingSize || 2,
+        ...(poolState.config.libraryList?.length
+          ? { opts: { libraries: poolState.config.libraryList } }
+          : {}),
       });
 
       await poolState.pool.init();

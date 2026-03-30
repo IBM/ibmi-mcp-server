@@ -85,6 +85,9 @@ export class SourceManager extends BaseConnectionPool<string> {
           password: sourceConfig.password,
           port: sourceConfig.port,
           ignoreUnauthorized: sourceConfig["ignore-unauthorized"],
+          ...(sourceConfig["library-list"]?.length
+            ? { libraryList: sourceConfig["library-list"] }
+            : {}),
         };
 
         // Store the original source config for reference

@@ -96,6 +96,22 @@ export const SourceConfigSchema = z
       .boolean()
       .optional()
       .describe("Whether to ignore unauthorized SSL certificates"),
+    "library-list": z
+      .union([
+        z.array(z.string().min(1)),
+        z
+          .string()
+          .transform((val) =>
+            val
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          ),
+      ])
+      .optional()
+      .describe(
+        "Library list for unqualified name resolution. Accepts an array of library names or a comma-separated string.",
+      ),
   })
   .describe("Database connection configuration");
 
