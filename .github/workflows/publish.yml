@@ -1,4 +1,4 @@
-name: Publish Package
+name: Publish Packages
 
 on:
   push:
@@ -11,12 +11,11 @@ jobs:
     environment: Release
     permissions:
       id-token: write  # Required for npm provenance
+      contents: read
 
     steps:
-      # 1. Checkout repository
       - uses: actions/checkout@v4
 
-      # 2. Setup Node.js with npm registry
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
@@ -24,27 +23,47 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      # 3. Install dependencies (npm workspaces — installs all packages/*)
       - name: Install dependencies
         run: |
           # Clean install to handle platform-specific optional dependencies
           rm -rf node_modules packages/*/node_modules
           npm install --prefer-offline
 
-      # 4. Run validation across all workspaces
       - name: Run tests and checks
         run: |
           npm run typecheck --workspaces --if-present
           npm run lint --workspaces --if-present
           npm run test --workspaces --if-present
 
-      # 5. Build the workspace packages
+      # Build @ibm/ibmi-mcp-server first (the CLI imports from its dist/public).
       - name: Build
-        run: npm run build --workspaces --if-present
+        run: npm run build
 
-      # 6. Publish server to npm (using granular access token with 2FA bypass)
       - name: Publish @ibm/ibmi-mcp-server to npm
         working-directory: ./packages/server
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # npm's registry has propagation delay; @ibm/ibmi-cli exact-pins
+      # @ibm/ibmi-mcp-server so the CLI publish will fail with ETARGET unless
+      # the server version is already queryable. Poll with a short timeout.
+      - name: Wait for @ibm/ibmi-mcp-server on registry
+        run: |
+          V=$(node -p "require('./packages/server/package.json').version")
+          echo "Waiting for @ibm/ibmi-mcp-server@$V to be visible..."
+          for i in $(seq 1 30); do
+            if npm view "@ibm/ibmi-mcp-server@$V" version > /dev/null 2>&1; then
+              echo "Visible after ${i} attempts."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Server version never became visible on registry."
+          exit 1
+
+      - name: Publish @ibm/ibmi-cli to npm
+        working-directory: ./packages/cli
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
