@@ -6,6 +6,7 @@
  */
 
 import pkg, { BindingValue, QueryResult, DaemonServer } from "@ibm/mapepire-js";
+import type { JDBCOptions } from "@ibm/mapepire-js";
 const { Pool, getRootCertificate } = pkg;
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
@@ -33,6 +34,7 @@ export interface PoolConnectionConfig {
   ignoreUnauthorized?: boolean;
   maxSize?: number;
   startingSize?: number;
+  jdbcOptions?: JDBCOptions;
 }
 
 /**
@@ -190,6 +192,13 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           port: poolState.config.port || 8471,
           user: poolState.config.user.substring(0, 3) + "***",
           ignoreUnauthorized: poolState.config.ignoreUnauthorized ?? true,
+          // Intentionally logging only `libraries`: other JDBCOptions fields
+          // (e.g., "key ring password", "proxy server") may contain sensitive
+          // values. Revisit if we add structured redaction for the full
+          // jdbcOptions object.
+          ...(poolState.config.jdbcOptions?.libraries?.length
+            ? { libraries: poolState.config.jdbcOptions.libraries }
+            : {}),
         },
         `Initializing connection pool: ${String(poolId).substring(0, 7)}***`,
       );
@@ -202,6 +211,10 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         creds: server,
         maxSize: poolState.config.maxSize || 10,
         startingSize: poolState.config.startingSize || 2,
+        ...(poolState.config.jdbcOptions &&
+        Object.keys(poolState.config.jdbcOptions).length > 0
+          ? { opts: poolState.config.jdbcOptions }
+          : {}),
       });
 
       await poolState.pool.init();

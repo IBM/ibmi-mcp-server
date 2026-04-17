@@ -6,6 +6,8 @@
  */
 
 import { BindingValue, QueryResult } from "@ibm/mapepire-js";
+import type { JDBCOptions } from "@ibm/mapepire-js";
+import { config } from "@/config/index.js";
 import {
   SourceConfig,
   SqlToolSecurityConfig,
@@ -78,6 +80,22 @@ export class SourceManager extends BaseConnectionPool<string> {
           `Registering source: ${sourceName}`,
         );
 
+        // ENV overrides YAML: operators can enforce a fleet-wide JDBC config
+        // without editing YAML files per deployment. Shallow merge is
+        // sufficient — JDBCOptions is a flat object with no nested fields.
+        //
+        // `as JDBCOptions` cast: Zod's `.passthrough()` infers
+        // `{ libraries?: string[] } & { [key: string]: unknown }`, which is
+        // structurally compatible but not identical to the interface.
+        const yamlJdbc = sourceConfig["jdbc-options"] as
+          | JDBCOptions
+          | undefined;
+        const envJdbc = config.db2i?.jdbcOptions;
+        const mergedJdbc: JDBCOptions | undefined =
+          yamlJdbc || envJdbc
+            ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
+            : undefined;
+
         // Convert YAML source to pool connection config
         const poolConfig: PoolConnectionConfig = {
           host: sourceConfig.host,
@@ -85,6 +103,9 @@ export class SourceManager extends BaseConnectionPool<string> {
           password: sourceConfig.password,
           port: sourceConfig.port,
           ignoreUnauthorized: sourceConfig["ignore-unauthorized"],
+          ...(mergedJdbc && Object.keys(mergedJdbc).length > 0
+            ? { jdbcOptions: mergedJdbc }
+            : {}),
         };
 
         // Store the original source config for reference
