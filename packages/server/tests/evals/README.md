@@ -40,7 +40,7 @@ This file is configured very similar to a `mcp.json` file. For servers with OAut
     },
     "ibmi-mcp-server-stdio": {
       "command": "npx",
-      "args": ["/path/to/your/ibmi-mcp-server/dist/index.js"],
+      "args": ["/path/to/your/ibmi-mcp-server/packages/server/dist/index.js"],
       "env": {
         "TOOLS_YAML_PATH": "tools",
         "NODE_OPTIONS": "--no-deprecation",

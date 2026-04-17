@@ -49,7 +49,7 @@ npm run start:http
 
 ### 4. Run MCP Client Script
 
-In another terminal, navigate to the `server/tests/agents` directory and run:
+In another terminal, navigate to the `packages/server/tests/agents` directory and run:
 
 ```bash
 uv run mcp_client.py

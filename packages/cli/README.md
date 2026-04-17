@@ -384,7 +384,7 @@ ibmi sql "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS = 'RUN'"
 ## Architecture
 
 ```
-src/cli/
+packages/cli/src/
 ├── index.ts                   # Program setup, global options, command registration
 ├── commands/
 │   ├── sql.ts                 # ibmi sql — direct SQL execution (+ multi-system)
