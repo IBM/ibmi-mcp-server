@@ -8,12 +8,19 @@ ibmi <command> [options]
 
 ---
 
+## Install
+
+```bash
+# Published package (recommended)
+npm i -g @ibm/ibmi-cli
+
+# Or from a local checkout
+npm run build && npm link -w @ibm/ibmi-cli
+```
+
 ## Quick Start
 
 ```bash
-# Install and link
-cd server && npm run build && npm link
-
 # Option A: Configure via .ibmi/config.yaml
 ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
 

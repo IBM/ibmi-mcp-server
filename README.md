@@ -35,7 +35,8 @@ The **IBM i MCP Server** enables AI agents to interact with IBM i systems throug
 
 | Directory | Purpose | Documentation |
 |-----------|---------|---------------|
-| **`server/`** | MCP server implementation (TypeScript) | [Server README](./server/README.md) |
+| **`packages/server/`** | MCP server implementation (TypeScript) — `@ibm/ibmi-mcp-server` on npm | [Server README](./packages/server/README.md) |
+| **`packages/cli/`** | `ibmi` command-line interface — `@ibm/ibmi-cli` on npm | [CLI README](./packages/cli/README.md) |
 | **`tools/`** | YAML-based SQL tool configurations | [Tools Guide](./tools/README.md) |
 | **`agents/`** | AI agent examples and integrations | [Agents Guide](./agents/README.md) |
 | **`client/`** | Python client examples for testing | [Client README](./client/README.md) |
@@ -127,8 +128,9 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 > - [Connect AI Clients](https://ibm-d95bab6e.mintlify.app/clients/overview) - Integrate with Claude, VSCode, Bob, etc.
 >
 > **Additional links:**
-> - [Server README](./server/README.md)
-> - [Server Configuration](./server/README.md#️-configuration)
+> - [Server README](./packages/server/README.md)
+> - [Server Configuration](./packages/server/README.md#️-configuration)
+> - [CLI README](./packages/cli/README.md) — the `ibmi` command ships separately as [`@ibm/ibmi-cli`](https://www.npmjs.com/package/@ibm/ibmi-cli)
 
 ---
 

@@ -1,5 +1,7 @@
 # IBM i MCP Server
 
+> **Note — CLI moved.** The `ibmi` command-line interface used to ship with this package. As of v0.5.0 it's a separate package: install it with `npm i -g @ibm/ibmi-cli`. This package continues to provide the `ibmi-mcp-server` binary. See [packages/cli](../cli/README.md).
+
 <details>
 
 <summary><strong>Table of Contents</strong></summary>
