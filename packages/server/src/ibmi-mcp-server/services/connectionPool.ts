@@ -6,7 +6,7 @@
  * @module src/services/mapepire/connectionPool
  */
 
-import { BindingValue, QueryResult } from "@ibm/mapepire-js";
+import { BindingValue, QueryResult, QueryMetaData } from "@ibm/mapepire-js";
 import { config } from "@/config/index.js";
 import { logger } from "@/utils/internal/logger.js";
 import { ErrorHandler } from "@/utils/internal/errorHandler.js";
@@ -121,6 +121,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     success: boolean;
     sql_rc?: unknown;
     execution_time?: number;
+    metadata?: QueryMetaData;
   }> {
     const operationContext =
       context ||
@@ -147,6 +148,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     query: string,
     params?: BindingValue[],
     context?: RequestContext,
+    rowsToFetch?: number,
   ): Promise<QueryResult<unknown>> {
     const operationContext =
       context ||
@@ -161,6 +163,8 @@ export class IBMiConnectionPool extends BaseConnectionPool<
       query,
       params,
       operationContext,
+      undefined,
+      rowsToFetch,
     );
   }
 

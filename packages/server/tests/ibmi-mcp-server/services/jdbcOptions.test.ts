@@ -11,19 +11,28 @@ import type { PoolConnectionConfig } from "../../../src/ibmi-mcp-server/services
 // ---------------------------------------------------------------------------
 // Hoisted mock state – vi.hoisted runs before vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockPoolInstance, MockPool, mockGetRootCert } = vi.hoisted(() => {
-  const mockPoolInstance = {
-    init: vi.fn(),
-    execute: vi.fn(),
-    end: vi.fn(),
-    query: vi.fn(),
-  };
-  return {
-    mockPoolInstance,
-    MockPool: vi.fn(() => mockPoolInstance),
-    mockGetRootCert: vi.fn().mockResolvedValue("cert"),
-  };
-});
+const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
+  vi.hoisted(() => {
+    // executeQuery now routes through pool.query().execute().close() (PR #139),
+    // so the query object is the primary execution surface.
+    const mockQueryInstance = {
+      execute: vi.fn(),
+      fetchMore: vi.fn(),
+      close: vi.fn(),
+    };
+    const mockPoolInstance = {
+      init: vi.fn(),
+      execute: vi.fn(),
+      end: vi.fn(),
+      query: vi.fn(() => mockQueryInstance),
+    };
+    return {
+      mockPoolInstance,
+      mockQueryInstance,
+      MockPool: vi.fn(() => mockPoolInstance),
+      mockGetRootCert: vi.fn().mockResolvedValue("cert"),
+    };
+  });
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -119,7 +128,16 @@ function resetMocks() {
   mockPoolInstance.init.mockReset().mockResolvedValue(undefined);
   mockPoolInstance.execute.mockReset().mockResolvedValue(SUCCESSFUL_RESULT);
   mockPoolInstance.end.mockReset().mockResolvedValue(undefined);
-  mockPoolInstance.query.mockReset();
+  // executeQuery flows through pool.query().execute().close(); re-wire the
+  // query factory each run so test-local mockImplementation overrides reset.
+  mockPoolInstance.query
+    .mockReset()
+    .mockImplementation(() => mockQueryInstance);
+  mockQueryInstance.execute.mockReset().mockResolvedValue(SUCCESSFUL_RESULT);
+  mockQueryInstance.fetchMore
+    .mockReset()
+    .mockResolvedValue({ success: true, data: [], is_done: true });
+  mockQueryInstance.close.mockReset().mockResolvedValue(undefined);
   mockGetRootCert.mockClear();
 }
 
@@ -526,15 +544,15 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
 
     await pool.testInitializePool("test-reinit", configWithLibs, TEST_CONTEXT);
 
-    // First call: trigger timeout
-    mockPoolInstance.execute.mockReturnValueOnce(new Promise(() => {}));
+    // First call: trigger timeout on the Query.execute() path (PR #139)
+    mockQueryInstance.execute.mockReturnValueOnce(new Promise(() => {}));
     const queryPromise = pool.testExecuteQuery("test-reinit", "SELECT SLOW()");
     const assertion = expect(queryPromise).rejects.toThrow(/timed out/i);
     await vi.advanceTimersByTimeAsync(1_001);
     await assertion;
 
     // Reset execute to succeed
-    mockPoolInstance.execute.mockResolvedValue(SUCCESSFUL_RESULT);
+    mockQueryInstance.execute.mockResolvedValue(SUCCESSFUL_RESULT);
 
     // Second call: should re-init with same jdbcOptions
     await pool.testExecuteQuery("test-reinit", "SELECT 1");

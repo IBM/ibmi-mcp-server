@@ -9,19 +9,29 @@ import type { PoolConnectionConfig } from "../../../src/ibmi-mcp-server/services
 // ---------------------------------------------------------------------------
 // Hoisted mock state – vi.hoisted runs before vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockPoolInstance, MockPool, mockGetRootCert } = vi.hoisted(() => {
-  const mockPoolInstance = {
-    init: vi.fn(),
-    execute: vi.fn(),
-    end: vi.fn(),
-    query: vi.fn(),
-  };
-  return {
-    mockPoolInstance,
-    MockPool: vi.fn(() => mockPoolInstance),
-    mockGetRootCert: vi.fn().mockResolvedValue("cert"),
-  };
-});
+const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
+  vi.hoisted(() => {
+    // executeQuery now routes through pool.query().execute().close(), so the
+    // query object is the primary mock surface. executeQueryWithPagination
+    // also uses fetchMore(). Defaults are set in resetMocks().
+    const mockQueryInstance = {
+      execute: vi.fn(),
+      fetchMore: vi.fn(),
+      close: vi.fn(),
+    };
+    const mockPoolInstance = {
+      init: vi.fn(),
+      execute: vi.fn(),
+      end: vi.fn(),
+      query: vi.fn(() => mockQueryInstance),
+    };
+    return {
+      mockPoolInstance,
+      mockQueryInstance,
+      MockPool: vi.fn(() => mockPoolInstance),
+      mockGetRootCert: vi.fn().mockResolvedValue("cert"),
+    };
+  });
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -129,7 +139,18 @@ function resetMocks() {
   mockPoolInstance.init.mockReset().mockResolvedValue(undefined);
   mockPoolInstance.execute.mockReset().mockResolvedValue(SUCCESSFUL_RESULT);
   mockPoolInstance.end.mockReset().mockResolvedValue(undefined);
-  mockPoolInstance.query.mockReset();
+  // executeQuery uses pool.query().execute().close(); the pagination path
+  // uses pool.query().execute() + fetchMore() + close(). Reset and re-wire
+  // the query factory each run so mockImplementation in one test doesn't
+  // leak into the next.
+  mockPoolInstance.query
+    .mockReset()
+    .mockImplementation(() => mockQueryInstance);
+  mockQueryInstance.execute.mockReset().mockResolvedValue(SUCCESSFUL_RESULT);
+  mockQueryInstance.fetchMore
+    .mockReset()
+    .mockResolvedValue({ ...SUCCESSFUL_RESULT, is_done: true, data: [] });
+  mockQueryInstance.close.mockReset().mockResolvedValue(undefined);
   mockGetRootCert.mockClear();
 }
 
@@ -174,7 +195,7 @@ describe("BaseConnectionPool – Query Timeout", () => {
 
   it("1.2 – throws with 'timed out' when query exceeds timeout", async () => {
     // execute never resolves → timeout will fire
-    mockPoolInstance.execute.mockReturnValue(new Promise(() => {}));
+    mockQueryInstance.execute.mockReturnValue(new Promise(() => {}));
 
     const queryPromise = pool.testExecuteQuery("test", "SELECT SLOW()");
     // Attach assertion BEFORE advancing timers to prevent unhandled rejection
@@ -204,7 +225,7 @@ describe("BaseConnectionPool – Query Timeout", () => {
   });
 
   it("1.4 – non-timeout errors propagate with original message", async () => {
-    mockPoolInstance.execute.mockRejectedValue(
+    mockQueryInstance.execute.mockRejectedValue(
       new Error("SQLSTATE=42S02 Table not found"),
     );
 
@@ -227,7 +248,7 @@ describe("BaseConnectionPool – Query Timeout", () => {
 
   it("1.6 – pool re-initializes transparently after timeout closure", async () => {
     // First call: hangs → triggers timeout
-    mockPoolInstance.execute.mockReturnValueOnce(new Promise(() => {}));
+    mockQueryInstance.execute.mockReturnValueOnce(new Promise(() => {}));
 
     const firstCall = pool.testExecuteQuery("test", "SELECT SLOW()");
     const assertion = expect(firstCall).rejects.toThrow(/timed out/i);
@@ -235,7 +256,7 @@ describe("BaseConnectionPool – Query Timeout", () => {
     await assertion;
 
     // Reset execute to succeed for the next call
-    mockPoolInstance.execute.mockResolvedValue(SUCCESSFUL_RESULT);
+    mockQueryInstance.execute.mockResolvedValue(SUCCESSFUL_RESULT);
 
     // Second call should trigger re-init and succeed
     const secondResult = await pool.testExecuteQuery("test", "SELECT 1");
@@ -559,5 +580,72 @@ describe("SourceManager – getHealthSummary", () => {
     const sm = new TestSourceManager();
     const summary = sm.getHealthSummary();
     expect(summary).toEqual({});
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 5 – rowsToFetch threading (issue #139)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("BaseConnectionPool – rowsToFetch threading", () => {
+  let pool: TestConnectionPool;
+
+  beforeEach(async () => {
+    resetMocks();
+    config.poolTimeouts.idleTimeoutMs = 0;
+    pool = new TestConnectionPool();
+    await pool.testInitializePool("test", TEST_CONFIG, TEST_CONTEXT);
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+    restoreConfig();
+  });
+
+  it("5.1 – omits rowsToFetch arg when not provided (mapepire default 100 applies)", async () => {
+    await pool.testExecuteQuery("test", "SELECT 1");
+
+    // pool.query() called with statement + parameters
+    expect(mockPoolInstance.query).toHaveBeenCalledWith("SELECT 1", {
+      parameters: undefined,
+    });
+    // execute() called without rowsToFetch so mapepire uses its default
+    expect(mockQueryInstance.execute).toHaveBeenCalledWith();
+    // close() always called to release the job
+    expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("5.2 – forwards rowsToFetch to Query.execute(n)", async () => {
+    // Use the protected method through a typed subclass cast
+    const protectedPool = pool as unknown as {
+      executeQuery: (
+        poolId: string,
+        query: string,
+        params?: unknown[],
+        context?: Record<string, unknown>,
+        securityConfig?: unknown,
+        rowsToFetch?: number,
+      ) => Promise<unknown>;
+    };
+
+    await protectedPool.executeQuery(
+      "test",
+      "SELECT 1",
+      undefined,
+      TEST_CONTEXT,
+      undefined,
+      500,
+    );
+
+    expect(mockQueryInstance.execute).toHaveBeenCalledWith(500);
+    expect(mockQueryInstance.close).toHaveBeenCalled();
+  });
+
+  it("5.3 – close() still called when execute() rejects", async () => {
+    mockQueryInstance.execute.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(pool.testExecuteQuery("test", "SELECT 1")).rejects.toThrow(
+      /boom/,
+    );
+    expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
   });
 });

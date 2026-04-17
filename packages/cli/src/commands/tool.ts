@@ -300,12 +300,21 @@ async function executeTool(
       );
     }
 
-    // Execute the query
-    const result = await IBMiConnectionPool.executeQuery(
-      processedSql,
-      bindingParams,
-      ctx,
-    );
+    // Execute the query, honoring YAML-declared fetch controls.
+    // fetchAllRows wins over rowsToFetch (per the locked design decision
+    // for issue #139).
+    const result = tool.fetchAllRows
+      ? await IBMiConnectionPool.executeQueryWithPagination(
+          processedSql,
+          bindingParams,
+          ctx,
+        )
+      : await IBMiConnectionPool.executeQuery(
+          processedSql,
+          bindingParams,
+          ctx,
+          tool.rowsToFetch,
+        );
 
     const elapsedMs = Date.now() - startTime;
     const data = (result.data ?? []) as Record<string, unknown>[];
