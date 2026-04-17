@@ -128,19 +128,28 @@ function resolveToolParams(
 ): Record<string, unknown> {
   if (tool.parameters.length === 0) return {};
 
-  // Build a temporary command with tool-specific options
+  // Build a temporary command used only to absorb dynamic tool-specific options.
+  // allowExcessArguments: cmd.args still contains the bound <name> positional,
+  //   which this throwaway parser doesn't declare. Without this, Commander
+  //   emits "too many arguments. Expected 0 arguments but got 1." to stderr.
+  // configureOutput: suppress any diagnostic writes from this internal parser —
+  //   real user-facing errors surface through validateRequiredParams below.
   const tempCmd = new Command("temp");
   tempCmd.exitOverride();
   tempCmd.allowUnknownOption();
+  tempCmd.allowExcessArguments();
+  tempCmd.configureOutput({
+    writeErr: () => {},
+    writeOut: () => {},
+  });
   registerToolOptions(tempCmd, tool.parameters);
 
-  // Extract the raw args that were passed through by the parent command
-  // Commander stores unparsed args in cmd.args (after the <name> positional)
   const rawArgs = cmd.args ?? [];
   try {
     tempCmd.parse(rawArgs, { from: "user" });
   } catch {
-    // Commander may throw for unrecognized options; we allow that
+    // Commander may throw for unrecognized options or type coercion failures;
+    // validateRequiredParams surfaces missing values with actionable flag names.
   }
 
   return optsToParams(tempCmd.opts(), tool.parameters);

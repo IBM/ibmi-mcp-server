@@ -142,6 +142,77 @@ describe("ibmi tool command — error paths", () => {
     }
   });
 
+  it("should not leak Commander 'too many arguments' to stderr on a successful parametric dry-run", async () => {
+    const { loadYamlTools } = await import("../../src/utils/yaml-loader.js");
+    const mockLoad = vi.mocked(loadYamlTools);
+
+    mockLoad.mockReturnValue({
+      tools: {
+        list_categories_for_schema: {
+          source: "ibmi-system",
+          description: "Show which categories exist within a given schema.",
+          statement: "SELECT * FROM qsys2.services_info WHERE service_schema_name = :schema_name",
+          parameters: [
+            {
+              name: "schema_name",
+              type: "string",
+              required: true,
+              description: "Schema name",
+            },
+          ],
+        },
+      },
+      toolsets: {},
+      sources: {},
+    });
+
+    const stderrWrites: string[] = [];
+    const stdoutWrites: string[] = [];
+    const originalStderr = process.stderr.write;
+    const originalStdout = process.stdout.write;
+
+    process.stderr.write = ((chunk: string) => {
+      stderrWrites.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    process.stdout.write = ((chunk: string) => {
+      stdoutWrites.push(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "--tools",
+        "/fake/path.yaml",
+        "--format",
+        "json",
+        "tool",
+        "list_categories_for_schema",
+        "--schema-name",
+        "QSYS2",
+        "--dry-run",
+      ]);
+
+      const stderrCombined = stderrWrites.join("");
+      const stdoutCombined = stdoutWrites.join("");
+
+      // Primary assertion: the Commander strict-args error must not reach stderr.
+      expect(stderrCombined).not.toMatch(/too many arguments/i);
+      expect(stderrCombined).not.toMatch(/Expected 0 arguments/i);
+
+      // Dry-run should have rendered a successful payload with the resolved param.
+      expect(stdoutCombined).toMatch(/"schema_name"\s*:\s*"QSYS2"/);
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      process.stderr.write = originalStderr;
+      process.stdout.write = originalStdout;
+    }
+  });
+
   it("should set exitCode to USAGE (2) and report missing required parameters", async () => {
     const { loadYamlTools } = await import("../../src/utils/yaml-loader.js");
     const mockLoad = vi.mocked(loadYamlTools);
