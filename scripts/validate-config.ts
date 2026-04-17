@@ -26,7 +26,7 @@ const __dirname = dirname(__filename);
 // Path to the JSON schema
 const SCHEMA_PATH = resolve(
   __dirname,
-  "../server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json"
+  "../packages/server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json"
 );
 
 interface ValidationResult {
