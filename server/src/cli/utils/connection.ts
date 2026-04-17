@@ -41,7 +41,7 @@ export async function connectSystem(
   return async () => {
     try {
       const { IBMiConnectionPool } = await import(
-        "../../ibmi-mcp-server/services/connectionPool.js"
+        "../../public/services.js"
       );
       await IBMiConnectionPool.close();
     } catch {

@@ -240,11 +240,8 @@ async function executeTool(
     const startTime = Date.now();
 
     // Dynamic import to avoid loading server infrastructure until execution time
-    const { ParameterProcessor } = await import(
-      "../../ibmi-mcp-server/utils/sql/parameterProcessor.js"
-    );
-    const { IBMiConnectionPool } = await import(
-      "../../ibmi-mcp-server/services/connectionPool.js"
+    const { ParameterProcessor, IBMiConnectionPool } = await import(
+      "../../public/services.js"
     );
 
     // Process SQL parameters (BindingValue from mapepire-js)

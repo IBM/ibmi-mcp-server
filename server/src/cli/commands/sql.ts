@@ -9,7 +9,7 @@ import { Command } from "commander";
 import { withConnection, getFormat, createCliContext } from "../utils/command-helpers.js";
 import { renderMessage, renderMultiSystemOutput, renderMultiSystemNdjson } from "../formatters/output.js";
 import { ExitCode } from "../utils/exit-codes.js";
-import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
+import type { SdkContext } from "../../public/tools.js";
 
 /**
  * Read SQL from stdin (piped input).
@@ -139,17 +139,13 @@ export function registerSqlCommand(program: Command): void {
         execSql = applyRowLimit(execSql, maxRows);
 
         // Configure execute_sql tool security before importing
-        const { configureExecuteSqlTool } = await import(
-          "../../ibmi-mcp-server/tools/executeSql.tool.js"
+        const { configureExecuteSqlTool, executeSqlTool } = await import(
+          "../../public/tools.js"
         );
         configureExecuteSqlTool({
           enabled: true,
           security: { readOnly },
         });
-
-        const { executeSqlTool } = await import(
-          "../../ibmi-mcp-server/tools/executeSql.tool.js"
-        );
         const logicFn = executeSqlTool.logic;
 
         const result = await logicFn(
@@ -198,7 +194,7 @@ async function handleMultiSystemSql(
 
     if (readOnly) {
       const { SqlSecurityValidator } = await import(
-        "../../ibmi-mcp-server/utils/security/sqlSecurityValidator.js"
+        "../../public/services.js"
       );
       const ctx = createCliContext("multi_sql_security");
       SqlSecurityValidator.validateQuery(

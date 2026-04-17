@@ -6,7 +6,7 @@
  */
 
 import type { ResolvedSystem } from "../config/types.js";
-import type { RequestContext } from "../../utils/internal/requestContext.js";
+import type { RequestContext } from "../../public/context.js";
 import { resolvePassword } from "../config/credentials.js";
 import { createCliContext, type CommandResult } from "./command-helpers.js";
 
@@ -30,14 +30,12 @@ export async function executeMultiSystem(
   systems: ResolvedSystem[],
   action: (
     sourceName: string,
-    mgr: InstanceType<typeof import("../../ibmi-mcp-server/services/sourceManager.js").SourceManager>,
+    mgr: InstanceType<typeof import("../../public/services.js").SourceManager>,
     ctx: RequestContext,
   ) => Promise<CommandResult>,
 ): Promise<MultiSystemResult[]> {
   // Dynamic import to avoid pulling server modules into static CLI chain
-  const { SourceManager } = await import(
-    "../../ibmi-mcp-server/services/sourceManager.js"
-  );
+  const { SourceManager } = await import("../../public/services.js");
 
   // Resolve passwords upfront (sequentially — interactive prompts can't interleave)
   const credentials: Map<string, string> = new Map();

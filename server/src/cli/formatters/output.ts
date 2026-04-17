@@ -10,7 +10,7 @@
  */
 
 import { writeFileSync } from "fs";
-import { tableFormatter } from "@/utils/formatting/tableFormatter.js";
+import { tableFormatter } from "../../public/formatting.js";
 import type { OutputFormat, ResolvedSystem } from "../config/types.js";
 import {
   classifyError,

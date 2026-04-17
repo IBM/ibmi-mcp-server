@@ -6,7 +6,7 @@
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
 import { ExitCode } from "../utils/exit-codes.js";
-import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
+import type { SdkContext } from "../../public/tools.js";
 
 export function registerSchemasCommand(program: Command): void {
   program
@@ -31,9 +31,7 @@ export function registerSchemasCommand(program: Command): void {
       }
 
       await withConnection(cmd, "list_schemas", async (_resolved, ctx) => {
-        const { listSchemasLogic } = await import(
-          "../../ibmi-mcp-server/tools/listSchemas.tool.js"
-        );
+        const { listSchemasLogic } = await import("../../public/tools.js");
 
         const result = await listSchemasLogic(
           {

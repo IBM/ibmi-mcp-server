@@ -5,7 +5,7 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
-import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
+import type { SdkContext } from "../../public/tools.js";
 
 export function registerValidateCommand(program: Command): void {
   program
@@ -13,9 +13,7 @@ export function registerValidateCommand(program: Command): void {
     .description("Validate SQL syntax and verify referenced objects exist")
     .action(async (sql: string, _opts, cmd: Command) => {
       await withConnection(cmd, "validate_query", async (_resolved, ctx) => {
-        const { validateQueryLogic } = await import(
-          "../../ibmi-mcp-server/tools/validateQuery.tool.js"
-        );
+        const { validateQueryLogic } = await import("../../public/tools.js");
 
         const result = await validateQueryLogic(
           { sql_statement: sql },

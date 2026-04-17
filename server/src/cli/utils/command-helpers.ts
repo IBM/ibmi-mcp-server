@@ -8,7 +8,7 @@
 
 import { Command } from "commander";
 import type { OutputFormat, ResolvedSystem } from "../config/types.js";
-import type { RequestContext } from "../../utils/internal/requestContext.js";
+import type { RequestContext } from "../../public/context.js";
 import { loadConfig } from "../config/loader.js";
 import { resolveSystem } from "../config/resolver.js";
 import { connectSystem } from "./connection.js";

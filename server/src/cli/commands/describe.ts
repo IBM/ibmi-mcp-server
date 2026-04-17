@@ -7,9 +7,8 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
-import { OBJECT_TYPES } from "../../ibmi-mcp-server/tools/generateSql.tool.js";
+import { OBJECT_TYPES, type SdkContext } from "../../public/tools.js";
 import { ExitCode } from "../utils/exit-codes.js";
-import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
 /**
  * Parse a qualified object reference into library and name.
@@ -65,9 +64,7 @@ export function registerDescribeCommand(program: Command): void {
         cmd,
         "describe_sql_object",
         async (_resolved, ctx) => {
-          const { generateSqlTool } = await import(
-            "../../ibmi-mcp-server/tools/generateSql.tool.js"
-          );
+          const { generateSqlTool } = await import("../../public/tools.js");
           const logicFn = generateSqlTool.logic;
 
           const data: Record<string, unknown>[] = [];
