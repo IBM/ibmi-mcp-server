@@ -1,6 +1,6 @@
 {
   "name": "ibmi-mcp-monorepo",
-  "version": "1.0.0",
+  "version": "0.4.5",
   "description": "IBM i MCP Server - Monorepo containing server, tools, agents, and deployment configurations",
   "private": true,
   "type": "module",
@@ -34,11 +34,18 @@
     "docker:down": "cd apps/docker && docker-compose down",
     "docker:logs": "cd apps/docker && docker-compose logs -f",
     "list-toolsets": "npm run list-toolsets -w @ibm/ibmi-mcp-server -- --tools ../../tools",
-    "release": "npm run release -w @ibm/ibmi-mcp-server",
-    "release:minor": "npm run release:minor -w @ibm/ibmi-mcp-server",
-    "release:major": "npm run release:major -w @ibm/ibmi-mcp-server",
-    "release:patch": "npm run release:patch -w @ibm/ibmi-mcp-server",
-    "release:first": "npm run release:first -w @ibm/ibmi-mcp-server"
+    "sync-versions": "node scripts/sync-workspace-versions.mjs",
+    "release": "standard-version && npm run sync-versions",
+    "release:minor": "standard-version --release-as minor && npm run sync-versions",
+    "release:major": "standard-version --release-as major && npm run sync-versions",
+    "release:patch": "standard-version --release-as patch && npm run sync-versions",
+    "release:first": "standard-version --first-release && npm run sync-versions",
+    "release:prepare": "./scripts/release-prepare.sh",
+    "release:prepare:patch": "./scripts/release-prepare.sh patch",
+    "release:prepare:minor": "./scripts/release-prepare.sh minor",
+    "release:prepare:major": "./scripts/release-prepare.sh major",
+    "release:finalize": "./scripts/release-finalize.sh",
+    "release:undo": "./scripts/release-undo.sh"
   },
   "keywords": [
     "ibm-i",
@@ -56,10 +63,11 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
-    "tsx": "^4.20.4",
-    "ajv": "^8.12.0",
-    "js-yaml": "^4.1.0",
     "@types/js-yaml": "^4.0.9",
-    "dotenv": "^16.6.1"
+    "ajv": "^8.12.0",
+    "dotenv": "^16.6.1",
+    "js-yaml": "^4.1.0",
+    "standard-version": "^9.5.0",
+    "tsx": "^4.20.4"
   }
 }
