@@ -1,0 +1,63 @@
+{
+  "name": "@ibm/ibmi-cli",
+  "version": "0.4.5",
+  "description": "Command-line interface for IBM i systems — query, explore, and manage over Db2 for i",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ibmi": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IBM/ibmi-mcp-server.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/IBM/ibmi-mcp-server/issues"
+  },
+  "homepage": "https://github.com/IBM/ibmi-mcp-server#readme",
+  "scripts": {
+    "build": "tsc && tsc-alias",
+    "postbuild": "node ../../scripts/make-executable.mjs dist/index.js",
+    "rebuild": "rm -rf dist && npm run build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@ibm/ibmi-mcp-server": "0.4.5",
+    "commander": "^14.0.3",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.34.0",
+    "globals": "^16.3.0",
+    "tsc-alias": "^1.8.16",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.40.0",
+    "vitest": "^3.2.4"
+  },
+  "keywords": [
+    "ibm-i",
+    "db2-for-i",
+    "cli",
+    "command-line",
+    "sql",
+    "database"
+  ],
+  "author": "ajshedivy <adam.shedivy@ibm.com> (https://github.com/ajshedivy/ibmi-mcp-server#readme)",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

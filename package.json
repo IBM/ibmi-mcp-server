@@ -16,9 +16,9 @@
   },
   "homepage": "https://github.com/IBM/ibmi-mcp-server.git#readme",
   "scripts": {
-    "build": "npm run build -w @ibm/ibmi-mcp-server",
-    "build:link": "npm run build -w @ibm/ibmi-mcp-server && npm link -w @ibm/ibmi-mcp-server",
-    "rebuild": "npm run rebuild -w @ibm/ibmi-mcp-server",
+    "build": "npm run build -w @ibm/ibmi-mcp-server && npm run build -w @ibm/ibmi-cli",
+    "build:link": "npm run build && npm link -w @ibm/ibmi-mcp-server -w @ibm/ibmi-cli",
+    "rebuild": "npm run rebuild --workspaces --if-present",
     "start": "npx ibmi-mcp-server --transport stdio",
     "start:http": "npx ibmi-mcp-server --transport http",
     "start:stdio": "npx ibmi-mcp-server --transport stdio",

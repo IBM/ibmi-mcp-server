@@ -8,13 +8,28 @@
     "dist"
   ],
   "bin": {
-    "ibmi-mcp-server": "dist/index.js",
-    "ibmi": "dist/cli/index.js"
+    "ibmi-mcp-server": "dist/index.js"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./tools": {
+      "types": "./dist/public/tools.d.ts",
+      "import": "./dist/public/tools.js"
+    },
+    "./services": {
+      "types": "./dist/public/services.d.ts",
+      "import": "./dist/public/services.js"
+    },
+    "./context": {
+      "types": "./dist/public/context.d.ts",
+      "import": "./dist/public/context.js"
+    },
+    "./formatting": {
+      "types": "./dist/public/formatting.d.ts",
+      "import": "./dist/public/formatting.js"
     }
   },
   "type": "module",
@@ -28,7 +43,7 @@
   "homepage": "https://github.com/IBM/ibmi-mcp-server.git#readme",
   "scripts": {
     "build": "tsc && tsc-alias",
-    "postbuild": "tsx scripts/make-executable.ts dist/index.js dist/cli/index.js",
+    "postbuild": "tsx scripts/make-executable.ts dist/index.js",
     "devdocs": "ts-node --esm scripts/devdocs.ts",
     "start": "node dist/index.js",
     "start:stdio": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=stdio node dist/index.js",
