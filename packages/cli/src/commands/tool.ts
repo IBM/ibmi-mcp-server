@@ -321,6 +321,11 @@ async function executeTool(
     const elapsedMs = Date.now() - startTime;
     const data = (result.data ?? []) as Record<string, unknown>[];
 
+    // The paginated path returns a `truncated` flag when the server hit
+    // MAX_PAGINATION_ROWS. Surface it in the output footer so users know
+    // the result set was clipped and how to get more.
+    const truncated = "truncated" in result && result.truncated === true;
+
     // NDJSON streaming: one JSON object per line
     if (stream && format === "json") {
       renderNdjson(data);
@@ -332,6 +337,10 @@ async function executeTool(
       elapsedMs,
       system: resolved,
       command: `tool:${name}`,
+      hasMore: truncated,
+      truncationHint: truncated
+        ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
+        : undefined,
     });
   } finally {
     await cleanup();

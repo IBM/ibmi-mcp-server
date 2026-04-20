@@ -58,6 +58,13 @@ export interface OutputMeta {
   rowCount: number;
   /** Whether more rows exist beyond the current result. */
   hasMore?: boolean;
+  /**
+   * Human-readable hint shown in the table footer when hasMore is true.
+   * Overrides the default "(more available — use --limit/--offset)" text
+   * so commands that have no --limit/--offset flags can offer relevant
+   * guidance (e.g. raising an env var or narrowing the query).
+   */
+  truncationHint?: string;
   /** Time taken for the query in milliseconds. */
   elapsedMs?: number;
   /** The resolved system used for this command. */
@@ -194,7 +201,9 @@ function renderTable(
     parts.push(`${meta.rowCount} row${meta.rowCount !== 1 ? "s" : ""}`);
   }
   if (meta?.hasMore) {
-    parts.push("(more available — use --limit/--offset)");
+    parts.push(
+      meta.truncationHint ?? "(more available — use --limit/--offset)",
+    );
   }
   if (meta?.elapsedMs !== undefined) {
     parts.push(`${(meta.elapsedMs / 1000).toFixed(2)}s`);
