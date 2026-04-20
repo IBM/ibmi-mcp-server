@@ -29,15 +29,19 @@ jobs:
           rm -rf node_modules packages/*/node_modules
           npm install --prefer-offline
 
+      # Build @ibm/ibmi-mcp-server first so the CLI's typecheck can resolve
+      # @ibm/ibmi-mcp-server/{tools,services,context,formatting} subpath exports,
+      # which are defined in the server's package.json `exports` map pointing at
+      # ./dist/public/*.js. Running typecheck before build causes TS2307 errors
+      # on a fresh runner. The root `build` script builds server then CLI.
+      - name: Build
+        run: npm run build
+
       - name: Run tests and checks
         run: |
           npm run typecheck --workspaces --if-present
           npm run lint --workspaces --if-present
           npm run test --workspaces --if-present
-
-      # Build @ibm/ibmi-mcp-server first (the CLI imports from its dist/public).
-      - name: Build
-        run: npm run build
 
       - name: Publish @ibm/ibmi-mcp-server to npm
         working-directory: ./packages/server
