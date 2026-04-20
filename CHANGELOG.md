@@ -2,9 +2,9 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1)
+## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1) (2026-04-20)
 
-Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior.
+Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior ([#146](https://github.com/IBM/ibmi-mcp-server/pull/146)). Ships CI reliability fixes and root-level README coverage for the new two-package layout.
 
 ### Changed
 
@@ -21,6 +21,14 @@ Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption l
   * `IBMI_PAGINATION_MAX_ROWS` (default `30000`) — hard upper bound on total rows from a paginated tool call.
 
 * **CLI truncation display.** The `ibmi tool run` footer now shows `(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)` when a paginated result hits the ceiling, so callers know the output was clipped.
+
+### Fixed
+
+* **Publish workflow is now idempotent.** The release workflow skips `npm publish` when the target version already exists in the registry, so re-running on a failed job won't collide with a successful upload. Adds a `workflow_dispatch` trigger for manual re-runs against an existing tag ([e265a65](https://github.com/IBM/ibmi-mcp-server/commit/e265a65e3567a4beee4208f086deb358ee1b39be)).
+
+### Documentation
+
+* **Root README rewritten for the two-package layout.** Top-level README now explains the split between `@ibm/ibmi-mcp-server` and `@ibm/ibmi-cli`, clarifies install paths for each, and links into Mintlify + package READMEs as the authoritative deep-dive sources ([c22ebf2](https://github.com/IBM/ibmi-mcp-server/commit/c22ebf2d27e14b57601779f296a93a4f7621c0aa)).
 
 ### Migration
 
