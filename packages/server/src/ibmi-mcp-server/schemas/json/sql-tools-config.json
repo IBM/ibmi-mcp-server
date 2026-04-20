@@ -34,9 +34,34 @@
               "ignore-unauthorized": {
                 "type": "boolean",
                 "description": "Whether to ignore unauthorized SSL certificates"
+              },
+              "jdbc-options": {
+                "type": "object",
+                "properties": {
+                  "libraries": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": true,
+                "description": "JDBC connection options passed to the mapepire connection pool. Supports any mapepire JDBCOption (libraries, naming, date format, etc.). The 'libraries' field accepts an array or comma-separated string. Env var DB2i_JDBC_OPTIONS overrides these values per-source."
               }
             },
-            "required": ["host", "user", "password"],
+            "required": [
+              "host",
+              "user",
+              "password"
+            ],
             "additionalProperties": false,
             "description": "Database connection configuration"
           },
@@ -122,7 +147,12 @@
                     },
                     "itemType": {
                       "type": "string",
-                      "enum": ["string", "boolean", "integer", "float"],
+                      "enum": [
+                        "string",
+                        "boolean",
+                        "integer",
+                        "float"
+                      ],
                       "description": "Array item type (only for array parameters)"
                     },
                     "min": {
@@ -144,7 +174,11 @@
                     "enum": {
                       "type": "array",
                       "items": {
-                        "type": ["string", "number", "boolean"]
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean"
+                        ]
                       },
                       "description": "Valid values (enum validation)"
                     },
@@ -153,7 +187,10 @@
                       "description": "Custom validation pattern (regex for strings)"
                     }
                   },
-                  "required": ["name", "type"],
+                  "required": [
+                    "name",
+                    "type"
+                  ],
                   "additionalProperties": false,
                   "description": "SQL tool parameter definition with validation constraints"
                 },
@@ -174,7 +211,10 @@
               },
               "responseFormat": {
                 "type": "string",
-                "enum": ["json", "markdown"],
+                "enum": [
+                  "json",
+                  "markdown"
+                ],
                 "description": "Response format (default: json)"
               },
               "annotations": {
@@ -247,7 +287,12 @@
               },
               "tableFormat": {
                 "type": "string",
-                "enum": ["markdown", "ascii", "grid", "compact"],
+                "enum": [
+                  "markdown",
+                  "ascii",
+                  "grid",
+                  "compact"
+                ],
                 "default": "markdown",
                 "description": "Table formatting style for SQL results (default: markdown). Options: markdown (GitHub-style), ascii (plain text), grid (Unicode boxes), compact (minimal spacing)"
               },
@@ -275,7 +320,10 @@
                 "description": "@deprecated Use annotations.openWorldHint instead"
               }
             },
-            "required": ["source", "description"],
+            "required": [
+              "source",
+              "description"
+            ],
             "additionalProperties": false,
             "description": "Individual SQL tool definition in YAML configuration"
           },
@@ -311,7 +359,9 @@
                 "description": "Optional toolset metadata"
               }
             },
-            "required": ["tools"],
+            "required": [
+              "tools"
+            ],
             "additionalProperties": false,
             "description": "Toolset definition for grouping related tools"
           },
@@ -349,7 +399,10 @@
                 "description": "Whether this tool should be added to ALL toolsets"
               }
             },
-            "required": ["domain", "category"],
+            "required": [
+              "domain",
+              "category"
+            ],
             "additionalProperties": false,
             "description": "TypeScript tool configuration for toolset assignment"
           },

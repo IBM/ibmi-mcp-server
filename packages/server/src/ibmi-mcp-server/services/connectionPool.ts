@@ -86,6 +86,9 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         user,
         password,
         ignoreUnauthorized,
+        ...(config.db2i.jdbcOptions
+          ? { jdbcOptions: config.db2i.jdbcOptions }
+          : {}),
       };
 
       // Initialize the pool using base class

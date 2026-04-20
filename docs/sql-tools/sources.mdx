@@ -20,6 +20,7 @@ Sources define database connections that your SQL tools use to execute queries a
 | `password` | string | ✅ Yes | - | User profile password |
 | `port` | integer | No | `8076` | Mapepire daemon port |
 | `ignore-unauthorized` | boolean | No | `false` | Accept self-signed SSL certs |
+| `jdbc-options` | object | No | `{}` | JDBC connection options passed to the mapepire driver (libraries, naming, date format, etc.) |
 
 ---
 
@@ -134,6 +135,7 @@ These fields have sensible defaults and can be omitted for most configurations:
 |-------|------|---------|-------------|
 | `port` | integer | `8076` | Port number where Mapepire daemon listens |
 | `ignore-unauthorized` | boolean | `false` | Accept self-signed SSL certificates |
+| `jdbc-options` | object | `{}` | JDBC connection options forwarded to the mapepire driver |
 
 **Detailed Configuration:**
 
@@ -213,6 +215,131 @@ These fields have sensible defaults and can be omitted for most configurations:
     </Warning>
   </Tab>
 </Tabs>
+
+---
+
+## JDBC Options
+
+**Forward any [mapepire JDBC option](https://javadoc.io/static/net.sf.jt400/jt400/21.0.0/com/ibm/as400/access/doc-files/JDBCProperties.html) to the underlying driver.** The `jdbc-options` field accepts any property supported by the IBM i JDBC driver — library list, SQL naming convention, date format, time format, and many more.
+
+### Common Options
+
+| Option | Purpose | Example |
+|--------|---------|---------|
+| `libraries` | Library list for unqualified name resolution | `[MYLIB, DEVDATA, QGPL]` |
+| `naming` | SQL naming convention | `sql` or `system` |
+| `date format` | Date literal format | `iso`, `usa`, `eur`, `jis`, `mdy`, `dmy`, `ymd`, `julian` |
+| `time format` | Time literal format | `hms`, `usa`, `iso`, `eur`, `jis` |
+| `date separator` | Date component separator | `/`, `-`, `.`, `,`, `b` |
+
+<Tabs>
+  <Tab title="Library List">
+    ```yaml
+    sources:
+      ibmi-dev:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        jdbc-options:
+          libraries:
+            - MYLIB
+            - DEVDATA
+            - QGPL
+    ```
+
+    **Use for**: Resolving unqualified object names against a specific set of libraries.
+
+    <Note>
+    `libraries` also accepts a comma-separated string: `libraries: "MYLIB, DEVDATA, QGPL"` — the server splits and trims it into an array.
+    </Note>
+  </Tab>
+
+  <Tab title="Date Format">
+    ```yaml
+    sources:
+      ibmi-iso:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        jdbc-options:
+          date format: iso    # YYYY-MM-DD
+    ```
+
+    **Output**: `CURRENT_DATE` → `2026-04-17` (ISO 8601)
+
+    **Other formats:**
+    - `usa` → `04/17/2026` (MM/DD/YYYY)
+    - `eur` → `17.04.2026` (DD.MM.YYYY)
+    - `jis` → `2026-04-17` (same as ISO)
+
+    <Warning>
+    **Job default caveat**: If you don't set `date format`, the driver inherits the connected job's `DATFMT` system value — which on many systems produces **two-digit years** (e.g., `04/17/26`). Set `date format: iso` explicitly if unambiguous serialization matters to your application.
+    </Warning>
+  </Tab>
+
+  <Tab title="SQL Naming">
+    ```yaml
+    sources:
+      ibmi-system:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        jdbc-options:
+          naming: system   # LIBRARY/OBJECT syntax
+    ```
+
+    **Use for**: Legacy SQL using `LIBRARY/OBJECT` slash-notation instead of standard `LIBRARY.OBJECT` dot-notation.
+
+    **Values:**
+    - `sql` (default) — standard `SCHEMA.OBJECT`
+    - `system` — IBM i legacy `LIBRARY/OBJECT`
+  </Tab>
+
+  <Tab title="Combined">
+    ```yaml
+    sources:
+      ibmi-reporting:
+        host: ${DB2i_HOST}
+        user: ${DB2i_USER}
+        password: ${DB2i_PASS}
+        jdbc-options:
+          libraries: [REPORTS, SALESDATA, QGPL]
+          naming: system
+          date format: iso
+          time format: iso
+    ```
+
+    **Use for**: Reporting pipelines that need ISO-formatted dates and access to a specific library set.
+  </Tab>
+</Tabs>
+
+### Full Property List
+
+The field accepts any property from the mapepire `JDBCOptions` interface — over 60 settings covering SQL behavior, date/time formatting, locale, tracing, and more. Refer to the [IBM i JDBC properties reference](https://javadoc.io/static/net.sf.jt400/jt400/21.0.0/com/ibm/as400/access/doc-files/JDBCProperties.html) for the complete catalog.
+
+<Info>
+**Passthrough validation**: Unknown keys pass through the schema validator without error and are forwarded to the driver as-is. This is intentional — it avoids coupling the schema to the driver's exact property surface. The tradeoff is that typos (e.g., `librarys` instead of `libraries`) are silently accepted at config load time and only surface when the driver rejects them at connection time.
+</Info>
+
+### Environment Variable Override
+
+The `DB2i_JDBC_OPTIONS` environment variable overrides `jdbc-options` set in YAML — operators can enforce a fleet-wide JDBC configuration without editing per-deployment YAML. Env values are shallow-merged over YAML values (env wins on each key).
+
+```bash
+# Every source in every YAML file runs with these options,
+# plus whatever is set per-source in YAML (env wins on collisions)
+export DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=AUDITLIB,QGPL'
+```
+
+See the [Configuration Reference → DB2i_JDBC_OPTIONS](/configuration#db2i-jdbc-options-env-var) for the full syntax and parser rules.
+
+### Security: Credential Logging
+
+The server logs only the `libraries` field of `jdbc-options` at pool initialization. All other JDBC fields — including potentially sensitive ones like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from logs to prevent credential leakage.
+
+<Note>
+If you need to verify other JDBC options took effect, query the JDBC driver's runtime metadata (for example, execute `SELECT CURRENT_DATE` and inspect the format) rather than relying on log inspection.
+</Note>
 
 ---
 

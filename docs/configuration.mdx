@@ -528,6 +528,7 @@ Below is the reference for core server configuration options. Each section inclu
 | `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
 | `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Ensure firewall allows this port |
 | `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
+| `DB2i_JDBC_OPTIONS` | Mapepire JDBC options ([syntax](#db2i-jdbc-options-env-var)) | (none) | `naming=system;date format=iso` | `key ring password` redacted from logs |
 
 <Warning>
 **Security Alert**: `DB2i_IGNORE_UNAUTHORIZED=true` disables TLS certificate verification, making connections vulnerable to man-in-the-middle attacks.
@@ -565,6 +566,105 @@ Below is the reference for core server configuration options. Each section inclu
 - Access to QSYS2 system services
 - Mapepire daemon must be running on the specified port
 </Note>
+
+### DB2i_JDBC_OPTIONS Env Var
+
+**Forward any [mapepire JDBC option](https://javadoc.io/static/net.sf.jt400/jt400/21.0.0/com/ibm/as400/access/doc-files/JDBCProperties.html) to the underlying driver via a single environment variable.** The `DB2i_JDBC_OPTIONS` env var accepts a semicolon-separated list of `key=value` pairs modeled on DB2 JDBC URL syntax — letting you set library list, naming convention, date format, and any other JDBC property without editing YAML.
+
+```bash
+DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=MYLIB,DEVDATA'
+```
+
+#### Format Rules
+
+| Rule | Behavior |
+|------|----------|
+| Outer separator | `;` splits pairs; empty segments are ignored |
+| Inner separator | First `=` in each pair splits key/value (values may contain `=`) |
+| Whitespace | Trimmed around both key and value |
+| Arrays | Only `libraries` is array-valued; comma-split within a single pair |
+| Types | All other values forwarded as strings — no boolean/number coercion |
+| Keys with spaces | Work unquoted: `date format=iso` is valid |
+| Malformed pairs | A non-empty segment with no `=` throws a clear error at startup |
+
+<Tabs>
+  <Tab title="Library List">
+    ```bash
+    DB2i_JDBC_OPTIONS='libraries=MYLIB,DEVDATA,QGPL'
+    ```
+
+    **Use for**: Resolving unqualified object names. Comma-split within the single `libraries=` pair.
+  </Tab>
+
+  <Tab title="Date Format">
+    ```bash
+    DB2i_JDBC_OPTIONS='date format=iso'
+    ```
+
+    **Output**: `SELECT CHAR(CURRENT_DATE)` → `2026-04-17`
+
+    **Other values**: `usa` (`04/17/2026`), `eur` (`17.04.2026`), `jis` (`2026-04-17`), `mdy`, `dmy`, `ymd`, `julian`
+
+    <Warning>
+    **Job default caveat**: If `date format` is unset, the driver inherits the connected job's `DATFMT` system value — which may produce **two-digit years** (e.g., `04/17/26`). Set `date format=iso` explicitly for unambiguous date serialization.
+    </Warning>
+  </Tab>
+
+  <Tab title="Combined Options">
+    ```bash
+    DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=REPORTS,SALESDATA,QGPL'
+    ```
+
+    **Use for**: Reporting or audit pipelines that need a specific library list, legacy slash-notation naming, and ISO date format.
+  </Tab>
+</Tabs>
+
+#### Precedence and YAML Interaction
+
+`DB2i_JDBC_OPTIONS` is **shallow-merged over** the `jdbc-options` field in each YAML source. Env values win on per-key collisions; YAML-only keys are preserved.
+
+| Scenario | Result |
+|----------|--------|
+| Only YAML sets `jdbc-options` | YAML values flow through unchanged |
+| Only env sets `DB2i_JDBC_OPTIONS` | Env values apply to every source |
+| Both set the same key | **Env wins** for that key |
+| Both set different keys | Both apply (shallow merge, union of keys) |
+
+<Info>
+**Why env overrides YAML**: Operators can enforce a fleet-wide JDBC configuration (for example, forcing `naming=system` or a standard library list across all environments) without editing per-deployment YAML files.
+</Info>
+
+**Example merge:**
+
+```yaml
+# YAML source
+jdbc-options:
+  libraries: [YAMLLIB]
+  naming: sql
+  date format: iso
+```
+
+```bash
+# Env var
+DB2i_JDBC_OPTIONS='libraries=ENVLIB;naming=system'
+```
+
+```yaml
+# Effective JDBC options sent to mapepire
+libraries: [ENVLIB]      # env wins
+naming: system           # env wins
+date format: iso         # YAML only, preserved
+```
+
+#### Security: Log Redaction
+
+The server logs **only** the `libraries` field at pool initialization. Other JDBC fields — including potentially sensitive values like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from every log level to prevent credential leakage.
+
+<Note>
+If you need to verify that a non-`libraries` option took effect, inspect driver behavior directly (for example, run `SELECT CHAR(CURRENT_DATE)` to confirm `date format`) rather than searching the logs.
+</Note>
+
+See the [YAML Sources Reference → JDBC Options](/sql-tools/sources#jdbc-options) for per-source configuration in YAML.
 
 ## SQL Tools Configuration
 

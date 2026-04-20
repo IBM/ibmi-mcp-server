@@ -96,6 +96,35 @@ export const SourceConfigSchema = z
       .boolean()
       .optional()
       .describe("Whether to ignore unauthorized SSL certificates"),
+    // `.passthrough()` lets any JDBCOption flow through without enumerating
+    // 60+ properties in Zod. Tradeoff: typos (e.g., `librarys`) pass
+    // validation and are silently forwarded to mapepire. Intentional — an
+    // exhaustive enum would couple us to mapepire's type surface and break
+    // on upstream additions.
+    "jdbc-options": z
+      .object({
+        libraries: z
+          .union([
+            z.array(z.string().min(1)),
+            z
+              .string()
+              .transform((val) =>
+                val
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              ),
+          ])
+          .optional(),
+      })
+      .passthrough()
+      .optional()
+      .describe(
+        "JDBC connection options passed to the mapepire connection pool. " +
+          "Supports any mapepire JDBCOption (libraries, naming, date format, etc.). " +
+          "The 'libraries' field accepts an array or comma-separated string. " +
+          "Env var DB2i_JDBC_OPTIONS overrides these values per-source.",
+      ),
   })
   .describe("Database connection configuration");
 

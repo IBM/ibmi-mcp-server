@@ -13,6 +13,7 @@ import { homedir } from "os";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
+import type { JDBCOptions } from "@ibm/mapepire-js";
 
 // Load .env from multiple possible locations for monorepo flexibility
 // Priority order:
@@ -260,6 +261,13 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true" || val === "1"),
 
+  /**
+   * Mapepire JDBC connection options. Semicolon-separated key=value pairs
+   * modeled on DB2 JDBC URL syntax. From `DB2i_JDBC_OPTIONS`.
+   * Example: `naming=system;date format=iso;libraries=MYLIB,DEVDATA`
+   */
+  DB2i_JDBC_OPTIONS: z.string().optional(),
+
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   TOOLS_YAML_PATH: z
     .string()
@@ -495,6 +503,55 @@ if (!validatedLogsPath) {
   }
 }
 
+/**
+ * Parse DB2i_JDBC_OPTIONS env var: a semicolon-separated list of key=value
+ * pairs modeled on DB2 JDBC URL syntax.
+ *
+ * Example: `naming=system;date format=iso;libraries=MYLIB,DEVDATA`
+ *
+ * Rules:
+ *   - `;` splits outer pairs; empty segments are ignored
+ *   - First `=` in each pair splits key/value (values may contain `=`)
+ *   - Whitespace around key and value is trimmed
+ *   - `libraries` is comma-split into string[] (only array-valued JDBCOption)
+ *   - All other values are forwarded as strings — mapepire's JDBC driver
+ *     accepts string values for all options; no bool/number coercion
+ *   - Malformed pairs (non-empty with no `=`) throw to surface typos early
+ */
+function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const result: Record<string, unknown> = {};
+  for (const segment of trimmed.split(";")) {
+    const pair = segment.trim();
+    if (!pair) continue;
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx === -1) {
+      throw new Error(
+        `Invalid DB2i_JDBC_OPTIONS: malformed pair "${pair}" — expected key=value`,
+      );
+    }
+    const key = pair.slice(0, eqIdx).trim();
+    const value = pair.slice(eqIdx + 1).trim();
+    if (!key) {
+      throw new Error(
+        `Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`,
+      );
+    }
+    if (key === "libraries") {
+      result[key] = value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else {
+      result[key] = value;
+    }
+  }
+  return Object.keys(result).length > 0
+    ? (result as JDBCOptions)
+    : undefined;
+}
+
 export const config = {
   pkg,
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
@@ -575,18 +632,29 @@ export const config = {
    * through the static import chain (logger → utils → config).
    */
   get db2i():
-    | { host: string; user: string; password: string; ignoreUnauthorized: boolean }
+    | {
+        host: string;
+        user: string;
+        password: string;
+        ignoreUnauthorized: boolean;
+        jdbcOptions?: JDBCOptions;
+      }
     | undefined {
     const host = process.env.DB2i_HOST;
     const user = process.env.DB2i_USER;
     const password = process.env.DB2i_PASS;
     if (!host || !user || !password) return undefined;
     const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
+    const rawJdbcOptions = process.env.DB2i_JDBC_OPTIONS;
+    const jdbcOptions = rawJdbcOptions
+      ? parseJdbcOptionsString(rawJdbcOptions)
+      : undefined;
     return {
       host,
       user,
       password,
       ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",
+      ...(jdbcOptions ? { jdbcOptions } : {}),
     };
   },
 
