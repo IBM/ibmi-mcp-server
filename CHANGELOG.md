@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1)
+
+Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior.
+
+### Changed
+
+* **`rowsToFetch` and `fetchAllRows` now compose instead of colliding.** `fetchAllRows: true` is the pagination policy; when `rowsToFetch` is also set it becomes the per-fetch page size. The previous "`rowsToFetch` wins, `fetchAllRows` ignored" precedence rule has been removed — the warning log it emitted is gone too, since the two fields no longer conflict. YAML tools that set only one field behave identically; tools that set both now paginate with a custom page size instead of silently ignoring `fetchAllRows`.
+
+* **Pagination safety ceiling is now row-based, not iteration-based.** The internal loop now terminates at `IBMI_PAGINATION_MAX_ROWS` rows of accumulated data rather than at 100 `fetchMore` iterations, so the effective row ceiling is stable regardless of per-fetch page size. Previously a larger page size implicitly granted a proportionally larger cap. When a result is truncated at the ceiling, the server emits a warning log and flags the response; the CLI surfaces the truncation in its output footer.
+
+* **`execute_sql` built-in tool inherits shared pagination defaults.** Previously hard-coded a 1000-row page size, producing an effective ~100,000-row ceiling inconsistent with YAML tools. Now reads `IBMI_PAGINATION_DEFAULT_PAGE_SIZE` / `IBMI_PAGINATION_MAX_ROWS` from config — matching every YAML tool and the documented 30,000-row cap. Operators running bulk CLI exports can raise `IBMI_PAGINATION_MAX_ROWS`.
+
+### Added
+
+* **Two new environment variables** for tuning pagination:
+  * `IBMI_PAGINATION_DEFAULT_PAGE_SIZE` (default `1000`) — rows per `fetchMore` call when a tool paginates without specifying its own page size.
+  * `IBMI_PAGINATION_MAX_ROWS` (default `30000`) — hard upper bound on total rows from a paginated tool call.
+
+* **CLI truncation display.** The `ibmi tool run` footer now shows `(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)` when a paginated result hits the ceiling, so callers know the output was clipped.
+
+### Migration
+
+No YAML changes required. Tools that set only `rowsToFetch` or only `fetchAllRows` behave as before. Tools that set **both** fields will now paginate with the custom page size instead of the previous "`rowsToFetch` wins" behavior — if that transition is undesirable, remove `fetchAllRows`. Callers relying on `execute_sql` to return up to ~100,000 rows should raise `IBMI_PAGINATION_MAX_ROWS` explicitly; otherwise the effective ceiling is now the documented 30,000.
+
 ## [0.5.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.5...v0.5.0) (2026-04-20)
 
 This release splits the `ibmi` command-line tool into its own `@ibm/ibmi-cli` npm package, adds first-class JDBC connection tuning to YAML sources, introduces per-tool row-fetch controls, and extends the SQL security validator to cover `ibmi tool` execution.
