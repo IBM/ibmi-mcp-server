@@ -1,9 +1,12 @@
 {
   "name": "ibmi-mcp-monorepo",
-  "version": "1.0.0",
+  "version": "0.4.5",
   "description": "IBM i MCP Server - Monorepo containing server, tools, agents, and deployment configurations",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/IBM/ibmi-mcp-server.git"
@@ -13,30 +16,36 @@
   },
   "homepage": "https://github.com/IBM/ibmi-mcp-server.git#readme",
   "scripts": {
-    "install": "cd server && npm install",
-    "build": "cd server && npm run build",
-    "build:link": "cd server && npm run build && npm link",
-    "rebuild": "cd server && npm run rebuild",
+    "build": "npm run build -w @ibm/ibmi-mcp-server && npm run build -w @ibm/ibmi-cli",
+    "build:link": "npm run build && npm link -w @ibm/ibmi-mcp-server -w @ibm/ibmi-cli",
+    "rebuild": "npm run rebuild --workspaces --if-present",
     "start": "npx ibmi-mcp-server --transport stdio",
     "start:http": "npx ibmi-mcp-server --transport http",
     "start:stdio": "npx ibmi-mcp-server --transport stdio",
-    "test": "cd server && npm test",
-    "test:watch": "cd server && npm run test:watch",
-    "test:coverage": "cd server && npm run test:coverage",
-    "lint": "cd server && npm run lint",
-    "typecheck": "cd server && npm run typecheck",
-    "format": "cd server && npm run format",
+    "test": "npm test --workspaces --if-present",
+    "test:watch": "npm run test:watch -w @ibm/ibmi-mcp-server",
+    "test:coverage": "npm run test:coverage -w @ibm/ibmi-mcp-server",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "format": "npm run format -w @ibm/ibmi-mcp-server",
     "validate": "tsx scripts/validate-config.ts",
     "inspector": "npx @modelcontextprotocol/inspector@0.15.0 --config mcp.json --server default-server",
     "docker:up": "cd apps/docker && docker-compose up -d",
     "docker:down": "cd apps/docker && docker-compose down",
     "docker:logs": "cd apps/docker && docker-compose logs -f",
-    "list-toolsets": "cd server && npm run list-toolsets -- --tools ../tools",
-    "release": "cd server && npm run release",
-    "release:minor": "cd server && npm run release:minor",
-    "release:major": "cd server && npm run release:major",
-    "release:patch": "cd server && npm run release:patch",
-    "release:first": "cd server && npm run release:first"
+    "list-toolsets": "npm run list-toolsets -w @ibm/ibmi-mcp-server -- --tools ../../tools",
+    "sync-versions": "node scripts/sync-workspace-versions.mjs",
+    "release": "standard-version && npm run sync-versions",
+    "release:minor": "standard-version --release-as minor && npm run sync-versions",
+    "release:major": "standard-version --release-as major && npm run sync-versions",
+    "release:patch": "standard-version --release-as patch && npm run sync-versions",
+    "release:first": "standard-version --first-release && npm run sync-versions",
+    "release:prepare": "./scripts/release-prepare.sh",
+    "release:prepare:patch": "./scripts/release-prepare.sh patch",
+    "release:prepare:minor": "./scripts/release-prepare.sh minor",
+    "release:prepare:major": "./scripts/release-prepare.sh major",
+    "release:finalize": "./scripts/release-finalize.sh",
+    "release:undo": "./scripts/release-undo.sh"
   },
   "keywords": [
     "ibm-i",
@@ -54,10 +63,11 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
-    "tsx": "^4.20.4",
-    "ajv": "^8.12.0",
-    "js-yaml": "^4.1.0",
     "@types/js-yaml": "^4.0.9",
-    "dotenv": "^16.6.1"
+    "ajv": "^8.12.0",
+    "dotenv": "^16.6.1",
+    "js-yaml": "^4.1.0",
+    "standard-version": "^9.5.0",
+    "tsx": "^4.20.4"
   }
 }

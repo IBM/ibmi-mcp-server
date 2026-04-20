@@ -1,16 +1,23 @@
-# Release Process for IBM i MCP Server
+# Release Process for the IBM i MCP Server monorepo
 
-This document describes the automated release process for the `server/` package (`@ibm/ibmi-mcp-server` on npm).
+This document describes the automated release process for the two npm packages shipped from this repo:
+
+- [`@ibm/ibmi-mcp-server`](https://www.npmjs.com/package/@ibm/ibmi-mcp-server) — the MCP server binary (`ibmi-mcp-server`)
+- [`@ibm/ibmi-cli`](https://www.npmjs.com/package/@ibm/ibmi-cli) — the `ibmi` command-line interface
+
+Both packages **always release with the same version** on the same `v*` git tag. The CLI declares an exact-pinned dependency on the server (no caret), so npm will refuse to install a mismatched pair.
 
 ## Overview
 
 The release process is split into **three phases** to enable manual changelog review and enhancement:
 
-1. **Prepare**: Run prerelease checks and generate changelog (WITHOUT committing)
+1. **Prepare**: Run prerelease checks, bump the root version, regenerate CHANGELOG, and propagate the version into both packages (WITHOUT committing)
 2. **Review**: Manually review and optionally enhance the changelog
 3. **Finalize**: Create commit, tag, and push to trigger automation
 
-This workflow uses `standard-version` for version bumping and changelog generation, but prevents automatic commits until after human review.
+This workflow uses `standard-version` for version bumping and changelog generation at the repo root, with a follow-on `scripts/sync-workspace-versions.mjs` pass that writes the new version into `packages/*/package.json` and updates the CLI's server dependency pin.
+
+All commands run from the repo root — no `cd` into subdirectories required.
 
 ## Prerequisites
 
@@ -26,19 +33,20 @@ The new release workflow is split into three distinct phases for better control 
 
 ### Phase 1: Prepare Release
 
-Navigate to the `server` directory and run the prepare script:
+From the repo root, run the prepare script:
 
 ```bash
-cd server
 ./scripts/release-prepare.sh [auto|patch|minor|major]
 ```
 
 **What this does:**
-1. ✅ Runs `npm test` (must pass)
-2. ✅ Runs `npm run typecheck` (must pass)
-3. 📝 Generates CHANGELOG.md from conventional commits
-4. 📝 Bumps version in `package.json` and `package-lock.json`
-5. ⚠️ **Does NOT create commit or tag yet**
+1. ✅ Runs `npm test --workspaces --if-present` (must pass for both packages)
+2. ✅ Runs `npm run typecheck --workspaces --if-present` (must pass)
+3. 📝 Generates CHANGELOG.md from conventional commits (single changelog at repo root)
+4. 📝 Bumps version in root `package.json`
+5. 📝 Runs `scripts/sync-workspace-versions.mjs` to write the new version into `packages/server/package.json`, `packages/cli/package.json`, and update the CLI's exact-pinned dep on `@ibm/ibmi-mcp-server`
+6. 📝 Refreshes root `package-lock.json`
+7. ⚠️ **Does NOT create commit or tag yet**
 
 **Version bump options:**
 - `auto` (default) - Automatically determines version from commits
@@ -92,15 +100,17 @@ When you're satisfied with the changelog and changes:
 1. Validates that release files are modified but not committed
 2. Shows final changelog preview
 3. Asks for confirmation
-4. Stages files: `package.json`, `package-lock.json`, `CHANGELOG.md`
-5. Creates commit: `chore(release): X.Y.Z`
+4. Stages files: root `package.json`, `package-lock.json`, `CHANGELOG.md`, `packages/server/package.json`, `packages/cli/package.json`
+5. Creates commit: `chore(release): X.Y.Z` (DCO-signed)
 6. Creates annotated tag: `vX.Y.Z`
 7. Pushes commit and tag to `origin/main`
 
 **This triggers the GitHub Actions workflow which:**
-- Runs type checking, linting, and tests
-- Builds the package
-- Publishes to npm with provenance
+- Runs type checking, linting, and tests across both workspaces
+- Builds both packages (server first — CLI imports from its `dist/public`)
+- Publishes `@ibm/ibmi-mcp-server` to npm with provenance
+- Waits for the server version to be visible on the registry (polls up to 30 × 5s)
+- Publishes `@ibm/ibmi-cli` to npm with provenance
 
 ### Undo Release (Before Pushing)
 
@@ -128,7 +138,6 @@ If you need to undo at any point **before finalizing**:
 You can also use npm scripts instead of calling the shell scripts directly:
 
 ```bash
-cd server
 
 # Prepare release
 npm run release:prepare        # auto version
@@ -147,7 +156,7 @@ npm run release:undo
 
 ```bash
 # Complete release workflow
-cd server
+
 npm run release:prepare:minor  # Prepare with minor version bump
 # Review and edit CHANGELOG.md
 npm run release:finalize       # Commit, tag, and push
@@ -180,9 +189,16 @@ After the GitHub Actions workflow completes and npm publish succeeds:
 
 After publishing the GitHub release:
 
-1. **Verify npm**: `npm view @ibm/ibmi-mcp-server`
+1. **Verify npm (both packages)**:
+   ```bash
+   npm view @ibm/ibmi-mcp-server@X.Y.Z version
+   npm view @ibm/ibmi-cli@X.Y.Z version
+   # Confirm the CLI's server dep is exact-pinned:
+   npm view @ibm/ibmi-cli@X.Y.Z dependencies
+   ```
 2. **Check workflow**: https://github.com/IBM/ibmi-mcp-server/actions
 3. **Confirm GitHub release**: https://github.com/IBM/ibmi-mcp-server/releases
+4. **Smoke-test the CLI**: `npm i -g @ibm/ibmi-cli@X.Y.Z && ibmi --version`
 
 ## Conventional Commits
 
@@ -357,7 +373,7 @@ If `npm run typecheck` fails during the prepare phase:
 If you ran `release-prepare.sh` but want to start over:
 
 ```bash
-cd server
+
 ./scripts/release-undo.sh
 ```
 
@@ -368,7 +384,7 @@ This resets `package.json`, `package-lock.json`, and `CHANGELOG.md` to HEAD.
 If you ran `release-finalize.sh` but haven't pushed yet:
 
 ```bash
-cd server
+
 ./scripts/release-undo.sh  # Deletes tag and resets commit
 # Make your changes
 ./scripts/release-prepare.sh [type]
@@ -437,7 +453,6 @@ If you get permission errors:
 To create beta, alpha, or release candidate versions:
 
 ```bash
-cd server
 
 # Create pre-release version
 standard-version --prerelease alpha
@@ -498,7 +513,7 @@ The initial release (v0.1.0) uses a special command:
 npm run release:first
 
 # OR from server directory
-cd server
+
 npm run release:first
 ```
 
@@ -572,7 +587,7 @@ If you absolutely must publish manually (e.g., GitHub Actions is down):
 
 ```bash
 # ONLY from server directory
-cd server
+
 npm publish
 
 # For scoped packages (@ibm namespace)

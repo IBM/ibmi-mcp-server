@@ -34,8 +34,8 @@ FROM base AS runner
 WORKDIR /usr/src/app
 # Copy ALL node_modules from the 'deps' stage (only includes production dependencies)
 COPY --from=deps /usr/src/app/node_modules ./node_modules
-# Copy built application from the 'builder' stage
-COPY --from=builder /usr/src/app/dist ./dist
+# Copy built application from the 'builder' stage (workspace: server package)
+COPY --from=builder /usr/src/app/packages/server/dist ./dist
 # Copy package.json (needed for potential runtime info, like version)
 COPY package.json .
 

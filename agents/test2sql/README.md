@@ -17,7 +17,7 @@ A natural language to SQL agent for IBM i (Db2 for i) databases. Ask questions i
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- Running IBM i MCP Server (see [server setup](../../server/README.md))
+- Running IBM i MCP Server (see [server setup](../../packages/server/README.md))
 - Anthropic API key
 
 ## Quick Start

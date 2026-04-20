@@ -21,8 +21,8 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    Run the commands below to copy required files into specific directory. First make sure you are in directory `deployment/openshift/apps/openshift` relate to the project root.
 
    ```bash
-   # Copy dockerfile into server directory
-   wget -O ../../../../server/Dockerfile https://raw.githubusercontent.com/IBM/ibmi-mcp-server/refs/heads/main/Dockerfile
+   # Copy dockerfile into server package directory
+   wget -O ../../../../packages/server/Dockerfile https://raw.githubusercontent.com/IBM/ibmi-mcp-server/refs/heads/main/Dockerfile
 
    # Get env file from mcp context forge repo
    wget -O ./mcpgateway/.env https://raw.githubusercontent.com/IBM/mcp-context-forge/refs/heads/main/.env.example

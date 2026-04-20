@@ -4,11 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-IBM i MCP Server - A production-grade Model Context Protocol server enabling AI agents to interact with IBM i systems via Db2 for i databases. Uses Mapepire (WebSocket-based SQL gateway) for database connectivity.
+IBM i MCP Server monorepo — an npm workspaces repo that ships two published packages:
+
+- **`@ibm/ibmi-mcp-server`** (`packages/server/`) — MCP server binary (`ibmi-mcp-server`). Production-grade MCP server enabling AI agents to interact with IBM i via Db2 for i. Uses Mapepire (WebSocket-based SQL gateway).
+- **`@ibm/ibmi-cli`** (`packages/cli/`) — the `ibmi` command-line interface. Depends on `@ibm/ibmi-mcp-server` (exact-pinned) and calls its tool logic directly for fast local execution without MCP protocol overhead.
+
+Both packages co-version: a single `v*` git tag releases both with the same version.
 
 ## Common Commands
 
-All commands run from the `server/` directory (or root, which delegates to server):
+All commands run from the repo root (npm workspaces handle the dispatch):
 
 ```bash
 # Build
@@ -32,7 +37,7 @@ npm run start:stdio        # Stdio transport (for MCP Inspector)
 npm run inspector          # Launch MCP Inspector UI
 
 # YAML Tools
-npm run list-toolsets -- --tools ../tools   # List available toolsets
+npm run list-toolsets                       # List available toolsets
 npm run validate                            # Validate tool YAML files
 
 # Release
@@ -56,21 +61,32 @@ Every tool follows strict two-file separation:
 - **`registration.ts`** - Handler layer. Wraps logic in try/catch, formats responses via `ErrorHandler`.
 
 ```
-server/src/
-├── index.ts                    # CLI entry point
-├── mcp-server/
-│   ├── server.ts              # McpServer initialization
-│   ├── tools/utils/           # Tool factory and utilities
-│   └── transports/            # Stdio, HTTP transports
-├── ibmi-mcp-server/
-│   ├── tools/                 # IBM i tools (executeSql, generateSql)
-│   ├── services/              # SourceManager, SqlSecurityValidator
-│   └── utils/                 # Tool processors, config
-├── utils/
-│   ├── telemetry/            # OpenTelemetry instrumentation
-│   └── internal/             # Logger, RequestContext
-└── types-global/             # McpError, JsonRpcErrorCode
+packages/
+├── server/                         # @ibm/ibmi-mcp-server
+│   ├── src/
+│   │   ├── index.ts                # MCP server entry (ibmi-mcp-server bin)
+│   │   ├── public/                 # Barrel re-exports consumed by @ibm/ibmi-cli
+│   │   │   ├── tools.ts            # executeSqlTool, generateSqlTool, *Logic fns
+│   │   │   ├── services.ts         # IBMiConnectionPool, SourceManager, etc.
+│   │   │   ├── context.ts          # requestContextService
+│   │   │   └── formatting.ts       # tableFormatter
+│   │   ├── mcp-server/             # McpServer init, transports
+│   │   ├── ibmi-mcp-server/        # Tools, services, security
+│   │   ├── utils/                  # telemetry, logger, formatting
+│   │   └── types-global/           # McpError, JsonRpcErrorCode
+│   └── tests/
+└── cli/                            # @ibm/ibmi-cli
+    ├── src/
+    │   ├── index.ts                # CLI entry (ibmi bin)
+    │   ├── commands/               # 13 commands
+    │   ├── config/                 # ~/.ibmi/config.yaml loader
+    │   ├── formatters/
+    │   └── utils/
+    └── tests/
 ```
+
+CLI imports server internals via the `exports` subpath surface:
+`@ibm/ibmi-mcp-server/tools`, `/services`, `/context`, `/formatting`.
 
 ### YAML-Driven SQL Tools
 
@@ -143,7 +159,7 @@ Follow the echoTool pattern in `src/mcp-server/tools/echoTool/`:
 ## Testing
 
 - Framework: Vitest
-- Location: `server/tests/` (mirrors src/ structure)
+- Location: `packages/server/tests/` and `packages/cli/tests/` (each mirrors its `src/` structure)
 - Prefer integration tests over mocked unit tests
 - Use `@anatine/zod-mock` for test data generation
 
@@ -229,5 +245,6 @@ Match agent types to the work: `Explore` for research, `general-purpose` for imp
 ## Related Documentation
 
 - `AGENTS.md` - Repository guidelines and contribution flow
-- `server/README.md` - Comprehensive server documentation
+- `packages/server/README.md` - Comprehensive server documentation
+- `packages/cli/README.md` - CLI usage guide
 - `tools/README.md` - YAML tool configuration guide

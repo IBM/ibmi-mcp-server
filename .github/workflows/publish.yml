@@ -1,4 +1,4 @@
-name: Publish Package
+name: Publish Packages
 
 on:
   push:
@@ -11,43 +11,59 @@ jobs:
     environment: Release
     permissions:
       id-token: write  # Required for npm provenance
+      contents: read
 
     steps:
-      # 1. Checkout repository
       - uses: actions/checkout@v4
 
-      # 2. Setup Node.js with npm registry
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      # 3. Install dependencies (server directory)
       - name: Install dependencies
-        working-directory: ./server
         run: |
           # Clean install to handle platform-specific optional dependencies
-          rm -rf node_modules
+          rm -rf node_modules packages/*/node_modules
           npm install --prefer-offline
 
-      # 4. Run validation (prepublishOnly will run again, but be explicit)
       - name: Run tests and checks
-        working-directory: ./server
         run: |
-          npm run typecheck
-          npm run lint
-          npm run test
+          npm run typecheck --workspaces --if-present
+          npm run lint --workspaces --if-present
+          npm run test --workspaces --if-present
 
-      # 5. Build the package
+      # Build @ibm/ibmi-mcp-server first (the CLI imports from its dist/public).
       - name: Build
-        working-directory: ./server
         run: npm run build
 
-      # 6. Publish to npm (using granular access token with 2FA bypass)
-      - name: Publish to npm
-        working-directory: ./server
+      - name: Publish @ibm/ibmi-mcp-server to npm
+        working-directory: ./packages/server
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # npm's registry has propagation delay; @ibm/ibmi-cli exact-pins
+      # @ibm/ibmi-mcp-server so the CLI publish will fail with ETARGET unless
+      # the server version is already queryable. Poll with a short timeout.
+      - name: Wait for @ibm/ibmi-mcp-server on registry
+        run: |
+          V=$(node -p "require('./packages/server/package.json').version")
+          echo "Waiting for @ibm/ibmi-mcp-server@$V to be visible..."
+          for i in $(seq 1 30); do
+            if npm view "@ibm/ibmi-mcp-server@$V" version > /dev/null 2>&1; then
+              echo "Visible after ${i} attempts."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Server version never became visible on registry."
+          exit 1
+
+      - name: Publish @ibm/ibmi-cli to npm
+        working-directory: ./packages/cli
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
