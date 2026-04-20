@@ -1,6 +1,9 @@
 import pluginJs from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import { fileURLToPath } from "node:url";
+
+const tsconfigRootDir = fileURLToPath(new URL(".", import.meta.url));
 
 const combinedGlobals = { ...globals.browser, ...globals.node };
 const trimmedGlobals = Object.fromEntries(
@@ -8,7 +11,12 @@ const trimmedGlobals = Object.fromEntries(
 );
 
 export default [
-  { languageOptions: { globals: trimmedGlobals } },
+  {
+    languageOptions: {
+      globals: trimmedGlobals,
+      parserOptions: { tsconfigRootDir },
+    },
+  },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
   {
