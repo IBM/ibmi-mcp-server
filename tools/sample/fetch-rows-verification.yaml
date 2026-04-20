@@ -79,7 +79,7 @@ tools:
     source: ibmi-verify
     description: >
       Precedence test — both rowsToFetch and fetchAllRows are set.
-      fetchAllRows must win; rowsToFetch is silently ignored.
+      rowsToFetch must win; fetchAllRows is silently ignored.
     statement: |
       SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
       FROM QSYS2.SYSCOLUMNS2
