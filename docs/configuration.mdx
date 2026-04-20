@@ -250,6 +250,19 @@ Below is the reference for core server configuration options. Each section inclu
 **Setting `MCP_POOL_QUERY_TIMEOUT_MS=0` disables query timeouts entirely.** This means queries on dead connections will hang until the client's own timeout fires. Only disable this in trusted, stable network environments.
 </Warning>
 
+### Pagination
+
+**Controls the per-fetch page size and the safety ceiling used when SQL tools paginate large result sets.** `fetchAllRows: true` tools and the built-in `execute_sql` tool share these values. YAML tools override per-call via `rowsToFetch`; these env vars govern the defaults.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `IBMI_PAGINATION_DEFAULT_PAGE_SIZE` | Rows per `fetchMore` call when a tool paginates without specifying its own page size. | `1000` | `500` |
+| `IBMI_PAGINATION_MAX_ROWS` | Hard upper bound on total rows from a single paginated tool call. Pagination stops and flags the result as truncated once this is reached. | `30000` | `100000` |
+
+<Info>
+**Why these defaults:** At 1000 rows/fetch, the server makes at most 30 round-trips before hitting the 30,000-row ceiling — around 3 seconds of tail latency on a healthy WebSocket link. The ceiling itself is the practical LLM-ingestion limit: 30k rows typically serialize to 3-6M tokens, already beyond most context windows. Operators running bulk CLI exports can raise `IBMI_PAGINATION_MAX_ROWS`; LLM-facing deployments rarely should.
+</Info>
+
 ## Authentication Configuration
 
 ### Choosing an Authentication Mode

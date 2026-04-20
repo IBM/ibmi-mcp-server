@@ -443,21 +443,29 @@ Control how many rows are **fetched from the database** per tool call. These are
 
 ### Fields
 
+The two fields **compose**: `fetchAllRows` is the pagination *policy*; `rowsToFetch`, when set, is the per-fetch *size* in pagination mode, or a single-shot row cap when `fetchAllRows` is off.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rowsToFetch` | integer (≥ 1) | `100` (mapepire default) | Maximum rows fetched from the database in a single call. Use when your SQL uses `FETCH FIRST :limit ROWS ONLY` and you need more than 100. Takes precedence over `fetchAllRows` when both are set. |
-| `fetchAllRows` | boolean | `false` | When `true`, fetches all rows using paginated fetches (bounded by an internal ~30,000-row safety cap). Ignored if `rowsToFetch` is also set. |
+| `rowsToFetch` | integer (≥ 1) | `100` (mapepire default) | With `fetchAllRows: true`, the number of rows per `fetchMore` call. Without `fetchAllRows`, a single-shot cap applied to `FETCH FIRST :limit ROWS ONLY`-style queries. |
+| `fetchAllRows` | boolean | `false` | When `true`, paginate until the database reports `is_done` or the safety ceiling (`IBMI_PAGINATION_MAX_ROWS`, default `30000`) is reached. |
+
+### Composition
+
+| Config | Behavior |
+|---|---|
+| `rowsToFetch: N` alone | Single-shot `execute(N)` — up to N rows, one round-trip |
+| `fetchAllRows: true` alone | Paginate with `IBMI_PAGINATION_DEFAULT_PAGE_SIZE` (default `1000`) per fetch |
+| `fetchAllRows: true, rowsToFetch: N` | Paginate with **N rows per fetch** — tune per tool for wide rows |
+
+When the paginated result hits `IBMI_PAGINATION_MAX_ROWS`, the server truncates the rows returned and emits a warning log. The CLI surfaces the truncation in the output footer so callers know the result was clipped.
 
 <Warning>
-**Context-bloat warning:** Large result sets consume LLM context quickly. Prefer `rowsToFetch` with a deliberate small value; only use `fetchAllRows` for small catalogs or when the caller has explicitly requested a full dump. A warning is logged when `rowsToFetch` exceeds 10,000.
+**Context-bloat warning:** Large result sets consume LLM context quickly. Prefer `rowsToFetch` with a deliberate small value; only use `fetchAllRows` for small catalogs or when the caller has explicitly requested a full dump.
 </Warning>
 
-### Precedence
-
-If both `rowsToFetch` and `fetchAllRows` are set, **`rowsToFetch` wins** and `fetchAllRows` is ignored. A warning is logged so the misconfiguration is visible. Rationale: a deliberate row cap should never be silently overridden by an unbounded fetch.
-
 <Tabs>
-  <Tab title="rowsToFetch">
+  <Tab title="rowsToFetch (single-shot)">
     **Lift the 100-row cap for a single call**
 
     ```yaml
@@ -487,7 +495,7 @@ If both `rowsToFetch` and `fetchAllRows` are set, **`rowsToFetch` wins** and `fe
     </Note>
   </Tab>
 
-  <Tab title="fetchAllRows">
+  <Tab title="fetchAllRows (paginate)">
     **Fetch everything (small catalogs only)**
 
     ```yaml
@@ -495,7 +503,7 @@ If both `rowsToFetch` and `fetchAllRows` are set, **`rowsToFetch` wins** and `fe
       list_all_schemas:
         source: ibmi-system
         description: "List every schema (small catalog)"
-        fetchAllRows: true        # paginates until is_done, bounded by safety cap
+        fetchAllRows: true        # paginates until is_done, bounded by IBMI_PAGINATION_MAX_ROWS
         statement: |
           SELECT SCHEMA_NAME FROM QSYS2.SYSSCHEMAS
           ORDER BY SCHEMA_NAME
@@ -507,11 +515,33 @@ If both `rowsToFetch` and `fetchAllRows` are set, **`rowsToFetch` wins** and `fe
     - You don't know the result size up front but want completeness
 
     <Warning>
-    Paginated fetches are bounded by a hard safety cap (~30,000 rows). Beyond that the server stops fetching — do not rely on `fetchAllRows` for true bulk exports.
+    Paginated fetches are bounded by `IBMI_PAGINATION_MAX_ROWS` (default `30000`). Beyond that the server truncates and flags the result — do not rely on `fetchAllRows` for true bulk exports.
     </Warning>
+  </Tab>
+
+  <Tab title="Paginate with custom page size">
+    **Compose both fields for wide-row tables**
+
+    ```yaml
+    tools:
+      export_all_columns:
+        source: ibmi-system
+        description: "Stream every column of every table in SAMPLE"
+        fetchAllRows: true        # paginate until exhausted
+        rowsToFetch: 500          # 500 rows per fetchMore call
+        statement: |
+          SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
+          FROM QSYS2.SYSCOLUMNS2
+          WHERE TABLE_SCHEMA = 'SAMPLE'
+    ```
+
+    **Use when:**
+    - The result set is large **and** you need a smaller per-fetch page (wide rows, memory-sensitive environments)
+    - The default page size (1000) produces fetches that are too large for your link
+    - You want explicit control over the WebSocket round-trip/memory tradeoff per tool
 
     <Note>
-    If you also set `rowsToFetch` on the same tool, `fetchAllRows` is ignored and a warning is logged. Pick one.
+    Both fields working together is the most expressive option: policy (paginate) and size (per-fetch page) are independent knobs. `rowsToFetch` without `fetchAllRows` stays a single-shot cap.
     </Note>
   </Tab>
 

@@ -1,4 +1,4 @@
-# Verification tools for rowsToFetch / fetchAllRows (Issue #139)
+# Verification tools for rowsToFetch / fetchAllRows composition
 #
 # QSYS2.SYSCOLUMNS2 is a large catalog view on every IBM i system — it lists
 # every column of every table the caller can see, so it's guaranteed to have
@@ -7,7 +7,8 @@
 #   - syscolumns_default    → no row config, exercises mapepire's 100-row default
 #   - syscolumns_limited    → rowsToFetch: 500, exercises the Query.execute(n) path
 #   - syscolumns_fetch_all  → fetchAllRows: true, exercises the pagination path
-#   - syscolumns_both       → both set; fetchAllRows must win and rowsToFetch is ignored
+#   - syscolumns_both       → both set; paginates with rowsToFetch as the
+#                             per-fetch page size (composition)
 
 sources:
   ibmi-verify:
@@ -78,13 +79,15 @@ tools:
   syscolumns_both:
     source: ibmi-verify
     description: >
-      Precedence test — both rowsToFetch and fetchAllRows are set.
-      rowsToFetch must win; fetchAllRows is silently ignored.
+      Composition test — both rowsToFetch and fetchAllRows are set.
+      Paginates until the result is exhausted (or the IBMI_PAGINATION_MAX_ROWS
+      cap is hit), using rowsToFetch as the per-fetch page size. The server
+      debug log should show fetchCount > 1 with fetchSize = 500.
     statement: |
       SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
       FROM QSYS2.SYSCOLUMNS2
       WHERE TABLE_SCHEMA = 'QSYS2'
-    rowsToFetch: 10
+    rowsToFetch: 500
     fetchAllRows: true
     security:
       readOnly: true
@@ -93,7 +96,7 @@ tools:
       idempotentHint: true
       domain: "verification"
       category: "fetch-rows"
-      title: "SYSCOLUMNS2 (both set → fetchAllRows wins)"
+      title: "SYSCOLUMNS2 (paginate, 500 rows/fetch)"
 
 toolsets:
   fetch_rows_verification:

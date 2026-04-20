@@ -115,13 +115,14 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     query: string,
     params?: BindingValue[],
     context?: RequestContext,
-    fetchSize: number = 300,
+    fetchSize?: number,
   ): Promise<{
     data: unknown[];
     success: boolean;
     sql_rc?: unknown;
     execution_time?: number;
     metadata?: QueryMetaData;
+    truncated: boolean;
   }> {
     const operationContext =
       context ||
