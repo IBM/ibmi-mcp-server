@@ -21,7 +21,11 @@ import {
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolSecurityConfig } from "@/ibmi-mcp-server/schemas/index.js";
 import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
-import { config, DEFAULT_PAGE_SIZE } from "@/config/index.js";
+import {
+  config,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGINATION_ROWS,
+} from "@/config/index.js";
 
 /**
  * Pool health status values used across pool interfaces and return types
@@ -585,6 +589,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     sql_rc?: unknown;
     execution_time?: number;
     metadata?: QueryMetaData;
+    truncated: boolean;
   }> {
     const operationContext =
       context ||
@@ -652,10 +657,11 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           allData.push(...result.data);
         }
 
-        // Fetch more results until done
+        // Fetch more results until done or safety cap reached. The cap is
+        // row-based so the effective ceiling is stable regardless of
+        // per-fetch page size — see MAX_PAGINATION_ROWS.
         let fetchCount = 1;
-        while (!result.is_done && fetchCount < 100) {
-          // Safety limit
+        while (!result.is_done && allData.length < MAX_PAGINATION_ROWS) {
           logger.debug(
             {
               ...operationContext,
@@ -674,14 +680,36 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           fetchCount++;
         }
 
+        // Truncate to MAX_PAGINATION_ROWS exactly when the final page
+        // overshoots the cap. Callers should not see more rows than promised.
+        const truncated =
+          !result.is_done || allData.length >= MAX_PAGINATION_ROWS;
+        if (allData.length > MAX_PAGINATION_ROWS) {
+          allData.length = MAX_PAGINATION_ROWS;
+        }
+
         // Close the query
         await queryObj.close();
+
+        if (truncated) {
+          logger.warning(
+            {
+              ...operationContext,
+              totalRows: allData.length,
+              cap: MAX_PAGINATION_ROWS,
+              fetchCount,
+              fetchSize,
+            },
+            "Paginated query hit row cap — result is truncated. Raise IBMI_PAGINATION_MAX_ROWS or narrow the query.",
+          );
+        }
 
         logger.debug(
           {
             ...operationContext,
             totalRows: allData.length,
             fetchCount,
+            truncated,
             success: result.success,
             sqlReturnCode: result.sql_rc,
             executionTime: result.execution_time,
@@ -698,6 +726,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           sql_rc: result.sql_rc,
           execution_time: result.execution_time,
           metadata: initialMetadata,
+          truncated,
         };
       },
       {

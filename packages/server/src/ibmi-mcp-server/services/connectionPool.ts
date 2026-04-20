@@ -122,6 +122,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     sql_rc?: unknown;
     execution_time?: number;
     metadata?: QueryMetaData;
+    truncated: boolean;
   }> {
     const operationContext =
       context ||
