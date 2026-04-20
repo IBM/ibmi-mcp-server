@@ -21,7 +21,7 @@ import {
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolSecurityConfig } from "@/ibmi-mcp-server/schemas/index.js";
 import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
-import { config } from "@/config/index.js";
+import { config, DEFAULT_PAGE_SIZE } from "@/config/index.js";
 
 /**
  * Pool health status values used across pool interfaces and return types
@@ -577,7 +577,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     query: string,
     params?: BindingValue[],
     context?: RequestContext,
-    fetchSize: number = 300,
+    fetchSize: number = DEFAULT_PAGE_SIZE,
     securityConfig?: SqlToolSecurityConfig,
   ): Promise<{
     data: unknown[];

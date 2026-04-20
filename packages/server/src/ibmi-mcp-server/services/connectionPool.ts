@@ -115,7 +115,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     query: string,
     params?: BindingValue[],
     context?: RequestContext,
-    fetchSize: number = 300,
+    fetchSize?: number,
   ): Promise<{
     data: unknown[];
     success: boolean;

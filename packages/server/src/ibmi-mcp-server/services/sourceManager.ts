@@ -174,7 +174,7 @@ export class SourceManager extends BaseConnectionPool<string> {
     query: string,
     params?: BindingValue[],
     context?: RequestContext,
-    fetchSize: number = 300,
+    fetchSize?: number,
     securityConfig?: SqlToolSecurityConfig,
   ) {
     return super.executeQueryWithPagination(
