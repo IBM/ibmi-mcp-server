@@ -25,6 +25,7 @@ Thumbs.db
 # NODE.JS & PACKAGE MANAGERS
 # =============================================================================
 node_modules/
+**/node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -195,8 +196,11 @@ duckdata/
 # LARGE PROJECT DIRECTORIES (exclude from Docker build context)
 # =============================================================================
 agents/
+app/
+client/
 release/
 coverage/
 .git/
 .github/
 changelogs/
+tmp/

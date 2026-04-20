@@ -1,69 +1,89 @@
-# ---- Base Node ----
-# Use a specific Node.js version known to work, Alpine for smaller size
+# syntax=docker/dockerfile:1.7
+#
+# Build context: REPO ROOT (npm workspaces monorepo uses a single root
+# package-lock.json shared by every workspace). The workflow must set
+# `context: .` so this Dockerfile can see the root lockfile.
+#
+# Produces a runtime image for @ibm/ibmi-mcp-server only — the CLI
+# workspace is not shipped.
+
+# ---- Base ----
 FROM node:bookworm-slim AS base
-WORKDIR /usr/src/app
-# NODE_ENV will be set by docker-compose from .env file
+WORKDIR /app
 
-# Update system packages and install security updates
-# This resolves all system-level CVEs
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        && \
-    npm install -g npm@latest && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# System updates + recent npm (lockfileVersion 3 needs npm >= 7)
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && npm install -g npm@latest \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# ---- Dependencies ----
-# Install dependencies first to leverage Docker cache
-FROM base AS deps
-WORKDIR /usr/src/app
-ENV NODE_ENV=production
-COPY package.json package-lock.json* ./
-# Use npm ci for deterministic installs based on lock file
-# Install only production dependencies in this stage for the final image
-RUN npm ci --only=production
-
-# ---- Builder ----
-# Build the application
+# ---- Builder: install all deps, build the server workspace ----
 FROM base AS builder
-WORKDIR /usr/src/app
-# Override NODE_ENV to ensure devDependencies (including TypeScript) are installed
+WORKDIR /app
 ENV NODE_ENV=development
-# Copy dependency manifests and install *all* dependencies (including dev)
-COPY package.json package-lock.json* ./
+
+# Copy manifests first so the Docker layer cache is invalidated only when
+# dependency declarations change, not on every source edit. Every workspace
+# package.json must be present for `npm ci` to resolve the workspace graph
+# that the root lockfile describes.
+COPY package.json package-lock.json ./
+COPY packages/server/package.json ./packages/server/
+COPY packages/cli/package.json ./packages/cli/
+
 RUN npm ci
-# Copy the rest of the source code
+
+# Copy the full source tree and build only the server workspace.
+# (.dockerignore keeps node_modules/, dist/, .git/, .github/, .claude/,
+# agents/, and .env files out of the build context.)
 COPY . .
-# Build the TypeScript project
-RUN npm run build
+
+RUN npm run build -w @ibm/ibmi-mcp-server
+
+# ---- Production dependencies only ----
+# Separate stage so the runtime image carries only what the server needs
+# to execute — no TypeScript, no test frameworks, no CLI workspace deps.
+FROM base AS prod-deps
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+COPY packages/server/package.json ./packages/server/
+COPY packages/cli/package.json ./packages/cli/
+
+# --workspace=@ibm/ibmi-mcp-server + --include-workspace-root installs
+# exactly the production deps the server needs plus anything hoisted to
+# the root. The CLI workspace's deps are skipped.
+RUN npm ci --omit=dev \
+      --workspace=@ibm/ibmi-mcp-server \
+      --include-workspace-root
 
 # ---- Runner ----
-# Final stage with all dependencies and built code
 FROM base AS runner
-WORKDIR /usr/src/app
-# Copy ALL node_modules from the 'builder' stage (includes dev dependencies)
-COPY --from=builder /usr/src/app/node_modules ./node_modules
-# Copy built application from the 'builder' stage
-COPY --from=builder /usr/src/app/dist ./dist
-# Copy package.json (needed for potential runtime info, like version)
-COPY package.json .
+WORKDIR /app
 
-# Create a non-root user and switch to it
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+# node_modules carries a symlink `@ibm/ibmi-mcp-server -> ../packages/server`.
+# Copying node_modules from prod-deps preserves the symlink; populating
+# packages/server/ from the builder makes the symlink resolve to the
+# actual built dist output.
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/packages/server/package.json ./packages/server/package.json
+COPY --from=builder /app/packages/server/dist ./packages/server/dist
 
-# Change ownership of app directory to appuser and create npm cache directory
-RUN chown -R appuser:appgroup /usr/src/app && \
-    mkdir -p /home/appuser/.npm && \
-    chown -R appuser:appgroup /home/appuser/.npm
+# Non-root user + npm cache dir
+RUN groupadd -r appgroup \
+    && useradd -r -g appgroup appuser \
+    && chown -R appuser:appgroup /app \
+    && mkdir -p /home/appuser/.npm \
+    && chown -R appuser:appgroup /home/appuser/.npm
 
 USER appuser
 
-# Expose port if the application runs a server (adjust if needed)
 ENV MCP_TRANSPORT_TYPE=http
 EXPOSE 3010
 
-# Command to run the application
-# This will execute the binary defined in package.json
-CMD ["npx", "ibmi-mcp-server"]
+# Run node directly on the built entry rather than via `npx` — avoids
+# any bin-resolution surprises and gives a cleaner PID 1.
+CMD ["node", "packages/server/dist/index.js"]
