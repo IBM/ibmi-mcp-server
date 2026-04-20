@@ -92,10 +92,10 @@ graph LR
   <Tab title="Build from Source">
     ```bash
     git clone https://github.com/IBM/ibmi-mcp-server.git
-    cd ibmi-mcp-server/server
+    cd ibmi-mcp-server
     npm install
     npm run build
-    npm link
+    npm link -w @ibm/ibmi-cli
 
     ibmi --help
     ```

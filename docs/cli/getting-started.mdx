@@ -27,8 +27,8 @@ Get the `ibmi` CLI running and connected to your IBM i system.
 
   <Tab title="Build from Source">
     ```bash
-    cd ibmi-mcp-server/server
-    npm install && npm run build && npm link
+    cd ibmi-mcp-server
+    npm install && npm run build && npm link -w @ibm/ibmi-cli
     ibmi --help
     ```
   </Tab>
