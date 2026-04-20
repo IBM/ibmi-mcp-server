@@ -146,6 +146,12 @@ const ExecuteSqlResponseSchema = z.object({
     .number()
     .optional()
     .describe("Query execution time in milliseconds."),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe(
+      "True when the result set hit the IBMI_PAGINATION_MAX_ROWS safety cap and was clipped. The returned rows are a prefix of the full result — raise the cap or narrow the query to see more.",
+    ),
   metadata: z
     .object({
       columns: z
@@ -365,6 +371,7 @@ async function executeSqlLogic(
       data: typedData,
       rowCount: typedData?.length ?? 0,
       executionTime,
+      truncated: result.truncated,
       metadata:
         typedData && typedData.length > 0 && typedData[0]
           ? {
@@ -454,10 +461,17 @@ const executeSqlResponseFormatter = (
   // Format the result as a table-like JSON representation
   const resultJson = JSON.stringify(result.data, null, 2);
 
+  // Surface pagination truncation so callers (including LLMs consuming the
+  // text block) know the result is a prefix of the full set — otherwise
+  // downstream analysis operates on silently-clipped data.
+  const truncationNotice = result.truncated
+    ? `\n\n⚠️  Result truncated at ${result.rowCount} rows (IBMI_PAGINATION_MAX_ROWS cap). Raise the cap or narrow the query to see more.`
+    : "";
+
   return [
     {
       type: "text",
-      text: `SQL query executed successfully.\n\nRows returned: ${result.rowCount}\nExecution time: ${result.executionTime}ms\n\nResults:\n${resultJson}`,
+      text: `SQL query executed successfully.\n\nRows returned: ${result.rowCount}\nExecution time: ${result.executionTime}ms${truncationNotice}\n\nResults:\n${resultJson}`,
     },
   ];
 };
