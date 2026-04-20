@@ -433,6 +433,109 @@ tools:
 
 ---
 
+## Fetch-Row Controls
+
+Control how many rows are **fetched from the database** per tool call. These are distinct from [`maxDisplayRows`](/sql-tools/output-formats#maximum-display-rows), which only truncates the rendered markdown table.
+
+<Note>
+**Database vs. display limits:** `rowsToFetch` / `fetchAllRows` change how many rows the server pulls from Db2 for i. `maxDisplayRows` only affects how many rows appear in the formatted output. A tool can fetch 500 rows from the database but render only the first 100 in markdown.
+</Note>
+
+### Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rowsToFetch` | integer (≥ 1) | `100` (mapepire default) | Maximum rows fetched from the database in a single call. Use when your SQL uses `FETCH FIRST :limit ROWS ONLY` and you need more than 100. Takes precedence over `fetchAllRows` when both are set. |
+| `fetchAllRows` | boolean | `false` | When `true`, fetches all rows using paginated fetches (bounded by an internal ~30,000-row safety cap). Ignored if `rowsToFetch` is also set. |
+
+<Warning>
+**Context-bloat warning:** Large result sets consume LLM context quickly. Prefer `rowsToFetch` with a deliberate small value; only use `fetchAllRows` for small catalogs or when the caller has explicitly requested a full dump. A warning is logged when `rowsToFetch` exceeds 10,000.
+</Warning>
+
+### Precedence
+
+If both `rowsToFetch` and `fetchAllRows` are set, **`rowsToFetch` wins** and `fetchAllRows` is ignored. A warning is logged so the misconfiguration is visible. Rationale: a deliberate row cap should never be silently overridden by an unbounded fetch.
+
+<Tabs>
+  <Tab title="rowsToFetch">
+    **Lift the 100-row cap for a single call**
+
+    ```yaml
+    tools:
+      list_customers:
+        source: ibmi-system
+        description: "List up to 500 customers"
+        rowsToFetch: 500          # lets FETCH FIRST :limit ROWS ONLY actually return 500
+        statement: |
+          SELECT ID, NAME FROM MYLIB.CUSTOMERS
+          FETCH FIRST :limit ROWS ONLY
+        parameters:
+          - name: limit
+            type: integer
+            default: 500
+            minimum: 1
+            maximum: 500
+    ```
+
+    **Use when:**
+    - Your `FETCH FIRST :limit ROWS ONLY` clause needs more than 100 rows
+    - You know the expected result size and want a predictable ceiling
+    - You want row-count safety without running paginated fetches
+
+    <Note>
+    Setting `rowsToFetch` alone does **not** automatically raise your SQL's `FETCH FIRST` clause — you still need a parameter or literal that matches. `rowsToFetch` is the ceiling at the driver level.
+    </Note>
+  </Tab>
+
+  <Tab title="fetchAllRows">
+    **Fetch everything (small catalogs only)**
+
+    ```yaml
+    tools:
+      list_all_schemas:
+        source: ibmi-system
+        description: "List every schema (small catalog)"
+        fetchAllRows: true        # paginates until is_done, bounded by safety cap
+        statement: |
+          SELECT SCHEMA_NAME FROM QSYS2.SYSSCHEMAS
+          ORDER BY SCHEMA_NAME
+    ```
+
+    **Use when:**
+    - The result set is known to be small (reference tables, catalogs, enums)
+    - The caller explicitly asks for a complete dump
+    - You don't know the result size up front but want completeness
+
+    <Warning>
+    Paginated fetches are bounded by a hard safety cap (~30,000 rows). Beyond that the server stops fetching — do not rely on `fetchAllRows` for true bulk exports.
+    </Warning>
+
+    <Note>
+    If you also set `rowsToFetch` on the same tool, `fetchAllRows` is ignored and a warning is logged. Pick one.
+    </Note>
+  </Tab>
+
+  <Tab title="Default (neither)">
+    **Backward-compatible 100-row cap**
+
+    ```yaml
+    tools:
+      recent_jobs:
+        source: ibmi-system
+        description: "Recent active jobs (up to 100)"
+        statement: |
+          SELECT JOB_NAME, USER_NAME, CPU_USED
+          FROM QSYS2.ACTIVE_JOB_INFO
+          ORDER BY CPU_USED DESC
+        # No rowsToFetch / fetchAllRows → 100 rows
+    ```
+
+    Tools with neither property set fetch up to **100 rows** — the mapepire driver default. This is the pre-existing behavior and requires no changes to keep working.
+  </Tab>
+</Tabs>
+
+---
+
 ## Metadata
 
 Add descriptive metadata for tool organization and discovery:

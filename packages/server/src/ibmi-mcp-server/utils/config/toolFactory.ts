@@ -278,9 +278,22 @@ export class SQLToolFactory {
     // Check for IBM i authentication context
     const authInfo = authContext.getStore()?.authInfo;
 
-    // fetchAllRows wins over rowsToFetch. Routes through the
-    // executeQueryWithPagination path (mapepire pool.query().fetchMore loop).
-    if (fetchAllRows) {
+    // rowsToFetch wins over fetchAllRows. A deliberate row cap should never
+    // be silently overridden by an unbounded fetch, so we only take the
+    // paginated path when fetchAllRows is the sole directive.
+    if (fetchAllRows && rowsToFetch !== undefined) {
+      logger.warning(
+        {
+          ...context,
+          sourceName,
+          rowsToFetch,
+          fetchAllRows: true,
+        },
+        "Both rowsToFetch and fetchAllRows are set; honoring rowsToFetch and ignoring fetchAllRows (safer default).",
+      );
+    }
+
+    if (fetchAllRows && rowsToFetch === undefined) {
       logger.debug(
         {
           ...context,
