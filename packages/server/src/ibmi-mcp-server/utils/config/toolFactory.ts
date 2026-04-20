@@ -278,28 +278,19 @@ export class SQLToolFactory {
     // Check for IBM i authentication context
     const authInfo = authContext.getStore()?.authInfo;
 
-    // rowsToFetch wins over fetchAllRows. A deliberate row cap should never
-    // be silently overridden by an unbounded fetch, so we only take the
-    // paginated path when fetchAllRows is the sole directive.
-    if (fetchAllRows && rowsToFetch !== undefined) {
-      logger.warning(
-        {
-          ...context,
-          sourceName,
-          rowsToFetch,
-          fetchAllRows: true,
-        },
-        "Both rowsToFetch and fetchAllRows are set; honoring rowsToFetch and ignoring fetchAllRows (safer default).",
-      );
-    }
-
-    if (fetchAllRows && rowsToFetch === undefined) {
+    // fetchAllRows is the pagination *policy* ("keep paging until done");
+    // rowsToFetch (when set) is the per-fetch *size* in that mode. When
+    // fetchAllRows is unset, rowsToFetch is the single-shot row cap.
+    // Unset rowsToFetch falls through to DEFAULT_PAGE_SIZE at the service
+    // layer.
+    if (fetchAllRows) {
       logger.debug(
         {
           ...context,
           sourceName,
           routingMode: authInfo?.ibmiToken ? "authenticated" : "environment",
           fetchMode: "paginated-all-rows",
+          pageSize: rowsToFetch,
         },
         "Executing SQL with fetchAllRows via pagination path",
       );
@@ -310,7 +301,7 @@ export class SQLToolFactory {
             sql,
             parameters,
             context,
-            undefined,
+            rowsToFetch,
             securityConfig,
           )
         : await this.sourceManager.executeQueryWithPagination(
@@ -318,7 +309,7 @@ export class SQLToolFactory {
             sql,
             parameters,
             context,
-            undefined,
+            rowsToFetch,
             securityConfig,
           );
 
