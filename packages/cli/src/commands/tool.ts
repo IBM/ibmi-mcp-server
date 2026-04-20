@@ -240,8 +240,19 @@ async function executeTool(
     return;
   }
 
-  // Resolve system and connect
+  // Resolve system and confirm if required
   const resolved = resolveSystem(globalOpts["system"] as string | undefined);
+
+  if (resolved.config.confirm && process.stdin.isTTY) {
+    const { promptPassword } = await import("../config/credentials.js");
+    const answer = await promptPassword(
+      `Execute tool '${name}' on [${resolved.name}]? (y/N) `,
+    );
+    if (answer.toLowerCase() !== "y") {
+      throw new Error("Execution cancelled by user");
+    }
+  }
+
   const cleanup = await connectSystem(resolved);
 
   try {
@@ -258,7 +269,6 @@ async function executeTool(
     let bindingParams: (string | number | (string | number)[])[] = [];
 
     if (tool.parameters.length > 0 && Object.keys(params).length > 0) {
-      // Convert YamlToolParameter[] to the SqlToolParameter shape expected by ParameterProcessor
       const result = await ParameterProcessor.process(
         tool.statement,
         params,
@@ -269,6 +279,25 @@ async function executeTool(
       bindingParams = result.parameters;
     } else {
       processedSql = tool.statement;
+    }
+
+    // Enforce read-only: tool security config + system readOnly override
+    const effectiveReadOnly =
+      (tool.security?.readOnly ?? true) || resolved.config.readOnly;
+
+    if (effectiveReadOnly) {
+      const { SqlSecurityValidator } = await import(
+        "@ibm/ibmi-mcp-server/services"
+      );
+      SqlSecurityValidator.validateQuery(
+        processedSql,
+        {
+          readOnly: true,
+          maxQueryLength: tool.security?.maxQueryLength,
+          forbiddenKeywords: tool.security?.forbiddenKeywords,
+        },
+        ctx,
+      );
     }
 
     // Execute the query
