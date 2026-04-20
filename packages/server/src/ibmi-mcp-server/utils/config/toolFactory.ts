@@ -64,6 +64,8 @@ export class SQLToolFactory {
     parameterDefinitions: SqlToolParameter[] = [],
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
+    rowsToFetch?: number,
+    fetchAllRows?: boolean,
   ): Promise<SqlToolExecutionResult> {
     const operationContext =
       context ||
@@ -197,6 +199,8 @@ export class SQLToolFactory {
           sourceName,
           operationContext,
           securityConfig,
+          rowsToFetch,
+          fetchAllRows,
         );
 
         const executionTime = Date.now() - startTime;
@@ -268,9 +272,58 @@ export class SQLToolFactory {
     sourceName: string,
     context: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
+    rowsToFetch?: number,
+    fetchAllRows?: boolean,
   ): Promise<QueryResult<T>> {
     // Check for IBM i authentication context
     const authInfo = authContext.getStore()?.authInfo;
+
+    // fetchAllRows wins over rowsToFetch. Routes through the
+    // executeQueryWithPagination path (mapepire pool.query().fetchMore loop).
+    if (fetchAllRows) {
+      logger.debug(
+        {
+          ...context,
+          sourceName,
+          routingMode: authInfo?.ibmiToken ? "authenticated" : "environment",
+          fetchMode: "paginated-all-rows",
+        },
+        "Executing SQL with fetchAllRows via pagination path",
+      );
+
+      const paginated = authInfo?.ibmiToken
+        ? await AuthenticatedPoolManager.getInstance().executeQueryWithPagination(
+            authInfo.ibmiToken,
+            sql,
+            parameters,
+            context,
+            undefined,
+            securityConfig,
+          )
+        : await this.sourceManager.executeQueryWithPagination(
+            sourceName,
+            sql,
+            parameters,
+            context,
+            undefined,
+            securityConfig,
+          );
+
+      // Adapt the paginated shape to QueryResult<T> so downstream
+      // executeStatementWithParameters can read .data and .metadata uniformly.
+      return {
+        success: paginated.success,
+        data: paginated.data as T[],
+        metadata: paginated.metadata ?? { columns: [] },
+        sql_rc: paginated.sql_rc as number,
+        execution_time: paginated.execution_time ?? 0,
+        is_done: true,
+        has_results: paginated.data.length > 0,
+        update_count: 0,
+        id: "",
+        sql_state: "",
+      } as QueryResult<T>;
+    }
 
     if (authInfo?.ibmiToken) {
       // Use authenticated pool manager when IBM i token is present
@@ -291,6 +344,7 @@ export class SQLToolFactory {
         parameters,
         context,
         securityConfig,
+        rowsToFetch,
       );
     } else {
       // Fall back to regular source manager (environment credentials)
@@ -299,10 +353,24 @@ export class SQLToolFactory {
           ...context,
           sourceName,
           routingMode: "environment",
+          rowsToFetch,
         },
         "Executing SQL via source manager",
       );
 
+      // Preserve the existing conditional call shape so downstream tests
+      // that assert exact arity keep passing. rowsToFetch/securityConfig are
+      // optional trailing args in sourceManager.executeQuery and safe to omit.
+      if (rowsToFetch !== undefined) {
+        return this.sourceManager.executeQuery<T>(
+          sourceName,
+          sql,
+          parameters,
+          context,
+          securityConfig,
+          rowsToFetch,
+        );
+      }
       return securityConfig
         ? this.sourceManager.executeQuery<T>(
             sourceName,

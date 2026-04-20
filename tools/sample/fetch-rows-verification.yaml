@@ -1,0 +1,108 @@
+# Verification tools for rowsToFetch / fetchAllRows (Issue #139)
+#
+# QSYS2.SYSCOLUMNS2 is a large catalog view on every IBM i system — it lists
+# every column of every table the caller can see, so it's guaranteed to have
+# far more than 100 rows. These tools let you observe each execution mode:
+#
+#   - syscolumns_default    → no row config, exercises mapepire's 100-row default
+#   - syscolumns_limited    → rowsToFetch: 500, exercises the Query.execute(n) path
+#   - syscolumns_fetch_all  → fetchAllRows: true, exercises the pagination path
+#   - syscolumns_both       → both set; fetchAllRows must win and rowsToFetch is ignored
+
+sources:
+  ibmi-verify:
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+    port: 8076
+    ignore-unauthorized: true
+
+tools:
+  syscolumns_default:
+    source: ibmi-verify
+    description: >
+      Baseline for issue #139 verification. Queries QSYS2.SYSCOLUMNS2 without
+      any row config — should return mapepire's default 100 rows.
+    statement: |
+      SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
+      FROM QSYS2.SYSCOLUMNS2
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "verification"
+      category: "fetch-rows"
+      title: "SYSCOLUMNS2 (default fetch)"
+
+  syscolumns_limited:
+    source: ibmi-verify
+    description: >
+      Demonstrates rowsToFetch=500 against QSYS2.SYSCOLUMNS2. Should return up
+      to 500 rows, confirming the per-tool fetch limit reached mapepire's
+      Query.execute(n) API.
+    statement: |
+      SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
+      FROM QSYS2.SYSCOLUMNS2
+    rowsToFetch: 500
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "verification"
+      category: "fetch-rows"
+      title: "SYSCOLUMNS2 (rowsToFetch=500)"
+
+  syscolumns_fetch_all:
+    source: ibmi-verify
+    description: >
+      Demonstrates fetchAllRows=true against QSYS2.SYSCOLUMNS2. Routes through
+      executeQueryWithPagination and should return thousands of rows (bounded
+      by the internal ~30k safety cap). Use sparingly — large results bloat
+      LLM context.
+    statement: |
+      SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
+      FROM QSYS2.SYSCOLUMNS2
+      WHERE TABLE_SCHEMA = 'QSYS2'
+    fetchAllRows: true
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "verification"
+      category: "fetch-rows"
+      title: "SYSCOLUMNS2 (fetchAllRows)"
+
+  syscolumns_both:
+    source: ibmi-verify
+    description: >
+      Precedence test — both rowsToFetch and fetchAllRows are set.
+      fetchAllRows must win; rowsToFetch is silently ignored.
+    statement: |
+      SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, LENGTH
+      FROM QSYS2.SYSCOLUMNS2
+      WHERE TABLE_SCHEMA = 'QSYS2'
+    rowsToFetch: 10
+    fetchAllRows: true
+    security:
+      readOnly: true
+    annotations:
+      readOnlyHint: true
+      idempotentHint: true
+      domain: "verification"
+      category: "fetch-rows"
+      title: "SYSCOLUMNS2 (both set → fetchAllRows wins)"
+
+toolsets:
+  fetch_rows_verification:
+    title: "Fetch-rows verification (issue #139)"
+    description: >
+      Tools that exercise each rowsToFetch / fetchAllRows execution path
+      against the large QSYS2.SYSCOLUMNS2 catalog view.
+    tools:
+      - syscolumns_default
+      - syscolumns_limited
+      - syscolumns_fetch_all
+      - syscolumns_both

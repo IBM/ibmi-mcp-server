@@ -184,6 +184,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
     params?: BindingValue[],
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
+    rowsToFetch?: number,
   ): Promise<QueryResult<T>> {
     const operationContext =
       context ||
@@ -222,6 +223,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
           params,
           operationContext,
           securityConfig,
+          rowsToFetch,
         );
 
         logger.debug(
@@ -238,6 +240,61 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
       },
       {
         operation: "executeAuthenticatedQuery",
+        context: operationContext,
+        errorCode: JsonRpcErrorCode.DatabaseError,
+      },
+    );
+  }
+
+  /**
+   * Execute a query with automatic pagination using an authenticated pool.
+   * Fetches all available rows via repeated fetchMore calls (bounded by the
+   * base pool's internal safety cap, ~30k rows).
+   * @param token - Authentication token
+   * @param query - SQL query to execute
+   * @param params - Query parameters
+   * @param context - Request context for logging
+   * @param securityConfig - Optional security configuration
+   */
+  async executeQueryWithPagination(
+    token: string,
+    query: string,
+    params?: BindingValue[],
+    context?: RequestContext,
+    fetchSize: number = 300,
+    securityConfig?: SqlToolSecurityConfig,
+  ) {
+    const operationContext =
+      context ||
+      requestContextService.createRequestContext({
+        operation: "executeAuthenticatedQueryWithPagination",
+        token: token.substring(0, 10) + "...",
+      });
+
+    return ErrorHandler.tryCatch(
+      async () => {
+        const isValid = await this.validateTokenAndPool(
+          token,
+          operationContext,
+        );
+        if (!isValid) {
+          throw new McpError(
+            JsonRpcErrorCode.Unauthorized,
+            "Invalid or expired authentication token",
+          );
+        }
+
+        return super.executeQueryWithPagination(
+          token,
+          query,
+          params,
+          operationContext,
+          fetchSize,
+          securityConfig,
+        );
+      },
+      {
+        operation: "executeAuthenticatedQueryWithPagination",
         context: operationContext,
         errorCode: JsonRpcErrorCode.DatabaseError,
       },

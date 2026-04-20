@@ -5,7 +5,12 @@
  * @module src/services/baseConnectionPool
  */
 
-import pkg, { BindingValue, QueryResult, DaemonServer } from "@ibm/mapepire-js";
+import pkg, {
+  BindingValue,
+  QueryResult,
+  DaemonServer,
+  QueryMetaData,
+} from "@ibm/mapepire-js";
 import type { JDBCOptions } from "@ibm/mapepire-js";
 const { Pool, getRootCertificate } = pkg;
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
@@ -397,6 +402,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     params?: BindingValue[],
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
+    rowsToFetch?: number,
   ): Promise<QueryResult<T>> {
     const operationContext =
       context ||
@@ -447,9 +453,20 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             queryLength: query.length,
             hasParameters: !!params && params.length > 0,
             paramCount: params?.length || 0,
+            rowsToFetch,
           },
           `Executing SQL query on pool: ${String(poolId)}`,
         );
+
+        if (rowsToFetch !== undefined && rowsToFetch > 10_000) {
+          logger.warning(
+            {
+              ...operationContext,
+              rowsToFetch,
+            },
+            `Large rowsToFetch requested (${rowsToFetch}). Large result sets can bloat LLM context and consume memory. Consider using pagination via SQL OFFSET/FETCH FIRST instead.`,
+          );
+        }
 
         // Validate parameter types for mapepire compatibility
         if (params && params.length > 0) {
@@ -488,13 +505,38 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           );
         }
 
-        const result = await this.executeWithTimeout<QueryResult<T>>(
-          poolId,
-          poolState.pool.execute(query, {
-            parameters: params,
-          }) as Promise<QueryResult<T>>,
-          operationContext,
-        );
+        // Use pool.query().execute(rowsToFetch) so per-call row limits are honored.
+        // mapepire's pool.execute() QueryOptions doesn't accept rowsToFetch; the
+        // Query.execute(n) path does. close() releases the job back to the pool.
+        const queryObj = poolState.pool.query(query, {
+          parameters: params,
+        });
+        const executionPromise = (
+          rowsToFetch !== undefined
+            ? queryObj.execute(rowsToFetch)
+            : queryObj.execute()
+        ) as Promise<QueryResult<T>>;
+        let result: QueryResult<T>;
+        try {
+          result = await this.executeWithTimeout<QueryResult<T>>(
+            poolId,
+            executionPromise,
+            operationContext,
+          );
+        } finally {
+          await queryObj.close().catch((closeErr: unknown) => {
+            logger.warning(
+              {
+                ...operationContext,
+                error:
+                  closeErr instanceof Error
+                    ? closeErr.message
+                    : String(closeErr),
+              },
+              "Failed to close query object after execution",
+            );
+          });
+        }
 
         logger.debug(
           {
@@ -542,6 +584,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     success: boolean;
     sql_rc?: unknown;
     execution_time?: number;
+    metadata?: QueryMetaData;
   }> {
     const operationContext =
       context ||
@@ -600,6 +643,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           queryObj.execute(),
           operationContext,
         );
+        // Capture metadata from the first result — subsequent fetchMore calls
+        // don't re-send column descriptors, so SQL tools need this snapshot.
+        const initialMetadata = result.metadata;
         const allData: unknown[] = [];
 
         if (result.success && result.data) {
@@ -651,6 +697,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           success: result.success,
           sql_rc: result.sql_rc,
           execution_time: result.execution_time,
+          metadata: initialMetadata,
         };
       },
       {

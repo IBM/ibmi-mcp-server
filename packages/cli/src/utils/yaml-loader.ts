@@ -42,6 +42,8 @@ export interface YamlToolConfig {
   responseFormat?: string;
   tableFormat?: string;
   maxDisplayRows?: number;
+  rowsToFetch?: number;
+  fetchAllRows?: boolean;
   enabled?: boolean;
   annotations?: Record<string, unknown>;
 }
@@ -111,6 +113,8 @@ function normalizeTools(
       responseFormat: tool["responseFormat"] as string | undefined,
       tableFormat: tool["tableFormat"] as string | undefined,
       maxDisplayRows: tool["maxDisplayRows"] as number | undefined,
+      rowsToFetch: tool["rowsToFetch"] as number | undefined,
+      fetchAllRows: tool["fetchAllRows"] as boolean | undefined,
       enabled: tool["enabled"] as boolean | undefined,
       annotations: tool["annotations"] as Record<string, unknown> | undefined,
     };

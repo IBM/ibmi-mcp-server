@@ -303,6 +303,15 @@
                 "default": 100,
                 "description": "Maximum number of rows to display in result tables (default: 100). Rows beyond this limit will show a truncation message"
               },
+              "rowsToFetch": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum rows to fetch from the database per call (default: mapepire's 100). Controls actual query fetch, not display. Ignored if fetchAllRows is true."
+              },
+              "fetchAllRows": {
+                "type": "boolean",
+                "description": "When true, fetches all rows using paginated fetches (bounded by internal safety cap ~30k). Takes precedence over rowsToFetch."
+              },
               "readOnlyHint": {
                 "type": "boolean",
                 "description": "@deprecated Use annotations.readOnlyHint instead"

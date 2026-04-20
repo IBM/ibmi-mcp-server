@@ -147,12 +147,42 @@ export class SourceManager extends BaseConnectionPool<string> {
     params?: BindingValue[],
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
+    rowsToFetch?: number,
   ): Promise<QueryResult<T>> {
     return super.executeQuery<T>(
       sourceName,
       query,
       params,
       context,
+      securityConfig,
+      rowsToFetch,
+    );
+  }
+
+  /**
+   * Execute a SQL query with automatic pagination on a specific source
+   * Fetches all available rows via repeated fetchMore calls (bounded by
+   * the base pool's internal safety cap, ~30k rows).
+   * @param sourceName - Name of the source to query
+   * @param query - SQL query string
+   * @param params - Query parameters
+   * @param context - Request context for logging
+   * @param securityConfig - Optional security configuration
+   */
+  async executeQueryWithPagination(
+    sourceName: string,
+    query: string,
+    params?: BindingValue[],
+    context?: RequestContext,
+    fetchSize: number = 300,
+    securityConfig?: SqlToolSecurityConfig,
+  ) {
+    return super.executeQueryWithPagination(
+      sourceName,
+      query,
+      params,
+      context,
+      fetchSize,
       securityConfig,
     );
   }

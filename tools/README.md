@@ -684,6 +684,53 @@ The `tableFormat` and `maxDisplayRows` fields are optional. If omitted, the tool
 
 ---
 
+### Fetch-Row Controls (Database Fetch Limits)
+
+> **Note:** These controls affect how many rows are **fetched from the database**, which is distinct from `maxDisplayRows` above (that only truncates the rendered markdown table).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rowsToFetch` | integer (≥ 1) | mapepire default (100) | Maximum rows fetched from the database in a single call. Use when your SQL uses `FETCH FIRST :limit ROWS ONLY` and you need more than 100. |
+| `fetchAllRows` | boolean | `false` | When `true`, fetches all rows using paginated fetches (bounded by an internal ~30k safety cap). Takes precedence over `rowsToFetch`. |
+
+**Precedence:** If both are set, `fetchAllRows` wins and `rowsToFetch` is silently ignored.
+
+**⚠️ Context-bloat warning:** Large result sets consume LLM context quickly. Prefer `rowsToFetch` with a deliberate small value; only use `fetchAllRows` for small catalogs or when the LLM has explicitly requested a full dump. A warning is logged when `rowsToFetch` exceeds 10,000.
+
+**Example — lift the 100-row cap for a single call:**
+
+```yaml
+tools:
+  list_customers:
+    source: ibmi
+    description: "List up to 500 customers"
+    rowsToFetch: 500        # lets FETCH FIRST :limit ROWS ONLY actually return 500
+    statement: |
+      SELECT ID, NAME FROM MYLIB.CUSTOMERS
+      FETCH FIRST :limit ROWS ONLY
+    parameters:
+      - name: limit
+        type: integer
+        default: 500
+        min: 1
+        max: 500
+```
+
+**Example — fetch everything (small catalogs only):**
+
+```yaml
+tools:
+  list_all_schemas:
+    source: ibmi
+    description: "List every schema (small catalog)"
+    fetchAllRows: true      # paginates until is_done, bounded by safety cap
+    statement: |
+      SELECT SCHEMA_NAME FROM QSYS2.SYSSCHEMAS
+      ORDER BY SCHEMA_NAME
+```
+
+---
+
 ### Table Format Styles
 
 The `tableFormat` field controls the visual style of result tables. Four styles are available:
