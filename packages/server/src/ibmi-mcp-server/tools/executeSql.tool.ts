@@ -329,12 +329,14 @@ async function executeSqlLogic(
       appContext,
     );
 
-    // Execute the query with sanitized SQL
+    // Execute the query with sanitized SQL. Fetch size and the overall
+    // row cap are controlled by IBMI_PAGINATION_* env vars at the
+    // service layer, so execute_sql inherits the same ceiling as any
+    // YAML tool that paginates.
     const result = await IBMiConnectionPool.executeQueryWithPagination(
       sanitizedSql,
       [],
       appContext,
-      1000, // Fetch 1000 rows at a time
     );
 
     const executionTime = Date.now() - startTime;
