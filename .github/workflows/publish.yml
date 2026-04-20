@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  # Allow manual re-invocation without moving a tag. Useful for recovery when
+  # one publish step failed but the other succeeded — idempotent publishes
+  # below let a rerun skip already-published versions without re-publish
+  # conflicts (npm returns 403 on attempts to publish over an existing version).
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -45,7 +50,13 @@ jobs:
 
       - name: Publish @ibm/ibmi-mcp-server to npm
         working-directory: ./packages/server
-        run: npm publish --access public --provenance
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "@ibm/ibmi-mcp-server@$V" version >/dev/null 2>&1; then
+            echo "@ibm/ibmi-mcp-server@$V already on registry — skipping publish."
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -68,6 +79,12 @@ jobs:
 
       - name: Publish @ibm/ibmi-cli to npm
         working-directory: ./packages/cli
-        run: npm publish --access public --provenance
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "@ibm/ibmi-cli@$V" version >/dev/null 2>&1; then
+            echo "@ibm/ibmi-cli@$V already on registry — skipping publish."
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
