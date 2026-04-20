@@ -1,6 +1,6 @@
 {
   "name": "@ibm/ibmi-cli",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "description": "Command-line interface for IBM i systems — query, explore, and manage over Db2 for i",
   "type": "module",
   "main": "dist/index.js",
@@ -32,7 +32,7 @@
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
-    "@ibm/ibmi-mcp-server": "0.4.5",
+    "@ibm/ibmi-mcp-server": "0.5.0",
     "commander": "^14.0.3",
     "js-yaml": "^4.1.0"
   },

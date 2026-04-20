@@ -1,6 +1,6 @@
 {
   "name": "ibmi-mcp-monorepo",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "description": "IBM i MCP Server - Monorepo containing server, tools, agents, and deployment configurations",
   "private": true,
   "type": "module",

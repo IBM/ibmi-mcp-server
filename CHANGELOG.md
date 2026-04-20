@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.5.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.5...v0.5.0) (2026-04-20)
+
+This release splits the `ibmi` command-line tool into its own `@ibm/ibmi-cli` npm package, adds first-class JDBC connection tuning to YAML sources, introduces per-tool row-fetch controls, and extends the SQL security validator to cover `ibmi tool` execution.
+
+
+### ⚠ BREAKING CHANGES
+
+* **CLI split into `@ibm/ibmi-cli`** — The `ibmi` binary no longer ships with `@ibm/ibmi-mcp-server`. Upgrading from 0.4.x requires installing both packages. Runtime MCP server usage (`npx -y @ibm/ibmi-mcp-server@latest ...`) is unchanged.
+
+  **Migration:**
+  ```bash
+  # Before (v0.4.x) — one install, both binaries
+  npm i -g @ibm/ibmi-mcp-server
+
+  # After (v0.5.0) — separate packages
+  npm i -g @ibm/ibmi-mcp-server    # provides `ibmi-mcp-server`
+  npm i -g @ibm/ibmi-cli           # provides `ibmi`
+  ```
+
+  `@ibm/ibmi-cli` exact-pins its `@ibm/ibmi-mcp-server` dependency, so installing `@ibm/ibmi-cli@0.5.0` always pulls in `@ibm/ibmi-mcp-server@0.5.0` — the two packages co-version on every release ([#144](https://github.com/IBM/ibmi-mcp-server/pull/144)).
+
+
+### Features
+
+* **Monorepo split — `@ibm/ibmi-cli` ships as its own package.** The `ibmi` CLI is now a standalone npm package. `@ibm/ibmi-mcp-server` exposes a stable public API surface via subpath exports (`/tools`, `/services`, `/context`, `/formatting`) that downstream agents and the CLI import directly — treat these subpaths as the contract ([#144](https://github.com/IBM/ibmi-mcp-server/pull/144))
+
+* **JDBC connection options on YAML sources.** Sources now accept a `jdbc-options` passthrough block mapped directly to Mapepire's `JDBCOptions` — naming convention, library list, transaction isolation, date format, and any other JDBC-level tunable. Options may also be supplied via the `DB2i_JDBC_OPTIONS` environment variable for containerized deployments (env overrides YAML on a per-key basis) ([#141](https://github.com/IBM/ibmi-mcp-server/pull/141))
+
+* **Per-tool row fetch controls (`rowsToFetch` / `fetchAllRows`).** SQL tools can now decide per-tool whether a query caps at a fixed page size (`rowsToFetch: <n>`) or streams every matching row (`fetchAllRows: true`). When both are set, `rowsToFetch` takes precedence as the safer default and a warning is logged ([#142](https://github.com/IBM/ibmi-mcp-server/pull/142), precedence clarified in [#145](https://github.com/IBM/ibmi-mcp-server/pull/145))
+
+* **SQL security validation on `ibmi tool` execution.** YAML tool runs now flow through the same `SqlSecurityValidator` used by the built-in `execute_sql` tool. Write statements in read-only contexts are rejected before they reach the database — an additional safety layer on top of existing `readOnlyHint` tool configuration ([#136](https://github.com/IBM/ibmi-mcp-server/pull/136))
+
+
+### Bug Fixes
+
+* **Documentation:** Updated installation commands and paths in the getting-started guide and configuration docs to match the new two-package layout ([21a4c1c](https://github.com/IBM/ibmi-mcp-server/commit/21a4c1c72bcff8b025be9c4aa84a936f18eb2421), [955e71e](https://github.com/IBM/ibmi-mcp-server/commit/955e71eb1aea623319b0a01e794030ee5370d672))
+
 ### [0.4.5](https://github.com/IBM/ibmi-mcp-server/compare/v0.4.4...v0.4.5) (2026-03-24)
 
 
