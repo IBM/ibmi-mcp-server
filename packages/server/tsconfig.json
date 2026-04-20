@@ -7,16 +7,15 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 
-    // Path Aliases
-    "baseUrl": "./src",
+    // Path Aliases (resolved relative to this tsconfig.json — no baseUrl, deprecated in TS 6)
     "paths": {
-      "@/types-global/*": ["types-global/*"],
-      "@/utils/*": ["utils/*"],
-      "@/utils": ["utils/index"],
-      "@/services/*": ["services/*"],
-      "@/mcp-server/*": ["mcp-server/*"],
-      "@/ibmi-mcp-server/*": ["ibmi-mcp-server/*"],
-      "@/*": ["*"]
+      "@/types-global/*": ["./src/types-global/*"],
+      "@/utils/*": ["./src/utils/*"],
+      "@/utils": ["./src/utils/index"],
+      "@/services/*": ["./src/services/*"],
+      "@/mcp-server/*": ["./src/mcp-server/*"],
+      "@/ibmi-mcp-server/*": ["./src/ibmi-mcp-server/*"],
+      "@/*": ["./src/*"]
     },
 
     // Enable all strict type checking
