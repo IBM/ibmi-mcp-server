@@ -690,10 +690,10 @@ The `tableFormat` and `maxDisplayRows` fields are optional. If omitted, the tool
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rowsToFetch` | integer (≥ 1) | mapepire default (100) | Maximum rows fetched from the database in a single call. Use when your SQL uses `FETCH FIRST :limit ROWS ONLY` and you need more than 100. |
-| `fetchAllRows` | boolean | `false` | When `true`, fetches all rows using paginated fetches (bounded by an internal ~30k safety cap). Takes precedence over `rowsToFetch`. |
+| `rowsToFetch` | integer (≥ 1) | mapepire default (100) | Maximum rows fetched from the database in a single call. Use when your SQL uses `FETCH FIRST :limit ROWS ONLY` and you need more than 100. Takes precedence over `fetchAllRows` when both are set. |
+| `fetchAllRows` | boolean | `false` | When `true`, fetches all rows using paginated fetches (bounded by an internal ~30k safety cap). Ignored if `rowsToFetch` is also set. |
 
-**Precedence:** If both are set, `fetchAllRows` wins and `rowsToFetch` is silently ignored.
+**Precedence:** If both are set, `rowsToFetch` wins and `fetchAllRows` is ignored (a warning is logged). Rationale: a deliberate row cap should never be silently overridden by an unbounded fetch.
 
 **⚠️ Context-bloat warning:** Large result sets consume LLM context quickly. Prefer `rowsToFetch` with a deliberate small value; only use `fetchAllRows` for small catalogs or when the LLM has explicitly requested a full dump. A warning is logged when `rowsToFetch` exceeds 10,000.
 

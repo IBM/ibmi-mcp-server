@@ -217,13 +217,13 @@ export const SqlToolConfigSchema = z
       .min(1, "rowsToFetch must be at least 1")
       .optional()
       .describe(
-        "Maximum rows to fetch from the database per call (default: mapepire's 100). Controls the actual query fetch, not display truncation. Ignored if fetchAllRows is true.",
+        "Maximum rows to fetch from the database per call (default: mapepire's 100). Controls the actual query fetch, not display truncation. Takes precedence over fetchAllRows when both are set (a warning is logged).",
       ),
     fetchAllRows: z
       .boolean()
       .optional()
       .describe(
-        "When true, fetches all rows using paginated fetches (bounded by internal safety cap ~30k). Takes precedence over rowsToFetch. Use sparingly — large result sets bloat LLM context.",
+        "When true, fetches all rows using paginated fetches (bounded by internal safety cap ~30k). Ignored if rowsToFetch is also set — rowsToFetch is the safer default when both are present. Use sparingly — large result sets bloat LLM context.",
       ),
 
     // Legacy deprecated fields (for backward compatibility)

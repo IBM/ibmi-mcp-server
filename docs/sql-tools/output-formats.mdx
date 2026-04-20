@@ -154,6 +154,10 @@ Minimal spacing for space-constrained displays.
 
 The `maxDisplayRows` field controls how many rows are displayed before truncation occurs.
 
+<Note>
+**Display vs. fetch:** `maxDisplayRows` only truncates the rendered table — the server still fetched those rows from the database. To change how many rows are **pulled from Db2 for i**, see [`rowsToFetch` and `fetchAllRows`](/sql-tools/tools#fetch-row-controls) in the Tools Reference.
+</Note>
+
 ### Configuration
 
 **Constraints:**

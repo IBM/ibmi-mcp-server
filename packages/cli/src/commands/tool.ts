@@ -301,9 +301,18 @@ async function executeTool(
     }
 
     // Execute the query, honoring YAML-declared fetch controls.
-    // fetchAllRows wins over rowsToFetch (per the locked design decision
-    // for issue #139).
-    const result = tool.fetchAllRows
+    // rowsToFetch wins over fetchAllRows: a deliberate row cap should never
+    // be silently overridden by an unbounded fetch. When both are set we
+    // emit a warning so the misconfiguration is visible.
+    if (tool.fetchAllRows && tool.rowsToFetch !== undefined) {
+      process.stderr.write(
+        `Warning: tool "${name}" sets both rowsToFetch (${tool.rowsToFetch}) and fetchAllRows; honoring rowsToFetch and ignoring fetchAllRows (safer default).\n`,
+      );
+    }
+
+    const shouldPaginate =
+      tool.fetchAllRows === true && tool.rowsToFetch === undefined;
+    const result = shouldPaginate
       ? await IBMiConnectionPool.executeQueryWithPagination(
           processedSql,
           bindingParams,
