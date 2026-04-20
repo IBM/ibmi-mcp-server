@@ -300,23 +300,16 @@ async function executeTool(
       );
     }
 
-    // Execute the query, honoring YAML-declared fetch controls.
-    // rowsToFetch wins over fetchAllRows: a deliberate row cap should never
-    // be silently overridden by an unbounded fetch. When both are set we
-    // emit a warning so the misconfiguration is visible.
-    if (tool.fetchAllRows && tool.rowsToFetch !== undefined) {
-      process.stderr.write(
-        `Warning: tool "${name}" sets both rowsToFetch (${tool.rowsToFetch}) and fetchAllRows; honoring rowsToFetch and ignoring fetchAllRows (safer default).\n`,
-      );
-    }
-
-    const shouldPaginate =
-      tool.fetchAllRows === true && tool.rowsToFetch === undefined;
-    const result = shouldPaginate
+    // Execute the query, honoring YAML-declared fetch controls. When
+    // fetchAllRows is set we paginate; rowsToFetch (if present) becomes
+    // the per-fetch page size. Otherwise rowsToFetch caps the single-shot
+    // execute() call.
+    const result = tool.fetchAllRows
       ? await IBMiConnectionPool.executeQueryWithPagination(
           processedSql,
           bindingParams,
           ctx,
+          tool.rowsToFetch,
         )
       : await IBMiConnectionPool.executeQuery(
           processedSql,
@@ -327,6 +320,11 @@ async function executeTool(
 
     const elapsedMs = Date.now() - startTime;
     const data = (result.data ?? []) as Record<string, unknown>[];
+
+    // The paginated path returns a `truncated` flag when the server hit
+    // MAX_PAGINATION_ROWS. Surface it in the output footer so users know
+    // the result set was clipped and how to get more.
+    const truncated = "truncated" in result && result.truncated === true;
 
     // NDJSON streaming: one JSON object per line
     if (stream && format === "json") {
@@ -339,6 +337,10 @@ async function executeTool(
       elapsedMs,
       system: resolved,
       command: `tool:${name}`,
+      hasMore: truncated,
+      truncationHint: truncated
+        ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
+        : undefined,
     });
   } finally {
     await cleanup();

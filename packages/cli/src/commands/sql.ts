@@ -158,10 +158,19 @@ export function registerSqlCommand(program: Command): void {
           throw new Error(result.error?.message ?? "SQL execution failed");
         }
 
+        // execute_sql paginates at the service layer and flags `truncated`
+        // when it hits IBMI_PAGINATION_MAX_ROWS. Surface that in the footer
+        // so `ibmi sql` users see the same truncation hint `ibmi tool` shows.
+        const truncated = result.truncated === true;
+
         return {
           data: (result.data ?? []) as Record<string, unknown>[],
           meta: {
             rowCount: result.rowCount ?? 0,
+            hasMore: truncated,
+            truncationHint: truncated
+              ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
+              : undefined,
           },
         };
       });

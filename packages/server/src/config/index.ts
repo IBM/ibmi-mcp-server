@@ -393,6 +393,27 @@ const EnvSchema = z.object({
     .nonnegative()
     .default(30_000),
   // --- END: Connection Pool Timeout Configuration ---
+
+  // --- START: Pagination Configuration ---
+  /**
+   * Default page size for paginated SQL fetches (rows per fetchMore call).
+   * Used when a tool sets fetchAllRows: true without specifying rowsToFetch.
+   * Also the fetch size used by the built-in execute_sql tool.
+   * Default: 1000.
+   */
+  IBMI_PAGINATION_DEFAULT_PAGE_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1000),
+
+  /**
+   * Hard upper bound on total rows returned by a single paginated tool call.
+   * The pagination loop stops once accumulated rows reach this value, even
+   * if the result set has more data. Default: 30000.
+   */
+  IBMI_PAGINATION_MAX_ROWS: z.coerce.number().int().positive().default(30_000),
+  // --- END: Pagination Configuration ---
 });
 
 const parsedEnv = EnvSchema.safeParse(process.env);
@@ -705,6 +726,12 @@ export const config = {
     idleTimeoutMs: env.MCP_POOL_IDLE_TIMEOUT_MS,
     queryTimeoutMs: env.MCP_POOL_QUERY_TIMEOUT_MS,
   },
+
+  /** Pagination configuration for SQL tool fetches. From `IBMI_PAGINATION_*` environment variables. */
+  pagination: {
+    defaultPageSize: env.IBMI_PAGINATION_DEFAULT_PAGE_SIZE,
+    maxRows: env.IBMI_PAGINATION_MAX_ROWS,
+  },
 };
 
 if (config.ibmiHttpAuth.enabled) {
@@ -728,3 +755,18 @@ if (config.ibmiHttpAuth.enabled) {
 
 export const logLevel: string = config.logLevel;
 export const environment: string = config.environment;
+
+/**
+ * Default number of rows fetched per `fetchMore` call when a tool paginates
+ * without specifying its own page size. Sourced from
+ * `IBMI_PAGINATION_DEFAULT_PAGE_SIZE` (default 1000).
+ */
+export const DEFAULT_PAGE_SIZE: number = config.pagination.defaultPageSize;
+
+/**
+ * Upper bound on total rows returned by a single paginated tool call. The
+ * pagination loop terminates once accumulated rows reach this value and
+ * flags the result as truncated. Sourced from `IBMI_PAGINATION_MAX_ROWS`
+ * (default 30000).
+ */
+export const MAX_PAGINATION_ROWS: number = config.pagination.maxRows;
