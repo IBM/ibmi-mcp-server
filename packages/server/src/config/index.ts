@@ -349,6 +349,16 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true" || val === "1"),
 
+  /**
+   * When to run QSYS2.PARSE_STATEMENT before execute_sql.
+   * - `auto` (default): skip the wire round trip when the in-process parser classified the statement (read-only or write mode)
+   * - `always`: always run PARSE_STATEMENT (legacy strict/audit mode)
+   */
+  IBMI_EXECUTE_SQL_PARSE_VALIDATION: z
+    .enum(["auto", "always"])
+    .optional()
+    .default("auto"),
+
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
   IBMI_ENABLE_DEFAULT_TOOLS: z
     .string()
@@ -711,6 +721,7 @@ export const config = {
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
   ibmi_executeSqlReadonly: env.IBMI_EXECUTE_SQL_READONLY,
+  ibmi_executeSqlParseValidation: env.IBMI_EXECUTE_SQL_PARSE_VALIDATION,
   ibmi_enableDefaultTools: env.IBMI_ENABLE_DEFAULT_TOOLS,
 
   /** Rate limiting configuration for HTTP transport. From `MCP_RATE_LIMIT_*` environment variables. */

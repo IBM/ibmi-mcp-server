@@ -18,6 +18,7 @@ import {
 } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
 import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
+import type { SqlValidationClassification } from "../utils/security/sqlSecurityValidator.js";
 import {
   logOperationStart,
   logOperationSuccess,
@@ -35,6 +36,9 @@ const TOOL_NAME = "execute_sql";
 const TOOL_DESCRIPTION =
   "Executes a SELECT query on the IBM i database and returns the results. Use this after validating your query with validate_query.";
 
+/** Wire PARSE_STATEMENT policy for execute_sql */
+export type ExecuteSqlParseValidation = "auto" | "always";
+
 /**
  * Configuration for the execute SQL tool
  */
@@ -44,6 +48,12 @@ export interface ExecuteSqlToolConfig {
   security?: {
     readOnly?: boolean;
     maxQueryLength?: number;
+    /**
+     * When to run QSYS2.PARSE_STATEMENT.
+     * - `auto` (default): skip when in-process parser classified the statement
+     * - `always`: always run PARSE_STATEMENT (strict/audit mode)
+     */
+    parseValidation?: ExecuteSqlParseValidation;
   };
 }
 
@@ -61,6 +71,7 @@ let toolConfig: ExecuteSqlToolConfig = {
   security: {
     readOnly: config.ibmi_executeSqlReadonly,
     maxQueryLength: 10000,
+    parseValidation: config.ibmi_executeSqlParseValidation,
   },
 };
 
@@ -95,6 +106,7 @@ export function configureExecuteSqlTool(
     enabled: toolConfig.enabled,
     readOnly: toolConfig.security?.readOnly,
     maxQueryLength: toolConfig.security?.maxQueryLength,
+    parseValidation: toolConfig.security?.parseValidation,
   });
 }
 
@@ -188,9 +200,13 @@ type ExecuteSqlResponse = z.infer<typeof ExecuteSqlResponseSchema>;
  * Delegates to centralized SqlSecurityValidator
  * @param sql - SQL query to validate
  * @param appContext - Request context for logging
+ * @returns Layer-1 classification used to decide whether wire PARSE_STATEMENT is needed
  * @throws McpError if query violates security restrictions
  */
-function validateSqlSecurity(sql: string, appContext: RequestContext): void {
+function validateSqlSecurity(
+  sql: string,
+  appContext: RequestContext,
+): SqlValidationClassification {
   const config = getExecuteSqlConfig();
 
   const securityConfig = {
@@ -198,14 +214,16 @@ function validateSqlSecurity(sql: string, appContext: RequestContext): void {
     maxQueryLength: config.security?.maxQueryLength ?? 10000,
   };
 
-  // Use centralized validator
-  SqlSecurityValidator.validateQuery(sql, securityConfig, appContext);
+  return SqlSecurityValidator.validateQuery(sql, securityConfig, appContext);
 }
 
 /**
  * Validate SQL query using IBM i PARSE_STATEMENT
  * Verifies statement type matches readOnly configuration
  * Uses IBM i's native SQL parser for authoritative statement type detection
+ *
+ * Invoked when `IBMI_EXECUTE_SQL_PARSE_VALIDATION=always`, or when the
+ * in-process parser could not classify the statement (`auto` fallback).
  *
  * @param sql - SQL query to validate (should be pre-sanitized without trailing semicolons)
  * @param readOnly - Whether readonly mode is enabled
@@ -303,7 +321,7 @@ async function validateWithParseStatement(
  * Core logic for executing SQL queries
  * Validates security restrictions and executes the query
  */
-async function executeSqlLogic(
+export async function executeSqlLogic(
   params: ExecuteSqlInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,
@@ -324,16 +342,42 @@ async function executeSqlLogic(
   const startTime = Date.now();
 
   try {
-    // Validate security restrictions (AST/Regex - Layer 1)
-    validateSqlSecurity(sanitizedSql, appContext);
+    // Layer 1: in-process AST/regex + vscode-db2i classification
+    const classification = validateSqlSecurity(sanitizedSql, appContext);
 
-    // Validate with PARSE_STATEMENT (IBM i native validation - Layer 2)
+    // Layer 2: wire PARSE_STATEMENT — only when opted into strict mode, or
+    // when Layer 1 could not classify (regex fallback / uncertain). Same
+    // `auto` rule in read-only and write mode. JDBC access=read call on the
+    // singleton pool is the fail-closed backstop for the read-only skip path
+    // (blocks writes; allows generate_sql CALL).
     const config = getExecuteSqlConfig();
-    await validateWithParseStatement(
-      sanitizedSql,
-      config.security?.readOnly ?? true,
-      appContext,
-    );
+    const parseMode = config.security?.parseValidation ?? "auto";
+    if (parseMode === "always" || !classification.classified) {
+      logger.debug(
+        {
+          ...appContext,
+          parseMode,
+          classified: classification.classified,
+          validatedBy: classification.validatedBy,
+        },
+        "Running PARSE_STATEMENT validation (fallback or strict mode)",
+      );
+      await validateWithParseStatement(
+        sanitizedSql,
+        config.security?.readOnly ?? true,
+        appContext,
+      );
+    } else {
+      logger.debug(
+        {
+          ...appContext,
+          parseMode,
+          validatedBy: classification.validatedBy,
+          statementTypes: classification.statementTypes,
+        },
+        "Skipping PARSE_STATEMENT; in-process parser classified statement",
+      );
+    }
 
     // Execute the query with sanitized SQL. Fetch size and the overall
     // row cap are controlled by IBMI_PAGINATION_* env vars at the

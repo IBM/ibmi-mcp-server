@@ -1678,12 +1678,14 @@ Enable via CLI flag `--execute-sql` or environment variables:
 |----------|-------------|------|---------|----------|
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable the built-in `execute_sql` tool | boolean | `false` | No |
 | `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | boolean | `true` | No |
+| `IBMI_EXECUTE_SQL_PARSE_VALIDATION` | When to run wire `QSYS2.PARSE_STATEMENT`: `auto` skips it when the in-process parser classified the statement; `always` runs it every call | `auto` \| `always` | `auto` | No |
 
 **Security Features:**
 The execute_sql tool includes multiple layers of protection:
 - **Read-only by default**: When `IBMI_EXECUTE_SQL_READONLY=true` (default), only SELECT/QUERY statements are allowed
-- **PARSE_STATEMENT validation**: Uses IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) to validate query syntax and statement types
-- **AST/Regex validation**: Fast pattern matching to catch dangerous SQL keywords before execution
+- **In-process classification**: vscode-db2i / AST+regex validation classifies statements locally before any IBM i round trip
+- **JDBC connection-level backstop**: the singleton `execute_sql` / builtin-tools pool defaults to Toolbox JDBC `access=read call` when readonly is on (blocks INSERT/UPDATE/DELETE/DDL; allows CALL for `generate_sql`). Explicit `DB2i_JDBC_OPTIONS=access=...` wins; YAML source pools are unaffected. Access is applied at pool init from `IBMI_EXECUTE_SQL_READONLY` — runtime `configureExecuteSqlTool` readonly changes do not reconfigure an already-warm pool.
+- **PARSE_STATEMENT fallback**: `QSYS2.PARSE_STATEMENT` runs when `IBMI_EXECUTE_SQL_PARSE_VALIDATION=always`, or when the in-process parser could not classify the statement (`auto` skips the redundant round trip whenever vscode-db2i classified the statement — including allowed writes when readonly is off)
 - **Write operations opt-in**: Set `IBMI_EXECUTE_SQL_READONLY=false` to explicitly enable INSERT, UPDATE, DELETE, and other write operations
 - **Query length limit**: Maximum 10,000 characters per query
 - **Fail-closed security**: All validation failures result in query rejection
@@ -1731,7 +1733,7 @@ npx -y @ibm/ibmi-mcp-server@latest --tools /opt/mcp-tools/production.yaml
 | **Definition** | Compiled into server (TypeScript) | Defined in YAML files |
 | **Queries** | Ad-hoc (client provides SQL) or fixed logic | Pre-defined (curated by admin) |
 | **Control** | Feature flag + readonly mode | Full query + parameter control |
-| **Security** | PARSE_STATEMENT + AST/Regex validation | Explicit whitelist of queries |
+| **Security** | In-process parser + JDBC `access=read call` (+ optional PARSE_STATEMENT) | Explicit whitelist of queries |
 | **Use Case** | Development & exploration | Production & controlled access |
 | **Configuration** | Environment variables | `TOOLS_YAML_PATH` |
 | **Examples** | `list_schemas`, `get_table_columns`, `execute_sql`, `describe_sql_object` | Custom performance monitoring, security checks |
