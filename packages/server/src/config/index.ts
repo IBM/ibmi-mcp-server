@@ -342,12 +342,23 @@ const EnvSchema = z.object({
     .default("false")
     .transform((val) => val === "true"),
 
-  /** Control readonly mode for execute_sql tool. When true (default), only SELECT queries are allowed. */
+  /**
+   * Control readonly mode for execute_sql tool. When true (default), only
+   * SELECT queries are allowed.
+   *
+   * Fail-closed: only an explicit `false`/`0` (case-insensitive, trimmed)
+   * disables read-only mode. Any other value — including typos and case
+   * variants like `TRUE` — keeps read-only ON, because this boolean gates
+   * write access and seeds the JDBC access backstop.
+   */
   IBMI_EXECUTE_SQL_READONLY: z
     .string()
     .optional()
     .default("true")
-    .transform((val) => val === "true" || val === "1"),
+    .transform((val) => {
+      const v = val.trim().toLowerCase();
+      return !(v === "false" || v === "0");
+    }),
 
   /**
    * When to run QSYS2.PARSE_STATEMENT before execute_sql.
@@ -362,9 +373,17 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .default("auto")
-    .transform((val): "auto" | "always" =>
-      val.trim().toLowerCase() === "always" ? "always" : "auto",
-    ),
+    .transform((val): "auto" | "always" => {
+      const v = val.trim().toLowerCase();
+      if (v !== "auto" && v !== "always") {
+        // stderr, not TTY-gated: a typo silently downgrading strict/audit
+        // mode to `auto` must be visible in stdio/container logs.
+        console.error(
+          `[config] IBMI_EXECUTE_SQL_PARSE_VALIDATION="${val}" is not recognized (expected "auto" or "always"); using "auto"`,
+        );
+      }
+      return v === "always" ? "always" : "auto";
+    }),
 
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
   IBMI_ENABLE_DEFAULT_TOOLS: z

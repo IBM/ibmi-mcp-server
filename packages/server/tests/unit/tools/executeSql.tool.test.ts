@@ -695,6 +695,25 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     expect(mockExecutePaginated).not.toHaveBeenCalled();
   });
 
+  it("comment-only input mentioning a write keyword is NOT flagged as a write", async () => {
+    // The regex fallback does not strip comments; zero-statement input must
+    // bypass it entirely, or "-- TODO: delete old rows" would be falsely
+    // rejected as "Write operations detected".
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    const result = await executeSqlLogic(
+      { sql: "-- TODO: delete old rows" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).not.toMatch(/write operations detected/i);
+    expect(result.error?.message).toMatch(/could not be parsed/i);
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecutePaginated).not.toHaveBeenCalled();
+  });
+
   it("auto + parser failure (regex allow): still runs PARSE_STATEMENT", async () => {
     const parseSpy = vi.spyOn(IbmiSqlParser, "parseQuery").mockReturnValue({
       success: false,

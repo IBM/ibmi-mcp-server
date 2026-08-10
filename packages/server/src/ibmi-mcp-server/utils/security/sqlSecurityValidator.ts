@@ -367,13 +367,23 @@ export class SqlSecurityValidator {
     enforceReadOnly: boolean,
   ): SqlValidationClassification {
     // Try IBM i parser first (understands IBM i syntax and uses vscode-db2i).
-    // Zero parsed statements (comment-only / empty input) does NOT count as
-    // classified — such input falls through to the unclassified path so the
-    // wire PARSE_STATEMENT fallback can reject it with a clear error instead
-    // of executing a non-statement.
     const ibmiResult = IbmiSqlParser.parseQuery(query, context);
 
-    if (ibmiResult.success && ibmiResult.statementTypes.length > 0) {
+    // Zero parsed statements (comment-only / empty input) does NOT count as
+    // classified, and there is nothing executable to enforce against — return
+    // unclassified directly so the wire PARSE_STATEMENT fallback rejects it
+    // with a clear error. Do NOT route it through the regex fallback: regex
+    // does not strip comments, so "-- TODO: delete old rows" would be falsely
+    // rejected as a write operation.
+    if (ibmiResult.success && ibmiResult.statementTypes.length === 0) {
+      logger.debug(
+        { ...context, validatedBy: "ibmi-vscode" },
+        "Parser found no executable statements (comment-only or empty input); leaving unclassified for wire PARSE fallback",
+      );
+      return { classified: false, validatedBy: "ibmi-vscode" };
+    }
+
+    if (ibmiResult.success) {
       if (enforceReadOnly && !ibmiResult.isReadOnly) {
         this.throwValidationError(
           `Write operations detected: ${ibmiResult.violations.join(", ")}`,

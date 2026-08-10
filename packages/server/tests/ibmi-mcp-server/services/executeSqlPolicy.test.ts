@@ -10,7 +10,7 @@
  * @module tests/ibmi-mcp-server/services/executeSqlPolicy.test
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   setExecuteSqlReadOnlyPolicy,
   isExecuteSqlReadOnlyPolicy,
@@ -43,10 +43,26 @@ describe("executeSqlPolicy – effective read-only policy for the singleton pool
     expect(isExecuteSqlReadOnlyPolicy()).toBe(true);
   });
 
-  it("setExecuteSqlReadOnlyPolicy is honored directly (ibmi tool path)", () => {
+  it("setExecuteSqlReadOnlyPolicy is honored when called directly (internal writer)", () => {
     setExecuteSqlReadOnlyPolicy(false);
     expect(isExecuteSqlReadOnlyPolicy()).toBe(false);
     setExecuteSqlReadOnlyPolicy(true);
     expect(isExecuteSqlReadOnlyPolicy()).toBe(true);
+  });
+
+  it("explicitly-set IBMI_EXECUTE_SQL_READONLY=true pins the policy against runtime write mode", async () => {
+    vi.stubEnv("IBMI_EXECUTE_SQL_READONLY", "true");
+    vi.resetModules();
+    try {
+      // Fresh module instance so the pin is computed with the stubbed env.
+      const policy = await import(
+        "../../../src/ibmi-mcp-server/services/executeSqlPolicy.js"
+      );
+      policy.setExecuteSqlReadOnlyPolicy(false);
+      expect(policy.isExecuteSqlReadOnlyPolicy()).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });
