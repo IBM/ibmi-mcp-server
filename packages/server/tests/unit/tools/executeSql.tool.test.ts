@@ -11,7 +11,7 @@
  * @module tests/unit/tools/executeSql.tool.test
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import {
   JsonRpcErrorCode,
   McpError,
@@ -65,8 +65,17 @@ import type { QueryResult } from "@ibm/mapepire-js";
 import { IbmiSqlParser } from "../../../src/ibmi-mcp-server/utils/security/ibmiSqlParser.js";
 import {
   configureExecuteSqlTool,
-  executeSqlLogic,
+  getExecuteSqlConfig,
+  executeSqlTool,
 } from "../../../src/ibmi-mcp-server/tools/executeSql.tool.js";
+
+// The logic function is exercised through the tool definition, exactly as the
+// CLI consumes it (executeSqlTool.logic) — no separate logic export exists.
+const executeSqlLogic = executeSqlTool.logic;
+
+// Pristine module defaults, captured before any test mutates the shared
+// config via configureExecuteSqlTool (which merges and has no reset API).
+const initialExecuteSqlConfig = structuredClone(getExecuteSqlConfig());
 
 // Helper to create mock QueryResult objects
 function createMockQueryResult<T = unknown>(
@@ -626,6 +635,12 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     });
   });
 
+  // Restore the module-global tool config so blocks added after this one
+  // don't inherit write-mode/always-parse state.
+  afterAll(() => {
+    configureExecuteSqlTool(structuredClone(initialExecuteSqlConfig));
+  });
+
   it("auto + successful Select: skips PARSE_STATEMENT (one pagination call only)", async () => {
     const result = await executeSqlLogic(
       { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
@@ -659,6 +674,25 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
     expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
     expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto + comment-only input: not classified — falls back to PARSE_STATEMENT and fails clean", async () => {
+    // Zero parsed statements must not count as "classified"; the wire PARSE
+    // fallback rejects the non-statement with a clear validation error
+    // instead of executing it.
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    const result = await executeSqlLogic(
+      { sql: "-- just a comment" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toMatch(/could not be parsed/i);
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
+    expect(mockExecutePaginated).not.toHaveBeenCalled();
   });
 
   it("auto + parser failure (regex allow): still runs PARSE_STATEMENT", async () => {

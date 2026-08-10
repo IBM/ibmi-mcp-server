@@ -754,9 +754,10 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
 | `IBMI_ENABLE_DEFAULT_TOOLS` | Enable schema discovery tools | `false` | `true`, `false` |
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
 | `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | `true` | `true`, `false` |
+| `IBMI_EXECUTE_SQL_PARSE_VALIDATION` | When to run `QSYS2.PARSE_STATEMENT` wire validation. `auto` skips the round trip when the in-process parser classified the statement; `always` runs it for every query (strict/audit mode). Unrecognized values fall back to `auto` | `auto` | `auto`, `always` |
 
 <Warning>
-**Security**: `execute_sql` allows clients to run ad-hoc SQL queries. By default (`IBMI_EXECUTE_SQL_READONLY=true`), only SELECT queries are allowed. Set `IBMI_EXECUTE_SQL_READONLY=false` to enable write operations (INSERT, UPDATE, DELETE). Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access.
+**Security**: `execute_sql` allows clients to run ad-hoc SQL queries. By default (`IBMI_EXECUTE_SQL_READONLY=true`), only SELECT queries are allowed — enforced in-process by the SQL validator and at the connection level by a Toolbox JDBC `access=read call` backstop on the built-in tools pool. Set `IBMI_EXECUTE_SQL_READONLY=false` to enable write operations (INSERT, UPDATE, DELETE). Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access, and run the server under a least-privilege IBM i user profile — the profile is the enforced security boundary; client-side checks cannot see inside stored procedures or UDFs.
 </Warning>
 
 <Tabs>

@@ -24,6 +24,7 @@ import {
   logOperationSuccess,
 } from "../../utils/internal/logging-helpers.js";
 import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { setExecuteSqlReadOnlyPolicy } from "../services/executeSqlPolicy.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 import { config } from "../../config/index.js";
@@ -101,6 +102,10 @@ export function configureExecuteSqlTool(
       ...config.security,
     },
   };
+
+  // Keep the singleton pool's JDBC backstop in sync with the effective
+  // read-only policy (the pool reads this at lazy init).
+  setExecuteSqlReadOnlyPolicy(toolConfig.security?.readOnly !== false);
 
   logOperationSuccess(context, "Execute SQL tool configuration updated", {
     enabled: toolConfig.enabled,
@@ -214,7 +219,11 @@ function validateSqlSecurity(
     maxQueryLength: config.security?.maxQueryLength ?? 10000,
   };
 
-  return SqlSecurityValidator.validateQuery(sql, securityConfig, appContext);
+  // execute_sql needs classification even in write mode to decide whether the
+  // wire PARSE_STATEMENT round trip can be skipped under `auto`.
+  return SqlSecurityValidator.validateQuery(sql, securityConfig, appContext, {
+    classify: true,
+  });
 }
 
 /**
@@ -320,8 +329,9 @@ async function validateWithParseStatement(
 /**
  * Core logic for executing SQL queries
  * Validates security restrictions and executes the query
+ * (Not exported: consumers use `executeSqlTool.logic`, as the CLI does.)
  */
-export async function executeSqlLogic(
+async function executeSqlLogic(
   params: ExecuteSqlInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,

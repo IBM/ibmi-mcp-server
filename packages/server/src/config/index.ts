@@ -353,11 +353,18 @@ const EnvSchema = z.object({
    * When to run QSYS2.PARSE_STATEMENT before execute_sql.
    * - `auto` (default): skip the wire round trip when the in-process parser classified the statement (read-only or write mode)
    * - `always`: always run PARSE_STATEMENT (legacy strict/audit mode)
+   *
+   * Fail-safe by design (matches the repo's boolean idiom): any value other
+   * than `always` means `auto`. A strict z.enum here would fail whole-env
+   * validation on a typo and silently reset unrelated settings to defaults.
    */
   IBMI_EXECUTE_SQL_PARSE_VALIDATION: z
-    .enum(["auto", "always"])
+    .string()
     .optional()
-    .default("auto"),
+    .default("auto")
+    .transform((val): "auto" | "always" =>
+      val.trim().toLowerCase() === "always" ? "always" : "auto",
+    ),
 
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
   IBMI_ENABLE_DEFAULT_TOOLS: z
@@ -548,6 +555,7 @@ if (!validatedLogsPath) {
  *   - All other values are forwarded as strings — mapepire's JDBC driver
  *     accepts string values for all options; no bool/number coercion
  *   - Malformed pairs (non-empty with no `=`) throw to surface typos early
+ *   - Pairs with an empty value (e.g. `access=`) are treated as unset
  */
 function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
   const trimmed = raw.trim();
@@ -569,6 +577,10 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
         `Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`,
       );
     }
+    // A dangling pair with no value (e.g. "access=") is treated as unset, not
+    // as an explicit override — otherwise it would silently suppress the
+    // read-only access backstop and forward an empty value to the driver.
+    if (!value) continue;
     if (key === "libraries") {
       result[key] = value
         .split(",")

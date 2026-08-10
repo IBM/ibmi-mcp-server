@@ -34,13 +34,17 @@ export interface SecurityValidationResult {
  */
 export interface SqlValidationClassification {
   /**
-   * True when the in-process vscode-db2i parser successfully tokenized/classified
-   * the statement. False when the parser failed or regex fallback was used.
+   * True when the in-process vscode-db2i parser successfully classified at
+   * least one statement. False when the parser failed, produced zero
+   * statements (comment-only input), or classification was skipped.
    */
   classified: boolean;
   /** Statement types from the in-process parser when available */
   statementTypes?: string[];
-  /** Which Layer-1 path produced the classification */
+  /**
+   * Which Layer-1 path produced the classification. "none" means
+   * classification was skipped (write mode, caller did not request it).
+   */
   validatedBy: "ibmi-vscode" | "regex-fallback" | "none";
 }
 
@@ -192,6 +196,10 @@ export class SqlSecurityValidator {
    * @param query - SQL query to validate
    * @param securityConfig - Security configuration
    * @param context - Request context for logging
+   * @param options - Set `classify: true` to run in-process classification even
+   *   in write mode (used by execute_sql to decide whether wire PARSE_STATEMENT
+   *   can be skipped). Callers that discard the classification omit it, so
+   *   write-mode validation stays off the parse hot path.
    * @returns Classification metadata for callers that may skip wire PARSE_STATEMENT
    * @throws {McpError} If validation fails
    */
@@ -199,6 +207,7 @@ export class SqlSecurityValidator {
     query: string,
     securityConfig: SqlToolSecurityConfig,
     context: RequestContext,
+    options?: { classify?: boolean },
   ): SqlValidationClassification {
     logger.debug(
       {
@@ -216,13 +225,23 @@ export class SqlSecurityValidator {
     // 2. Always validate forbidden keywords (regardless of read-only setting)
     this.validateForbiddenKeywords(query, securityConfig, context);
 
-    // 3. Always classify in-process. Enforce write rejection only when
-    //    read-only mode is on. Classification lets execute_sql skip wire
-    //    PARSE under `auto` for both SELECTs and allowed writes.
+    // 3. Classify in-process when read-only mode is enforced (classification
+    //    doubles as write rejection) or when the caller asked for it
+    //    (execute_sql uses it to skip wire PARSE under `auto`). Write-mode
+    //    callers that discard the result skip the parse entirely.
+    const enforceReadOnly = securityConfig.readOnly !== false;
+    if (!enforceReadOnly && options?.classify !== true) {
+      logger.debug(
+        { ...context, readOnly: false },
+        "SQL security validation passed (classification skipped in write mode)",
+      );
+      return { classified: false, validatedBy: "none" };
+    }
+
     const classification = this.classifyStatement(
       query,
       context,
-      securityConfig.readOnly !== false,
+      enforceReadOnly,
     );
 
     logger.debug(
@@ -347,10 +366,14 @@ export class SqlSecurityValidator {
     context: RequestContext,
     enforceReadOnly: boolean,
   ): SqlValidationClassification {
-    // Try IBM i parser first (understands IBM i syntax and uses vscode-db2i)
+    // Try IBM i parser first (understands IBM i syntax and uses vscode-db2i).
+    // Zero parsed statements (comment-only / empty input) does NOT count as
+    // classified — such input falls through to the unclassified path so the
+    // wire PARSE_STATEMENT fallback can reject it with a clear error instead
+    // of executing a non-statement.
     const ibmiResult = IbmiSqlParser.parseQuery(query, context);
 
-    if (ibmiResult.success) {
+    if (ibmiResult.success && ibmiResult.statementTypes.length > 0) {
       if (enforceReadOnly && !ibmiResult.isReadOnly) {
         this.throwValidationError(
           `Write operations detected: ${ibmiResult.violations.join(", ")}`,

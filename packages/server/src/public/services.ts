@@ -3,6 +3,7 @@
  */
 
 export { IBMiConnectionPool } from "../ibmi-mcp-server/services/connectionPool.js";
+export { setExecuteSqlReadOnlyPolicy } from "../ibmi-mcp-server/services/executeSqlPolicy.js";
 export {
   SourceManager,
   type SourceHealth,

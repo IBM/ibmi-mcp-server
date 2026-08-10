@@ -462,6 +462,22 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
     expect(config.db2i!.jdbcOptions).toBeUndefined();
   });
+
+  it("3.10 – treats pairs with empty values (dangling access=) as unset", () => {
+    setCreds();
+    process.env.DB2i_JDBC_OPTIONS = "access=;naming=system";
+
+    // An empty access value must NOT count as an operator override — it would
+    // silently suppress the read-only access backstop otherwise.
+    expect(config.db2i!.jdbcOptions).toEqual({ naming: "system" });
+  });
+
+  it("3.11 – omits jdbcOptions entirely when all pairs have empty values", () => {
+    setCreds();
+    process.env.DB2i_JDBC_OPTIONS = "access=";
+
+    expect(config.db2i!.jdbcOptions).toBeUndefined();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

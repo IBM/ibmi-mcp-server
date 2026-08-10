@@ -24,6 +24,7 @@ import {
   BaseConnectionPool,
   PoolConnectionConfig,
 } from "./baseConnectionPool.js";
+import { isExecuteSqlReadOnlyPolicy } from "./executeSqlPolicy.js";
 
 // Singleton identifier for the IBM i connection pool
 const IBM_I_POOL_ID = Symbol("ibmi-singleton-pool");
@@ -38,12 +39,15 @@ const IBM_I_POOL_ID = Symbol("ibmi-singleton-pool");
  * `DB2i_JDBC_OPTIONS` only if CALL tools are not needed. Explicit `access` in
  * `DB2i_JDBC_OPTIONS` is preserved. YAML source pools are unaffected.
  *
- * Access is resolved from `IBMI_EXECUTE_SQL_READONLY` at pool init time; later
- * changes via `configureExecuteSqlTool({ security: { readOnly } })` do not
- * reconfigure an already-initialized pool.
+ * Access is resolved from the *effective* runtime policy (seeded from
+ * `IBMI_EXECUTE_SQL_READONLY`, updated by `configureExecuteSqlTool` and CLI
+ * commands via `executeSqlPolicy`) at pool init time. Pools are created lazily
+ * on first query, after runtime configuration has been applied. A policy flip
+ * after the pool is warm does not reconfigure it (JDBC access is fixed at
+ * connect time).
  *
  * @param existing - JDBC options from `DB2i_JDBC_OPTIONS` (may be undefined)
- * @param readOnly - Whether `IBMI_EXECUTE_SQL_READONLY` is enabled
+ * @param readOnly - The effective read-only policy
  */
 export function resolveSingletonJdbcOptions(
   existing: JDBCOptions | undefined,
@@ -114,10 +118,12 @@ export class IBMiConnectionPool extends BaseConnectionPool<
 
       // Fail-closed JDBC backstop when readonly is on (access=read call by
       // default — blocks writes, allows generate_sql CALL). Explicit
-      // DB2i_JDBC_OPTIONS.access is preserved.
+      // DB2i_JDBC_OPTIONS.access is preserved. Reads the effective runtime
+      // policy, not the env var, so CLI write mode (configureExecuteSqlTool /
+      // ibmi tool) is honored by the lazily-created pool.
       const resolvedJdbc = resolveSingletonJdbcOptions(
         jdbcOptions,
-        config.ibmi_executeSqlReadonly !== false,
+        isExecuteSqlReadOnlyPolicy(),
       );
 
       logger.info(

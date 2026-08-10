@@ -277,14 +277,19 @@ Execute a SQL query on the IBM i database and return the results. Use this after
 
 #### Security
 
-`execute_sql` applies two layers of validation before running any query:
+`execute_sql` applies layered validation before running any query:
 
-1. **AST/regex validation** via `SqlSecurityValidator` — checks read-only mode constraints and query length
-2. **Native IBM i validation** via `QSYS2.PARSE_STATEMENT` — confirms `SQL_STATEMENT_TYPE = 'QUERY'` when in read-only mode
+1. **In-process validation** via `SqlSecurityValidator` — classifies the statement with the vscode-db2i parser, enforces read-only mode constraints and query length
+2. **Native IBM i validation** via `QSYS2.PARSE_STATEMENT` — runs when `IBMI_EXECUTE_SQL_PARSE_VALIDATION=always` (strict/audit mode), or as a fallback when the in-process parser could not classify the statement. Under the default `auto` mode, classified statements skip this wire round trip for lower latency
+3. **JDBC connection backstop** — when read-only mode is in effect, the connection pool is created with `access=read call`, so the IBM i JDBC driver itself rejects INSERT/UPDATE/DELETE/DDL at the connection level (CALL remains allowed for `describe_sql_object`). An explicit `access` value in `DB2i_JDBC_OPTIONS` overrides this default
 
 <Note>
 By default, only SELECT queries are allowed (`IBMI_EXECUTE_SQL_READONLY=true`). Set `IBMI_EXECUTE_SQL_READONLY=false` to allow INSERT, UPDATE, DELETE, and other statement types.
 </Note>
+
+<Warning>
+Client-side validation is a guardrail, not a security boundary: no client-side check can see inside a stored procedure or user-defined function. For deployments where read-only must be guaranteed, run the server under a least-privilege IBM i user profile — the profile's object authority is the enforced boundary.
+</Warning>
 
 ---
 
