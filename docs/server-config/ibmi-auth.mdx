@@ -83,7 +83,7 @@ sequenceDiagram
 <Warning>
 **Common Pitfall**: When using IBM i HTTP authentication, you may encounter validation errors about `DB2i_USER` and `DB2i_PASS` even though the Bearer token provides authentication.
 
-**Solution**: Either **omit these variables entirely** from your `.env` file, or set them to placeholder values like `TOKEN_AUTH`.
+**Solution**: Either **omit these variables entirely**, or set them to placeholder values like `TOKEN_AUTH`.
 
 **Why this happens**: The validation schema requires these fields to be either undefined or have non-empty values. Empty strings (`DB2i_USER=""`) fail validation. When using token authentication, the Bearer token supplies user credentials, so `DB2i_USER` and `DB2i_PASS` are not used.
 </Warning>
@@ -91,7 +91,7 @@ sequenceDiagram
 <Tabs>
   <Tab title="Option 1: Omit Variables (Recommended)">
     ```bash
-    # .env for IBM i HTTP Authentication
+    # IBM i HTTP Authentication
 
     # Authentication Mode
     MCP_AUTH_MODE=ibmi
@@ -116,7 +116,7 @@ sequenceDiagram
 
   <Tab title="Option 2: Placeholder Values">
     ```bash
-    # .env for IBM i HTTP Authentication
+    # IBM i HTTP Authentication
 
     # Authentication Mode
     MCP_AUTH_MODE=ibmi
@@ -211,7 +211,7 @@ IBM i authentication requires RSA keypairs to protect credentials during transmi
   </Step>
 
   <Step title="Configure Environment Variables">
-    Add the keypair paths to your `.env` file:
+    Set the keypair paths in the process environment:
 
     ```bash
     # IBM i Authentication Keys
@@ -250,7 +250,7 @@ After configuring IBM i authentication and generating your RSA keys, start the M
 **Complete Configuration Example:**
 
 ```bash
-# .env file with IBM i HTTP Authentication
+# IBM i HTTP Authentication
 MCP_AUTH_MODE=ibmi
 IBMI_HTTP_AUTH_ENABLED=true
 
@@ -279,10 +279,6 @@ IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
 <Tabs>
   <Tab title="NPM Package">
     ```bash
-    # Set configuration file path
-    export MCP_SERVER_CONFIG=.env
-
-    # Start the server
     npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
     ```
 
@@ -302,7 +298,6 @@ IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
   <Tab title="Build from Source">
     ```bash
     # From the repository root
-    export MCP_SERVER_CONFIG=.env
     cd packages/server
     npm run start:http -- --tools ../../tools
     ```
@@ -382,7 +377,7 @@ node get-access-token.js \
 
 <Tip>
 **Quick Setup**: The one-liner `eval $(node get-access-token.js --quiet)` does everything:
-1. Reads your IBM i credentials from `.env`
+1. Reads your IBM i credentials from the process environment
 2. Encrypts and sends them to the MCP server
 3. Receives the Bearer token
 4. Automatically sets `export IBMI_MCP_ACCESS_TOKEN=your-token`
@@ -405,9 +400,9 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiTVlVU0VSIiwiaG9zdCI6...
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--user` | `-u` | IBM i username | `DB2i_USER` from .env |
-| `--password` | `-p` | IBM i password | `DB2i_PASS` from .env |
-| `--host` | `-h` | IBM i host address | `DB2i_HOST` from .env |
+| `--user` | `-u` | IBM i username | `DB2i_USER` |
+| `--password` | `-p` | IBM i password | `DB2i_PASS` |
+| `--host` | `-h` | IBM i host address | `DB2i_HOST` |
 | `--server` | | MCP server address | `localhost` |
 | `--port` | | MCP server port | `3010` |
 | `--https` | | Use HTTPS instead of HTTP | HTTP |
@@ -439,7 +434,7 @@ node get-access-token.js \
 </Accordion>
 
 The script automatically:
-- Loads IBM i credentials from `.env` with CLI fallback
+- Loads IBM i credentials from the process environment with CLI fallback
 - Fetches the server's public key (or uses local file with `--public-key-path`)
 - Encrypts credentials client-side using RSA/AES
 - Requests an access token from the MCP server
@@ -578,7 +573,7 @@ Once you have a token, configure your MCP client:
 
   <Accordion title="Version Control" icon="code-branch">
     - **Never commit keys**: Add `secrets/` to `.gitignore`
-    - **Never commit `.env`**: Environment files often contain paths to secrets
+    - **Never commit credentials**: Keep secrets in the process environment or a secrets manager
     - **Use environment-specific keys**: Different keypairs for dev/staging/production
     - **Document setup process**: Include key generation in deployment documentation
   </Accordion>
@@ -609,7 +604,7 @@ Once you have a token, configure your MCP client:
   <Accordion title="Validation Error: DB2i_USER and DB2i_PASS Required">
     **Symptom**: Server fails to start with error requiring `DB2i_USER` and `DB2i_PASS` even though you're using token authentication.
 
-    **Solution**: Either completely omit these variables from your `.env` file, or set them to placeholder values like `TOKEN_AUTH`. Do not use empty strings (`DB2i_USER=""`).
+    **Solution**: Either completely omit these variables, or set them to placeholder values like `TOKEN_AUTH`. Do not use empty strings (`DB2i_USER=""`).
 
     See the [Configuration](#configuration) section above for detailed examples.
 
@@ -636,7 +631,7 @@ Once you have a token, configure your MCP client:
     **Symptom**: Server fails to start or auth requests fail with encryption errors.
 
     **Solutions:**
-    - Verify file paths in `.env` are correct
+    - Verify `IBMI_AUTH_PRIVATE_KEY_PATH` and `IBMI_AUTH_PUBLIC_KEY_PATH` are correct
     - Check file permissions: `ls -la secrets/`
     - Ensure private key is valid: `openssl rsa -in secrets/private.pem -check`
     - Regenerate keypair if corrupted

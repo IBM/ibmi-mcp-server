@@ -87,7 +87,7 @@ systems:
     password: ${DB2i_PASS}
 ```
 
-This lets you keep credentials in your shell environment or `.env` file rather than in the config file itself.
+This lets you keep credentials in the process environment rather than in the config file itself.
 
 ---
 
@@ -105,7 +105,7 @@ When a command needs a system connection, the CLI resolves it in this priority o
   </Step>
 
   <Step title="IBMI_SYSTEM environment variable">
-    Set in your shell or `.env` file.
+    Set in your shell environment.
 
     ```bash
     export IBMI_SYSTEM=prod

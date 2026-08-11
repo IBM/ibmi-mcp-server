@@ -170,7 +170,7 @@ npm test -- tests/path/to/test.test.ts
 
 ## Environment Variables
 
-Key variables (set in `.env` or environment):
+Key variables (set in the process environment; local `.env` is loaded only when `MCP_SERVER_CONFIG` points at it):
 
 | Variable | Description |
 |----------|-------------|
@@ -206,7 +206,7 @@ All commits MUST include a DCO sign-off. Always pass `-s` to `git commit`.
 
 - Use Zod schemas for all input validation
 - LLM-facing descriptions (in `.describe()`) must be clear and actionable
-- Environment variables via `dotenv` - never hardcode credentials
+- Environment variables via the process environment - never hardcode credentials. Local `.env` requires `MCP_SERVER_CONFIG`.
 - Structured logging with Pino - always include RequestContext
 - Error responses use `McpError` with appropriate `JsonRpcErrorCode`
 

@@ -659,14 +659,12 @@ Use environment variables to control toolset loading across environments:
 
 **Development:**
 ```bash
-# .env.development
-SELECTED_TOOLSETS=development_full,testing_validation
+export SELECTED_TOOLSETS=development_full,testing_validation
 ```
 
 **Production:**
 ```bash
-# .env.production
-SELECTED_TOOLSETS=production_readonly,system_monitoring
+export SELECTED_TOOLSETS=production_readonly,system_monitoring
 ```
 
 **Start server:**

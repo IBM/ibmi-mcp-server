@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [Unreleased]
+
+### Breaking
+
+* **Dotenv files are no longer loaded by default.** The server honors `process.env` as-is. A dotenv file is loaded only when `MCP_SERVER_CONFIG` points at it, and a missing path is now a hard error instead of a fallback to `cwd/.env` ([#137](https://github.com/IBM/ibmi-mcp-server/issues/137)).
+
+  Migration:
+
+  ```bash
+  # Before (implicit cwd .env)
+  npx @ibm/ibmi-mcp-server --transport http --tools ./tools
+
+  # After — preferred: set variables in the process environment
+  export DB2i_HOST=... DB2i_USER=... DB2i_PASS=...
+  npx @ibm/ibmi-mcp-server --transport http --tools ./tools
+
+  # After — local development only: opt in to a dotenv file
+  MCP_SERVER_CONFIG=.env npx @ibm/ibmi-mcp-server --transport http --tools ./tools
+  ```
+
 ## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1) (2026-04-20)
 
 Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior ([#146](https://github.com/IBM/ibmi-mcp-server/pull/146)). Ships CI reliability fixes and root-level README coverage for the new two-package layout.

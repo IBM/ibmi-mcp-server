@@ -145,54 +145,21 @@ Choose your installation method based on your needs:
 
 ## Step 2: Configuration
 
-Create your environment configuration file:
+Set your IBM i connection details in the process environment:
 
-<Tabs>
-  <Tab title="NPM Package">
-    Create a `.env` file in your current directory:
+```bash
+export DB2i_HOST=your-ibmi-host
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
+export DB2i_PORT=8076
+export DB2i_IGNORE_UNAUTHORIZED=true
+export MCP_TRANSPORT_TYPE=http
+export MCP_HTTP_PORT=3010
+```
 
-    ```bash
-    cat > .env << 'EOF'
-    # IBM i DB2 for i Connection Settings
-    DB2i_HOST=your-ibmi-host
-    DB2i_USER=your-username
-    DB2i_PASS=your-password
-    DB2i_PORT=8076
-    DB2i_IGNORE_UNAUTHORIZED=true
-
-    # Server Configuration
-    MCP_TRANSPORT_TYPE=http
-    MCP_HTTP_PORT=3010
-    EOF
-    ```
-
-    Edit the file and replace the placeholder values with your actual IBM i credentials.
-  </Tab>
-
-  <Tab title="Build from Source">
-    Copy the example configuration and edit it:
-
-    ```bash
-    # From ibmi-mcp-server directory
-    cp .env.example .env
-    ```
-
-    Edit the `.env` file with your IBM i connection details:
-
-    ```bash
-    # IBM i DB2 for i Connection Settings
-    DB2i_HOST=your-ibmi-host
-    DB2i_USER=your-username
-    DB2i_PASS=your-password
-    DB2i_PORT=8076
-    DB2i_IGNORE_UNAUTHORIZED=true
-
-    # Server Configuration
-    MCP_TRANSPORT_TYPE=http
-    MCP_HTTP_PORT=3010
-    ```
-  </Tab>
-</Tabs>
+<Note>
+**Local development only:** To load these from a file, set `MCP_SERVER_CONFIG` to that path. The server does not read `.env` unless this variable is set.
+</Note>
 
 <Warning>
 Replace the connection values with your actual IBM i system credentials. The user profile must have appropriate authorities for database operations.
@@ -204,7 +171,7 @@ Replace the connection values with your actual IBM i system credentials. The use
 
 <Success>
 ✓ **Verify your configuration:**
-- `.env` file exists in the root directory
+- `DB2i_HOST`, `DB2i_USER`, and `DB2i_PASS` are set in the process environment
 - `DB2i_HOST` is set to your IBM i hostname (not `127.0.0.1` if running in Docker)
 - `DB2i_USER` and `DB2i_PASS` are valid IBM i credentials
 - `DB2i_PORT` matches your Mapepire port (default: 8076)
@@ -263,7 +230,7 @@ The YAML configuration has three main sections:
 
 <Steps>
   <Step title="Sources">
-    Defines the IBM i data sources your tools will connect to. The environment variables (`${DB2i_HOST}`, etc.) are automatically replaced with values from your `.env` file.
+    Defines the IBM i data sources your tools will connect to. The environment variables (`${DB2i_HOST}`, etc.) are replaced with values from the process environment.
 
     ```yaml
     sources:
@@ -330,7 +297,6 @@ Start the server in HTTP mode with your new SQL tool:
 <Tabs>
   <Tab title="NPM Package (Recommended)">
     ```bash
-    export MCP_SERVER_CONFIG=.env
     npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quickstart.yaml
     ```
 
@@ -392,7 +358,7 @@ You should see output similar to:
 **Server not starting?** Check:
 1. Mapepire is running on IBM i: `sc check mapepire`
 2. Firewall allows connection to port 8076
-3. IBM i credentials are correct in `.env`
+3. IBM i credentials are set in the process environment
 4. No other process is using port 3010 (HTTP mode)
 </Success>
 
@@ -646,9 +612,9 @@ Your MCP server is now ready for:
   </Accordion>
 
   <Accordion title="Port Already in Use" icon="">
-    Change the port in your `.env` file:
+    Change the port in the process environment:
     ```bash
-    MCP_HTTP_PORT=3011
+    export MCP_HTTP_PORT=3011
     ```
     Then restart the server.
   </Accordion>

@@ -82,7 +82,7 @@ Running on **IBM Power Systems**? Use the `ppc64le` image to run the MCP server 
 
 ## Using an Environment File
 
-For easier management, store your configuration in a `.env` file:
+Docker and Podman can inject variables into the process with `--env-file`. This is orchestrator injection, not the server reading a dotenv file:
 
 ```ini
 # .env
@@ -208,7 +208,7 @@ The repository includes a full-stack Docker Compose configuration with [MCP Cont
 git clone https://github.com/IBM/ibmi-mcp-server.git
 cd ibmi-mcp-server
 
-# Configure environment
+# Configure environment (Compose injects these into the container process)
 cp .env.example .env
 # Edit .env with your IBM i credentials
 

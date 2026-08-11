@@ -43,7 +43,7 @@ The manifests deploy the IBM i MCP Server alongside optional components includin
   </Step>
 
   <Step title="Prepare Environment Files">
-    You will need `.env` files with IBM i credentials and server configuration for the deployment.
+    You will need `.env` files with IBM i credentials and server configuration for the deployment. Kustomize injects those values into the container process; the server does not read a dotenv file at runtime unless `MCP_SERVER_CONFIG` is set.
   </Step>
 </Steps>
 
