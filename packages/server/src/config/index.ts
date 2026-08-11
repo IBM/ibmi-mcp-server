@@ -375,14 +375,13 @@ const EnvSchema = z.object({
     .default("auto")
     .transform((val): "auto" | "always" => {
       const v = val.trim().toLowerCase();
-      if (v !== "auto" && v !== "always") {
-        // stderr, not TTY-gated: a typo silently downgrading strict/audit
-        // mode to `auto` must be visible in stdio/container logs.
-        console.error(
-          `[config] IBMI_EXECUTE_SQL_PARSE_VALIDATION="${val}" is not recognized (expected "auto" or "always"); using "auto"`,
-        );
-      }
-      return v === "always" ? "always" : "auto";
+      if (v === "auto" || v === "always") return v;
+      // stderr, not TTY-gated: a silent downgrade of strict/audit mode
+      // must be visible in stdio/container logs.
+      console.error(
+        `[config] Unrecognized IBMI_EXECUTE_SQL_PARSE_VALIDATION="${val}" (expected "auto" or "always"); using "auto"`,
+      );
+      return "auto";
     }),
 
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
