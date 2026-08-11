@@ -175,8 +175,10 @@ Environment Variables:
   IBMI_ENABLE_DEFAULT_TOOLS    Enable built-in tools (default: false)
   IBMI_ENABLE_EXECUTE_SQL      Enable execute_sql tool (default: false)
   IBMI_EXECUTE_SQL_READONLY    Restrict execute_sql to SELECT only (default: true)
+  MCP_SERVER_CONFIG            Optional path to a dotenv file (local development only;
+                               not loaded unless this variable is set)
 
-  See .env.example for complete environment variable reference.
+  See the Configuration docs for the complete environment variable reference.
 
 Note: The server runs in stdio mode by default for MCP client integration.
 Use MCP_TRANSPORT_TYPE=http for HTTP mode testing.

@@ -3,8 +3,9 @@
  * Simple test script for IBM i HTTP Authentication endpoint
  * Tests the POST /api/v1/auth endpoint with user credentials
  *
- * Loads credentials from .env DB2i_* variables by default, with CLI fallback
- * Sets IBMI_MCP_ACCESS_TOKEN environment variable on success
+ * Loads credentials from DB2i_* environment variables, with CLI fallback.
+ * Set MCP_SERVER_CONFIG to load a dotenv file (local development only).
+ * Sets IBMI_MCP_ACCESS_TOKEN environment variable on success.
  *
  * Usage: node get-access-token.js [--user <username>] [--password <password>] [--host <ibmi-host>] [--verbose] [--https]
  */
@@ -13,28 +14,38 @@ import https from "https";
 import http from "http";
 import { parseArgs } from "node:util";
 import dotenv from "dotenv";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { createCipheriv, publicEncrypt, randomBytes } from "node:crypto";
 
-// Load environment variables from .env file
-dotenv.config();
+// Load a dotenv file only when MCP_SERVER_CONFIG is explicitly set.
+if (process.env.MCP_SERVER_CONFIG) {
+  const configPath = resolve(process.env.MCP_SERVER_CONFIG);
+  if (!existsSync(configPath)) {
+    throw new Error(
+      `MCP_SERVER_CONFIG is set to "${configPath}" but the file does not exist.`,
+    );
+  }
+  dotenv.config({ path: configPath });
+}
 
 // Parse command line arguments
 const options = {
   user: {
     type: "string",
     short: "u",
-    description: "IBM i username (defaults to DB2i_USER from .env)",
+    description: "IBM i username (defaults to DB2i_USER)",
   },
   password: {
     type: "string",
     short: "p",
-    description: "IBM i password (defaults to DB2i_PASS from .env)",
+    description: "IBM i password (defaults to DB2i_PASS)",
   },
   host: {
     type: "string",
     short: "h",
-    description: "IBM i host address (defaults to DB2i_HOST from .env)",
+    description: "IBM i host address (defaults to DB2i_HOST)",
   },
   verbose: {
     type: "boolean",
@@ -117,17 +128,17 @@ const credentialSource = {
   user: args.user
     ? "CLI argument"
     : process.env.DB2i_USER
-      ? ".env DB2i_USER"
+      ? "environment DB2i_USER"
       : "missing",
   password: args.password
     ? "CLI argument"
     : process.env.DB2i_PASS
-      ? ".env DB2i_PASS"
+      ? "environment DB2i_PASS"
       : "missing",
   host: args.host
     ? "CLI argument"
     : process.env.DB2i_HOST
-      ? ".env DB2i_HOST"
+      ? "environment DB2i_HOST"
       : "missing",
 };
 
@@ -150,7 +161,7 @@ if (!credentials.user || !credentials.password || !credentials.host) {
   console.error(`❌ Missing required credentials: ${missing.join(", ")}`);
   console.error("\n📝 Solutions:");
   console.error(
-    "   1. Set in .env file: DB2i_USER=<user> DB2i_PASS=<pass> DB2i_HOST=<host>",
+    "   1. Set environment variables: DB2i_USER=<user> DB2i_PASS=<pass> DB2i_HOST=<host>",
   );
   console.error(
     "   2. Use CLI args: --user <user> --password <pass> --host <host>",

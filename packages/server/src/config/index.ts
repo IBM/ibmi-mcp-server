@@ -7,65 +7,17 @@
  * @module src/config/index
  */
 
-import dotenv from "dotenv";
 import { existsSync, mkdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
+import { loadDotenvIfConfigured } from "./loadDotenv.js";
 
-// Load .env from multiple possible locations for monorepo flexibility
-// Priority order:
-// 1. MCP_SERVER_CONFIG environment variable (explicit override)
-// 2. Current working directory (for production/user deployment)
-// 3. Parent directory (for monorepo development)
-let envLoaded = false;
-
-// Check for explicit config path via MCP_SERVER_CONFIG
-if (process.env.MCP_SERVER_CONFIG) {
-  const configPath = path.resolve(process.env.MCP_SERVER_CONFIG);
-  if (existsSync(configPath)) {
-    dotenv.config({ path: configPath });
-    envLoaded = true;
-    if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-      console.error(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
-    }
-  } else {
-    if (process.stdout.isTTY) {
-      console.error(
-        `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to default search.`,
-      );
-    }
-  }
-}
-
-// If no explicit config or it failed, try default locations
-if (!envLoaded) {
-  const envLocations = [
-    // 1. Current working directory (for production/user deployment)
-    path.resolve(process.cwd(), ".env"),
-    // 2. Parent directory (for monorepo development)
-    path.resolve(process.cwd(), "../.env"),
-  ];
-
-  // Load from first location that exists
-  for (const envPath of envLocations) {
-    if (existsSync(envPath)) {
-      dotenv.config({ path: envPath });
-      envLoaded = true;
-      if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-        console.error(`Loaded .env from: ${envPath}`);
-      }
-      break;
-    }
-  }
-
-  // Fallback: try default dotenv behavior (looks in cwd)
-  if (!envLoaded) {
-    dotenv.config();
-  }
-}
+// Load a dotenv file only when MCP_SERVER_CONFIG is explicitly set.
+// Unset: honor process.env as-is (Docker, systemd, K8s, shell export).
+loadDotenvIfConfigured();
 
 // --- Determine Project Root ---
 const findProjectRoot = (startDir: string): string => {
