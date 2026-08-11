@@ -110,7 +110,7 @@ sources:
     port: 8076
     ignore-unauthorized: true
 ```
-> The environment variables DB2i_HOST, DB2i_USER, DB2i_PASS, and DB2i_PORT can be set in the server .env file.
+> The environment variables `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` must be set in the process environment.
 
 ## Tools
 

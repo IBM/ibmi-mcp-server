@@ -77,13 +77,11 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 
 2. **Configure your IBM i connection:**
    ```bash
-   cat > .env << 'EOF'
-   DB2i_HOST=your-ibmi-host.com
-   DB2i_USER=your-username
-   DB2i_PASS=your-password
-   DB2i_PORT=8076
-   DB2i_IGNORE_UNAUTHORIZED=true
-   EOF
+   export DB2i_HOST=your-ibmi-host.com
+   export DB2i_USER=your-username
+   export DB2i_PASS=your-password
+   export DB2i_PORT=8076
+   export DB2i_IGNORE_UNAUTHORIZED=true
    ```
 
 3. **Start the server:**
@@ -102,12 +100,13 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
    ```bash
    docker run --rm --name ibmi-mcp-server \
      -v /path/to/tools/:/tools \
-     -v /path/to/.env/:/.env \
-     -e MCP_SERVER_CONFIG=/.env \
+     -e DB2i_HOST=your-ibmi-host.com \
+     -e DB2i_USER=your-username \
+     -e DB2i_PASS=your-password \
      -p 3010:3010 ghcr.io/ibm/ibmi-mcp-server:latest
    ```
 
-   > Replace the volume paths with your actual local paths to the tools directory and `.env` file.
+   > Replace the volume path and `-e` values with your tools directory and IBM i connection details. Docker `--env-file` can inject the same variables into the process; the server does not read a `.env` file unless `MCP_SERVER_CONFIG` is set.
 
 4. **Verify it's running:**
    ```bash
@@ -361,7 +360,7 @@ sc start mapepire
 
 > [!IMPORTANT]
 > **Important Notes:**
-> - By default, Mapepire runs on port `8076`. You'll need this port number when configuring the `DB2i_PORT` variable in your `.env` file.
+> - By default, Mapepire runs on port `8076`. You'll need this port number when configuring the `DB2i_PORT` environment variable.
 > - Ensure your IBM i firewall allows inbound connections on port 8076
 > - For production deployments, configure SSL/TLS certificates (see official guide)
 

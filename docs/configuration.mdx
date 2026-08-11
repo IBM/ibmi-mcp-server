@@ -6,37 +6,32 @@ description: "Complete guide to configuring the IBM i MCP Server with environmen
 The IBM i MCP Server is configured through environment variables that control transport, authentication, logging, and IBM i connection settings. This guide covers all configuration options with examples and best practices.
 
 <Warning>
-Always use a `.env` file for local development and secure environment variable management in production. Never commit sensitive credentials to version control.
+Set credentials in the process environment (shell `export`, Docker `-e`, systemd, Kubernetes secrets). Never commit sensitive credentials to version control. A dotenv file is for local development only and is loaded only when `MCP_SERVER_CONFIG` points at it.
 </Warning>
 
 ---
 
 ## Loading Your Configuration
 
-Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to point to your configuration file:
+The server reads configuration from the process environment. Export variables in your shell, or inject them with Docker `-e`, systemd, or Kubernetes secrets.
 
 <Tabs>
   <Tab title="NPM Package">
     ```bash
-    # Point to your .env file
-    export MCP_SERVER_CONFIG=.env
+    export DB2i_HOST=your-ibmi-host.com
+    export DB2i_USER=your-username
+    export DB2i_PASS=your-password
 
-    # Start the server - it will automatically load the config
     npx -y @ibm/ibmi-mcp-server@latest --transport http
     ```
-
-    The server loads the file specified by `MCP_SERVER_CONFIG` on startup.
   </Tab>
 
   <Tab title="Build from Source">
     ```bash
-    # Point to your .env file (from repository root)
-    export MCP_SERVER_CONFIG=.env
+    export DB2i_HOST=your-ibmi-host.com
+    export DB2i_USER=your-username
+    export DB2i_PASS=your-password
 
-    # Or use relative path from server directory
-    export MCP_SERVER_CONFIG=../.env
-
-    # Start the server
     cd packages/server
     npm run start:http
     ```
@@ -44,7 +39,7 @@ Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to 
 </Tabs>
 
 <Note>
-**How it works:** The `MCP_SERVER_CONFIG` environment variable tells the server where to find your configuration file. Without it, you'd need to pass each variable individually as environment variables. CLI arguments (like `--transport http`) override values in the config file.
+**Local development only:** To load variables from a file, set `MCP_SERVER_CONFIG` to that path (`MCP_SERVER_CONFIG=.env`). The server does not search for `.env` unless this variable is set. CLI arguments (like `--transport http`) override environment variables.
 </Note>
 
 ---
@@ -92,13 +87,7 @@ MCP_LOG_LEVEL=info
 
 ## Quick Setup
 
-Create your configuration file from the template:
-
-```bash
-cp .env.example .env
-```
-
-Then edit `.env` with your IBM i connection details using the minimal configuration above.
+Export the minimal configuration above in your shell, or inject the same variables through your process supervisor. `.env.example` is a variable catalog for local development; it is not loaded unless you set `MCP_SERVER_CONFIG`.
 
 <Tip>
 For a step-by-step walkthrough, see the [Quick Start Guide](/quickstart). For production deployment, refer to the [Production Deployment](/deployment/production) guide.
@@ -283,7 +272,7 @@ Below is the reference for core server configuration options. Each section inclu
     - No per-user tracking or authorities
     - Security risk for networked deployments
 
-    **Setup:** Simply set `MCP_AUTH_MODE=none` in your `.env` file
+    **Setup:** Simply set `MCP_AUTH_MODE=none`
   </Accordion>
 
   <Accordion title="Production with Multiple Users → Use 'ibmi'" icon="users">
@@ -462,7 +451,7 @@ Below is the reference for core server configuration options. Each section inclu
   </Step>
 
   <Step title="Configure Environment Variables">
-    Add the keypair paths to your `.env` file:
+    Set the keypair paths in the process environment:
 
     ```bash
     # IBM i Authentication Keys
@@ -512,7 +501,7 @@ Below is the reference for core server configuration options. Each section inclu
 
   <Accordion title="Version Control" icon="code-branch">
     - **Never commit keys**: Add `secrets/` to `.gitignore`
-    - **Never commit `.env`**: Environment files often contain paths to secrets
+    - **Never commit credentials**: Keep secrets in the process environment or a secrets manager
     - **Use environment-specific keys**: Different keypairs for dev/staging/production
     - **Document setup process**: Include key generation in deployment documentation
   </Accordion>
@@ -685,7 +674,7 @@ See the [YAML Sources Reference → JDBC Options](/sql-tools/sources#jdbc-option
 
 <Warning>
 **Path Requirements:**
-- `TOOLS_YAML_PATH` in `.env` files should use **absolute paths** to avoid issues when the server is started from different directories
+- `TOOLS_YAML_PATH` should use **absolute paths** to avoid issues when the server is started from different directories
 - For relative paths, use the `--tools` CLI argument instead: `npx -y @ibm/ibmi-mcp-server@latest --tools ./tools`
 - CLI arguments override environment variables, so `--tools` always takes precedence over `TOOLS_YAML_PATH`
 </Warning>

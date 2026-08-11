@@ -19,7 +19,7 @@ Declare SQL tools in YAML under `tools/` (`performance.yaml`, `sys-admin.yaml`) 
 
 ## Authentication & Security
 
-Optional IBM i HTTP auth issues bearer tokens at `/api/v1/auth` when `IBMI_HTTP_AUTH_ENABLED=true`, creating per-token pools governed by `IBMI_AUTH_TOKEN_EXPIRY_SECONDS`. Development may enable plain HTTP (`IBMI_AUTH_ALLOW_HTTP=true`), but production paths must describe TLS, pool cleanup, and secret handling. Never commit credentials; keep `.env` local and validate schema changes with `npm run validate`.
+Optional IBM i HTTP auth issues bearer tokens at `/api/v1/auth` when `IBMI_HTTP_AUTH_ENABLED=true`, creating per-token pools governed by `IBMI_AUTH_TOKEN_EXPIRY_SECONDS`. Development may enable plain HTTP (`IBMI_AUTH_ALLOW_HTTP=true`), but production paths must describe TLS, pool cleanup, and secret handling. Never commit credentials; set them in the process environment (local `.env` requires `MCP_SERVER_CONFIG`) and validate schema changes with `npm run validate`.
 
 ## Testing & Quality
 

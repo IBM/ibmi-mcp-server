@@ -72,30 +72,25 @@
 
 Get started with the IBM i MCP Server using the official npm package.
 
-### 1. Create Configuration File
+### 1. Set Environment Variables
 
-Create a `.env` file with your IBM i connection details:
+Export your IBM i connection details in the process environment:
 
 ```bash
-cat > .env << 'EOF'
-# IBM i DB2 for i Connection Settings
-DB2i_HOST=your-ibmi-host.com
-DB2i_USER=your-username
-DB2i_PASS=your-password
-DB2i_PORT=8076
-DB2i_IGNORE_UNAUTHORIZED=true
-
-# MCP Server Settings
-MCP_TRANSPORT_TYPE=http
-MCP_HTTP_PORT=3010
-MCP_LOG_LEVEL=info
-
-# Tools Configuration
-TOOLS_YAML_PATH=./tools
-EOF
+export DB2i_HOST=your-ibmi-host.com
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
+export DB2i_PORT=8076
+export DB2i_IGNORE_UNAUTHORIZED=true
+export MCP_TRANSPORT_TYPE=http
+export MCP_HTTP_PORT=3010
+export MCP_LOG_LEVEL=info
+export TOOLS_YAML_PATH=./tools
 ```
 
 > **📖 Configuration Guide:** See the complete [Configuration](#⚙️-configuration) section for all available settings.
+>
+> **Local development:** To load variables from a file, set `MCP_SERVER_CONFIG` to that path (for example `MCP_SERVER_CONFIG=.env`). The server does not read `.env` unless this variable is set.
 
 ### 2. Create a Simple SQL Tool
 
@@ -214,18 +209,7 @@ This creates three tools:
 > [!NOTE] 
 > **📖 More Tools:** The repository includes many ready-to-use tools in the [`tools/`](../tools/) directory covering performance monitoring, security, job management, and more. See [SQL Tool Configuration](#-sql-tool-configuration) to create your own custom tools.
 
-### 3. Set Configuration Path
-
-Point the server to your configuration file using the `MCP_SERVER_CONFIG` environment variable:
-
-```bash
-# Set configuration file path
-export MCP_SERVER_CONFIG=.env
-```
-
-> **Note:** CLI arguments override settings in the configuration file.
-
-### 4. Run the Server
+### 3. Run the Server
 
 Start the server in HTTP mode with your new tools:
 
@@ -235,14 +219,16 @@ npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quckstart.ya
 ```
 
 The server will:
-- Load configuration from `.env` (via `MCP_SERVER_CONFIG`)
+- Read configuration from the process environment
 - Connect to your IBM i system via Mapepire
 - Start on `http://localhost:3010/mcp`
 - Load the SQL tools from `tools/quickstart.yaml`
 
+> **Note:** CLI arguments override corresponding environment variables.
 
 
-### 5. Verify Server is Running
+
+### 4. Verify Server is Running
 
 Test the server endpoint:
 
@@ -256,7 +242,7 @@ curl -X POST http://localhost:3010/mcp \
   -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}'
 ```
 
-### 6. Test with Python Client (Optional)
+### 5. Test with Python Client (Optional)
 
 Install and run the example Python client:
 
@@ -376,10 +362,9 @@ For HTTP remote connections, you need to:
 1. **Start the server with IBM i authentication enabled:**
 
    ```bash
-   # Ensure your .env has these settings:
-   MCP_AUTH_MODE=ibmi
-   IBMI_HTTP_AUTH_ENABLED=true
-   IBMI_AUTH_ALLOW_HTTP=true  # For development only!
+   export MCP_AUTH_MODE=ibmi
+   export IBMI_HTTP_AUTH_ENABLED=true
+   export IBMI_AUTH_ALLOW_HTTP=true  # For development only!
 
    npm run start:http
    ```
@@ -1212,7 +1197,7 @@ sources:
 ```
 
 > [!NOTE]
-> The environment variables `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` can be set in the server `.env` file. See [Configuration](#️-configuration) for all available settings.
+> The environment variables `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` must be set in the process environment. See [Configuration](#️-configuration) for all available settings.
 
 ### Tools
 
@@ -1273,12 +1258,15 @@ Navigate to the `agents` directory and follow the setup instructions in the [REA
 
 ## ⚙️ Configuration
 
-The server is configured using environment variables, typically set in a `.env` file at the project root. Configuration is organized into logical groups for easier management.
+The server is configured using environment variables from the process environment (shell `export`, Docker `-e`, systemd, Kubernetes secrets). Configuration is organized into logical groups for easier management.
+
+A dotenv file is loaded only when `MCP_SERVER_CONFIG` points at it (local development). It is not loaded by default.
 
 **Quick Start:**
 ```bash
-cp .env.example .env
-code .env  # Edit with your settings
+export DB2i_HOST=your-ibmi-host.com
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
 ```
 
 ---
@@ -1836,54 +1824,52 @@ OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS=http://localhost:3000/callback,https://
 
 **Development:**
 ```bash
-# Recommended development .env
-MCP_TRANSPORT_TYPE=http
-MCP_HTTP_PORT=3010
-MCP_SESSION_MODE=auto
-MCP_LOG_LEVEL=debug
-MCP_AUTH_MODE=none  # Or ibmi with allow HTTP
-NODE_ENV=development
+export MCP_TRANSPORT_TYPE=http
+export MCP_HTTP_PORT=3010
+export MCP_SESSION_MODE=auto
+export MCP_LOG_LEVEL=debug
+export MCP_AUTH_MODE=none  # Or ibmi with allow HTTP
+export NODE_ENV=development
 
-DB2i_HOST=ibmi-dev.local
-DB2i_USER=DEVUSER
-DB2i_PASS=devpass
-DB2i_IGNORE_UNAUTHORIZED=true
+export DB2i_HOST=ibmi-dev.local
+export DB2i_USER=DEVUSER
+export DB2i_PASS=devpass
+export DB2i_IGNORE_UNAUTHORIZED=true
 
-TOOLS_YAML_PATH=tools/
-YAML_AUTO_RELOAD=true
-OTEL_ENABLED=true
+export TOOLS_YAML_PATH=tools/
+export YAML_AUTO_RELOAD=true
+export OTEL_ENABLED=true
 ```
 
 **Production:**
 ```bash
-# Recommended production .env
-MCP_TRANSPORT_TYPE=http
-MCP_HTTP_PORT=3010
-MCP_SESSION_MODE=auto
-MCP_LOG_LEVEL=warn
-MCP_AUTH_MODE=ibmi  # Or jwt/oauth
-NODE_ENV=production
+export MCP_TRANSPORT_TYPE=http
+export MCP_HTTP_PORT=3010
+export MCP_SESSION_MODE=auto
+export MCP_LOG_LEVEL=warn
+export MCP_AUTH_MODE=ibmi  # Or jwt/oauth
+export NODE_ENV=production
 
-DB2i_HOST=ibmi-prod.example.com
-DB2i_USER=PRODUSER
-DB2i_PASS=${SECURE_PASSWORD_FROM_VAULT}
-DB2i_IGNORE_UNAUTHORIZED=false  # Require valid SSL
+export DB2i_HOST=ibmi-prod.example.com
+export DB2i_USER=PRODUSER
+export DB2i_PASS="${SECURE_PASSWORD_FROM_VAULT}"
+export DB2i_IGNORE_UNAUTHORIZED=false  # Require valid SSL
 
-TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
-YAML_AUTO_RELOAD=false
-YAML_VALIDATE_MERGED=true
+export TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
+export YAML_AUTO_RELOAD=false
+export YAML_VALIDATE_MERGED=true
 
-IBMI_HTTP_AUTH_ENABLED=true
-IBMI_AUTH_ALLOW_HTTP=false  # HTTPS only
-IBMI_AUTH_PRIVATE_KEY_PATH=/opt/secrets/private.pem
-IBMI_AUTH_PUBLIC_KEY_PATH=/opt/secrets/public.pem
+export IBMI_HTTP_AUTH_ENABLED=true
+export IBMI_AUTH_ALLOW_HTTP=false  # HTTPS only
+export IBMI_AUTH_PRIVATE_KEY_PATH=/opt/secrets/private.pem
+export IBMI_AUTH_PUBLIC_KEY_PATH=/opt/secrets/public.pem
 
-OTEL_ENABLED=true
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp.example.com/v1/traces
+export OTEL_ENABLED=true
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp.example.com/v1/traces
 ```
 
 **Security Checklist:**
-- ✅ Never commit `.env` files to version control
+- ✅ Never commit credential files to version control
 - ✅ Use secrets management (Vault, AWS Secrets Manager, etc.) in production
 - ✅ Rotate credentials and keys regularly
 - ✅ Use HTTPS/TLS in production (`IBMI_AUTH_ALLOW_HTTP=false`)
@@ -1913,30 +1899,30 @@ openssl genpkey -algorithm RSA -out secrets/private.pem -pkeyopt rsa_keygen_bits
 openssl rsa -pubout -in secrets/private.pem -out secrets/public.pem
 ```
 
-Create or update your `.env` file with the following settings:
+Set the following environment variables:
 
-```ini
+```bash
 # Enable IBM i authentication system
-IBMI_HTTP_AUTH_ENABLED=true
-MCP_AUTH_MODE=ibmi
+export IBMI_HTTP_AUTH_ENABLED=true
+export MCP_AUTH_MODE=ibmi
 
 # IBM i authentication settings
-IBMI_AUTH_KEY_ID=development
-IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
-IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
+export IBMI_AUTH_KEY_ID=development
+export IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+export IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
 
 # Security settings
-IBMI_AUTH_ALLOW_HTTP=true          # Development only - use HTTPS in production
-IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600 # Token lifetime (1 hour)
+export IBMI_AUTH_ALLOW_HTTP=true          # Development only - use HTTPS in production
+export IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600 # Token lifetime (1 hour)
 
 # Resource management
-IBMI_AUTH_MAX_CONCURRENT_SESSIONS=100
-IBMI_AUTH_CLEANUP_INTERVAL_SECONDS=300
+export IBMI_AUTH_MAX_CONCURRENT_SESSIONS=100
+export IBMI_AUTH_CLEANUP_INTERVAL_SECONDS=300
 
 # IBM i connection details
-DB2i_HOST=your-ibmi-host
-DB2i_USER=your-username
-DB2i_PASS=your-password
+export DB2i_HOST=your-ibmi-host
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
 ```
 
 
@@ -1947,10 +1933,10 @@ DB2i_PASS=your-password
 Use the included `get-access-token.js` script to obtain authentication tokens:
 
 ```bash
-# Using credentials from .env file
+# Using credentials from the process environment
 node get-access-token.js --verbose
 
-# Using CLI arguments (overrides .env)
+# Using CLI arguments (overrides environment variables)
 node get-access-token.js --user myuser --password mypass --host my-ibmi-host
 
 # Quiet mode for shell evaluation
@@ -1960,7 +1946,7 @@ echo $IBMI_MCP_ACCESS_TOKEN
 
 The script automatically:
 
-- Loads IBM i credentials from `.env` with CLI fallback
+- Loads IBM i credentials from the process environment with CLI fallback
 - Fetches the server's public key
 - Encrypts credentials client-side
 - Requests an access token
@@ -2087,11 +2073,12 @@ npm run rebuild
 **3. Configure Environment:**
 
 ```bash
-# Copy example configuration
-cp .env.example .env
+export DB2i_HOST=your-ibmi-host.com
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
 
-# Edit with your IBM i connection details
-code .env
+# Optional (local development only): load a dotenv file
+# MCP_SERVER_CONFIG=.env npm run start:http
 ```
 
 **4. Run Development Server:**
@@ -2157,17 +2144,13 @@ The `MCP_SESSION_MODE` environment variable controls how the HTTP server handles
 ```bash
 # Set session mode via environment variable
 MCP_SESSION_MODE=stateful npm run start:http
-
-# Or set in .env file
-echo "MCP_SESSION_MODE=stateful" >> .env
-npm run start:http
 ```
 
 ### CLI Options
 
 Both transport modes support these command-line options:
 
-> **Note**: CLI arguments override corresponding settings in `.env` file when provided.
+> **Note**: CLI arguments override corresponding environment variables when provided.
 
 | Option               | Short | Description                                                                   | Example                           |
 | -------------------- | ----- | ----------------------------------------------------------------------------- | --------------------------------- |
@@ -2184,7 +2167,7 @@ Both transport modes support these command-line options:
 ```bash
 npm run start:http
 # Server: http://localhost:3010/mcp
-# Tools: tools/ (from .env)
+# Tools: tools/ (from TOOLS_YAML_PATH)
 # Session: auto-detected
 ```
 
@@ -2192,7 +2175,7 @@ npm run start:http
 
 ```bash
 npm run start:http -- --tools ./my-tools
-# Server: http://localhost:3010/mcp (port from .env or default)
+# Server: http://localhost:3010/mcp (port from MCP_HTTP_PORT or default)
 # Tools: ./my-tools
 ```
 
@@ -2205,7 +2188,7 @@ npm run start:http -- --toolsets performance,monitoring
 
 ### Development Tips
 
-- **Hot Reloading**: Enable `YAML_AUTO_RELOAD=true` in `.env` for automatic tool configuration updates
+- **Hot Reloading**: Enable `YAML_AUTO_RELOAD=true` for automatic tool configuration updates
 - **Verbose Logging**: Set `MCP_LOG_LEVEL=debug` for detailed operation logs
 - **CORS**: Configure `MCP_ALLOWED_ORIGINS` for web-based clients
 - **Authentication**: Use `MCP_AUTH_MODE=ibmi` with IBM i HTTP auth for token-based access
@@ -2215,9 +2198,7 @@ npm run start:http -- --toolsets performance,monitoring
 **Port Already in Use**
 
 ```bash
-# Configure port in .env file
-echo "MCP_HTTP_PORT=3011" >> .env
-npm run start:http
+MCP_HTTP_PORT=3011 npm run start:http
 ```
 
 **Tools Not Loading**
@@ -2250,7 +2231,7 @@ Here are the steps to run the MCP Inspector:
    cp template_mcp.json mcp.json
    ```
 
-   Fill out the connection details in `mcp.json` with your IBM i system information. You should use the same credentials as in your `.env` file:
+   Fill out the connection details in `mcp.json` with your IBM i system information. Use the same `DB2i_*` credentials as the process environment:
 
    ```json
    {

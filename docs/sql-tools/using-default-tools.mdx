@@ -69,23 +69,18 @@ npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools
 **Important**: When loading all tools from the directory, you **must** set `YAML_ALLOW_DUPLICATE_SOURCES=true`. Multiple YAML files define the same database sources (e.g., `ibmi-system`), and this setting allows the server to merge them instead of failing with a duplicate source error.
 </Warning>
 
-**Alternative: Use .env file**
-
-Create a `.env` file in your working directory:
+**Alternative: persist variables in your shell profile**
 
 ```bash
-# .env
-YAML_ALLOW_DUPLICATE_SOURCES=true
-DB2i_HOST=your-ibmi-system.local
-DB2i_USER=YOURUSERID
-DB2i_PASS=YourPassword
-```
+export YAML_ALLOW_DUPLICATE_SOURCES=true
+export DB2i_HOST=your-ibmi-system.local
+export DB2i_USER=YOURUSERID
+export DB2i_PASS=YourPassword
 
-Then start the server:
-
-```bash
 npx @ibm/ibmi-mcp-server --transport http --tools ./tools
 ```
+
+Local development can load a dotenv file only when `MCP_SERVER_CONFIG` points at it.
 
 **What happens:**
 - Recursively scans `tools/` for all `.yaml` files
@@ -288,16 +283,15 @@ npx @ibm/ibmi-mcp-server \
 ```
 
 <Tip>
-**Use `.env` Files**: Create a `.env` file in your working directory for persistent configuration:
+Export variables in your shell for persistent configuration in the current session:
 ```bash
-# .env
-DB2i_HOST=ibmi-dev.mycompany.local
-DB2i_USER=DEVUSER
-DB2i_PASS=DevPassword123
-MCP_LOG_LEVEL=debug
-YAML_ALLOW_DUPLICATE_SOURCES=true
+export DB2i_HOST=ibmi-dev.mycompany.local
+export DB2i_USER=DEVUSER
+export DB2i_PASS=DevPassword123
+export MCP_LOG_LEVEL=debug
+export YAML_ALLOW_DUPLICATE_SOURCES=true
 ```
-The server automatically loads environment variables from `.env` files in the current directory.
+The server reads the process environment. It does not load a `.env` file unless `MCP_SERVER_CONFIG` is set.
 </Tip>
 
 ---
@@ -611,7 +605,7 @@ The `--tools` argument accepts multiple formats:
     - Load all tools: `--tools ./tools` (no toolset filter)
     - Enable debug logging: `MCP_LOG_LEVEL=debug`
     - Allow SSL bypass: `DB2i_IGNORE_UNAUTHORIZED=true`
-    - Set `YAML_ALLOW_DUPLICATE_SOURCES=true` in `.env`
+    - Set `YAML_ALLOW_DUPLICATE_SOURCES=true`
 
     **Production:**
     - Use `--transport stdio` for MCP client integration

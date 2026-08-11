@@ -72,7 +72,7 @@ All sources must include these three fields:
         password: ${DB2i_PASS}
     ```
 
-    **.env file:**
+    **Environment:**
     ```bash
     DB2i_HOST=ibmi-prod.example.com
     DB2i_USER=MCPUSER
@@ -107,7 +107,7 @@ All sources must include these three fields:
         password: ${DB2i_PASS}
     ```
 
-    **.env file:**
+    **Environment:**
     ```bash
     DB2i_HOST=192.168.1.100
     DB2i_USER=MCPUSER
@@ -358,7 +358,7 @@ sources:
     port: 8076
 ```
 
-**.env file:**
+**Environment:**
 ```bash
 DB2i_HOST=ibmi-prod.example.com
 DB2i_USER=MCPUSER
@@ -479,7 +479,7 @@ sources:
     ignore-unauthorized: true
 ```
 
-**.env:**
+**Environment:**
 ```bash
 DB2i_HOST=ibmi-dev.local
 DB2i_USER=DEVUSER
@@ -498,7 +498,7 @@ sources:
     ignore-unauthorized: false
 ```
 
-**.env:**
+**Environment:**
 ```bash
 DB2i_HOST=ibmi-prod.example.com
 DB2i_USER=MCPUSER
@@ -550,7 +550,7 @@ sources:
   <Accordion title="Credential Rotation" icon="rotate">
     **Regular rotation strategy:**
 
-    1. **Update .env file** with new credentials
+    1. **Update environment variables** with new credentials
     2. **Restart MCP server** to apply changes
     3. **Test connection** with simple tool
     4. **Update production** after successful testing
@@ -580,11 +580,7 @@ sources:
     # Restrict to owner read/write only
     chmod 600 my-tools.yaml
 
-    # Protect .env files
-    chmod 600 .env
-
-    # Never commit to version control
-    echo ".env" >> .gitignore
+    # Never commit credentials to version control
     echo "*.yaml" >> .gitignore  # If contains secrets
     ```
   </Accordion>

@@ -24,7 +24,7 @@ npm run build && npm link -w @ibm/ibmi-cli
 # Option A: Configure via .ibmi/config.yaml
 ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
 
-# Option B: Use existing DB2i_* env vars from .env (zero config)
+# Option B: Use existing DB2i_* environment variables (zero config)
 # The CLI falls back to DB2i_HOST, DB2i_USER, DB2i_PASS automatically
 
 # Run a query

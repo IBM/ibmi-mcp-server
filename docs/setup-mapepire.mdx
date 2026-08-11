@@ -130,7 +130,7 @@ sc start mapepire.yaml
 Mapepire uses **port 8076** by default. This is the standard port and changing it is not recommended.
 
 <Note>
-**Important**: You'll need port 8076 when configuring the `DB2i_PORT` variable in your `.env` file. Ensure your IBM i firewall allows inbound connections on this port.
+**Important**: You'll need port 8076 when configuring the `DB2i_PORT` environment variable. Ensure your IBM i firewall allows inbound connections on this port.
 </Note>
 
 If you need to change the port:
@@ -252,15 +252,14 @@ allow appusr2@192.168.*
 
 ### Configure IBM i MCP Server
 
-Once Mapepire is running, configure your IBM i MCP Server `.env` file:
+Once Mapepire is running, set IBM i MCP Server connection variables:
 
 ```bash
-# IBM i connection settings
-DB2i_HOST=your-ibmi-hostname
-DB2i_USER=your-username
-DB2i_PASS=your-password
-DB2i_PORT=8076
-DB2i_IGNORE_UNAUTHORIZED=true
+export DB2i_HOST=your-ibmi-hostname
+export DB2i_USER=your-username
+export DB2i_PASS=your-password
+export DB2i_PORT=8076
+export DB2i_IGNORE_UNAUTHORIZED=true
 ```
 
 <Note>
