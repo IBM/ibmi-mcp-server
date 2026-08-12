@@ -35,6 +35,10 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 Read-only mode is enabled by default. To execute INSERT, UPDATE, DELETE, or DDL statements, pass `--no-read-only` explicitly or set `readOnly: false` in your system config.
 </Note>
 
+<Warning>
+**`IBMI_EXECUTE_SQL_READONLY=true` in your environment overrides `--no-read-only`.** Setting that variable explicitly pins read-only mode as an operator-level floor, so the connection is opened with JDBC `access=read call` and writes are rejected by the driver even when you pass the flag. If `--no-read-only` appears to have no effect, check whether the variable is exported in your shell or `.env`. See [Read-Only Policy Precedence](/configuration#read-only-policy-precedence).
+</Warning>
+
 ---
 
 ## Multi-System Execution
