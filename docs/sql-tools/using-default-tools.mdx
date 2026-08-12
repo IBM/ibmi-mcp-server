@@ -254,7 +254,7 @@ export DB2i_IGNORE_UNAUTHORIZED=true  # Development only
 ```bash
 # HTTP transport settings
 export MCP_HTTP_PORT=3010
-export MCP_HTTP_HOST="0.0.0.0"
+export MCP_HTTP_HOST="127.0.0.1"   # loopback-only; see note below before using 0.0.0.0
 
 # Logging configuration
 export MCP_LOG_LEVEL=debug  # debug | info | warning | error
@@ -266,6 +266,20 @@ export SELECTED_TOOLSETS="performance_monitoring,security_audit"
 export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required when loading tools/ directory
 export YAML_ALLOW_DUPLICATE_TOOLS=false   # Prevent accidental tool name conflicts
 ```
+
+<Warning>
+**Binding beyond loopback requires authentication.** The server refuses to start when it is bound to a non-loopback address (`MCP_HTTP_HOST=0.0.0.0`) with IBM i credentials configured and authentication not enforced — otherwise anyone with network reach could execute these SQL tools with your credentials.
+
+To expose the server on a network, set `MCP_AUTH_MODE` (note that `jwt` also needs `MCP_AUTH_SECRET_KEY`, or verification is bypassed) and allowlist the hostname clients use:
+
+```bash
+export MCP_HTTP_HOST="0.0.0.0"
+export MCP_ALLOWED_HOSTS="mcp.mycompany.local"
+export MCP_AUTH_MODE=ibmi
+```
+
+To accept the risk on a trusted network instead, set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` explicitly.
+</Warning>
 
 ### Complete Example
 

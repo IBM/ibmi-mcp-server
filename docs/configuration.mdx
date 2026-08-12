@@ -121,7 +121,9 @@ Below is the reference for core server configuration options. Each section inclu
 | `MCP_TRANSPORT_TYPE` | Server transport mode | `stdio` | `http` |
 | `MCP_HTTP_PORT` | HTTP server port | `3010` | `3010` |
 | `MCP_HTTP_HOST` | HTTP server host | `127.0.0.1` | `0.0.0.0` |
-| `MCP_ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | (none) | `http://localhost:3000,https://myapp.com` |
+| `MCP_ALLOWED_ORIGINS` | CORS + browser `Origin` allowlist (comma-separated). Governs browsers only — it does not restrict non-browser clients | (none) | `http://localhost:3000,https://myapp.com` |
+| `MCP_ALLOWED_HOSTS` | `Host` header allowlist for DNS rebinding protection; extends the always-allowed loopback set. `*` disables Host checking only — Origin is still enforced | (loopback only) | `mcp.example.com` |
+| `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present (server refuses to start otherwise). Note `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` counts as unauthenticated | `false` | `true` |
 
 <Tabs>
   <Tab title="HTTP Transport (Recommended)">
@@ -1176,6 +1178,7 @@ MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_HTTP_HOST=0.0.0.0
 MCP_SESSION_MODE=stateful
+MCP_ALLOWED_HOSTS=mcp.company.com
 MCP_ALLOWED_ORIGINS=https://myapp.company.com
 
 # Authentication

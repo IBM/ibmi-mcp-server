@@ -1329,6 +1329,8 @@ Configuration for HTTP transport mode, including network settings, session manag
 | `MCP_HTTP_MAX_PORT_RETRIES` | Max attempts to find available port if default is in use | `15` | No |
 | `MCP_HTTP_PORT_RETRY_DELAY_MS` | Delay between port retry attempts (milliseconds) | `50` | No |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | None (all origins blocked) | No |
+| `MCP_ALLOWED_HOSTS` | Comma-separated `Host` header allowlist (extends the always-allowed loopback set); `*` disables Host checking only, not Origin checking | None (loopback only) | No |
+| `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present | `false` | No |
 
 **Session Modes:**
 - **`auto`**: Automatically detects client capabilities and uses the best session mode
@@ -1337,16 +1339,17 @@ Configuration for HTTP transport mode, including network settings, session manag
 
 **Examples:**
 ```bash
-# Development server with CORS for local web clients
+# Development server with CORS for local web clients (loopback-only bind)
 MCP_HTTP_PORT=3010
-MCP_HTTP_HOST=0.0.0.0  # Listen on all interfaces
+MCP_HTTP_HOST=127.0.0.1
 MCP_SESSION_MODE=auto
 MCP_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # Production server with strict security
 MCP_HTTP_PORT=443
-MCP_HTTP_HOST=0.0.0.0
+MCP_HTTP_HOST=0.0.0.0                       # non-loopback bind requires MCP_AUTH_MODE != none
 MCP_SESSION_MODE=stateful
+MCP_ALLOWED_HOSTS=mcp.example.com           # public hostname(s) this server is reached at
 MCP_ALLOWED_ORIGINS=https://app.example.com,https://dashboard.example.com
 MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS=3600000  # 1 hour
 ```
@@ -1891,6 +1894,34 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp.example.com/v1/traces
 - ✅ Use strong passwords (12+ characters, mixed case, numbers, symbols)
 - ✅ Restrict `MCP_ALLOWED_ORIGINS` to known domains
 - ✅ Set appropriate `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` limits
+
+### DNS Rebinding Protection
+
+The HTTP transport validates the `Host` and `Origin` headers of **every** request (including `/healthz` and `/api/v1/auth`) before any MCP dispatch. By default only loopback hosts (`localhost`, `127.0.0.0/8`, `::1`) are accepted; a non-wildcard `MCP_HTTP_HOST` bind address is accepted automatically, and `MCP_ALLOWED_HOSTS` **extends** the allowlist for deployments reached via a real hostname:
+
+```bash
+MCP_ALLOWED_HOSTS=mcp.example.com,mcp-internal.example.com
+# Behind a proxy that rewrites Host unpredictably (logs a warning at startup):
+MCP_ALLOWED_HOSTS=*
+```
+
+Requests carrying a browser `Origin` header must match `MCP_ALLOWED_ORIGINS` or resolve to an allowlisted hostname; the degenerate `Origin: null` (sandboxed iframes) is always rejected. **`MCP_ALLOWED_HOSTS=*` relaxes the `Host` check only — `Origin` is still enforced**, since a Host-rewriting proxy says nothing about which browser origins should be trusted.
+
+**This is a browser defense, not authentication.** Host validation stops a malicious web page from driving the server via DNS rebinding — it does nothing against an attacker with direct network reach, who can forge any header. For that reason the server **refuses to start** when all of the following hold: HTTP transport, authentication not enforced, a non-loopback bind, and IBM i credentials present (via `DB2i_*` env vars **or** a tools YAML). Enable authentication, bind to loopback, or — only as an explicit, understood risk — set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`. The published Docker image binds `0.0.0.0`, so containers handed credentials without authentication will hit this guard by design.
+
+> **"Authentication not enforced" includes `MCP_AUTH_MODE=jwt` with no `MCP_AUTH_SECRET_KEY`.** Outside production that combination puts the JWT strategy into a development bypass where *any* bearer token is accepted, so the guard treats it as unauthenticated rather than trusting the mode name.
+
+Kubernetes liveness probes that target the pod IP will receive `403` on `/healthz`; prefer overriding the probe's Host header rather than allowlisting dynamic pod IPs:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 3010
+    httpHeaders:
+      - name: Host
+        value: localhost
+```
 
 ## 🔐 IBM i HTTP Authentication (Beta)
 

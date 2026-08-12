@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## Unreleased
+
+### Security
+
+* **DNS rebinding hardening for the HTTP transport** (⚠️ **breaking** for remote deployments). Every HTTP request — including `/healthz` and `/api/v1/auth` — now has its `Host` and `Origin` headers validated before MCP dispatch. Loopback hosts are always allowed; deployments reached via a real hostname must set `MCP_ALLOWED_HOSTS` (or `MCP_ALLOWED_HOSTS=*` behind a Host-rewriting proxy, which relaxes the `Host` check only — `Origin` stays enforced). Browser `Origin` headers must match `MCP_ALLOWED_ORIGINS` or an allowlisted hostname; `Origin: null` is rejected.
+* **`MCP_HTTP_HOST` now defaults to `127.0.0.1`** (was `0.0.0.0`). Remote deployments must set `MCP_HTTP_HOST=0.0.0.0` explicitly; the Docker image does so in the `Dockerfile`.
+* **Startup guard against credential exposure.** The server refuses to start when the HTTP transport is bound to a non-loopback address while IBM i credentials are configured (via `DB2i_*` env vars or a tools YAML) and authentication is not enforced. Enable authentication, bind to loopback, or explicitly accept the risk with the new `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`. Containers with credentials and no auth now refuse to start by design. "Not enforced" covers `MCP_AUTH_MODE=none` **and** `MCP_AUTH_MODE=jwt` with no `MCP_AUTH_SECRET_KEY` — the latter silently accepts any bearer token outside production, so naming an auth mode is not treated as proof of authentication.
+* **Dev CORS `*` fallback removed.** With `MCP_ALLOWED_ORIGINS` unset, no `Access-Control-Allow-Origin` header is emitted in any environment; browser-based clients must be allowlisted explicitly. (MCP Inspector is unaffected — it connects through its Node proxy.)
+* **Deployment templates updated for the new posture.** The root `.env.example` now defaults to a loopback bind and documents both new variables; the OpenShift deployment's `/healthz` probes override their `Host` header (kubelet sends the dynamic pod IP, which is not allowlistable), and the OpenShift README documents the `MCP_ALLOWED_HOSTS` / authentication settings a Route-exposed pod now requires.
+
 ## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1) (2026-04-20)
 
 Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior ([#146](https://github.com/IBM/ibmi-mcp-server/pull/146)). Ships CI reliability fixes and root-level README coverage for the new two-package layout.
