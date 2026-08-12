@@ -7,8 +7,7 @@
  * @module src/index
  */
 
-// IMPORTANT: This line MUST be the first import to ensure OpenTelemetry is
-// initialized before any other modules are loaded.
+// First import: OTel facade (lazy-loads the SDK only when OTEL_ENABLED=true).
 import { shutdownOpenTelemetry } from "@/utils/telemetry/instrumentation.js";
 
 import { config, environment } from "@/config/index.js";

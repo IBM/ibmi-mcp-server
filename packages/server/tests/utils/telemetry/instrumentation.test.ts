@@ -6,7 +6,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 
-// Mock dependencies
 const mockSpanProcessor = {
   onEnd: vi.fn(),
   shutdown: vi.fn().mockResolvedValue(undefined),
@@ -24,53 +23,22 @@ vi.mock("@opentelemetry/sdk-node", () => {
   return { NodeSDK };
 });
 
-vi.mock("winston", () => {
-  const mTransports = {
-    File: vi.fn(),
-    Console: vi.fn(),
-  };
-  const mFormat = {
-    combine: vi.fn(),
-    timestamp: vi.fn(),
-    json: vi.fn(),
-  };
-  const mLogger = {
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    verbose: vi.fn(),
-    on: vi.fn().mockReturnThis(),
-    end: vi.fn(),
-  };
-  const createLoggerMock = vi.fn(() => mLogger);
-
-  const winstonMock = {
-    createLogger: createLoggerMock,
-    format: mFormat,
-    transports: mTransports,
-  };
-
-  return {
-    ...winstonMock,
-    default: winstonMock,
-  };
-});
+const enabledConfig = {
+  openTelemetry: {
+    enabled: true,
+    serviceName: "test-service",
+    serviceVersion: "1.0.0",
+    logLevel: "INFO",
+    samplingRatio: 1,
+    tracesEndpoint: "",
+    metricsEndpoint: "",
+  },
+  logsPath: "/tmp/logs",
+  environment: "test",
+};
 
 vi.mock("../../../src/config/index.js", () => ({
-  config: {
-    openTelemetry: {
-      enabled: true,
-      serviceName: "test-service",
-      serviceVersion: "1.0.0",
-      logLevel: "INFO",
-      samplingRatio: 1,
-      tracesEndpoint: "",
-      metricsEndpoint: "",
-    },
-    logsPath: "/tmp/logs",
-    environment: "test",
-  },
+  config: enabledConfig,
 }));
 
 describe("OpenTelemetry Instrumentation", () => {
@@ -78,6 +46,9 @@ describe("OpenTelemetry Instrumentation", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    vi.doMock("../../../src/config/index.js", () => ({
+      config: enabledConfig,
+    }));
     instrumentation =
       await import("../../../src/utils/telemetry/instrumentation.js");
   });
@@ -87,7 +58,7 @@ describe("OpenTelemetry Instrumentation", () => {
   });
 
   describe("FileSpanProcessor", () => {
-    it("should log spans to a file", async () => {
+    it("should log spans to a file", () => {
       const readableSpan = {
         spanContext: () => ({ traceId: "trace1", spanId: "span1" }),
         name: "test-span",
@@ -100,11 +71,8 @@ describe("OpenTelemetry Instrumentation", () => {
         events: [],
       };
 
-      // We need to manually call the onEnd method of the processor that was created inside instrumentation.ts
-      // The mockSpanProcessor is not the same instance, so we'll test the mock directly
       mockSpanProcessor.onEnd(readableSpan);
 
-      // Verify that the span processor's onEnd method was called with the span
       expect(mockSpanProcessor.onEnd).toHaveBeenCalledWith(readableSpan);
     });
   });
@@ -123,14 +91,32 @@ describe("OpenTelemetry Instrumentation", () => {
 
   describe("shutdownOpenTelemetry", () => {
     it("should call sdk.shutdown if sdk is initialized", async () => {
-      const { sdk, shutdownOpenTelemetry } = instrumentation;
+      expect(instrumentation.sdk).not.toBeNull();
       const shutdownSpy = vi
-        .spyOn(sdk as NodeSDK, "shutdown")
+        .spyOn(instrumentation.sdk!, "shutdown")
         .mockResolvedValue(undefined);
 
-      await shutdownOpenTelemetry();
+      await instrumentation.shutdownOpenTelemetry();
 
       expect(shutdownSpy).toHaveBeenCalled();
     });
+  });
+});
+
+describe("OpenTelemetry Instrumentation (disabled)", () => {
+  it("should not load the SDK setup when OTel is disabled", async () => {
+    vi.resetModules();
+    vi.doMock("../../../src/config/index.js", () => ({
+      config: {
+        ...enabledConfig,
+        openTelemetry: { ...enabledConfig.openTelemetry, enabled: false },
+      },
+    }));
+
+    const disabled =
+      await import("../../../src/utils/telemetry/instrumentation.js");
+
+    expect(disabled.sdk).toBeNull();
+    await expect(disabled.shutdownOpenTelemetry()).resolves.toBeUndefined();
   });
 });
