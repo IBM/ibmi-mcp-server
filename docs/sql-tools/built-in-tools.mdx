@@ -292,7 +292,7 @@ Full reference: [Read-Only Access Backstop](/configuration#read-only-access-back
 </Note>
 
 <Warning>
-Every layer checks statement type, not effect — a SELECT that invokes a side-effecting function (for example `QSYS2.QCMDEXC`) passes all three and runs. Read-only mode is a guardrail against accidents, not a security boundary. Where read-only must be guaranteed, run the server under a least-privilege IBM i user profile — object authority is the enforced boundary.
+All three layers classify the statement. None of them inspect what it invokes. A SELECT that calls `QSYS2.QCMDEXC` passes every layer and runs in read-only mode. Read-only mode is not a security boundary. The boundary is the IBM i user profile's object authority; run the server under a least-privilege profile.
 </Warning>
 
 ---
