@@ -1295,6 +1295,7 @@ Core server configuration including server identity, transport mode, and logging
 | `MCP_TRANSPORT_TYPE` | Transport protocol: `stdio` (local) or `http` (remote) | `stdio` | No |
 | `MCP_LOG_LEVEL` | Logging verbosity: `error`, `warn`, `info`, `debug` | `debug` | No |
 | `LOGS_DIR` | Directory for log files (relative to project root) | `logs` | No |
+| `MCP_LOG_TO_FILE` | Write logs to rotating files in `LOGS_DIR`. Set `false` to log to the console only (e.g. when ECS/Docker collects stderr) | `true` | No |
 | `NODE_ENV` | Node environment: `development`, `production`, `test` | `development` | No |
 
 **Examples:**
