@@ -14,6 +14,7 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
+import { resolveIgnoreUnauthorized } from "@/ibmi-mcp-server/utils/resolveIgnoreUnauthorized.js";
 
 // Load .env from multiple possible locations for monorepo flexibility
 // Priority order:
@@ -260,11 +261,14 @@ const EnvSchema = z.object({
     .string()
     .min(1, "DB2i_PASS is required for IBM i connections.")
     .optional(),
-  /** Ignore unauthorized SSL certificates for Mapepire. From `DB2i_IGNORE_UNAUTHORIZED`. Default: true. */
+  /**
+   * Skip Mapepire TLS certificate-chain and hostname verification.
+   * From `DB2i_IGNORE_UNAUTHORIZED`. Default: false (verify TLS).
+   */
   DB2i_IGNORE_UNAUTHORIZED: z
     .string()
     .optional()
-    .default("true")
+    .default("false")
     .transform((val) => val === "true" || val === "1"),
 
   /**
@@ -675,7 +679,6 @@ export const config = {
     const user = process.env.DB2i_USER;
     const password = process.env.DB2i_PASS;
     if (!host || !user || !password) return undefined;
-    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
     const rawJdbcOptions = process.env.DB2i_JDBC_OPTIONS;
     const jdbcOptions = rawJdbcOptions
       ? parseJdbcOptionsString(rawJdbcOptions)
@@ -684,7 +687,7 @@ export const config = {
       host,
       user,
       password,
-      ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",
+      ignoreUnauthorized: resolveIgnoreUnauthorized(undefined),
       ...(jdbcOptions ? { jdbcOptions } : {}),
     };
   },

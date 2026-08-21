@@ -198,7 +198,7 @@ export function registerSystemCommand(program: Command): void {
           confirm: false,
           timeout: 60,
           maxRows: 5000,
-          ignoreUnauthorized: true,
+          ignoreUnauthorized: false,
         };
 
         upsertSystem(name, system);

@@ -227,7 +227,7 @@ systems:
     confirm: false
     timeout: 60
     maxRows: 5000
-    ignoreUnauthorized: true
+    ignoreUnauthorized: true  # explicit opt-in for self-signed Mapepire TLS
   prod:
     host: prod400.example.com
     port: 8076
@@ -235,6 +235,7 @@ systems:
     password: ${PROD_PASS}
     readOnly: true
     confirm: true
+    # ignoreUnauthorized defaults to false (verify TLS)
 ```
 
 `${VAR}` references are expanded from environment variables at load time.

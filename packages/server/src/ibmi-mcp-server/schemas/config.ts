@@ -95,7 +95,10 @@ export const SourceConfigSchema = z
     "ignore-unauthorized": z
       .boolean()
       .optional()
-      .describe("Whether to ignore unauthorized SSL certificates"),
+      .describe(
+        "Skip Mapepire TLS certificate-chain and hostname verification (allow insecure TLS). " +
+          "When omitted, DB2i_IGNORE_UNAUTHORIZED applies; otherwise defaults to false.",
+      ),
     // `.passthrough()` lets any JDBCOption flow through without enumerating
     // 60+ properties in Zod. Tradeoff: typos (e.g., `librarys`) pass
     // validation and are silently forwarded to mapepire. Intentional — an

@@ -542,7 +542,7 @@ Below is the reference for core server configuration options. Each section inclu
 | `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Shared credentials (dev only) |
 | `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
 | `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Ensure firewall allows this port |
-| `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
+| `DB2i_IGNORE_UNAUTHORIZED` | Skip Mapepire TLS certificate verification (allow insecure TLS). YAML `ignore-unauthorized` wins when set; otherwise this env applies | `false` | `true` | ⚠️ **High Risk**: Keep `false` in production |
 | `DB2i_JDBC_OPTIONS` | Mapepire JDBC options ([syntax](#db2i-jdbc-options-env-var)) | (none) | `naming=system;date format=iso` | `key ring password` redacted from logs |
 
 <Warning>

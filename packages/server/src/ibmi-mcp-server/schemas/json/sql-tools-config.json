@@ -33,7 +33,7 @@
               },
               "ignore-unauthorized": {
                 "type": "boolean",
-                "description": "Whether to ignore unauthorized SSL certificates"
+                "description": "Skip Mapepire TLS certificate-chain and hostname verification (allow insecure TLS). When omitted, DB2i_IGNORE_UNAUTHORIZED applies; otherwise defaults to false."
               },
               "jdbc-options": {
                 "type": "object",

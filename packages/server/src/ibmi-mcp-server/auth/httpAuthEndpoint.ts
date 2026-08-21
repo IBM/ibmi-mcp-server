@@ -9,6 +9,7 @@ import { Context } from "hono";
 import { config } from "@/config/index.js";
 import { logger, requestContextService } from "@/utils/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { resolveIgnoreUnauthorized } from "@/ibmi-mcp-server/utils/resolveIgnoreUnauthorized.js";
 import { TokenManager } from "./tokenManager.js";
 import { AuthenticatedPoolManager } from "../services/authenticatedPoolManager.js";
 import {
@@ -266,14 +267,14 @@ export const handleAuthRequest = async (c: Context) => {
       );
     }
 
-    // Create IBM i credentials as DaemonServer object using existing config defaults
-    // Default to ignore unauthorized SSL (like existing connectionPool.ts)
-    const ignoreUnauthorized = config.db2i?.ignoreUnauthorized ?? true;
+    // TLS policy from DB2i_IGNORE_UNAUTHORIZED (works even when DB2i_USER/PASS
+    // are omitted for token auth — config.db2i is undefined in that case)
+    const ignoreUnauthorized = resolveIgnoreUnauthorized(undefined);
     const ibmiCredentials = {
       host: requestBody.host,
       user: credentials.username,
       password: credentials.password,
-      rejectUnauthorized: !ignoreUnauthorized, // Use existing Db2i config
+      rejectUnauthorized: !ignoreUnauthorized,
     };
 
     // Generate authentication token

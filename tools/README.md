@@ -96,7 +96,7 @@ The `sources` section defines database connection details. Each source includes:
 - `user`: Database user
 - `password`: User password
 - `port`: Database port (default: 8076)
-- `ignore-unauthorized`: Whether to ignore SSL certificate errors
+- `ignore-unauthorized`: Skip Mapepire TLS certificate-chain and hostname verification (allow insecure TLS). Optional; when omitted, `DB2i_IGNORE_UNAUTHORIZED` applies, otherwise defaults to `false`.
 
 > `host`, `user`, and `password` are REQUIRED for each source.
 
