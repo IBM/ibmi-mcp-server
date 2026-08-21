@@ -2,12 +2,18 @@
  * @fileoverview Tests for ignore-unauthorized resolution precedence.
  * @module tests/ibmi-mcp-server/utils/resolveIgnoreUnauthorized.test
  */
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { resolveIgnoreUnauthorized } from "../../../src/ibmi-mcp-server/utils/resolveIgnoreUnauthorized.js";
 
 describe("resolveIgnoreUnauthorized", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("defaults to false when YAML and env are both absent", () => {
-    expect(resolveIgnoreUnauthorized(undefined, undefined)).toBe(false);
+    vi.stubEnv("DB2i_IGNORE_UNAUTHORIZED", undefined);
+
+    expect(resolveIgnoreUnauthorized(undefined)).toBe(false);
     expect(resolveIgnoreUnauthorized(undefined, "")).toBe(false);
     expect(resolveIgnoreUnauthorized(undefined, "   ")).toBe(false);
   });
