@@ -51,6 +51,12 @@ USER appuser
 
 # Expose port if the application runs a server (adjust if needed)
 ENV MCP_TRANSPORT_TYPE=http
+# Containers must bind all interfaces to be reachable through published ports.
+# Set explicitly — the server defaults to loopback-only (DNS rebinding hardening).
+# Do NOT set MCP_ALLOW_UNAUTHENTICATED_HTTP here: with IBM i credentials present
+# and MCP_AUTH_MODE=none the server intentionally refuses to start; that override
+# is the operator's explicit, per-deployment decision.
+ENV MCP_HTTP_HOST=0.0.0.0
 EXPOSE 3010
 
 # Command to run the application

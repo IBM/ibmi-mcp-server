@@ -155,7 +155,7 @@ const EnvSchema = z.object({
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
   MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
   MCP_HTTP_PORT: z.coerce.number().int().positive().default(3010),
-  MCP_HTTP_HOST: z.string().default("0.0.0.0"),
+  MCP_HTTP_HOST: z.string().default("127.0.0.1"),
   MCP_HTTP_ENDPOINT_PATH: z.string().default("/mcp"),
   MCP_HTTP_MAX_PORT_RETRIES: z.coerce.number().int().nonnegative().default(15),
   MCP_HTTP_PORT_RETRY_DELAY_MS: z.coerce
@@ -169,6 +169,12 @@ const EnvSchema = z.object({
     .positive()
     .default(1_800_000),
   MCP_ALLOWED_ORIGINS: z.string().optional(),
+  MCP_ALLOWED_HOSTS: z.string().optional(),
+  MCP_ALLOW_UNAUTHENTICATED_HTTP: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
   MCP_AUTH_SECRET_KEY: z
     .string()
     .min(
@@ -591,6 +597,10 @@ export const config = {
   mcpAllowedOrigins: env.MCP_ALLOWED_ORIGINS?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
+  mcpAllowedHosts: env.MCP_ALLOWED_HOSTS?.split(",")
+    .map((host) => host.trim())
+    .filter(Boolean),
+  mcpAllowUnauthenticatedHttp: env.MCP_ALLOW_UNAUTHENTICATED_HTTP,
   mcpAuthSecretKey: env.MCP_AUTH_SECRET_KEY,
   mcpAuthMode: env.MCP_AUTH_MODE,
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,

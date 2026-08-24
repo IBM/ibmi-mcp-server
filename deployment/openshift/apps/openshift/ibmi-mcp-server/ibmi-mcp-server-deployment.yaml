@@ -27,12 +27,24 @@ spec:
             httpGet:
               path: /healthz
               port: 3010
+              # kubelet sets Host to the pod IP, which the DNS rebinding
+              # guard rejects (pod IPs are dynamic, so allowlisting them is
+              # not viable). Override the probe's Host instead.
+              httpHeaders:
+                - name: Host
+                  value: localhost
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
               port: 3010
+              # kubelet sets Host to the pod IP, which the DNS rebinding
+              # guard rejects (pod IPs are dynamic, so allowlisting them is
+              # not viable). Override the probe's Host instead.
+              httpHeaders:
+                - name: Host
+                  value: localhost
             initialDelaySeconds: 15
             periodSeconds: 20
           securityContext:
