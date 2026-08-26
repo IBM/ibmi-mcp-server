@@ -9,18 +9,14 @@ Run the IBM i MCP Server as a container using the official pre-built images from
 
 ## Quick Start
 
-Pull and run the server in under a minute:
+The commands below start a server for clients on the same machine. The server answers at `http://localhost:3010/mcp` and is not reachable from other hosts.
 
 <Tabs>
   <Tab title="Docker">
     ```bash
-    # Pull the image (replace TAG with your architecture)
-    docker pull ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
-
-    # Run the server
     docker run -d \
       --name ibmi-mcp-server \
-      -p 3010:3010 \
+      -p 127.0.0.1:3010:3010 \
       -e DB2i_HOST=your-ibmi-host \
       -e DB2i_USER=your-username \
       -e DB2i_PASS=your-password \
@@ -28,18 +24,15 @@ Pull and run the server in under a minute:
       -e DB2i_IGNORE_UNAUTHORIZED=true \
       -e MCP_TRANSPORT_TYPE=http \
       -e MCP_HTTP_PORT=3010 \
-      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+      -e MCP_ALLOW_UNAUTHENTICATED_HTTP=true \
+      ghcr.io/ibm/ibmi-mcp-server:latest
     ```
   </Tab>
   <Tab title="Podman">
     ```bash
-    # Pull the image (replace TAG with your architecture)
-    podman pull ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
-
-    # Run the server
     podman run -d \
       --name ibmi-mcp-server \
-      -p 3010:3010 \
+      -p 127.0.0.1:3010:3010 \
       -e DB2i_HOST=your-ibmi-host \
       -e DB2i_USER=your-username \
       -e DB2i_PASS=your-password \
@@ -47,7 +40,8 @@ Pull and run the server in under a minute:
       -e DB2i_IGNORE_UNAUTHORIZED=true \
       -e MCP_TRANSPORT_TYPE=http \
       -e MCP_HTTP_PORT=3010 \
-      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+      -e MCP_ALLOW_UNAUTHENTICATED_HTTP=true \
+      ghcr.io/ibm/ibmi-mcp-server:latest
     ```
   </Tab>
 </Tabs>
@@ -58,21 +52,71 @@ Verify the server is running:
 curl http://localhost:3010/healthz
 ```
 
+Two parts of this command control who can reach the server:
+
+- `-p 127.0.0.1:3010:3010` publishes the port on the host's loopback address only. `-p 3010:3010` publishes it on every host interface, which makes an unauthenticated server that holds IBM i credentials reachable from the network.
+- `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` accepts running without authentication. Without this variable or an `MCP_AUTH_MODE` setting, a container that holds IBM i credentials exits at startup. [Network Exposure and Authentication](#network-exposure-and-authentication) describes both settings.
+
 <Warning>
 Replace the `DB2i_*` values with your actual IBM i credentials. Never commit credentials to source control.
 </Warning>
 
 ---
 
+## Network Exposure and Authentication
+
+The server holds the IBM i credentials it is started with. Any client that can send it a request can run SQL with those credentials. Two checks limit which clients can do so.
+
+### Host header validation
+
+Every request must address the server as `localhost`, `127.0.0.1`, or a name listed in `MCP_ALLOWED_HOSTS`. A request that uses any other name receives `403 Forbidden: Host not allowed.` The check applies to every route, including `/healthz`.
+
+The check blocks DNS rebinding: a web page changes the DNS record for its own hostname to `127.0.0.1` after loading, then sends requests from the browser to the server on the visitor's machine. Those requests carry the page's hostname in the `Host` header and are rejected.
+
+| How the client addresses the server | Setting required |
+|---|---|
+| `http://localhost:3010/mcp` from the container host | None |
+| Container name from another container, e.g. `http://ibmi-mcp-server:3010/mcp` | `MCP_ALLOWED_HOSTS=ibmi-mcp-server` |
+| `http://host.docker.internal:3010/mcp` | `MCP_ALLOWED_HOSTS=host.docker.internal` |
+| The host's DNS name, e.g. `http://mcp.example.com:3010/mcp` | `MCP_ALLOWED_HOSTS=mcp.example.com` |
+| A web page running in a browser | The page's origin in `MCP_ALLOWED_ORIGINS` |
+
+`MCP_ALLOWED_HOSTS` accepts a comma-separated list. The `403` response body does not include the rejected name; the container log does.
+
+### Startup check for unauthenticated servers
+
+The image sets `MCP_HTTP_HOST=0.0.0.0`, which published ports require. A server bound this way, holding IBM i credentials, with no authentication configured, is usable by anyone who can reach the port. The server refuses this configuration and exits with:
+
+```
+Refusing to start: unauthenticated HTTP transport on non-loopback bind 0.0.0.0 with IBM i credentials configured. Auth mode: none - authentication is disabled. Set MCP_AUTH_MODE, or MCP_HTTP_HOST=127.0.0.1, or MCP_ALLOW_UNAUTHENTICATED_HTTP=true.
+```
+
+"IBM i credentials" means `DB2i_*` variables or a tools YAML, since YAML `sources:` entries carry their own connection details. Set one of the following:
+
+| Setting | Effect |
+|---|---|
+| `MCP_AUTH_MODE=ibmi` | Clients authenticate with their own IBM i user and password. See [IBM i Authentication](/server-config/ibmi-auth). |
+| `MCP_AUTH_MODE=oauth` | Clients present tokens from your OAuth provider. |
+| `MCP_AUTH_MODE=jwt` and `MCP_AUTH_SECRET_KEY` | Clients present tokens you issue. `jwt` without a secret key is treated as no authentication. |
+| `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` | No authentication. Pair with `-p 127.0.0.1:3010:3010`, or use only on a network you trust. |
+
+<Warning>
+Do not set `MCP_HTTP_HOST=127.0.0.1` for a container. Docker and Podman forward published ports to the container's network interface, not to its loopback address, so a server bound to `127.0.0.1` inside the container is unreachable from the host. Limit exposure with `-p 127.0.0.1:3010:3010` instead. The repository's `.env.example` sets `MCP_HTTP_HOST=127.0.0.1`; remove that line from any `.env` file passed to a container.
+</Warning>
+
+---
+
 ## Available Images
 
-Images are published to [GitHub Container Registry](https://github.com/IBM/ibmi-mcp-server/pkgs/container/ibmi-mcp-server) on each release:
+Images are published to [GitHub Container Registry](https://github.com/IBM/ibmi-mcp-server/pkgs/container/ibmi-mcp-server) on each release. Multi-architecture tags select the image for the host's architecture; single-architecture tags pin one platform.
 
-| Architecture | Image Tag | Platform |
-|-------------|-----------|----------|
-| **x86-64** | `ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1` | Standard servers, cloud VMs |
-| **ARM 64-bit** | `ghcr.io/ibm/ibmi-mcp-server:arm64-v0.3.1` | Apple Silicon, ARM cloud instances |
-| **Power (LE)** | `ghcr.io/ibm/ibmi-mcp-server:ppc64le-v0.3.1` | IBM Power Systems |
+| Tag | Platforms |
+|-----|-----------|
+| `ghcr.io/ibm/ibmi-mcp-server:latest` | amd64, arm64, ppc64le |
+| `ghcr.io/ibm/ibmi-mcp-server:v0.5.1` | amd64, arm64, ppc64le, pinned to a release |
+| `ghcr.io/ibm/ibmi-mcp-server:amd64-v0.5.1` | x86-64 only |
+| `ghcr.io/ibm/ibmi-mcp-server:arm64-v0.5.1` | ARM 64-bit only (Apple Silicon, ARM cloud instances) |
+| `ghcr.io/ibm/ibmi-mcp-server:ppc64le-v0.5.1` | IBM Power (little-endian) only |
 
 <Tip>
 Running on **IBM Power Systems**? Use the `ppc64le` image to run the MCP server natively on the same hardware as your IBM i partition — no emulation overhead.
@@ -82,7 +126,7 @@ Running on **IBM Power Systems**? Use the `ppc64le` image to run the MCP server 
 
 ## Using an Environment File
 
-For easier management, store your configuration in a `.env` file:
+Store the configuration in a `.env` file:
 
 ```ini
 # .env
@@ -95,6 +139,12 @@ DB2i_IGNORE_UNAUTHORIZED=true
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_LOG_LEVEL=info
+
+# Authentication. Set MCP_AUTH_MODE, or accept an unauthenticated server.
+MCP_ALLOW_UNAUTHENTICATED_HTTP=true
+
+# Names other than localhost that clients use to reach the server.
+# MCP_ALLOWED_HOSTS=ibmi-mcp-server
 ```
 
 Then run with the env file:
@@ -104,18 +154,18 @@ Then run with the env file:
     ```bash
     docker run -d \
       --name ibmi-mcp-server \
-      -p 3010:3010 \
+      -p 127.0.0.1:3010:3010 \
       --env-file .env \
-      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+      ghcr.io/ibm/ibmi-mcp-server:latest
     ```
   </Tab>
   <Tab title="Podman">
     ```bash
     podman run -d \
       --name ibmi-mcp-server \
-      -p 3010:3010 \
+      -p 127.0.0.1:3010:3010 \
       --env-file .env \
-      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+      ghcr.io/ibm/ibmi-mcp-server:latest
     ```
   </Tab>
 </Tabs>
@@ -131,10 +181,10 @@ To use your own YAML tool configurations, mount them into the container:
     ```bash
     docker run -d \
       --name ibmi-mcp-server \
-      -p 3010:3010 \
+      -p 127.0.0.1:3010:3010 \
       --env-file .env \
       -v $(pwd)/tools:/usr/src/app/tools:ro \
-      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1 \
+      ghcr.io/ibm/ibmi-mcp-server:latest \
       npx ibmi-mcp-server --tools /usr/src/app/tools
     ```
   </Tab>
@@ -142,10 +192,10 @@ To use your own YAML tool configurations, mount them into the container:
     ```bash
     podman run -d \
       --name ibmi-mcp-server \
-      -p 3010:3010 \
+      -p 127.0.0.1:3010:3010 \
       --env-file .env \
       -v $(pwd)/tools:/usr/src/app/tools:ro \
-      ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1 \
+      ghcr.io/ibm/ibmi-mcp-server:latest \
       npx ibmi-mcp-server --tools /usr/src/app/tools
     ```
   </Tab>
@@ -154,6 +204,8 @@ To use your own YAML tool configurations, mount them into the container:
 <Note>
 The `:ro` flag mounts the directory as read-only inside the container, which is a security best practice.
 </Note>
+
+A mounted tools directory counts as IBM i credentials for the startup check, because YAML `sources:` entries carry connection details. The `.env` file must set `MCP_AUTH_MODE` or `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`.
 
 ---
 
@@ -168,9 +220,9 @@ Create a `docker-compose.yml`:
 ```yaml
 services:
   ibmi-mcp-server:
-    image: ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    image: ghcr.io/ibm/ibmi-mcp-server:latest
     ports:
-      - "3010:3010"
+      - "127.0.0.1:3010:3010"
     env_file:
       - .env
     volumes:
@@ -183,6 +235,8 @@ services:
       retries: 3
     restart: unless-stopped
 ```
+
+The `.env` file is the one from [Using an Environment File](#using-an-environment-file). The healthcheck addresses the server as `localhost` and passes the Host check. Other services in the same Compose file reach the server as `http://ibmi-mcp-server:3010/mcp`; that name must be listed in `MCP_ALLOWED_HOSTS`.
 
 Start the service:
 
@@ -210,11 +264,17 @@ cd ibmi-mcp-server
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your IBM i credentials
 
 # Start the full stack
 docker compose -f deployment/mcpgateway/docker-compose.yml up -d
 ```
+
+Before starting the stack, edit `.env`:
+
+- Set `DB2i_HOST`, `DB2i_USER`, and `DB2i_PASS`.
+- Set `MCP_ALLOWED_HOSTS=ibmi-mcp-server`. The gateway addresses the server by container name.
+- Set `MCP_AUTH_MODE`, or set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`. The stack mounts the repository's `tools/` directory, which counts as IBM i credentials for the startup check.
+- Remove the `MCP_HTTP_HOST=127.0.0.1` line. Compose passes `.env` to the container, and that value makes the server unreachable through the published port.
 
 This starts the following services:
 
@@ -287,22 +347,28 @@ curl http://localhost:3010/healthz
 docker exec ibmi-mcp-server curl http://localhost:3010/healthz
 ```
 
+The health endpoint is subject to the Host check. Both commands above address the server as `localhost` and pass. A probe that addresses the server by IP address, such as a Kubernetes probe using the pod IP, receives `403`. Set a `Host: localhost` header on such probes; the repository's OpenShift deployment manifest does this.
+
 ---
 
 ## Building from Source
 
-If you need to build the image locally instead of pulling from GHCR:
+The image is built from `packages/server/Dockerfile` with the repository root as the build context. The root is required because the npm workspaces layout keeps a single `package-lock.json` there.
 
 ```bash
 git clone https://github.com/IBM/ibmi-mcp-server.git
 cd ibmi-mcp-server
-docker build -t ibmi-mcp-server:local -f Dockerfile server/
+docker build -t ibmi-mcp-server:local -f packages/server/Dockerfile .
 ```
 
-The Dockerfile uses a multi-stage build:
-1. **deps** — Installs production Node.js dependencies
-2. **builder** — Installs all dependencies and compiles TypeScript
-3. **runner** — Final minimal image with only production deps and compiled output
+To run the local image, substitute `ibmi-mcp-server:local` for `ghcr.io/ibm/ibmi-mcp-server:latest` in any command on this page.
+
+The Dockerfile has three stages:
+1. **builder** — installs all workspace dependencies and runs `npm run build -w @ibm/ibmi-mcp-server`
+2. **prod-deps** — installs the server's production dependencies only; the CLI workspace is excluded
+3. **runner** — copies `node_modules` from `prod-deps` and the compiled `packages/server/dist` from `builder`, then starts `node packages/server/dist/index.js`
+
+`.dockerignore` keeps `node_modules/`, `dist/`, `.git/`, `.github/`, `.claude/`, `agents/`, and `.env` files out of the build context.
 
 <Note>
 The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed by default.
@@ -319,9 +385,22 @@ The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed
     docker logs ibmi-mcp-server
     ```
     Common causes:
+    - The log contains `Refusing to start`. See the next entry.
     - Missing or incorrect `DB2i_*` environment variables
     - Mapepire not running on the IBM i system
     - Network connectivity issues to IBM i host
+  </Accordion>
+
+  <Accordion title="Container exits with 'Refusing to start: unauthenticated HTTP transport'">
+    The server holds IBM i credentials, has no authentication configured, and is bound to `0.0.0.0`. It refuses this combination. Set `MCP_AUTH_MODE`, or set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` and publish the port with `-p 127.0.0.1:3010:3010`. See [Network Exposure and Authentication](#network-exposure-and-authentication).
+
+    `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` produces the same error, with `Auth mode: jwt - MCP_AUTH_SECRET_KEY is unset` in the message.
+  </Accordion>
+
+  <Accordion title="Requests return 403 Forbidden">
+    `Forbidden: Host not allowed.` means the client addresses the server by a name that is not `localhost` and is not listed in `MCP_ALLOWED_HOSTS`. The container log records the rejected name. Add it to `MCP_ALLOWED_HOSTS` and restart the container.
+
+    `Forbidden: Origin not allowed.` means the request came from a browser page whose origin is not listed in `MCP_ALLOWED_ORIGINS`. Add the origin, for example `MCP_ALLOWED_ORIGINS=http://localhost:3000`.
   </Accordion>
 
   <Accordion title="Cannot connect to IBM i from container">
@@ -335,7 +414,7 @@ The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed
   <Accordion title="Port conflicts">
     If port 3010 is already in use, map to a different host port:
     ```bash
-    docker run -d -p 3011:3010 --env-file .env ghcr.io/ibm/ibmi-mcp-server:amd64-v0.3.1
+    docker run -d -p 127.0.0.1:3011:3010 --env-file .env ghcr.io/ibm/ibmi-mcp-server:latest
     ```
   </Accordion>
 
