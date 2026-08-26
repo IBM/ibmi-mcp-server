@@ -404,8 +404,8 @@ services:
   ibmi-mcp-server:
     image: ${IBMI_MCP_IMAGE:-ibmi-mcp-server:latest}  # Use env var or default to local image
     build:
-      context: ../../server      # Build from server directory (monorepo root/server)
-      dockerfile: ../Dockerfile  # Path to Dockerfile in repository root, relative to server context
+      context: ../..             # Repo root: npm workspaces need the root package-lock.json
+      dockerfile: packages/server/Dockerfile
     container_name: ibmi-mcp-server
     networks: [mcpnet]
     ports:
