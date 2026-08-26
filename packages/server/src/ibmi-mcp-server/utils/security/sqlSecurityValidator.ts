@@ -26,6 +26,29 @@ export interface SecurityValidationResult {
 }
 
 /**
+ * Classification metadata from Layer-1 SQL security validation.
+ * Used by execute_sql to decide whether a wire PARSE_STATEMENT round trip is needed.
+ * Populated in both read-only and write mode so `auto` can skip PARSE whenever
+ * vscode-db2i successfully classified the statement (including INSERT/UPDATE when
+ * writes are allowed).
+ */
+export interface SqlValidationClassification {
+  /**
+   * True when the in-process vscode-db2i parser successfully classified at
+   * least one statement. False when the parser failed, produced zero
+   * statements (comment-only input), or classification was skipped.
+   */
+  classified: boolean;
+  /** Statement types from the in-process parser when available */
+  statementTypes?: string[];
+  /**
+   * Which Layer-1 path produced the classification. "none" means
+   * classification was skipped (write mode, caller did not request it).
+   */
+  validatedBy: "ibmi-vscode" | "regex-fallback" | "none";
+}
+
+/**
  * Dangerous SQL operations that should be blocked in read-only mode
  */
 export const DANGEROUS_OPERATIONS = [
@@ -173,13 +196,19 @@ export class SqlSecurityValidator {
    * @param query - SQL query to validate
    * @param securityConfig - Security configuration
    * @param context - Request context for logging
+   * @param options - Set `classify: true` to run in-process classification even
+   *   in write mode (used by execute_sql to decide whether wire PARSE_STATEMENT
+   *   can be skipped). Callers that discard the classification omit it, so
+   *   write-mode validation stays off the parse hot path.
+   * @returns Classification metadata for callers that may skip wire PARSE_STATEMENT
    * @throws {McpError} If validation fails
    */
   static validateQuery(
     query: string,
     securityConfig: SqlToolSecurityConfig,
     context: RequestContext,
-  ): void {
+    options?: { classify?: boolean },
+  ): SqlValidationClassification {
     logger.debug(
       {
         ...context,
@@ -196,17 +225,34 @@ export class SqlSecurityValidator {
     // 2. Always validate forbidden keywords (regardless of read-only setting)
     this.validateForbiddenKeywords(query, securityConfig, context);
 
-    // 3. If in read-only mode, perform comprehensive write operation validation
-    if (securityConfig.readOnly !== false) {
-      this.validateReadOnlyRestrictions(query, context);
+    // 3. Classify in-process when read-only mode is enforced (classification
+    //    doubles as write rejection) or when the caller asked for it
+    //    (execute_sql uses it to skip wire PARSE under `auto`). Write-mode
+    //    callers that discard the result skip the parse entirely.
+    const enforceReadOnly = securityConfig.readOnly !== false;
+    if (!enforceReadOnly && options?.classify !== true) {
+      logger.debug(
+        { ...context, readOnly: false },
+        "SQL security validation passed (classification skipped in write mode)",
+      );
+      return { classified: false, validatedBy: "none" };
     }
+
+    const classification = this.classifyStatement(
+      query,
+      context,
+      enforceReadOnly,
+    );
 
     logger.debug(
       {
         ...context,
+        ...classification,
       },
       "SQL security validation passed",
     );
+
+    return classification;
   }
 
   /**
@@ -304,21 +350,41 @@ export class SqlSecurityValidator {
   }
 
   /**
-   * Validate read-only restrictions using IBM i parser with regex fallback
+   * Classify the statement with the in-process vscode-db2i parser.
+   * When `enforceReadOnly` is true, reject write operations (regex fallback
+   * if the parser cannot classify). When false (write mode), still classify
+   * so callers can skip wire PARSE under `auto`.
+   *
    * @param query - SQL query to validate
    * @param context - Request context for logging
+   * @param enforceReadOnly - Whether to reject write statements
+   * @returns Classification metadata (classified=true only when vscode-db2i succeeded)
    * @private
    */
-  private static validateReadOnlyRestrictions(
+  private static classifyStatement(
     query: string,
     context: RequestContext,
-  ): void {
-    // Try IBM i parser first (understands IBM i syntax and uses vscode-db2i)
+    enforceReadOnly: boolean,
+  ): SqlValidationClassification {
+    // Try IBM i parser first (understands IBM i syntax and uses vscode-db2i).
     const ibmiResult = IbmiSqlParser.parseQuery(query, context);
 
+    // Zero parsed statements (comment-only / empty input) does NOT count as
+    // classified, and there is nothing executable to enforce against — return
+    // unclassified directly so the wire PARSE_STATEMENT fallback rejects it
+    // with a clear error. Do NOT route it through the regex fallback: regex
+    // does not strip comments, so "-- TODO: delete old rows" would be falsely
+    // rejected as a write operation.
+    if (ibmiResult.success && ibmiResult.statementTypes.length === 0) {
+      logger.debug(
+        { ...context, validatedBy: "ibmi-vscode" },
+        "Parser found no executable statements (comment-only or empty input); leaving unclassified for wire PARSE fallback",
+      );
+      return { classified: false, validatedBy: "ibmi-vscode" };
+    }
+
     if (ibmiResult.success) {
-      // If IBM i parser successfully validated, use its results
-      if (!ibmiResult.isReadOnly) {
+      if (enforceReadOnly && !ibmiResult.isReadOnly) {
         this.throwValidationError(
           `Write operations detected: ${ibmiResult.violations.join(", ")}`,
           ibmiResult.violations,
@@ -335,17 +401,23 @@ export class SqlSecurityValidator {
           ...context,
           validatedBy: "ibmi-vscode",
           statementTypes: ibmiResult.statementTypes,
+          isReadOnly: ibmiResult.isReadOnly,
+          enforceReadOnly,
         },
-        "Read-only validation passed using IBM i vscode parser",
+        "Statement classified using IBM i vscode parser",
       );
 
-      return; // Success - skip regex fallback
+      return {
+        classified: true,
+        statementTypes: ibmiResult.statementTypes,
+        validatedBy: "ibmi-vscode",
+      };
     }
 
-    // Fall back to regex validation
+    // Fall back to regex write detection (does not yield classified=true)
     logger.debug(
-      { ...context },
-      "Falling back to regex validation for read-only check",
+      { ...context, enforceReadOnly },
+      "Falling back to regex validation for statement classification",
     );
 
     const regexResult = SqlSecurityValidatorFallback.validateReadOnly(
@@ -353,7 +425,7 @@ export class SqlSecurityValidator {
       context,
     );
 
-    if (!regexResult.isValid) {
+    if (enforceReadOnly && !regexResult.isValid) {
       this.throwValidationError(
         `Write operations detected: ${regexResult.violations.join(", ")}`,
         regexResult.violations,
@@ -363,8 +435,18 @@ export class SqlSecurityValidator {
     }
 
     logger.debug(
-      { ...context, validatedBy: "regex-fallback" },
-      "Read-only validation passed via regex fallback",
+      {
+        ...context,
+        validatedBy: "regex-fallback",
+        enforceReadOnly,
+        regexAllowed: regexResult.isValid,
+      },
+      "Regex fallback completed (classified=false; wire PARSE may still run)",
     );
+
+    return {
+      classified: false,
+      validatedBy: "regex-fallback",
+    };
   }
 }

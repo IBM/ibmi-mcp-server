@@ -6,10 +6,12 @@
  * - Enforce readonly mode restrictions
  * - Fail closed on errors
  *
+ * Also covers conditional wire PARSE_STATEMENT (issue #151) via executeSqlLogic.
+ *
  * @module tests/unit/tools/executeSql.tool.test
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import {
   JsonRpcErrorCode,
   McpError,
@@ -34,9 +36,46 @@ vi.mock("../../../src/utils/internal/logger.js", () => ({
   },
 }));
 
+vi.mock("../../../src/config/index.js", () => ({
+  config: {
+    ibmi_enableDefaultTools: false,
+    ibmi_enableExecuteSql: true,
+    ibmi_executeSqlReadonly: true,
+    ibmi_executeSqlParseValidation: "auto",
+    logLevel: "debug",
+    logsPath: null,
+    environment: "test",
+    mcpServerName: "test-server",
+    mcpServerVersion: "0.0.0",
+    rateLimit: {
+      enabled: false,
+      maxRequests: 100,
+      windowMs: 900_000,
+      skipInDevelopment: true,
+    },
+    openTelemetry: {
+      enabled: false,
+    },
+  },
+}));
+
 // Now import the module after mocks are set up
 import { IBMiConnectionPool } from "../../../src/ibmi-mcp-server/services/connectionPool.js";
 import type { QueryResult } from "@ibm/mapepire-js";
+import { IbmiSqlParser } from "../../../src/ibmi-mcp-server/utils/security/ibmiSqlParser.js";
+import {
+  configureExecuteSqlTool,
+  getExecuteSqlConfig,
+  executeSqlTool,
+} from "../../../src/ibmi-mcp-server/tools/executeSql.tool.js";
+
+// The logic function is exercised through the tool definition, exactly as the
+// CLI consumes it (executeSqlTool.logic) — no separate logic export exists.
+const executeSqlLogic = executeSqlTool.logic;
+
+// Pristine module defaults, captured before any test mutates the shared
+// config via configureExecuteSqlTool (which merges and has no reset API).
+const initialExecuteSqlConfig = structuredClone(getExecuteSqlConfig());
 
 // Helper to create mock QueryResult objects
 function createMockQueryResult<T = unknown>(
@@ -556,5 +595,229 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       expect(callArgs[0]).toContain("DISTINCT SQL_STATEMENT_TYPE");
       expect(callArgs[1]).toEqual(["SELECT * FROM test"]);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #151 – conditional wire PARSE_STATEMENT via executeSqlLogic
+// ---------------------------------------------------------------------------
+
+const mockSdkContext = {
+  signal: new AbortController().signal,
+  sendNotification: vi.fn(),
+  sendRequest: vi.fn(),
+  authInfo: undefined,
+  sessionId: undefined,
+} as unknown as Parameters<typeof executeSqlLogic>[2];
+
+describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
+  const context = createRequestContext();
+  const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+  const mockExecutePaginated = vi.mocked(
+    IBMiConnectionPool.executeQueryWithPagination,
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    configureExecuteSqlTool({
+      enabled: true,
+      security: {
+        readOnly: true,
+        maxQueryLength: 10000,
+        parseValidation: "auto",
+      },
+    });
+    mockExecutePaginated.mockResolvedValue({
+      success: true,
+      data: [{ X: 1 }],
+      truncated: false,
+      execution_time: 10,
+    });
+  });
+
+  // Restore the module-global tool config so blocks added after this one
+  // don't inherit write-mode/always-parse state.
+  afterAll(() => {
+    configureExecuteSqlTool(structuredClone(initialExecuteSqlConfig));
+  });
+
+  it("auto + successful Select: skips PARSE_STATEMENT (one pagination call only)", async () => {
+    const result = await executeSqlLogic(
+      { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
+    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+    expect(mockExecutePaginated.mock.calls[0][0]).toBe(
+      "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+    );
+  });
+
+  it("always: runs PARSE_STATEMENT then execute", async () => {
+    configureExecuteSqlTool({
+      security: { parseValidation: "always" },
+    });
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
+    );
+
+    const result = await executeSqlLogic(
+      { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
+    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto + comment-only input: not classified — falls back to PARSE_STATEMENT and fails clean", async () => {
+    // Zero parsed statements must not count as "classified"; the wire PARSE
+    // fallback rejects the non-statement with a clear validation error
+    // instead of executing it.
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    const result = await executeSqlLogic(
+      { sql: "-- just a comment" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toMatch(/could not be parsed/i);
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
+    expect(mockExecutePaginated).not.toHaveBeenCalled();
+  });
+
+  it("comment-only input mentioning a write keyword is NOT flagged as a write", async () => {
+    // The regex fallback does not strip comments; zero-statement input must
+    // bypass it entirely, or "-- TODO: delete old rows" would be falsely
+    // rejected as "Write operations detected".
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    const result = await executeSqlLogic(
+      { sql: "-- TODO: delete old rows" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).not.toMatch(/write operations detected/i);
+    expect(result.error?.message).toMatch(/could not be parsed/i);
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecutePaginated).not.toHaveBeenCalled();
+  });
+
+  it("auto + parser failure (regex allow): still runs PARSE_STATEMENT", async () => {
+    const parseSpy = vi.spyOn(IbmiSqlParser, "parseQuery").mockReturnValue({
+      success: false,
+      isReadOnly: false,
+      statementTypes: [],
+      violations: ["Parse error"],
+      error: "forced parse failure",
+    });
+
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
+    );
+
+    try {
+      const result = await executeSqlLogic(
+        { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+        context,
+        mockSdkContext,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+      expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
+      expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it("rejects writes in Layer 1 before any pool call", async () => {
+    const result = await executeSqlLogic(
+      { sql: "UPDATE SYSIBM.SYSDUMMY1 SET IBMREQD = IBMREQD" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toMatch(/Write operations detected/i);
+    expect(result.error?.code).toBe(String(JsonRpcErrorCode.ValidationError));
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
+    expect(mockExecutePaginated).not.toHaveBeenCalled();
+  });
+
+  it("auto + write mode SELECT: skips PARSE_STATEMENT when classified", async () => {
+    configureExecuteSqlTool({
+      security: {
+        readOnly: false,
+        parseValidation: "auto",
+      },
+    });
+
+    const result = await executeSqlLogic(
+      { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
+    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto + write mode INSERT: skips PARSE_STATEMENT when classified", async () => {
+    configureExecuteSqlTool({
+      security: {
+        readOnly: false,
+        parseValidation: "auto",
+      },
+    });
+
+    const result = await executeSqlLogic(
+      { sql: "INSERT INTO MYLIB.T (C) VALUES (1)" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
+    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+    expect(mockExecutePaginated.mock.calls[0][0]).toBe(
+      "INSERT INTO MYLIB.T (C) VALUES (1)",
+    );
+  });
+
+  it("always + write mode INSERT: still runs PARSE_STATEMENT", async () => {
+    configureExecuteSqlTool({
+      security: {
+        readOnly: false,
+        parseValidation: "always",
+      },
+    });
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([{ SQL_STATEMENT_TYPE: "INSERT" }]),
+    );
+
+    const result = await executeSqlLogic(
+      { sql: "INSERT INTO MYLIB.T (C) VALUES (1)" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
+    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
   });
 });

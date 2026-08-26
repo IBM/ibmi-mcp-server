@@ -6,7 +6,12 @@
  * @module src/services/mapepire/connectionPool
  */
 
-import { BindingValue, QueryResult, QueryMetaData } from "@ibm/mapepire-js";
+import {
+  BindingValue,
+  QueryResult,
+  QueryMetaData,
+  type JDBCOptions,
+} from "@ibm/mapepire-js";
 import { config } from "@/config/index.js";
 import { logger } from "@/utils/internal/logger.js";
 import { ErrorHandler } from "@/utils/internal/errorHandler.js";
@@ -19,9 +24,49 @@ import {
   BaseConnectionPool,
   PoolConnectionConfig,
 } from "./baseConnectionPool.js";
+import { isExecuteSqlReadOnlyPolicy } from "./executeSqlPolicy.js";
 
 // Singleton identifier for the IBM i connection pool
 const IBM_I_POOL_ID = Symbol("ibmi-singleton-pool");
+
+/**
+ * Resolve JDBC options for the singleton execute_sql / builtin-tools pool.
+ *
+ * When read-only mode is enabled, defaults `access` to `"read call"` so Db2
+ * rejects INSERT/UPDATE/DELETE/DDL at the connection level (fail-closed) while
+ * still allowing SELECT and CALL. CALL is required because this pool is shared
+ * with `generate_sql` (`CALL QSYS2.GENERATE_SQL`). Use `"read only"` via
+ * `DB2i_JDBC_OPTIONS` only if CALL tools are not needed. Explicit `access` in
+ * `DB2i_JDBC_OPTIONS` is preserved. YAML source pools are unaffected.
+ *
+ * Access is resolved from the *effective* runtime policy (seeded from
+ * `IBMI_EXECUTE_SQL_READONLY`, updated by `configureExecuteSqlTool` and CLI
+ * commands via `executeSqlPolicy`) at pool init time. Pools are created lazily
+ * on first query, after runtime configuration has been applied. A policy flip
+ * after the pool is warm does not reconfigure it (JDBC access is fixed at
+ * connect time).
+ *
+ * @param existing - JDBC options from `DB2i_JDBC_OPTIONS` (may be undefined)
+ * @param readOnly - The effective read-only policy
+ */
+export function resolveSingletonJdbcOptions(
+  existing: JDBCOptions | undefined,
+  readOnly: boolean,
+): JDBCOptions | undefined {
+  if (!readOnly) {
+    return existing;
+  }
+
+  // Operator override wins (e.g. access=all or access=read only)
+  if (existing?.access !== undefined) {
+    return existing;
+  }
+
+  return {
+    ...(existing ?? {}),
+    access: "read call",
+  };
+}
 
 /**
  * IBM i connection pool manager with lazy initialization
@@ -68,7 +113,18 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         );
       }
 
-      const { host, user, password, ignoreUnauthorized } = config.db2i;
+      const { host, user, password, ignoreUnauthorized, jdbcOptions } =
+        config.db2i;
+
+      // Fail-closed JDBC backstop when readonly is on (access=read call by
+      // default — blocks writes, allows generate_sql CALL). Explicit
+      // DB2i_JDBC_OPTIONS.access is preserved. Reads the effective runtime
+      // policy, not the env var, so CLI write mode (configureExecuteSqlTool /
+      // ibmi tool) is honored by the lazily-created pool.
+      const resolvedJdbc = resolveSingletonJdbcOptions(
+        jdbcOptions,
+        isExecuteSqlReadOnlyPolicy(),
+      );
 
       logger.info(
         {
@@ -76,6 +132,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
           host,
           user: user.substring(0, 3) + "***", // Mask username for security
           ignoreUnauthorized,
+          jdbcAccess: resolvedJdbc?.access,
         },
         "Initializing IBM i connection pool",
       );
@@ -86,9 +143,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         user,
         password,
         ignoreUnauthorized,
-        ...(config.db2i.jdbcOptions
-          ? { jdbcOptions: config.db2i.jdbcOptions }
-          : {}),
+        ...(resolvedJdbc ? { jdbcOptions: resolvedJdbc } : {}),
       };
 
       // Initialize the pool using base class

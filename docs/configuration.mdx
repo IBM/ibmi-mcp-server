@@ -601,6 +601,11 @@ DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=MYLIB,DEVDATA'
 | Types | All other values forwarded as strings — no boolean/number coercion |
 | Keys with spaces | Work unquoted: `date format=iso` is valid |
 | Malformed pairs | A non-empty segment with no `=` throws a clear error at startup |
+| Empty values | A pair with a key but no value (`access=`) is treated as **unset**, not as an override |
+
+<Note>
+**Why empty values are ignored**: a dangling `access=` would otherwise forward an empty string to the driver and suppress the [read-only access backstop](#read-only-access-backstop). Treating it as unset prevents both.
+</Note>
 
 <Tabs>
   <Tab title="Library List">
@@ -670,6 +675,41 @@ libraries: [ENVLIB]      # env wins
 naming: system           # env wins
 date format: iso         # YAML only, preserved
 ```
+
+#### Read-Only Access Backstop
+
+**When `execute_sql` runs in read-only mode, the server sets JDBC `access=read call` on its connection pool.** The IBM i JDBC driver then rejects write statements (INSERT, UPDATE, DELETE, DDL) at the connection level, even when in-process validation misses one.
+
+| Aspect | Behavior |
+|--------|----------|
+| **Scope** | Only the singleton pool used by `execute_sql` and the built-in tools. **YAML source pools are unaffected** — they use their own `jdbc-options` unchanged |
+| **Default value** | `access=read call` when the [effective read-only policy](#read-only-policy-precedence) is on |
+| **Override** | An explicit `access=` value in `DB2i_JDBC_OPTIONS` (or YAML `jdbc-options`) always wins |
+| **When resolved** | At pool initialization — pools are created lazily on first query, after CLI and runtime configuration have been applied |
+| **After init** | JDBC access is fixed at connect time. Flipping the read-only policy on a warm pool does **not** reconfigure it |
+
+<Note>
+**Why `read call` and not `read only`**: this pool is shared with `describe_sql_object`, which runs `CALL QSYS2.GENERATE_SQL`. The `read call` value blocks `INSERT`/`UPDATE`/`DELETE`/DDL while still permitting `CALL`. Use `access=read only` explicitly if you do not need `CALL`-based tools on this pool.
+</Note>
+
+```bash
+# Default (read-only mode): access=read call is injected automatically
+IBMI_EXECUTE_SQL_READONLY=true
+
+# Stricter — no CALL (breaks describe_sql_object)
+DB2i_JDBC_OPTIONS='access=read only'
+
+# Opt out of the backstop entirely
+DB2i_JDBC_OPTIONS='access=all'
+```
+
+<Warning>
+`DB2i_JDBC_OPTIONS='access=all'` disables the connection-level backstop. Write statements are then blocked only by in-process validation. Set it only when write access is intended.
+</Warning>
+
+<Warning>
+**Read-only mode restricts statement types, not effects.** The in-process validator, `PARSE_STATEMENT`, and the JDBC `access` setting each classify the submitted statement. None of them inspect what it invokes. `SELECT QSYS2.QCMDEXC('...') FROM SYSIBM.SYSDUMMY1` is a query to all three, so the CL command runs even under `access=read only`. The security boundary is the IBM i user profile. Run the server under a profile with least-privilege object authority.
+</Warning>
 
 #### Security: Log Redaction
 
@@ -755,10 +795,11 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
 |----------|-------------|---------|---------|
 | `IBMI_ENABLE_DEFAULT_TOOLS` | Enable schema discovery tools | `false` | `true`, `false` |
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
-| `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | `true` | `true`, `false` |
+| `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) — see [policy precedence](#read-only-policy-precedence) | `true` | `true`, `false` |
+| `IBMI_EXECUTE_SQL_PARSE_VALIDATION` | When to run `QSYS2.PARSE_STATEMENT` wire validation — see [parse validation modes](#parse-validation-modes) | `auto` | `auto`, `always` |
 
 <Warning>
-**Security**: `execute_sql` allows clients to run ad-hoc SQL queries. By default (`IBMI_EXECUTE_SQL_READONLY=true`), only SELECT queries are allowed. Set `IBMI_EXECUTE_SQL_READONLY=false` to enable write operations (INSERT, UPDATE, DELETE). Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access.
+**Security**: `execute_sql` lets clients run ad-hoc SQL. By default (`IBMI_EXECUTE_SQL_READONLY=true`) only SELECT statements are accepted, enforced in-process and by a [JDBC backstop](#read-only-access-backstop) on the connection. `IBMI_EXECUTE_SQL_READONLY=false` allows writes; use it only in development. These checks restrict statement types and cannot stop a query that invokes a side-effecting function such as `QSYS2.QCMDEXC`. The security boundary is the IBM i user profile. In production, use curated YAML tools and a least-privilege profile.
 </Warning>
 
 <Tabs>
@@ -829,8 +870,9 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
 
     - **Readonly by default**: Only SELECT/QUERY statements allowed when `IBMI_EXECUTE_SQL_READONLY=true` (default)
     - **Write operations opt-in**: Set `IBMI_EXECUTE_SQL_READONLY=false` to enable INSERT, UPDATE, DELETE, etc.
-    - **PARSE_STATEMENT validation**: Uses IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) for authoritative statement type detection
-    - **AST/Regex validation**: Fast pattern matching to catch dangerous SQL keywords
+    - **In-process classification**: The vscode-db2i parser classifies each statement locally, with regex pattern matching for dangerous keywords
+    - **PARSE_STATEMENT validation**: IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) runs when `IBMI_EXECUTE_SQL_PARSE_VALIDATION=always`, or as a fallback when local classification is inconclusive
+    - **JDBC access backstop**: Read-only mode sets `access=read call` on the connection, so the driver refuses write statements
     - **Fail-closed security**: All validation failures result in query rejection
     - **Query length limit**: Maximum 10,000 characters per query
     - **Use case**: Development exploration, debugging queries, ad-hoc data analysis
@@ -845,6 +887,82 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
 - **Recommendation**: Use YAML tools in production for explicit query control and parameterization
 
 See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
+</Note>
+
+### Parse Validation Modes
+
+**`IBMI_EXECUTE_SQL_PARSE_VALIDATION` controls whether `execute_sql` makes a second round trip to IBM i to validate each statement.** The server always classifies each query in-process with the vscode-db2i parser first; this setting decides whether `QSYS2.PARSE_STATEMENT` also runs on the wire.
+
+| Mode | Behavior | Round trips per query |
+|------|----------|----------------------|
+| `auto` **(default)** | Skip `QSYS2.PARSE_STATEMENT` when the in-process parser successfully classified the statement. Falls back to the wire call when it could not | 1 (2 on fallback) |
+| `always` | Run `QSYS2.PARSE_STATEMENT` for every query, regardless of local classification | 2 |
+
+```bash
+# Default — lower latency
+IBMI_EXECUTE_SQL_PARSE_VALIDATION=auto
+
+# Strict / audit mode — every statement is parsed by IBM i itself
+IBMI_EXECUTE_SQL_PARSE_VALIDATION=always
+```
+
+#### When `auto` still calls PARSE_STATEMENT
+
+`auto` is a skip-when-certain optimization, not a skip-always one. The wire call still runs whenever local classification is inconclusive:
+
+- The in-process parser failed or threw
+- The parser produced zero statements (for example, comment-only input)
+- Classification fell back to regex matching without a definitive statement type
+
+This applies identically in read-only and write mode — under `auto`, a classified `INSERT` in write mode also skips the wire call.
+
+<Info>
+**Why skipping is safe**: read-only enforcement does not rest on `PARSE_STATEMENT`. Write statements are rejected in-process and by the [JDBC backstop](#read-only-access-backstop). `PARSE_STATEMENT` adds authoritative statement typing for audit; it performs the same type-level check as the other layers.
+</Info>
+
+<Tip>
+**Choose `always`** for compliance or audit logging, or when debugging a statement the local parser misclassifies. **Choose `auto`** (the default) otherwise. The saving is largest on high-latency connections.
+</Tip>
+
+<Note>
+**Unrecognized values fall back to `auto`** and log a warning to stderr. A strict enum would fail the entire environment config on a typo. After setting `always`, check stderr to confirm the value was accepted.
+</Note>
+
+### Read-Only Policy Precedence
+
+**`IBMI_EXECUTE_SQL_READONLY` is either a default or a hard floor, depending on whether you set it explicitly.** Read-only mode is seeded from the environment. It can also be changed at runtime, by a YAML tool declaring `security.readOnly: false` or by `ibmi sql --no-read-only`. Which wins depends on how the variable was supplied:
+
+| Environment | Runtime override to write mode | Effective behavior |
+|-------------|-------------------------------|--------------------|
+| **Unset** (default) | ✅ Allowed | Read-only by default; YAML tools and CLI flags may enable writes |
+| `IBMI_EXECUTE_SQL_READONLY=true` | ❌ Blocked | **Operator pin** — the connection stays read-only regardless of runtime configuration |
+| `IBMI_EXECUTE_SQL_READONLY=false` | n/a | Write mode permitted |
+
+<Warning>
+**Unset and `=true` are not equivalent.** Both default to read-only. Only an explicit `=true` is a floor. When unset, a YAML tool or CLI flag can enable writes at runtime and remove the [JDBC backstop](#read-only-access-backstop). If the deployment must never accept write statements, set `=true`.
+</Warning>
+
+<Note>
+**Where the pin is enforced**: at the connection. The pin keeps `access=read call` on the pool. A runtime override can still relax the in-process validator; a blocked write then surfaces as a database error from the driver instead of a validation error. The write statement does not run in either case.
+</Note>
+
+```bash
+# Hardened deployment: no runtime path can enable writes
+IBMI_EXECUTE_SQL_READONLY=true
+```
+
+#### Fail-Closed Value Parsing
+
+`IBMI_EXECUTE_SQL_READONLY` is parsed **fail-closed**: only an explicit `false` or `0` disables read-only mode. Values are trimmed and lowercased first, so `FALSE`, ` False `, and `0` all work. **Every other value, including typos, leaves read-only enabled.**
+
+| Value | Read-only |
+|-------|-----------|
+| (unset), `true`, `TRUE`, `1`, `yes`, `on` | ✅ Enabled |
+| `flase`, `nope`, `""` | ✅ Enabled (typo-safe) |
+| `false`, `FALSE`, ` false `, `0` | ❌ Disabled |
+
+<Note>
+The server's other boolean variables enable only on an explicit `true`/`1`. This flag inverts that rule because an unrecognized value must not open write access. A value such as `yes`, which previously meant write mode, now means read-only; use `false`.
 </Note>
 
 ---

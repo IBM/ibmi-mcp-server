@@ -285,6 +285,16 @@ async function executeTool(
     const effectiveReadOnly =
       (tool.security?.readOnly ?? true) || resolved.config.readOnly;
 
+    // The singleton pool's JDBC access backstop reads the effective policy at
+    // lazy init — without this, a write-enabled YAML tool would be blocked at
+    // the connection level even though its security config allows writes.
+    // Route through configureExecuteSqlTool (the single policy writer) so the
+    // tool config and the pool policy cannot desync.
+    const { configureExecuteSqlTool } = await import(
+      "@ibm/ibmi-mcp-server/tools"
+    );
+    configureExecuteSqlTool({ security: { readOnly: effectiveReadOnly } });
+
     if (effectiveReadOnly) {
       const { SqlSecurityValidator } = await import(
         "@ibm/ibmi-mcp-server/services"

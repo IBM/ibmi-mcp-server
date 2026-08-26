@@ -53,6 +53,7 @@ vi.mock("@ibm/mapepire-js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import { BaseConnectionPool } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
+import { resolveSingletonJdbcOptions } from "../../../src/ibmi-mcp-server/services/connectionPool.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
 import {
   SourceConfigSchema,
@@ -461,6 +462,22 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
     expect(config.db2i!.jdbcOptions).toBeUndefined();
   });
+
+  it("3.10 – treats pairs with empty values (dangling access=) as unset", () => {
+    setCreds();
+    process.env.DB2i_JDBC_OPTIONS = "access=;naming=system";
+
+    // An empty access value must NOT count as an operator override — it would
+    // silently suppress the read-only access backstop otherwise.
+    expect(config.db2i!.jdbcOptions).toEqual({ naming: "system" });
+  });
+
+  it("3.11 – omits jdbcOptions entirely when all pairs have empty values", () => {
+    setCreds();
+    process.env.DB2i_JDBC_OPTIONS = "access=";
+
+    expect(config.db2i!.jdbcOptions).toBeUndefined();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -848,5 +865,52 @@ describe("SourceManager – jdbc-options wiring", () => {
       libraries: ["YAMLLIB"],
       naming: "sql",
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 6 – Singleton pool JDBC access=read call default (issue #151)
+//
+// Live smoke (manual / integration, not CI): with IBMI_EXECUTE_SQL_READONLY=true
+// and no DB2i_JDBC_OPTIONS.access override, assert INSERT/UPDATE/DDL are
+// rejected by Db2 on the singleton pool, and CALL QSYS2.GENERATE_SQL still works.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("resolveSingletonJdbcOptions – access=read call default", () => {
+  it("6.1 – readonly on, no existing opts → access=read call", () => {
+    expect(resolveSingletonJdbcOptions(undefined, true)).toEqual({
+      access: "read call",
+    });
+  });
+
+  it("6.2 – readonly on, existing opts without access → merges access", () => {
+    expect(
+      resolveSingletonJdbcOptions(
+        { naming: "system", libraries: ["MYLIB"] },
+        true,
+      ),
+    ).toEqual({
+      naming: "system",
+      libraries: ["MYLIB"],
+      access: "read call",
+    });
+  });
+
+  it("6.3 – readonly on, explicit access preserved", () => {
+    expect(
+      resolveSingletonJdbcOptions({ access: "all", naming: "system" }, true),
+    ).toEqual({
+      access: "all",
+      naming: "system",
+    });
+    expect(
+      resolveSingletonJdbcOptions({ access: "read only" }, true),
+    ).toEqual({ access: "read only" });
+  });
+
+  it("6.4 – readonly off → does not inject access", () => {
+    expect(resolveSingletonJdbcOptions(undefined, false)).toBeUndefined();
+    expect(
+      resolveSingletonJdbcOptions({ naming: "system" }, false),
+    ).toEqual({ naming: "system" });
   });
 });

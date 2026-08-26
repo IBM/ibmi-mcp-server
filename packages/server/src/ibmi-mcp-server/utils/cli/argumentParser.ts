@@ -175,6 +175,7 @@ Environment Variables:
   IBMI_ENABLE_DEFAULT_TOOLS    Enable built-in tools (default: false)
   IBMI_ENABLE_EXECUTE_SQL      Enable execute_sql tool (default: false)
   IBMI_EXECUTE_SQL_READONLY    Restrict execute_sql to SELECT only (default: true)
+  IBMI_EXECUTE_SQL_PARSE_VALIDATION  auto (default) or always — wire PARSE_STATEMENT
 
   See .env.example for complete environment variable reference.
 

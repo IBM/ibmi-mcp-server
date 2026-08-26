@@ -333,6 +333,10 @@ export DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=AUDITLIB,QGPL'
 
 See the [Configuration Reference → DB2i_JDBC_OPTIONS](/configuration#db2i-jdbc-options-env-var) for the full syntax and parser rules.
 
+<Note>
+**YAML sources are not subject to the read-only access backstop.** When `execute_sql` runs in read-only mode, the server injects `access=read call` into the connection pool used by `execute_sql` and the built-in tools. Pools created from YAML sources are unaffected and use exactly the `jdbc-options` you configure. To restrict a YAML source's connection the same way, set `access` on that source explicitly. See [Read-Only Access Backstop](/configuration#read-only-access-backstop).
+</Note>
+
 ### Security: Credential Logging
 
 The server logs only the `libraries` field of `jdbc-options` at pool initialization. All other JDBC fields — including potentially sensitive ones like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from logs to prevent credential leakage.
