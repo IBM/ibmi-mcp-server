@@ -8,6 +8,23 @@
 import { z } from "zod";
 
 /**
+ * Default Mapepire daemon / WebSocket port.
+ * Keep in sync with `@ibm/mapepire-js` `DEFAULT_PORT`.
+ */
+export const DEFAULT_MAPEPIRE_PORT = 8076;
+
+/**
+ * Shared Mapepire port constraints for env, YAML sources, and CLI config.
+ * Compose with `.default(DEFAULT_MAPEPIRE_PORT)` or `.optional()` as needed.
+ */
+export const MapepirePortSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(65535)
+  .describe("Mapepire daemon port (default: 8076)");
+
+/**
  * Response format options for SQL tools
  */
 export const ResponseFormatSchema = z.enum(["json", "markdown"], {
@@ -137,3 +154,4 @@ export type Metadata = z.infer<typeof MetadataSchema>;
 export type ToolAnnotations = z.infer<typeof ToolAnnotationsSchema>;
 export type ColumnDefinition = z.infer<typeof ColumnDefinitionSchema>;
 export type ParameterConstraints = z.infer<typeof ParameterConstraintsSchema>;
+export type MapepirePort = z.infer<typeof MapepirePortSchema>;

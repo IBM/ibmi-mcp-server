@@ -9,6 +9,7 @@
  */
 
 import { loadConfig } from "./loader.js";
+import { SystemConfigSchema } from "./schema.js";
 import type { CliConfig, ResolvedSystem, SystemConfig } from "./types.js";
 
 /**
@@ -28,7 +29,7 @@ function buildLegacySystemConfig(): SystemConfig | null {
     host,
     user,
     password,
-    port: 8076,
+    port: SystemConfigSchema.shape.port.parse(process.env["DB2i_PORT"]),
     readOnly: false,
     confirm: false,
     timeout: 60,

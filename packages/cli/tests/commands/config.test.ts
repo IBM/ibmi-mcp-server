@@ -331,6 +331,7 @@ describe("ibmi config show", () => {
   it("should show active environment overrides", async () => {
     process.env["IBMI_SYSTEM"] = "test-sys";
     process.env["DB2i_HOST"] = "env-host.com";
+    process.env["DB2i_PORT"] = "8047";
 
     mockLoadConfigLayers.mockReturnValue([
       makeLayer("user", "/home/user/.ibmi/config.yaml", false, null),
@@ -361,8 +362,13 @@ describe("ibmi config show", () => {
     const db2HostRow = parsed.data.find(
       (r: Record<string, unknown>) => r.PROPERTY === "DB2i_HOST",
     );
+    const db2PortRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.PROPERTY === "DB2i_PORT",
+    );
     expect(db2HostRow?.VALUE).toBe("env-host.com");
     expect(db2HostRow?.SOURCE).toBe("environment");
+    expect(db2PortRow?.VALUE).toBe("8047");
+    expect(db2PortRow?.SOURCE).toBe("environment");
   });
 
   it("should mask DB2i_PASS in environment overrides", async () => {

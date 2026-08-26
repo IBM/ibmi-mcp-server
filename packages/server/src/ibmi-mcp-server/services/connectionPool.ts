@@ -68,12 +68,13 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         );
       }
 
-      const { host, user, password, ignoreUnauthorized } = config.db2i;
+      const { host, port, user, password, ignoreUnauthorized } = config.db2i;
 
       logger.info(
         {
           ...context,
           host,
+          port,
           user: user.substring(0, 3) + "***", // Mask username for security
           ignoreUnauthorized,
         },
@@ -83,6 +84,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
       // Convert config to pool connection config
       const poolConfig: PoolConnectionConfig = {
         host,
+        port,
         user,
         password,
         ignoreUnauthorized,

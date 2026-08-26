@@ -43,7 +43,7 @@ function findSystemOrigin(layers: ConfigLayer[], name: string): string {
 }
 
 /** Environment variables checked for config overrides. */
-const CONFIG_ENV_VARS = ["IBMI_SYSTEM", "DB2i_HOST", "DB2i_USER", "DB2i_PASS"];
+const CONFIG_ENV_VARS = ["IBMI_SYSTEM", "DB2i_HOST", "DB2i_PORT", "DB2i_USER", "DB2i_PASS"];
 
 /** Env vars whose values must be masked in output. */
 const SENSITIVE_ENV_VARS = new Set(["DB2i_PASS"]);

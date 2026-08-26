@@ -81,6 +81,7 @@ describe("resolveSystem", () => {
   it("should fall back to legacy DB2i_* env vars", () => {
     delete process.env["IBMI_SYSTEM"];
     process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_PORT"] = "8047";
     process.env["DB2i_USER"] = "LEGACY";
     process.env["DB2i_PASS"] = "pass";
 
@@ -89,6 +90,41 @@ describe("resolveSystem", () => {
     expect(result.name).toBe("env");
     expect(result.source).toBe("legacy-env");
     expect(result.config.host).toBe("legacy400.com");
+    expect(result.config.port).toBe(8047);
+  });
+
+  it("should default legacy DB2i_PORT to 8076 when unset", () => {
+    delete process.env["IBMI_SYSTEM"];
+    delete process.env["DB2i_PORT"];
+    process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_USER"] = "LEGACY";
+    process.env["DB2i_PASS"] = "pass";
+
+    const emptyConfig: CliConfig = { systems: {} };
+    const result = resolveSystem(undefined, emptyConfig);
+    expect(result.config.port).toBe(8076);
+  });
+
+  it("should reject invalid legacy DB2i_PORT", () => {
+    delete process.env["IBMI_SYSTEM"];
+    process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_PORT"] = "not-a-port";
+    process.env["DB2i_USER"] = "LEGACY";
+
+    const emptyConfig: CliConfig = { systems: {} };
+    expect(() => resolveSystem(undefined, emptyConfig)).toThrow();
+  });
+
+  it("should not validate DB2i_PORT when legacy host is unset", () => {
+    delete process.env["IBMI_SYSTEM"];
+    delete process.env["DB2i_HOST"];
+    delete process.env["DB2i_USER"];
+    process.env["DB2i_PORT"] = "not-a-port";
+
+    const emptyConfig: CliConfig = { systems: {} };
+    expect(() => resolveSystem(undefined, emptyConfig)).toThrow(
+      /No IBM i system configured/,
+    );
   });
 
   it("should throw for unknown --system flag value", () => {
@@ -105,6 +141,7 @@ describe("resolveSystem", () => {
   it("should throw when no system can be resolved", () => {
     delete process.env["IBMI_SYSTEM"];
     delete process.env["DB2i_HOST"];
+    delete process.env["DB2i_PORT"];
     delete process.env["DB2i_USER"];
     const emptyConfig: CliConfig = { systems: {} };
     expect(() => resolveSystem(undefined, emptyConfig)).toThrow(
