@@ -25,6 +25,15 @@ export const MapepirePortSchema = z.coerce
   .describe("Mapepire daemon port (default: 8076)");
 
 /**
+ * Env-backed port schema: blank/unset values default to {@link DEFAULT_MAPEPIRE_PORT}.
+ * Empty strings must be coalesced before `z.coerce.number()` (which maps `""` → `0`).
+ */
+export const MapepirePortEnvSchema = z.preprocess(
+  (val) => (val === "" || val === undefined || val === null ? undefined : val),
+  MapepirePortSchema.default(DEFAULT_MAPEPIRE_PORT),
+);
+
+/**
  * Response format options for SQL tools
  */
 export const ResponseFormatSchema = z.enum(["json", "markdown"], {

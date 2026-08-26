@@ -25,6 +25,13 @@ describe("config.db2i port", () => {
     expect(config.db2i?.port).toBe(8076);
   });
 
+  it("defaults port to 8076 when DB2i_PORT is empty", () => {
+    setRequiredCreds();
+    process.env.DB2i_PORT = "";
+
+    expect(config.db2i?.port).toBe(8076);
+  });
+
   it("reads DB2i_PORT from the environment", () => {
     setRequiredCreds();
     process.env.DB2i_PORT = "8077";

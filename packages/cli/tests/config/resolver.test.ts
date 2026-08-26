@@ -105,6 +105,18 @@ describe("resolveSystem", () => {
     expect(result.config.port).toBe(8076);
   });
 
+  it("should default legacy DB2i_PORT to 8076 when empty", () => {
+    delete process.env["IBMI_SYSTEM"];
+    process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_USER"] = "LEGACY";
+    process.env["DB2i_PASS"] = "pass";
+    process.env["DB2i_PORT"] = "";
+
+    const emptyConfig: CliConfig = { systems: {} };
+    const result = resolveSystem(undefined, emptyConfig);
+    expect(result.config.port).toBe(8076);
+  });
+
   it("should reject invalid legacy DB2i_PORT", () => {
     delete process.env["IBMI_SYSTEM"];
     process.env["DB2i_HOST"] = "legacy400.com";

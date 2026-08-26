@@ -16,7 +16,7 @@ import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
 import {
   DEFAULT_MAPEPIRE_PORT,
-  MapepirePortSchema,
+  MapepirePortEnvSchema,
 } from "@/ibmi-mcp-server/schemas/common.js";
 
 export { DEFAULT_MAPEPIRE_PORT };
@@ -149,7 +149,7 @@ const loadPackageJson = (): { name: string; version: string } => {
 const pkg = loadPackageJson();
 
 /** Shared schema for `DB2i_PORT` (startup env + runtime `config.db2i` getter). */
-const Db2iPortSchema = MapepirePortSchema.default(DEFAULT_MAPEPIRE_PORT);
+const Db2iPortSchema = MapepirePortEnvSchema;
 
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
