@@ -4,7 +4,14 @@ All notable changes to this project will be documented in this file. See [standa
 
 ## [Unreleased]
 
+### Fixed
+
 * **Claude Code/Cowork tool schema dialect.** Rewrites `tools/list` schema `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
+* **`DB2i_PORT` is honored for Mapepire connections** ([#168](https://github.com/IBM/ibmi-mcp-server/issues/168)). The env var and CLI `port` setting now reach the Mapepire daemon for the singleton connection pool (built-in tools such as `execute_sql`) and for YAML sources that reference `${DB2i_PORT}`. Empty or unset `DB2i_PORT` defaults to **8076**. Previously every connection used Mapepire's hardcoded default regardless of configuration.
+
+### Documentation
+
+* Clarify `DB2i_PORT` scope (env/CLI/singleton pool vs YAML `port`) and correct YAML `${VAR}` interpolation (no `:default` suffix).
 
 ## [0.6.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.1...v0.6.0) (2026-08-26)
 

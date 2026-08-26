@@ -76,7 +76,7 @@ MCP_LOG_LEVEL=info
 | `DB2i_HOST` | IBM i hostname where Mapepire runs | Always set to your IBM i system |
 | `DB2i_USER` | IBM i user profile | Set to your credentials |
 | `DB2i_PASS` | IBM i password | Set to your credentials |
-| `DB2i_PORT` | Mapepire daemon port | Only if you changed Mapepire's default |
+| `DB2i_PORT` | Mapepire daemon port (singleton pool, CLI; YAML uses source `port`) | Only if you changed Mapepire's default |
 | `TOOLS_YAML_PATH` | Location of SQL tool definitions | Change if using custom tools |
 | `MCP_TRANSPORT_TYPE` | How clients connect (http or stdio) | Use `http` for most cases |
 | `MCP_HTTP_PORT` | Port for HTTP server | Change if 3010 is in use |
@@ -541,7 +541,7 @@ Below is the reference for core server configuration options. Each section inclu
 | `DB2i_HOST` | IBM i host (Mapepire daemon) | (none) | `my-ibmi-system.company.com` | Use hostname, not `127.0.0.1` in Docker |
 | `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Shared credentials (dev only) |
 | `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
-| `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Ensure firewall allows this port |
+| `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Empty or unset also defaults to `8076` |
 | `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
 | `DB2i_JDBC_OPTIONS` | Mapepire JDBC options ([syntax](#db2i-jdbc-options-env-var)) | (none) | `naming=system;date format=iso` | `key ring password` redacted from logs |
 
