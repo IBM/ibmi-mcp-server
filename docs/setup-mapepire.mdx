@@ -264,7 +264,7 @@ DB2i_IGNORE_UNAUTHORIZED=true
 ```
 
 <Note>
-Set `DB2i_IGNORE_UNAUTHORIZED=true` if using self-signed certificates. For production with proper certificates, set this to `false`.
+`DB2i_IGNORE_UNAUTHORIZED` defaults to `false` (verify TLS). Set it to `true` only when using self-signed or otherwise untrusted Mapepire certificates. For production with proper certificates, leave it unset or `false`. When a YAML source sets `ignore-unauthorized` explicitly, that value wins over this env var.
 </Note>
 
 ## Troubleshooting

@@ -413,6 +413,7 @@ describe("ibmi system add", () => {
     expect(name).toBe("mydev");
     expect(sysConfig.host).toBe("mydev.example.com");
     expect(sysConfig.user).toBe("admin");
+    expect(sysConfig.ignoreUnauthorized).toBe(false);
     expect(output).toContain('System "mydev" added');
   });
 

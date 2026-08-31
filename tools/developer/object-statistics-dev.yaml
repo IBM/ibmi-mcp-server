@@ -7,8 +7,7 @@ sources:
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
     port: 8076
-    ignore-unauthorized: true
-
+    
 tools:
   # 1. Find least recently used objects
   find_least_recently_used_objects:

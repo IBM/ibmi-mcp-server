@@ -12,6 +12,18 @@ import { loadConfig } from "./loader.js";
 import type { CliConfig, ResolvedSystem, SystemConfig } from "./types.js";
 
 /**
+ * Match server `resolveIgnoreUnauthorized` env parsing (secure-by-default).
+ * Opt-in only via explicit `true` / `1`.
+ */
+function resolveIgnoreUnauthorizedFromEnv(): boolean {
+  const envRaw = process.env["DB2i_IGNORE_UNAUTHORIZED"];
+  if (envRaw == null || envRaw.trim() === "") {
+    return false;
+  }
+  return envRaw === "true" || envRaw === "1";
+}
+
+/**
  * Build a SystemConfig from legacy DB2i_* environment variables.
  * Returns null if the required env vars are not set.
  */
@@ -33,8 +45,7 @@ function buildLegacySystemConfig(): SystemConfig | null {
     confirm: false,
     timeout: 60,
     maxRows: 5000,
-    ignoreUnauthorized:
-      process.env["DB2i_IGNORE_UNAUTHORIZED"] !== "false",
+    ignoreUnauthorized: resolveIgnoreUnauthorizedFromEnv(),
   };
 }
 

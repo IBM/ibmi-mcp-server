@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [Unreleased]
+
+* **Mapepire TLS verification is secure by default.** `DB2i_IGNORE_UNAUTHORIZED` and YAML `ignore-unauthorized` / CLI `ignoreUnauthorized` now default to `false` (verify certificate chain and hostname). Sample tool YAMLs no longer hardcode `ignore-unauthorized: true`; when the key is omitted, the env var applies.
+* **IBM i HTTP auth honors `DB2i_IGNORE_UNAUTHORIZED` without shared credentials.** Token-auth setups that set only `DB2i_HOST` (omitting `DB2i_USER`/`DB2i_PASS`, as documented) previously ignored the env var because `config.db2i` was undefined. Auth now resolves TLS policy via the shared helper.
+* **Self-signed / untrusted Mapepire:** set `DB2i_IGNORE_UNAUTHORIZED=true`, or set `ignore-unauthorized: true` on a YAML source, or `ignoreUnauthorized: true` in `~/.ibmi/config.yaml`.
+* **Existing CLI systems** that omitted `ignoreUnauthorized` previously defaulted to insecure TLS; they now verify TLS until you opt in explicitly.
+* **Production with valid certs:** leave the env unset or `false` (no change required beyond removing any accidental `true`).
+
 ## [0.6.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.1...v0.6.0) (2026-08-26)
 
 Security release. Closes a DNS rebinding hole in the HTTP transport that let a malicious web page drive the server's SQL tools with the operator's own IBM i credentials ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)), and clears every `npm audit` finding in both published packages ([#159](https://github.com/IBM/ibmi-mcp-server/pull/159)). The hardening changes defaults for HTTP deployments; stdio deployments and the `ibmi` CLI are unaffected.

@@ -17,7 +17,7 @@ export const SystemConfigSchema = z.object({
   confirm: z.boolean().default(false),
   timeout: z.coerce.number().int().positive().default(60),
   maxRows: z.coerce.number().int().positive().default(5000),
-  ignoreUnauthorized: z.boolean().default(true),
+  ignoreUnauthorized: z.boolean().default(false),
   tools: z.array(z.string()).optional(),
 });
 

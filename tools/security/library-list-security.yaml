@@ -8,9 +8,8 @@ sources:
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
     port: 8076
-    ignore-unauthorized: true
 
-tools:
+tools:  
   get_system_library_list_config:
     source: ibmi-security
     description: "Retrieve the system portion of the library list configuration from system values"

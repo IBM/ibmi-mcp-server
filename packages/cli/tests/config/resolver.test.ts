@@ -83,12 +83,26 @@ describe("resolveSystem", () => {
     process.env["DB2i_HOST"] = "legacy400.com";
     process.env["DB2i_USER"] = "LEGACY";
     process.env["DB2i_PASS"] = "pass";
+    delete process.env["DB2i_IGNORE_UNAUTHORIZED"];
 
     const emptyConfig: CliConfig = { systems: {} };
     const result = resolveSystem(undefined, emptyConfig);
     expect(result.name).toBe("env");
     expect(result.source).toBe("legacy-env");
     expect(result.config.host).toBe("legacy400.com");
+    expect(result.config.ignoreUnauthorized).toBe(false);
+  });
+
+  it("should honor DB2i_IGNORE_UNAUTHORIZED for legacy env systems", () => {
+    delete process.env["IBMI_SYSTEM"];
+    process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_USER"] = "LEGACY";
+    process.env["DB2i_PASS"] = "pass";
+    process.env["DB2i_IGNORE_UNAUTHORIZED"] = "true";
+
+    const emptyConfig: CliConfig = { systems: {} };
+    const result = resolveSystem(undefined, emptyConfig);
+    expect(result.config.ignoreUnauthorized).toBe(true);
   });
 
   it("should throw for unknown --system flag value", () => {

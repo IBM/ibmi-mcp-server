@@ -24,6 +24,7 @@ import {
   PoolHealth,
   PoolHealthStatus,
 } from "./baseConnectionPool.js";
+import { resolveIgnoreUnauthorized } from "@/ibmi-mcp-server/utils/resolveIgnoreUnauthorized.js";
 
 /**
  * Source health information
@@ -96,13 +97,18 @@ export class SourceManager extends BaseConnectionPool<string> {
             ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
             : undefined;
 
+        // YAML literal → DB2i_IGNORE_UNAUTHORIZED → false (verify TLS)
+        const ignoreUnauthorized = resolveIgnoreUnauthorized(
+          sourceConfig["ignore-unauthorized"],
+        );
+
         // Convert YAML source to pool connection config
         const poolConfig: PoolConnectionConfig = {
           host: sourceConfig.host,
           user: sourceConfig.user,
           password: sourceConfig.password,
           port: sourceConfig.port,
-          ignoreUnauthorized: sourceConfig["ignore-unauthorized"],
+          ignoreUnauthorized,
           ...(mergedJdbc && Object.keys(mergedJdbc).length > 0
             ? { jdbcOptions: mergedJdbc }
             : {}),
@@ -120,6 +126,15 @@ export class SourceManager extends BaseConnectionPool<string> {
           config: poolConfig,
           lastActivityAt: new Date(),
         });
+
+        if (ignoreUnauthorized) {
+          logger.warning(
+            operationContext,
+            `TLS certificate verification is disabled for source '${sourceName}'. ` +
+              "ignore-unauthorized skips Mapepire certificate-chain and hostname checks. " +
+              "Use only for development or when the Mapepire cert is not trusted by this host.",
+          );
+        }
 
         logger.info(
           operationContext,

@@ -19,7 +19,7 @@ Sources define database connections that your SQL tools use to execute queries a
 | `user` | string | ✅ Yes | - | IBM i user profile |
 | `password` | string | ✅ Yes | - | User profile password |
 | `port` | integer | No | `8076` | Mapepire daemon port |
-| `ignore-unauthorized` | boolean | No | `false` | Accept self-signed SSL certs |
+| `ignore-unauthorized` | boolean | No | `false` | Skip Mapepire TLS verification (allow insecure TLS). When omitted, `DB2i_IGNORE_UNAUTHORIZED` applies |
 | `jdbc-options` | object | No | `{}` | JDBC connection options passed to the mapepire driver (libraries, naming, date format, etc.) |
 
 ---
@@ -134,7 +134,7 @@ These fields have sensible defaults and can be omitted for most configurations:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `port` | integer | `8076` | Port number where Mapepire daemon listens |
-| `ignore-unauthorized` | boolean | `false` | Accept self-signed SSL certificates |
+| `ignore-unauthorized` | boolean | `false` | Skip Mapepire TLS verification (allow insecure TLS). When omitted, `DB2i_IGNORE_UNAUTHORIZED` applies |
 | `jdbc-options` | object | `{}` | JDBC connection options forwarded to the mapepire driver |
 
 **Detailed Configuration:**

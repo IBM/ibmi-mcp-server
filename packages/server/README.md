@@ -1504,7 +1504,7 @@ Configuration for connecting to IBM i Db2 for i databases via Mapepire.
 | `DB2i_USER` | IBM i user profile for database connections | None | ✅ Yes (for SQL tools) |
 | `DB2i_PASS` | Password for IBM i user profile | None | ✅ Yes (for SQL tools) |
 | `DB2i_PORT` | Mapepire daemon/gateway port | `8076` | No |
-| `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification (for self-signed certs) | `true` | No |
+| `DB2i_IGNORE_UNAUTHORIZED` | Skip Mapepire TLS certificate-chain and hostname verification (allow insecure TLS). When YAML omits `ignore-unauthorized`, this env value applies; explicit YAML wins. | `false` | No |
 
 **Connection Flow:**
 1. Server connects to Mapepire daemon/gateway at `DB2i_HOST:DB2i_PORT`
@@ -1538,7 +1538,7 @@ DB2i_IGNORE_UNAUTHORIZED=false
 **⚠️ Security Notes:**
 - Store credentials securely (use secrets management in production)
 - Use read-only accounts when possible
-- Set `DB2i_IGNORE_UNAUTHORIZED=false` with valid SSL certificates in production
+- Keep `DB2i_IGNORE_UNAUTHORIZED=false` (the default) with valid SSL certificates in production; set `true` only for self-signed Mapepire in development
 - Consider using IBM i authentication mode for per-user connection pooling
 
 </details>
