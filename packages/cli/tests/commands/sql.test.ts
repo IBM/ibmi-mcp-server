@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createProgram } from "../../src/index";
+import { applyRowLimit } from "../../src/commands/sql";
 import { writeFileSync, unlinkSync } from "fs";
 import path from "path";
 import os from "os";
@@ -8,6 +9,18 @@ describe("ibmi sql command", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     process.exitCode = undefined;
+  });
+
+  it("applies row limits only to row-returning queries", () => {
+    expect(applyRowLimit("SELECT * FROM MYLIB.MYTABLE", 5000)).toBe(
+      "SELECT * FROM MYLIB.MYTABLE FETCH FIRST 5000 ROWS ONLY",
+    );
+    expect(applyRowLimit("CALL QSYS2.QCMDEXC('DSPJOB')", 5000)).toBe(
+      "CALL QSYS2.QCMDEXC('DSPJOB')",
+    );
+    expect(applyRowLimit("CREATE TABLE MYLIB.MYTABLE (ID INT)", 5000)).toBe(
+      "CREATE TABLE MYLIB.MYTABLE (ID INT)",
+    );
   });
 
   it("should register the sql command", () => {

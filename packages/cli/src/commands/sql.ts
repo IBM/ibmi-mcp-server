@@ -53,9 +53,11 @@ function resolveSql(
 /**
  * Apply FETCH FIRST N ROWS ONLY if not already present.
  */
-function applyRowLimit(sql: string, maxRows: number | undefined): string {
+export function applyRowLimit(sql: string, maxRows: number | undefined): string {
+  const isRowReturningQuery = /^\s*(SELECT|VALUES)\b/i.test(sql);
   if (
     maxRows &&
+    isRowReturningQuery &&
     !sql.toUpperCase().includes("FETCH FIRST") &&
     !sql.toUpperCase().includes("FETCH NEXT")
   ) {
