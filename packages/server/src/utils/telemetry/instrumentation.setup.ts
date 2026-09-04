@@ -6,9 +6,11 @@
  */
 import { config } from "@/config/index.js";
 import { DiagConsoleLogger, DiagLogLevel, diag } from "@opentelemetry/api";
-import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
+import { PinoInstrumentation } from "@opentelemetry/instrumentation-pino";
+import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { NodeSDK } from "@opentelemetry/sdk-node";
@@ -109,10 +111,18 @@ if (config.openTelemetry.enabled) {
       spanProcessors: [spanProcessor],
       metricReader,
       sampler: new TraceIdRatioBasedSampler(config.openTelemetry.samplingRatio),
+      // Explicit instrumentations only: the auto-instrumentations-node
+      // meta-package pulls in ~40 instrumentations and, transitively,
+      // `systeminformation`, whose `os` allowlist excludes IBM i (os400)
+      // and makes `npm install` fail there (GitHub discussion #175).
       instrumentations: [
         new HttpInstrumentation({
           ignoreIncomingRequestHook: (req) => req.url === "/healthz",
         }),
+        // Injects trace_id/span_id into pino log records.
+        new PinoInstrumentation(),
+        // Spans for native `fetch` (see utils/network/fetchWithTimeout.ts).
+        new UndiciInstrumentation(),
       ],
     });
 
