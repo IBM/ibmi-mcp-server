@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [Unreleased]
+
+* **Claude Code/Cowork tool schema dialect.** Rewrites `tools/list` schema `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
+
 ## [0.6.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.1...v0.6.0) (2026-08-26)
 
 Security release. Closes a DNS rebinding hole in the HTTP transport that let a malicious web page drive the server's SQL tools with the operator's own IBM i credentials ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)), and clears every `npm audit` finding in both published packages ([#159](https://github.com/IBM/ibmi-mcp-server/pull/159)). The hardening changes defaults for HTTP deployments; stdio deployments and the `ibmi` CLI are unaffected.
