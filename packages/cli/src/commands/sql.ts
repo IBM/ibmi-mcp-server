@@ -9,6 +9,11 @@ import { Command } from "commander";
 import { withConnection, getFormat, createCliContext } from "../utils/command-helpers.js";
 import { renderMessage, renderMultiSystemOutput, renderMultiSystemNdjson } from "../formatters/output.js";
 import { ExitCode } from "../utils/exit-codes.js";
+import {
+  accessFromFlags,
+  assertAccessNotLowered,
+  resolveEffectiveAccess,
+} from "../utils/access-mode.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 /**
@@ -51,11 +56,14 @@ function resolveSql(
 }
 
 /**
- * Apply FETCH FIRST N ROWS ONLY if not already present.
+ * Apply FETCH FIRST N ROWS ONLY to queries if not already present.
+ * Non-query statements (CALL, INSERT, DDL, ...) do not accept a fetch clause
+ * and are passed through unchanged (#173).
  */
 function applyRowLimit(sql: string, maxRows: number | undefined): string {
   if (
     maxRows &&
+    /^\s*(SELECT|WITH|VALUES)\b/i.test(sql) &&
     !sql.toUpperCase().includes("FETCH FIRST") &&
     !sql.toUpperCase().includes("FETCH NEXT")
   ) {
@@ -70,8 +78,12 @@ export function registerSqlCommand(program: Command): void {
     .description("Execute a SQL query against the target system")
     .option("--file <path>", "Read SQL from a file")
     .option("--limit <n>", "Maximum rows to return")
-    .option("--read-only", "Enforce read-only mode (default: true)", true)
-    .option("--no-read-only", "Allow mutation queries")
+    .option(
+      "--access <mode>",
+      "Access mode: read (default), read-call (allow CALL), or write",
+    )
+    .option("--read-only", "[deprecated] Same as --access read")
+    .option("--no-read-only", "[deprecated] Same as --access write")
     .option("--dry-run", "Print SQL without executing", false)
     .action(async (statement: string | undefined, opts, cmd: Command) => {
       const sql = resolveSql(statement, opts);
@@ -110,9 +122,11 @@ export function registerSqlCommand(program: Command): void {
 
       // Existing single-system path (unchanged)
       await withConnection(cmd, "execute_sql", async (resolved, ctx) => {
-        // Configure read-only mode based on CLI flag and system config
-        const readOnly =
-          (opts["readOnly"] as boolean) || resolved.config.readOnly;
+        // Access mode: --access (or deprecated --read-only flags), lowered to
+        // the system's configured ceiling; defaults to read.
+        const access = resolveEffectiveAccess(accessFromFlags(opts), [
+          resolved.config,
+        ]);
 
         // Confirm execution if system requires it
         if (resolved.config.confirm && process.stdin.isTTY) {
@@ -142,10 +156,11 @@ export function registerSqlCommand(program: Command): void {
         const { configureExecuteSqlTool, executeSqlTool } = await import(
           "@ibm/ibmi-mcp-server/tools"
         );
-        configureExecuteSqlTool({
+        const effective = configureExecuteSqlTool({
           enabled: true,
-          security: { readOnly },
+          security: { access },
         });
+        assertAccessNotLowered(access, effective);
         const logicFn = executeSqlTool.logic;
 
         const result = await logicFn(
@@ -196,19 +211,22 @@ async function handleMultiSystemSql(
 
     const systems = resolveSystems(systemFlag);
 
-    // Enforce read-only: true if CLI flag is set OR any target system requires it
-    const readOnly =
-      (opts["readOnly"] as boolean) ||
-      systems.some((s) => s.config.readOnly);
+    // Access mode: the flag lowered to the most restrictive system ceiling.
+    // Multi-system runs use per-system SourceManager pools, so the in-process
+    // validator is the enforcement point here.
+    const access = resolveEffectiveAccess(
+      accessFromFlags(opts),
+      systems.map((s) => s.config),
+    );
 
-    if (readOnly) {
+    if (access !== "write") {
       const { SqlSecurityValidator } = await import(
         "@ibm/ibmi-mcp-server/services"
       );
       const ctx = createCliContext("multi_sql_security");
       SqlSecurityValidator.validateQuery(
         sql,
-        { readOnly: true, maxQueryLength: 10000 },
+        { access, maxQueryLength: 10000 },
         ctx,
       );
     }

@@ -5,6 +5,9 @@
 
 import { z } from "zod";
 
+/** execute_sql access mode. Keep in sync with the server's ExecuteSqlAccess. */
+export const AccessModeSchema = z.enum(["read", "read-call", "write"]);
+
 /** Schema for a single system configuration entry. */
 export const SystemConfigSchema = z.object({
   description: z.string().optional(),
@@ -13,7 +16,9 @@ export const SystemConfigSchema = z.object({
   user: z.string().min(1, "user is required"),
   password: z.string().optional(),
   defaultSchema: z.string().optional(),
-  readOnly: z.boolean().default(false),
+  access: AccessModeSchema.optional(),
+  /** @deprecated Use `access`. `true` → read, `false` → write. */
+  readOnly: z.boolean().optional(),
   confirm: z.boolean().default(false),
   timeout: z.coerce.number().int().positive().default(60),
   maxRows: z.coerce.number().int().positive().default(5000),

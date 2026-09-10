@@ -40,6 +40,27 @@ describe("classifyError", () => {
     expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
   });
 
+  it("should classify access mode violations as SECURITY (exit 4)", () => {
+    const result = classifyError(
+      new Error(
+        "SQL not permitted in read access mode: Call statement not permitted in read mode",
+      ),
+    );
+    expect(result.exitCode).toBe(4);
+    expect(result.exitCode).toBe(ExitCode.SECURITY);
+    expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
+  });
+
+  it("should classify a lowered access mode error as SECURITY", () => {
+    const result = classifyError(
+      new Error(
+        "Requested access mode 'write' but IBMI_EXECUTE_SQL_ACCESS=read in the environment caps execute_sql at 'read'.",
+      ),
+    );
+    expect(result.exitCode).toBe(ExitCode.SECURITY);
+    expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
+  });
+
   it("should classify forbidden keyword errors as SECURITY", () => {
     const result = classifyError(new Error("Forbidden keyword: DROP TABLE"));
     expect(result.exitCode).toBe(ExitCode.SECURITY);

@@ -35,7 +35,15 @@ describe("ibmi sql command", () => {
     ).toBeDefined();
   });
 
-  it("should have --read-only and --no-read-only options", () => {
+  it("should have --access <mode> option", () => {
+    const program = createProgram();
+    const sql = program.commands.find((c) => c.name() === "sql");
+    const access = sql?.options.find((o) => o.long === "--access");
+    expect(access).toBeDefined();
+    expect(access?.flags).toContain("<mode>");
+  });
+
+  it("should keep deprecated --read-only and --no-read-only options", () => {
     const program = createProgram();
     const sql = program.commands.find((c) => c.name() === "sql");
     expect(

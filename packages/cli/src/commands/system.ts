@@ -21,6 +21,7 @@ import {
   renderMessage,
 } from "../formatters/output.js";
 import { ExitCode, classifyError } from "../utils/exit-codes.js";
+import { accessFromFlags, resolveSystemAccess } from "../utils/access-mode.js";
 import { connectSystem } from "../utils/connection.js";
 import { getFormat } from "../utils/command-helpers.js";
 
@@ -93,7 +94,7 @@ export function registerSystemCommand(program: Command): void {
           HOST: sys.host,
           USER: sys.user,
           PORT: sys.port,
-          READ_ONLY: sys.readOnly ? "yes" : "no",
+          ACCESS: resolveSystemAccess(sys) ?? "-",
           DEFAULT: name === config.default ? "✓" : "",
         }));
 
@@ -125,7 +126,10 @@ export function registerSystemCommand(program: Command): void {
           { PROPERTY: "user", VALUE: sys.user },
           { PROPERTY: "password", VALUE: sys.password ? "****" : "(not set)" },
           { PROPERTY: "defaultSchema", VALUE: sys.defaultSchema ?? "(none)" },
-          { PROPERTY: "readOnly", VALUE: String(sys.readOnly) },
+          {
+            PROPERTY: "access",
+            VALUE: resolveSystemAccess(sys) ?? "(no ceiling)",
+          },
           { PROPERTY: "confirm", VALUE: String(sys.confirm) },
           { PROPERTY: "timeout", VALUE: `${sys.timeout}s` },
           { PROPERTY: "maxRows", VALUE: String(sys.maxRows) },
@@ -152,7 +156,11 @@ export function registerSystemCommand(program: Command): void {
     .option("--user <user>", "User profile")
     .option("--password <password>", "Password (or use env var reference: ${MY_PASS})")
     .option("--description <desc>", "Description")
-    .option("--read-only", "Block mutation queries", false)
+    .option(
+      "--access <mode>",
+      "Ceiling for execute_sql on this system: read, read-call, or write (default: no ceiling)",
+    )
+    .option("--read-only", "[deprecated] Same as --access read")
     .option("--default-schema <schema>", "Default schema/library")
     .action(async (name: string, opts, cmd: Command) => {
       const format = getFormat(cmd);
@@ -194,7 +202,7 @@ export function registerSystemCommand(program: Command): void {
           password: opts["password"] as string | undefined,
           description: opts["description"] as string | undefined,
           defaultSchema: opts["defaultSchema"] as string | undefined,
-          readOnly: opts["readOnly"] as boolean,
+          access: accessFromFlags(opts),
           confirm: false,
           timeout: 60,
           maxRows: 5000,

@@ -468,7 +468,7 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
     process.env.DB2i_JDBC_OPTIONS = "access=;naming=system";
 
     // An empty access value must NOT count as an operator override — it would
-    // silently suppress the read-only access backstop otherwise.
+    // silently replace the mode-derived access otherwise.
     expect(config.db2i!.jdbcOptions).toEqual({ naming: "system" });
   });
 
@@ -477,6 +477,28 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
     process.env.DB2i_JDBC_OPTIONS = "access=";
 
     expect(config.db2i!.jdbcOptions).toBeUndefined();
+  });
+
+  it("3.12 – an explicit access=all is forwarded as the operator override", () => {
+    setCreds();
+    process.env.DB2i_JDBC_OPTIONS = "access=all;naming=system";
+
+    expect(config.db2i!.jdbcOptions).toEqual({
+      access: "all",
+      naming: "system",
+    });
+  });
+
+  it("3.13 – other options still parse when access is absent", () => {
+    setCreds();
+    process.env.DB2i_JDBC_OPTIONS =
+      "naming=system;libraries=A,B;full open=true";
+
+    expect(config.db2i!.jdbcOptions).toEqual({
+      naming: "system",
+      libraries: ["A", "B"],
+      "full open": "true",
+    });
   });
 });
 
@@ -869,48 +891,56 @@ describe("SourceManager – jdbc-options wiring", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Group 6 – Singleton pool JDBC access=read call default (issue #151)
+// Group 6 – Singleton pool JDBC access derived from the access mode
 //
-// Live smoke (manual / integration, not CI): with IBMI_EXECUTE_SQL_READONLY=true
-// and no DB2i_JDBC_OPTIONS.access override, assert INSERT/UPDATE/DDL are
-// rejected by Db2 on the singleton pool, and CALL QSYS2.GENERATE_SQL still works.
+// Live smoke (manual / integration, not CI): with IBMI_EXECUTE_SQL_ACCESS=read
+// assert INSERT/UPDATE/DDL are rejected by Db2 on the singleton pool, and
+// CALL QSYS2.GENERATE_SQL still works.
 // ═══════════════════════════════════════════════════════════════════════════
-describe("resolveSingletonJdbcOptions – access=read call default", () => {
-  it("6.1 – readonly on, no existing opts → access=read call", () => {
-    expect(resolveSingletonJdbcOptions(undefined, true)).toEqual({
+describe("resolveSingletonJdbcOptions – JDBC access from access mode", () => {
+  it("6.1 – read → access=read call", () => {
+    expect(resolveSingletonJdbcOptions(undefined, "read")).toEqual({
       access: "read call",
     });
   });
 
-  it("6.2 – readonly on, existing opts without access → merges access", () => {
+  it("6.2 – read-call → access=read call", () => {
+    expect(resolveSingletonJdbcOptions(undefined, "read-call")).toEqual({
+      access: "read call",
+    });
+  });
+
+  it("6.3 – write → access=all", () => {
+    expect(resolveSingletonJdbcOptions(undefined, "write")).toEqual({
+      access: "all",
+    });
+  });
+
+  it("6.4 – existing options are merged alongside access", () => {
     expect(
       resolveSingletonJdbcOptions(
         { naming: "system", libraries: ["MYLIB"] },
-        true,
+        "read",
       ),
     ).toEqual({
       naming: "system",
       libraries: ["MYLIB"],
       access: "read call",
     });
-  });
-
-  it("6.3 – readonly on, explicit access preserved", () => {
-    expect(
-      resolveSingletonJdbcOptions({ access: "all", naming: "system" }, true),
-    ).toEqual({
-      access: "all",
+    expect(resolveSingletonJdbcOptions({ naming: "system" }, "write")).toEqual({
       naming: "system",
+      access: "all",
     });
-    expect(
-      resolveSingletonJdbcOptions({ access: "read only" }, true),
-    ).toEqual({ access: "read only" });
   });
 
-  it("6.4 – readonly off → does not inject access", () => {
-    expect(resolveSingletonJdbcOptions(undefined, false)).toBeUndefined();
-    expect(
-      resolveSingletonJdbcOptions({ naming: "system" }, false),
-    ).toEqual({ naming: "system" });
+  it("6.5 – an explicit existing.access is preserved for every mode (operator override wins)", () => {
+    for (const mode of ["read", "read-call", "write"] as const) {
+      expect(
+        resolveSingletonJdbcOptions({ access: "all", naming: "system" }, mode),
+      ).toEqual({ access: "all", naming: "system" });
+      expect(
+        resolveSingletonJdbcOptions({ access: "read only" }, mode),
+      ).toEqual({ access: "read only" });
+    }
   });
 });

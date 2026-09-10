@@ -29,7 +29,6 @@ function buildLegacySystemConfig(): SystemConfig | null {
     user,
     password,
     port: 8076,
-    readOnly: false,
     confirm: false,
     timeout: 60,
     maxRows: 5000,

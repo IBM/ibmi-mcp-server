@@ -14,7 +14,8 @@ describe("SystemConfigSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.port).toBe(8076);
-      expect(result.data.readOnly).toBe(false);
+      expect(result.data.readOnly).toBeUndefined();
+      expect(result.data.access).toBeUndefined();
       expect(result.data.timeout).toBe(60);
       expect(result.data.maxRows).toBe(5000);
       expect(result.data.ignoreUnauthorized).toBe(true);
@@ -52,6 +53,52 @@ describe("SystemConfigSchema", () => {
   it("should reject missing user", () => {
     const result = SystemConfigSchema.safeParse({ host: "myhost.com" });
     expect(result.success).toBe(false);
+  });
+
+  it("should accept access: read-call", () => {
+    const result = SystemConfigSchema.safeParse({
+      host: "myhost.com",
+      user: "TEST",
+      access: "read-call",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.access).toBe("read-call");
+      expect(result.data.readOnly).toBeUndefined();
+    }
+  });
+
+  it("should accept every access mode", () => {
+    for (const access of ["read", "read-call", "write"]) {
+      const result = SystemConfigSchema.safeParse({
+        host: "myhost.com",
+        user: "TEST",
+        access,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("should reject an invalid access mode", () => {
+    const result = SystemConfigSchema.safeParse({
+      host: "myhost.com",
+      user: "TEST",
+      access: "admin",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("should still accept the deprecated readOnly: true", () => {
+    const result = SystemConfigSchema.safeParse({
+      host: "myhost.com",
+      user: "TEST",
+      readOnly: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.readOnly).toBe(true);
+      expect(result.data.access).toBeUndefined();
+    }
   });
 
   it("should coerce string port to number", () => {

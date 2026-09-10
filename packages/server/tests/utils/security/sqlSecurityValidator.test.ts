@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SqlSecurityValidator } from "../../../src/ibmi-mcp-server/utils/security/sqlSecurityValidator.js";
+import { IbmiSqlParser } from "../../../src/ibmi-mcp-server/utils/security/ibmiSqlParser.js";
 import {
   McpError,
   JsonRpcErrorCode,
@@ -163,7 +164,9 @@ describe("SqlSecurityValidator", () => {
       } catch (error) {
         if (error instanceof McpError) {
           expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
-          expect(error.message).toContain("Write operations detected");
+          expect(error.message).toContain(
+            "SQL not permitted in read access mode",
+          );
         }
       }
     });
@@ -406,6 +409,100 @@ describe("SqlSecurityValidator", () => {
           context,
         ),
       ).toThrow(McpError);
+    });
+  });
+
+  describe("read-call Access Mode", () => {
+    const readCallConfig = { access: "read-call" as const };
+
+    it("should allow CALL", () => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          "CALL QSYS2.QCMDEXC(command => 'DSPLIBL')",
+          readCallConfig,
+          context,
+        ),
+      ).not.toThrow();
+    });
+
+    it("should allow SELECT", () => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          "SELECT * FROM users",
+          readCallConfig,
+          context,
+        ),
+      ).not.toThrow();
+    });
+
+    it("should reject INSERT", () => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          "INSERT INTO users (name) VALUES ('test')",
+          readCallConfig,
+          context,
+        ),
+      ).toThrow(/SQL not permitted in read-call access mode/);
+    });
+
+    it("should reject DROP", () => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          "DROP TABLE users",
+          readCallConfig,
+          context,
+        ),
+      ).toThrow(/SQL not permitted in read-call access mode/);
+    });
+
+    describe("regex fallback (parser cannot classify)", () => {
+      let parseSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        parseSpy = vi.spyOn(IbmiSqlParser, "parseQuery").mockReturnValue({
+          success: false,
+          allowed: false,
+          statementTypes: [],
+          violations: ["Parse error"],
+          error: "forced parse failure",
+        });
+      });
+
+      afterEach(() => {
+        parseSpy.mockRestore();
+      });
+
+      // QCMDEXC itself stays on the regex deny-list in every restricted mode,
+      // so use a plain user procedure to isolate the CALL keyword.
+      it("passes a query containing CALL in read-call", () => {
+        expect(() =>
+          SqlSecurityValidator.validateQuery(
+            "CALL MYLIB.MYPROC('X')",
+            readCallConfig,
+            context,
+          ),
+        ).not.toThrow();
+      });
+
+      it("still rejects a query containing CALL in read", () => {
+        expect(() =>
+          SqlSecurityValidator.validateQuery(
+            "CALL MYLIB.MYPROC('X')",
+            { access: "read" as const },
+            context,
+          ),
+        ).toThrow(/SQL not permitted in read access mode.*CALL/);
+      });
+
+      it("rejects a query containing INSERT in read-call", () => {
+        expect(() =>
+          SqlSecurityValidator.validateQuery(
+            "INSERT INTO users (name) VALUES ('test')",
+            readCallConfig,
+            context,
+          ),
+        ).toThrow(/SQL not permitted in read-call access mode.*INSERT/);
+      });
     });
   });
 

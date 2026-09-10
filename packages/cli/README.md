@@ -76,7 +76,8 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 |--------|-------------|---------|
 | `--file <path>` | Read SQL from a file | — |
 | `--limit <n>` | Max rows returned | system `maxRows` (5000) |
-| `--read-only` / `--no-read-only` | Enforce or disable read-only mode | `--read-only` |
+| `--access <mode>` | Access mode: `read`, `read-call` (allow `CALL`), or `write`; never above the system's `access` ceiling | `read` |
+| `--read-only` / `--no-read-only` | Deprecated aliases for `--access read` / `--access write` | — |
 | `--dry-run` | Print SQL without executing (no connection needed) | — |
 
 SQL source priority: positional argument > `--file` > piped stdin.
@@ -223,7 +224,7 @@ systems:
     port: 8076
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
-    readOnly: false
+    access: write
     confirm: false
     timeout: 60
     maxRows: 5000
@@ -233,7 +234,7 @@ systems:
     port: 8076
     user: ${PROD_USER}
     password: ${PROD_PASS}
-    readOnly: true
+    access: read
     confirm: true
 ```
 
@@ -316,7 +317,7 @@ MYLIB,USER
 | `1` | GENERAL | Connection failure, unexpected error |
 | `2` | USAGE | Invalid arguments or missing options |
 | `3` | QUERY | SQL execution error |
-| `4` | SECURITY | Read-only violation, forbidden operation |
+| `4` | SECURITY | Access-mode violation, forbidden operation |
 | `5` | AUTH | Authentication failure |
 
 ---

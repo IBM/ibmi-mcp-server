@@ -26,17 +26,18 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 |--------|-------------|---------|
 | `--file <path>` | Read SQL from a file | — |
 | `--limit <n>` | Maximum rows returned | system `maxRows` (5000) |
-| `--read-only` / `--no-read-only` | Enforce or disable read-only mode | `--read-only` |
+| `--access <mode>` | Access mode: `read`, `read-call` (allow `CALL`), or `write`; never above the system's `access` ceiling | `read` |
+| `--read-only` / `--no-read-only` | Deprecated aliases for `--access read` / `--access write` | — |
 | `--dry-run` | Print resolved SQL without executing | — |
 
 **SQL source priority:** positional argument > `--file` > piped stdin.
 
 <Note>
-Read-only mode is enabled by default. To execute INSERT, UPDATE, DELETE, or DDL statements, pass `--no-read-only` explicitly or set `readOnly: false` in your system config.
+The default mode is `read` (SELECT and functions). Pass `--access read-call` to run stored procedures, or `--access write` for INSERT, UPDATE, DELETE, and DDL. A system's `access` in `~/.ibmi/config.yaml` is a ceiling for that system, never a default: `--access write` against a system configured as `read` runs as `read`, and a system configured as `write` still runs as `read` unless you pass `--access write`.
 </Note>
 
 <Warning>
-**`IBMI_EXECUTE_SQL_READONLY=true` in your environment overrides `--no-read-only`.** An explicit `true` pins read-only mode. The flag is accepted, but write statements are still rejected at the connection. If `--no-read-only` has no effect, check your shell and `.env` for the variable. See [Read-Only Policy Precedence](/configuration#read-only-policy-precedence).
+**`IBMI_EXECUTE_SQL_ACCESS` in your environment is a ceiling.** If it is set lower than the mode you request, the command exits with code 4 and a message naming the variable instead of letting Db2 reject the statement later. Check your shell and any `.env` in the current directory. See [execute_sql access mode](/configuration#execute_sql-access-mode).
 </Warning>
 
 ---

@@ -9,32 +9,67 @@ import { logger } from "@/utils/internal/logger.js";
 import { RequestContext } from "@/utils/internal/requestContext.js";
 import Document from "@/ibmi-mcp-server/utils/language/document.js";
 import { StatementType } from "@/ibmi-mcp-server/utils/language/types.js";
+import type { ExecuteSqlAccess } from "@/ibmi-mcp-server/services/executeSqlAccess.js";
 
 /**
  * Parse result from IBM i SQL parser
  */
 export interface IbmiParseResult {
   success: boolean;
-  isReadOnly: boolean;
+  /** True when every statement is permitted at the requested access level */
+  allowed: boolean;
   statementTypes: string[];
+  /** One entry per statement not permitted at the requested access level */
   violations: string[];
   error?: string;
 }
 
-export const readOnlyTypes = [StatementType.Select, StatementType.With];
+/** Statement types permitted in `read` mode. */
+export const readTypes: readonly StatementType[] = [
+  StatementType.Select,
+  StatementType.With,
+];
+
+/** Statement types permitted in `read-call` mode. */
+export const readCallTypes: readonly StatementType[] = [
+  ...readTypes,
+  StatementType.Call,
+];
+
+/**
+ * Statement types permitted at an access level. `undefined` for `write`
+ * means every statement type is permitted.
+ */
+export function allowedTypesFor(
+  access: ExecuteSqlAccess,
+): readonly StatementType[] | undefined {
+  switch (access) {
+    case "read":
+      return readTypes;
+    case "read-call":
+      return readCallTypes;
+    case "write":
+      return undefined;
+  }
+}
 
 /**
  * IBM i-aware SQL parser using vscode-db2i's Document class
  */
 export class IbmiSqlParser {
   /**
-   * Parse and validate SQL query for IBM i
+   * Parse SQL and check every statement against an access level
    *
    * @param query - SQL query to parse
    * @param context - Request context for logging
-   * @returns Parse result with read-only validation
+   * @param access - Access level to enforce (default `read`)
+   * @returns Parse result with per-statement violations
    */
-  static parseQuery(query: string, context: RequestContext): IbmiParseResult {
+  static parseQuery(
+    query: string,
+    context: RequestContext,
+    access: ExecuteSqlAccess = "read",
+  ): IbmiParseResult {
     try {
       // Parse query using vscode-db2i's Document class
       const document = new Document(query);
@@ -44,17 +79,15 @@ export class IbmiSqlParser {
         (stmt) => StatementType[stmt.type] || "Unknown",
       );
 
-      // Check for write operations by analyzing statement types
-      const violations = this.detectWriteOperations(document);
-
-      // Determine if query is read-only
-      const isReadOnly = violations.length === 0;
+      const violations = this.detectDisallowedStatements(document, access);
+      const allowed = violations.length === 0;
 
       logger.debug(
         {
           ...context,
           statementTypes,
-          isReadOnly,
+          access,
+          allowed,
           violationCount: violations.length,
           statementCount: document.statements.length,
         },
@@ -63,7 +96,7 @@ export class IbmiSqlParser {
 
       return {
         success: true,
-        isReadOnly,
+        allowed,
         statementTypes,
         violations,
       };
@@ -81,7 +114,7 @@ export class IbmiSqlParser {
 
       return {
         success: false,
-        isReadOnly: false,
+        allowed: false,
         statementTypes: [],
         violations: ["Parse error"],
         error: errorMessage,
@@ -90,39 +123,28 @@ export class IbmiSqlParser {
   }
 
   /**
-   * Detect write operations by analyzing statement types
+   * Find statements not permitted at the given access level
    *
    * @param document - Parsed SQL document
+   * @param access - Access level to enforce
    * @returns Array of violation messages
    */
-  private static detectWriteOperations(document: Document): string[] {
+  private static detectDisallowedStatements(
+    document: Document,
+    access: ExecuteSqlAccess,
+  ): string[] {
+    const allowedTypes = allowedTypesFor(access);
+    if (!allowedTypes) return [];
+
     const violations: string[] = [];
-
     for (const statement of document.statements) {
-      const stmtType = statement.type;
-
-      // Check if statement type is a write operation
-      if (this.isWriteOperation(stmtType)) {
+      if (!allowedTypes.includes(statement.type)) {
         violations.push(
-          `Write operation detected: ${StatementType[stmtType] || "Unknown"}`,
+          `${StatementType[statement.type] || "Unknown"} statement not permitted in ${access} mode`,
         );
       }
     }
-
     return violations;
-  }
-
-  /**
-   * Determine if a statement type is a write operation
-   *
-   * @param type - Statement type enum value
-   * @returns True if the statement modifies data
-   */
-  private static isWriteOperation(type: StatementType): boolean {
-    // Only SELECT and WITH (CTE) are read-only
-    // All other statement types (including CALL) are write operations
-    // TODO: Consider refining this logic if certain CALL statements are allowed
-    return !readOnlyTypes.includes(type);
   }
 }
 

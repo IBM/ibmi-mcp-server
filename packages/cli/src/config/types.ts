@@ -17,8 +17,14 @@ export interface SystemConfig {
   password?: string;
   /** Default schema/library for queries. */
   defaultSchema?: string;
-  /** Block mutation queries (INSERT, UPDATE, DELETE, DROP). */
-  readOnly: boolean;
+  /**
+   * execute_sql access ceiling for this system: `read` (SELECT and functions),
+   * `read-call` (+ CALL), `write` (everything). Unset means no ceiling; the
+   * per-command `--access` flag (default `read`) decides.
+   */
+  access?: "read" | "read-call" | "write";
+  /** @deprecated Use `access`. `true` → read, `false` → write. */
+  readOnly?: boolean;
   /** Require interactive confirmation before executing queries. */
   confirm: boolean;
   /** Query execution timeout in seconds. */

@@ -44,8 +44,7 @@ vi.mock("../../../src/config/index.js", () => ({
   config: {
     ibmi_enableDefaultTools: true,
     ibmi_enableExecuteSql: false,
-    ibmi_executeSqlReadonly: true,
-    ibmi_executeSqlParseValidation: "auto",
+    ibmi_executeSqlAccess: "read",
     logLevel: "debug",
     logsPath: null,
     environment: "test",

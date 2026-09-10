@@ -24,7 +24,15 @@ import {
   logOperationSuccess,
 } from "../../utils/internal/logging-helpers.js";
 import { IBMiConnectionPool } from "../services/connectionPool.js";
-import { setExecuteSqlReadOnlyPolicy } from "../services/executeSqlPolicy.js";
+import {
+  accessAtLeast,
+  accessFromLegacyReadOnly,
+  getExecuteSqlAccessCeiling,
+  resolveAccess,
+  setExecuteSqlAccessPolicy,
+  EXECUTE_SQL_ACCESS_ENV,
+  type ExecuteSqlAccess,
+} from "../services/executeSqlAccess.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 import { config } from "../../config/index.js";
@@ -37,9 +45,6 @@ const TOOL_NAME = "execute_sql";
 const TOOL_DESCRIPTION =
   "Executes a SELECT query on the IBM i database and returns the results. Use this after validating your query with validate_query.";
 
-/** Wire PARSE_STATEMENT policy for execute_sql */
-export type ExecuteSqlParseValidation = "auto" | "always";
-
 /**
  * Configuration for the execute SQL tool
  */
@@ -47,21 +52,21 @@ export interface ExecuteSqlToolConfig {
   enabled: boolean;
   description?: string;
   security?: {
+    /**
+     * Access mode: `read` (SELECT and functions), `read-call` (+ CALL),
+     * `write` (everything). Defaults to IBMI_EXECUTE_SQL_ACCESS, then `read`.
+     */
+    access?: ExecuteSqlAccess;
+    /** @deprecated Use `access`. `true` → `read`, `false` → `write`. */
     readOnly?: boolean;
     maxQueryLength?: number;
-    /**
-     * When to run QSYS2.PARSE_STATEMENT.
-     * - `auto` (default): skip when in-process parser classified the statement
-     * - `always`: always run PARSE_STATEMENT (strict/audit mode)
-     */
-    parseValidation?: ExecuteSqlParseValidation;
   };
 }
 
 /**
  * Default tool configuration
- * Readonly mode is controlled by IBMI_EXECUTE_SQL_READONLY environment variable (defaults to true)
- * This ensures write operations are opt-in for security
+ * Access mode is controlled by IBMI_EXECUTE_SQL_ACCESS (defaults to `read`)
+ * so CALL and write statements are opt-in for security
  *
  * Enabled when:
  * - IBMI_ENABLE_EXECUTE_SQL=true (explicit override), OR
@@ -70,19 +75,20 @@ export interface ExecuteSqlToolConfig {
 let toolConfig: ExecuteSqlToolConfig = {
   enabled: config.ibmi_enableExecuteSql || config.ibmi_enableDefaultTools,
   security: {
-    readOnly: config.ibmi_executeSqlReadonly,
+    access: config.ibmi_executeSqlAccess,
     maxQueryLength: 10000,
-    parseValidation: config.ibmi_executeSqlParseValidation,
   },
 };
 
 /**
  * Configure the execute SQL tool
  * @param config - Configuration options
+ * @returns The effective access mode after applying the operator's env
+ *   ceiling. Compare with what you requested to detect a downgrade.
  */
 export function configureExecuteSqlTool(
   config: Partial<ExecuteSqlToolConfig>,
-): void {
+): ExecuteSqlAccess {
   const context =
     getRequestContext() ??
     requestContextService.createRequestContext({
@@ -93,26 +99,47 @@ export function configureExecuteSqlTool(
     toolName: TOOL_NAME,
   });
 
+  // Translate the deprecated boolean before merging so it cannot be shadowed
+  // by the access level already present in the defaults.
+  const { readOnly, ...incomingSecurity } = config.security ?? {};
+  if (incomingSecurity.access === undefined && readOnly !== undefined) {
+    incomingSecurity.access = accessFromLegacyReadOnly(readOnly);
+  }
+
   // Merge with existing config
   toolConfig = {
     ...toolConfig,
     ...config,
     security: {
       ...toolConfig.security,
-      ...config.security,
+      ...incomingSecurity,
     },
   };
 
-  // Keep the singleton pool's JDBC backstop in sync with the effective
-  // read-only policy (the pool reads this at lazy init).
-  setExecuteSqlReadOnlyPolicy(toolConfig.security?.readOnly !== false);
+  // Keep the singleton pool's JDBC access in sync with the effective access
+  // mode (the pool reads this at lazy init). The env ceiling may lower it.
+  const requested = resolveAccess(toolConfig.security);
+  const effective = setExecuteSqlAccessPolicy(requested);
+  if (effective !== requested) {
+    toolConfig.security = { ...toolConfig.security, access: effective };
+    logger.warning(
+      {
+        ...context,
+        requested,
+        effective,
+        ceiling: getExecuteSqlAccessCeiling(),
+      },
+      `execute_sql access lowered from ${requested} to ${effective}: ${EXECUTE_SQL_ACCESS_ENV} is set in the environment and acts as a ceiling`,
+    );
+  }
 
   logOperationSuccess(context, "Execute SQL tool configuration updated", {
     enabled: toolConfig.enabled,
-    readOnly: toolConfig.security?.readOnly,
+    access: effective,
     maxQueryLength: toolConfig.security?.maxQueryLength,
-    parseValidation: toolConfig.security?.parseValidation,
   });
+
+  return effective;
 }
 
 /**
@@ -215,35 +242,47 @@ function validateSqlSecurity(
   const config = getExecuteSqlConfig();
 
   const securityConfig = {
-    readOnly: config.security?.readOnly ?? true,
+    access: resolveAccess(config.security),
     maxQueryLength: config.security?.maxQueryLength ?? 10000,
   };
 
   // execute_sql needs classification even in write mode to decide whether the
-  // wire PARSE_STATEMENT round trip can be skipped under `auto`.
+  // wire PARSE_STATEMENT round trip can be skipped.
   return SqlSecurityValidator.validateQuery(sql, securityConfig, appContext, {
     classify: true,
   });
 }
 
 /**
+ * PARSE_STATEMENT `SQL_STATEMENT_TYPE` values permitted per access mode.
+ * `undefined` (write) means every type is permitted.
+ */
+const PARSE_STATEMENT_ALLOWED_TYPES: Record<
+  ExecuteSqlAccess,
+  ReadonlySet<string> | undefined
+> = {
+  read: new Set(["QUERY"]),
+  "read-call": new Set(["QUERY", "CALL"]),
+  write: undefined,
+};
+
+/**
  * Validate SQL query using IBM i PARSE_STATEMENT
- * Verifies statement type matches readOnly configuration
+ * Verifies every statement type is permitted at the access mode
  * Uses IBM i's native SQL parser for authoritative statement type detection
  *
- * Invoked when `IBMI_EXECUTE_SQL_PARSE_VALIDATION=always`, or when the
- * in-process parser could not classify the statement (`auto` fallback).
+ * Invoked only when the in-process parser could not classify the statement.
  *
  * @param sql - SQL query to validate (should be pre-sanitized without trailing semicolons)
- * @param readOnly - Whether readonly mode is enabled
+ * @param access - Effective access mode
  * @param appContext - Request context for logging
- * @throws {McpError} If validation fails (syntax error, non-query in readonly mode, or execution failure)
+ * @throws {McpError} If validation fails (syntax error, statement type not permitted, or execution failure)
  *
  * @see https://www.ibm.com/docs/en/i/7.5?topic=services-parse-statement-table-function
  */
 async function validateWithParseStatement(
   sql: string,
-  readOnly: boolean,
+  access: ExecuteSqlAccess,
   appContext: RequestContext,
 ): Promise<void> {
   // Build PARSE_STATEMENT query with named parameters
@@ -277,19 +316,24 @@ async function validateWithParseStatement(
       );
     }
 
-    // Extract statement type from first row
-    const firstRow = result.data[0] as { SQL_STATEMENT_TYPE?: string };
-    const statementType = (firstRow.SQL_STATEMENT_TYPE || "").toUpperCase();
+    // Every distinct statement type must be permitted at this access mode
+    // A missing type is "UNKNOWN" so it can never satisfy a read allow-set.
+    const statementTypes = (
+      result.data as { SQL_STATEMENT_TYPE?: string }[]
+    ).map((row) => (row.SQL_STATEMENT_TYPE || "UNKNOWN").toUpperCase());
+    const allowedTypes = PARSE_STATEMENT_ALLOWED_TYPES[access];
+    const disallowed = allowedTypes
+      ? statementTypes.filter((t) => !allowedTypes.has(t))
+      : [];
 
-    // Validate statement type against readOnly mode
-    if (readOnly && statementType !== "QUERY") {
+    if (disallowed.length > 0) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        `Non-query statement '${statementType}' not allowed in read-only mode`,
+        `Statement type '${disallowed.join("', '")}' not permitted in ${access} access mode`,
         {
           query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
-          sqlStatementType: statementType,
-          readOnly: true,
+          sqlStatementTypes: statementTypes,
+          access,
           validationMethod: "parse_statement",
         },
       );
@@ -298,8 +342,8 @@ async function validateWithParseStatement(
     logger.debug(
       {
         ...appContext,
-        sqlStatementType: statementType,
-        readOnly,
+        sqlStatementTypes: statementTypes,
+        access,
       },
       "PARSE_STATEMENT validation passed",
     );
@@ -355,33 +399,26 @@ async function executeSqlLogic(
     // Layer 1: in-process AST/regex + vscode-db2i classification
     const classification = validateSqlSecurity(sanitizedSql, appContext);
 
-    // Layer 2: wire PARSE_STATEMENT — only when opted into strict mode, or
-    // when Layer 1 could not classify (regex fallback / uncertain). Same
-    // `auto` rule in read-only and write mode. JDBC access=read call on the
-    // singleton pool is the fail-closed backstop for the read-only skip path
-    // (blocks writes; allows generate_sql CALL).
-    const config = getExecuteSqlConfig();
-    const parseMode = config.security?.parseValidation ?? "auto";
-    if (parseMode === "always" || !classification.classified) {
+    // Layer 2: wire PARSE_STATEMENT — only when Layer 1 could not classify
+    // (regex fallback / uncertain). The JDBC access derived from the access
+    // mode on the singleton pool is the fail-closed backstop for the skip
+    // path (read / read-call → "read call" blocks writes at Db2).
+    const access = resolveAccess(getExecuteSqlConfig().security);
+    if (!classification.classified) {
       logger.debug(
         {
           ...appContext,
-          parseMode,
-          classified: classification.classified,
+          access,
           validatedBy: classification.validatedBy,
         },
-        "Running PARSE_STATEMENT validation (fallback or strict mode)",
+        "Running PARSE_STATEMENT validation (in-process parser could not classify)",
       );
-      await validateWithParseStatement(
-        sanitizedSql,
-        config.security?.readOnly ?? true,
-        appContext,
-      );
+      await validateWithParseStatement(sanitizedSql, access, appContext);
     } else {
       logger.debug(
         {
           ...appContext,
-          parseMode,
+          access,
           validatedBy: classification.validatedBy,
           statementTypes: classification.statementTypes,
         },
@@ -543,9 +580,19 @@ export const executeSqlTool = defineTool({
   logic: executeSqlLogic,
   responseFormatter: executeSqlResponseFormatter,
   annotations: {
-    readOnlyHint: toolConfig.security?.readOnly ?? true, // Default to true for safety
-    destructiveHint: !(toolConfig.security?.readOnly ?? true), // Destructive if not read-only
-    openWorldHint: !(toolConfig.security?.readOnly ?? true), // Open world if not read-only
+    // Only `read` is read-only; CALL can mutate, so read-call is not.
+    readOnlyHint: !accessAtLeast(
+      resolveAccess(toolConfig.security),
+      "read-call",
+    ),
+    destructiveHint: accessAtLeast(
+      resolveAccess(toolConfig.security),
+      "read-call",
+    ),
+    openWorldHint: accessAtLeast(
+      resolveAccess(toolConfig.security),
+      "read-call",
+    ),
   },
   enabled: () =>
     toolConfig.enabled ||
