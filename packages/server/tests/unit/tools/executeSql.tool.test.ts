@@ -3,7 +3,7 @@
  *
  * Tests the validateWithParseStatement function's ability to:
  * - Validate SQL syntax using IBM i's PARSE_STATEMENT
- * - Enforce readonly mode restrictions
+ * - Enforce access-mode restrictions (read / read-call / write)
  * - Fail closed on errors
  *
  * Also covers conditional wire PARSE_STATEMENT (issue #151) via executeSqlLogic.
@@ -40,8 +40,7 @@ vi.mock("../../../src/config/index.js", () => ({
   config: {
     ibmi_enableDefaultTools: false,
     ibmi_enableExecuteSql: true,
-    ibmi_executeSqlReadonly: true,
-    ibmi_executeSqlParseValidation: "auto",
+    ibmi_executeSqlAccess: "read",
     logLevel: "debug",
     logsPath: null,
     environment: "test",
@@ -63,6 +62,7 @@ vi.mock("../../../src/config/index.js", () => ({
 import { IBMiConnectionPool } from "../../../src/ibmi-mcp-server/services/connectionPool.js";
 import type { QueryResult } from "@ibm/mapepire-js";
 import { IbmiSqlParser } from "../../../src/ibmi-mcp-server/utils/security/ibmiSqlParser.js";
+import type { ExecuteSqlAccess } from "../../../src/ibmi-mcp-server/services/executeSqlAccess.js";
 import {
   configureExecuteSqlTool,
   getExecuteSqlConfig,
@@ -109,9 +109,18 @@ function createMockQueryResult<T = unknown>(
  * Standalone version of validateWithParseStatement for testing
  * This mirrors the implementation in executeSql.tool.ts
  */
+const PARSE_STATEMENT_ALLOWED_TYPES: Record<
+  ExecuteSqlAccess,
+  ReadonlySet<string> | undefined
+> = {
+  read: new Set(["QUERY"]),
+  "read-call": new Set(["QUERY", "CALL"]),
+  write: undefined,
+};
+
 async function validateWithParseStatement(
   sql: string,
-  readOnly: boolean,
+  access: ExecuteSqlAccess,
   appContext: ReturnType<typeof createRequestContext>,
 ): Promise<void> {
   const parseQuery = `
@@ -142,17 +151,23 @@ async function validateWithParseStatement(
       );
     }
 
-    const firstRow = result.data[0] as { SQL_STATEMENT_TYPE?: string };
-    const statementType = (firstRow.SQL_STATEMENT_TYPE || "").toUpperCase();
+    // A missing type is "UNKNOWN" so it can never satisfy a read allow-set.
+    const statementTypes = (
+      result.data as { SQL_STATEMENT_TYPE?: string }[]
+    ).map((row) => (row.SQL_STATEMENT_TYPE || "UNKNOWN").toUpperCase());
+    const allowedTypes = PARSE_STATEMENT_ALLOWED_TYPES[access];
+    const disallowed = allowedTypes
+      ? statementTypes.filter((t) => !allowedTypes.has(t))
+      : [];
 
-    if (readOnly && statementType !== "QUERY") {
+    if (disallowed.length > 0) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
-        `Non-query statement '${statementType}' not allowed in read-only mode`,
+        `Statement type '${disallowed.join("', '")}' not permitted in ${access} access mode`,
         {
           query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
-          sqlStatementType: statementType,
-          readOnly: true,
+          sqlStatementTypes: statementTypes,
+          access,
           validationMethod: "parse_statement",
         },
       );
@@ -182,8 +197,8 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
     vi.clearAllMocks();
   });
 
-  describe("Read-Only Mode - Valid Queries", () => {
-    it("should allow SELECT queries in readonly mode", async () => {
+  describe("read Mode - Valid Queries", () => {
+    it("should allow SELECT queries in read mode", async () => {
       // Mock successful PARSE_STATEMENT result for SELECT
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
@@ -192,7 +207,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "SELECT * FROM QIWS.QCUSTCDT",
-          true,
+          "read",
           context,
         ),
       ).resolves.toBeUndefined();
@@ -204,7 +219,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       );
     });
 
-    it("should allow complex SELECT with CTEs in readonly mode", async () => {
+    it("should allow complex SELECT with CTEs in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
       );
@@ -219,11 +234,11 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       `;
 
       await expect(
-        validateWithParseStatement(complexQuery, true, context),
+        validateWithParseStatement(complexQuery, "read", context),
       ).resolves.toBeUndefined();
     });
 
-    it("should allow SELECT with UNION in readonly mode", async () => {
+    it("should allow SELECT with UNION in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
       );
@@ -235,13 +250,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       `;
 
       await expect(
-        validateWithParseStatement(unionQuery, true, context),
+        validateWithParseStatement(unionQuery, "read", context),
       ).resolves.toBeUndefined();
     });
   });
 
-  describe("Read-Only Mode - Blocked Queries", () => {
-    it("should reject INSERT statements in readonly mode", async () => {
+  describe("read Mode - Blocked Queries", () => {
+    it("should reject INSERT statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "INSERT" }]),
       );
@@ -249,7 +264,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "INSERT INTO users (name) VALUES ('test')",
-          true,
+          "read",
           context,
         ),
       ).rejects.toThrow(McpError);
@@ -257,24 +272,24 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       try {
         await validateWithParseStatement(
           "INSERT INTO users (name) VALUES ('test')",
-          true,
+          "read",
           context,
         );
       } catch (error) {
         if (error instanceof McpError) {
           expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
-          expect(error.message).toContain("Non-query statement 'INSERT'");
-          expect(error.message).toContain("not allowed in read-only mode");
+          expect(error.message).toContain("Statement type 'INSERT'");
+          expect(error.message).toContain("not permitted in read access mode");
           expect(error.details).toMatchObject({
-            sqlStatementType: "INSERT",
-            readOnly: true,
+            sqlStatementTypes: ["INSERT"],
+            access: "read",
             validationMethod: "parse_statement",
           });
         }
       }
     });
 
-    it("should reject UPDATE statements in readonly mode", async () => {
+    it("should reject UPDATE statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "UPDATE" }]),
       );
@@ -282,13 +297,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "UPDATE users SET name = 'test' WHERE id = 1",
-          true,
+          "read",
           context,
         ),
       ).rejects.toThrow(McpError);
     });
 
-    it("should reject DELETE statements in readonly mode", async () => {
+    it("should reject DELETE statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "DELETE" }]),
       );
@@ -296,13 +311,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "DELETE FROM users WHERE id = 1",
-          true,
+          "read",
           context,
         ),
       ).rejects.toThrow(McpError);
     });
 
-    it("should reject MERGE statements in readonly mode", async () => {
+    it("should reject MERGE statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "MERGE" }]),
       );
@@ -310,33 +325,37 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "MERGE INTO target USING source ON target.id = source.id",
-          true,
+          "read",
           context,
         ),
       ).rejects.toThrow(McpError);
     });
 
-    it("should reject CREATE statements in readonly mode", async () => {
+    it("should reject CREATE statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "CREATE" }]),
       );
 
       await expect(
-        validateWithParseStatement("CREATE TABLE test (id INT)", true, context),
+        validateWithParseStatement(
+          "CREATE TABLE test (id INT)",
+          "read",
+          context,
+        ),
       ).rejects.toThrow(McpError);
     });
 
-    it("should reject DROP statements in readonly mode", async () => {
+    it("should reject DROP statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "DROP" }]),
       );
 
       await expect(
-        validateWithParseStatement("DROP TABLE test", true, context),
+        validateWithParseStatement("DROP TABLE test", "read", context),
       ).rejects.toThrow(McpError);
     });
 
-    it("should reject ALTER statements in readonly mode", async () => {
+    it("should reject ALTER statements in read mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "ALTER" }]),
       );
@@ -344,15 +363,15 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "ALTER TABLE test ADD COLUMN name VARCHAR(50)",
-          true,
+          "read",
           context,
         ),
       ).rejects.toThrow(McpError);
     });
   });
 
-  describe("Non-Read-Only Mode", () => {
-    it("should allow SELECT queries in non-readonly mode", async () => {
+  describe("write Mode", () => {
+    it("should allow SELECT queries in write mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
       );
@@ -360,13 +379,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "SELECT * FROM QIWS.QCUSTCDT",
-          false,
+          "write",
           context,
         ),
       ).resolves.toBeUndefined();
     });
 
-    it("should allow INSERT statements in non-readonly mode", async () => {
+    it("should allow INSERT statements in write mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "INSERT" }]),
       );
@@ -374,13 +393,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "INSERT INTO users (name) VALUES ('test')",
-          false,
+          "write",
           context,
         ),
       ).resolves.toBeUndefined();
     });
 
-    it("should allow UPDATE statements in non-readonly mode", async () => {
+    it("should allow UPDATE statements in write mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "UPDATE" }]),
       );
@@ -388,13 +407,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "UPDATE users SET name = 'test' WHERE id = 1",
-          false,
+          "write",
           context,
         ),
       ).resolves.toBeUndefined();
     });
 
-    it("should allow DELETE statements in non-readonly mode", async () => {
+    it("should allow DELETE statements in write mode", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "DELETE" }]),
       );
@@ -402,7 +421,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       await expect(
         validateWithParseStatement(
           "DELETE FROM users WHERE id = 1",
-          false,
+          "write",
           context,
         ),
       ).resolves.toBeUndefined();
@@ -415,13 +434,13 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
       await expect(
-        validateWithParseStatement("SELECT * FROMM invalid", true, context),
+        validateWithParseStatement("SELECT * FROMM invalid", "read", context),
       ).rejects.toThrow(McpError);
 
       try {
         await validateWithParseStatement(
           "SELECT * FROMM invalid",
-          true,
+          "read",
           context,
         );
       } catch (error) {
@@ -440,7 +459,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
       await expect(
-        validateWithParseStatement("INVALID SQL QUERY ;;;", true, context),
+        validateWithParseStatement("INVALID SQL QUERY ;;;", "read", context),
       ).rejects.toThrow(McpError);
     });
 
@@ -450,7 +469,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       const longQuery = "SELECT * FROM table WHERE " + "x = 1 AND ".repeat(50);
 
       try {
-        await validateWithParseStatement(longQuery, true, context);
+        await validateWithParseStatement(longQuery, "read", context);
       } catch (error) {
         if (error instanceof McpError) {
           expect(error.details?.query).toHaveLength(103); // 100 chars + "..."
@@ -465,11 +484,15 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
 
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).rejects.toThrow(McpError);
 
       try {
-        await validateWithParseStatement("SELECT * FROM users", true, context);
+        await validateWithParseStatement(
+          "SELECT * FROM users",
+          "read",
+          context,
+        );
       } catch (error) {
         if (error instanceof McpError) {
           expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
@@ -486,7 +509,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockRejectedValue("Unexpected string error");
 
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).rejects.toThrow(McpError);
     });
 
@@ -500,7 +523,11 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockRejectedValue(originalError);
 
       try {
-        await validateWithParseStatement("SELECT * FROM users", true, context);
+        await validateWithParseStatement(
+          "SELECT * FROM users",
+          "read",
+          context,
+        );
         // Should not reach here
         expect.fail("Should have thrown an error");
       } catch (error) {
@@ -515,15 +542,30 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should handle queries with missing SQL_STATEMENT_TYPE", async () => {
+    it("should reject rows with missing SQL_STATEMENT_TYPE in read and read-call (UNKNOWN)", async () => {
       mockExecuteQuery.mockResolvedValue(
         createMockQueryResult([{}]), // No SQL_STATEMENT_TYPE field
       );
 
-      // Should treat empty string as non-QUERY in readonly mode
+      // A missing type maps to UNKNOWN, which no restricted allow-set contains.
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
-      ).rejects.toThrow(McpError);
+        validateWithParseStatement("SELECT * FROM users", "read", context),
+      ).rejects.toThrow(
+        /Statement type 'UNKNOWN' not permitted in read access mode/,
+      );
+      await expect(
+        validateWithParseStatement("SELECT * FROM users", "read-call", context),
+      ).rejects.toThrow(
+        /Statement type 'UNKNOWN' not permitted in read-call access mode/,
+      );
+    });
+
+    it("should allow rows with missing SQL_STATEMENT_TYPE in write mode", async () => {
+      mockExecuteQuery.mockResolvedValue(createMockQueryResult([{}]));
+
+      await expect(
+        validateWithParseStatement("SELECT * FROM users", "write", context),
+      ).resolves.toBeUndefined();
     });
 
     it("should handle lowercase statement types", async () => {
@@ -533,7 +575,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
 
       // Should convert to uppercase and match
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).resolves.toBeUndefined();
     });
 
@@ -541,7 +583,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).rejects.toThrow(McpError);
     });
 
@@ -549,7 +591,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       mockExecuteQuery.mockResolvedValue(createMockQueryResult(undefined));
 
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).rejects.toThrow(McpError);
     });
 
@@ -561,7 +603,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
       // SQL with trailing semicolon should work (semicolons are sanitized before validation)
       // Note: Sanitization happens in executeSqlLogic before calling validateWithParseStatement
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).resolves.toBeUndefined();
     });
 
@@ -572,7 +614,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
 
       // Multiple semicolons should also work (sanitized in executeSqlLogic)
       await expect(
-        validateWithParseStatement("SELECT * FROM users", true, context),
+        validateWithParseStatement("SELECT * FROM users", "read", context),
       ).resolves.toBeUndefined();
     });
   });
@@ -583,7 +625,7 @@ describe("PARSE_STATEMENT Runtime Validation", () => {
         createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
       );
 
-      await validateWithParseStatement("SELECT * FROM test", true, context);
+      await validateWithParseStatement("SELECT * FROM test", "read", context);
 
       // Verify the PARSE_STATEMENT query structure
       const callArgs = mockExecuteQuery.mock.calls[0];
@@ -610,6 +652,17 @@ const mockSdkContext = {
   sessionId: undefined,
 } as unknown as Parameters<typeof executeSqlLogic>[2];
 
+/** Force the in-process parser to fail so Layer 1 falls through to PARSE_STATEMENT. */
+function forceParserFailure() {
+  return vi.spyOn(IbmiSqlParser, "parseQuery").mockReturnValue({
+    success: false,
+    allowed: false,
+    statementTypes: [],
+    violations: ["Parse error"],
+    error: "forced parse failure",
+  });
+}
+
 describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
   const context = createRequestContext();
   const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
@@ -622,9 +675,8 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     configureExecuteSqlTool({
       enabled: true,
       security: {
-        readOnly: true,
+        access: "read",
         maxQueryLength: 10000,
-        parseValidation: "auto",
       },
     });
     mockExecutePaginated.mockResolvedValue({
@@ -636,12 +688,12 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
   });
 
   // Restore the module-global tool config so blocks added after this one
-  // don't inherit write-mode/always-parse state.
+  // don't inherit write-mode state.
   afterAll(() => {
     configureExecuteSqlTool(structuredClone(initialExecuteSqlConfig));
   });
 
-  it("auto + successful Select: skips PARSE_STATEMENT (one pagination call only)", async () => {
+  it("classified SELECT: skips PARSE_STATEMENT (one pagination call only)", async () => {
     const result = await executeSqlLogic(
       { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
       context,
@@ -656,27 +708,7 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     );
   });
 
-  it("always: runs PARSE_STATEMENT then execute", async () => {
-    configureExecuteSqlTool({
-      security: { parseValidation: "always" },
-    });
-    mockExecuteQuery.mockResolvedValue(
-      createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
-    );
-
-    const result = await executeSqlLogic(
-      { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
-      context,
-      mockSdkContext,
-    );
-
-    expect(result.success).toBe(true);
-    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
-    expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
-    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
-  });
-
-  it("auto + comment-only input: not classified — falls back to PARSE_STATEMENT and fails clean", async () => {
+  it("comment-only input: not classified — falls back to PARSE_STATEMENT and fails clean", async () => {
     // Zero parsed statements must not count as "classified"; the wire PARSE
     // fallback rejects the non-statement with a clear validation error
     // instead of executing it.
@@ -698,7 +730,7 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
   it("comment-only input mentioning a write keyword is NOT flagged as a write", async () => {
     // The regex fallback does not strip comments; zero-statement input must
     // bypass it entirely, or "-- TODO: delete old rows" would be falsely
-    // rejected as "Write operations detected".
+    // rejected as not permitted in read access mode.
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     const result = await executeSqlLogic(
@@ -708,21 +740,14 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     );
 
     expect(result.success).toBe(false);
-    expect(result.error?.message).not.toMatch(/write operations detected/i);
+    expect(result.error?.message).not.toMatch(/not permitted in read access/i);
     expect(result.error?.message).toMatch(/could not be parsed/i);
     expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
     expect(mockExecutePaginated).not.toHaveBeenCalled();
   });
 
-  it("auto + parser failure (regex allow): still runs PARSE_STATEMENT", async () => {
-    const parseSpy = vi.spyOn(IbmiSqlParser, "parseQuery").mockReturnValue({
-      success: false,
-      isReadOnly: false,
-      statementTypes: [],
-      violations: ["Parse error"],
-      error: "forced parse failure",
-    });
-
+  it("parser failure (regex allow): still runs PARSE_STATEMENT", async () => {
+    const parseSpy = forceParserFailure();
     mockExecuteQuery.mockResolvedValue(
       createMockQueryResult([{ SQL_STATEMENT_TYPE: "QUERY" }]),
     );
@@ -751,19 +776,125 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     );
 
     expect(result.success).toBe(false);
-    expect(result.error?.message).toMatch(/Write operations detected/i);
+    expect(result.error?.message).toMatch(
+      /SQL not permitted in read access mode/i,
+    );
     expect(result.error?.code).toBe(String(JsonRpcErrorCode.ValidationError));
     expect(mockExecuteQuery).not.toHaveBeenCalled();
     expect(mockExecutePaginated).not.toHaveBeenCalled();
   });
 
-  it("auto + write mode SELECT: skips PARSE_STATEMENT when classified", async () => {
-    configureExecuteSqlTool({
-      security: {
-        readOnly: false,
-        parseValidation: "auto",
-      },
-    });
+  it("read mode CALL: rejected in Layer 1 before any pool call", async () => {
+    const result = await executeSqlLogic(
+      { sql: "CALL QSYS2.QCMDEXC('DSPLIBL')" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toMatch(
+      /SQL not permitted in read access mode/i,
+    );
+    expect(result.error?.code).toBe(String(JsonRpcErrorCode.ValidationError));
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
+    expect(mockExecutePaginated).not.toHaveBeenCalled();
+  });
+
+  it("read-call mode CALL: classified by the parser — PARSE skipped, executes", async () => {
+    configureExecuteSqlTool({ security: { access: "read-call" } });
+
+    const result = await executeSqlLogic(
+      { sql: "CALL QSYS2.QCMDEXC('DSPLIBL')" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
+    expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+    expect(mockExecutePaginated.mock.calls[0][0]).toBe(
+      "CALL QSYS2.QCMDEXC('DSPLIBL')",
+    );
+  });
+
+  it("PARSE fallback returning CALL: rejected in read mode", async () => {
+    const parseSpy = forceParserFailure();
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([{ SQL_STATEMENT_TYPE: "CALL" }]),
+    );
+
+    try {
+      const result = await executeSqlLogic(
+        { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+        context,
+        mockSdkContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toMatch(
+        /Statement type 'CALL' not permitted in read access mode/,
+      );
+      expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+      expect(mockExecutePaginated).not.toHaveBeenCalled();
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it("PARSE fallback returning CALL: accepted in read-call mode", async () => {
+    configureExecuteSqlTool({ security: { access: "read-call" } });
+    const parseSpy = forceParserFailure();
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([{ SQL_STATEMENT_TYPE: "CALL" }]),
+    );
+
+    try {
+      const result = await executeSqlLogic(
+        { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+        context,
+        mockSdkContext,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+      expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it("multi-row PARSE result with QUERY and INSERT: rejected in read mode", async () => {
+    const parseSpy = forceParserFailure();
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([
+        { SQL_STATEMENT_TYPE: "QUERY" },
+        { SQL_STATEMENT_TYPE: "INSERT" },
+      ]),
+    );
+
+    try {
+      const result = await executeSqlLogic(
+        { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
+        context,
+        mockSdkContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toMatch(
+        /Statement type 'INSERT' not permitted in read access mode/,
+      );
+      expect(result.error?.details).toMatchObject({
+        sqlStatementTypes: ["QUERY", "INSERT"],
+        access: "read",
+      });
+      expect(mockExecutePaginated).not.toHaveBeenCalled();
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it("write mode SELECT: skips PARSE_STATEMENT when classified", async () => {
+    configureExecuteSqlTool({ security: { access: "write" } });
 
     const result = await executeSqlLogic(
       { sql: "SELECT 1 FROM SYSIBM.SYSDUMMY1" },
@@ -776,13 +907,8 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
   });
 
-  it("auto + write mode INSERT: skips PARSE_STATEMENT when classified", async () => {
-    configureExecuteSqlTool({
-      security: {
-        readOnly: false,
-        parseValidation: "auto",
-      },
-    });
+  it("write mode INSERT: skips PARSE_STATEMENT when classified", async () => {
+    configureExecuteSqlTool({ security: { access: "write" } });
 
     const result = await executeSqlLogic(
       { sql: "INSERT INTO MYLIB.T (C) VALUES (1)" },
@@ -798,16 +924,12 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     );
   });
 
-  it("always + write mode INSERT: still runs PARSE_STATEMENT", async () => {
-    configureExecuteSqlTool({
-      security: {
-        readOnly: false,
-        parseValidation: "always",
-      },
+  it("deprecated readOnly:false still maps to write mode", async () => {
+    const effective = configureExecuteSqlTool({
+      security: { readOnly: false },
     });
-    mockExecuteQuery.mockResolvedValue(
-      createMockQueryResult([{ SQL_STATEMENT_TYPE: "INSERT" }]),
-    );
+    expect(effective).toBe("write");
+    expect(getExecuteSqlConfig().security?.access).toBe("write");
 
     const result = await executeSqlLogic(
       { sql: "INSERT INTO MYLIB.T (C) VALUES (1)" },
@@ -816,8 +938,6 @@ describe("executeSqlLogic — conditional PARSE_STATEMENT (issue #151)", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
-    expect(mockExecuteQuery.mock.calls[0][0]).toContain("PARSE_STATEMENT");
     expect(mockExecutePaginated).toHaveBeenCalledTimes(1);
   });
 });

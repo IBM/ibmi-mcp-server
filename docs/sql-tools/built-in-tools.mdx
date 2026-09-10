@@ -279,20 +279,18 @@ Execute a SQL query on the IBM i database and return the results. Use this after
 
 `execute_sql` applies layered validation before running any query:
 
-1. **In-process validation** via `SqlSecurityValidator` — classifies the statement with the vscode-db2i parser, enforces read-only mode constraints and query length
-2. **Native IBM i validation** via `QSYS2.PARSE_STATEMENT` — runs when `IBMI_EXECUTE_SQL_PARSE_VALIDATION=always` (strict/audit mode), or as a fallback when the in-process parser could not classify the statement. Under the default `auto` mode, classified statements skip this wire round trip for lower latency
-3. **JDBC connection backstop** — when read-only mode is in effect, the connection pool is created with `access=read call`, so the IBM i JDBC driver itself rejects INSERT/UPDATE/DELETE/DDL at the connection level (CALL remains allowed for `describe_sql_object`). An explicit `access` value in `DB2i_JDBC_OPTIONS` overrides this default
+1. **In-process validation** via `SqlSecurityValidator` — classifies the statement with the vscode-db2i parser and rejects anything outside the configured access mode; also enforces query length
+2. **Native IBM i validation** via `QSYS2.PARSE_STATEMENT` — runs only when the in-process parser could not classify the statement, and applies the same per-mode allow-list (`QUERY` in `read`, `QUERY` and `CALL` in `read-call`)
+3. **JDBC connection backstop** — the connection pool is created with `access=read call` in `read` and `read-call` mode (Db2 rejects INSERT/UPDATE/DELETE/DDL at the connection; CALL stays open for `describe_sql_object`) and `access=all` in `write` mode. An explicit `access` in `DB2i_JDBC_OPTIONS` overrides this value
 
-Only layer 1 runs on every query. Layer 2 is [mode-dependent](/configuration#parse-validation-modes), and layer 3 applies to the connection pool shared by `execute_sql` and the built-in tools — **YAML source pools are not affected** and keep their own `jdbc-options`.
+Layer 1 runs on every query, layer 2 only as a fallback, and layer 3 applies to the connection pool shared by `execute_sql` and the built-in tools — **YAML source pools are not affected** and keep their own `jdbc-options`.
 
 <Note>
-By default, only SELECT queries are allowed (`IBMI_EXECUTE_SQL_READONLY=true`). Set `IBMI_EXECUTE_SQL_READONLY=false` to allow INSERT, UPDATE, DELETE, and other statement types.
-
-Full reference: [Read-Only Access Backstop](/configuration#read-only-access-backstop) and [Read-Only Policy Precedence](/configuration#read-only-policy-precedence).
+The mode is `IBMI_EXECUTE_SQL_ACCESS`: `read` (default, SELECT and functions), `read-call` (adds `CALL`), or `write` (everything). Full reference: [execute_sql access mode](/configuration#execute_sql-access-mode).
 </Note>
 
 <Warning>
-All three layers classify the statement. None of them inspect what it invokes. A SELECT that calls `QSYS2.QCMDEXC` passes every layer and runs in read-only mode. Read-only mode is not a security boundary. The boundary is the IBM i user profile's object authority; run the server under a least-privilege profile.
+All three layers classify the statement. None of them inspect what it invokes. A SELECT that calls `QSYS2.QCMDEXC` passes every layer and runs in `read` mode. The access mode is not a security boundary. The boundary is the IBM i user profile's object authority; run the server under a least-privilege profile.
 </Warning>
 
 ---
@@ -371,15 +369,14 @@ Combine both flags for the complete text-to-SQL workflow. Each flag can also be 
 |----------|---------|-------------|
 | `IBMI_ENABLE_DEFAULT_TOOLS` | `false` | Enable the 5 schema discovery tools. |
 | `IBMI_ENABLE_EXECUTE_SQL` | `false` | Enable the `execute_sql` tool. |
-| `IBMI_EXECUTE_SQL_READONLY` | `true` | When `true`, `execute_sql` only allows SELECT queries. Set to `false` to permit data modification statements. Parsed fail-closed — only `false` or `0` disables it. |
-| `IBMI_EXECUTE_SQL_PARSE_VALIDATION` | `auto` | When to run the `QSYS2.PARSE_STATEMENT` wire validation. `auto` skips it when the in-process parser classified the statement; `always` runs it for every query. |
+| `IBMI_EXECUTE_SQL_ACCESS` | `read` | What `execute_sql` may run: `read` (SELECT and functions), `read-call` (adds `CALL`), `write` (everything). Unrecognized values fall back to `read`. Replaces the deprecated `IBMI_EXECUTE_SQL_READONLY`. |
 
 <Warning>
 `describe_sql_object` is **always registered** regardless of these flags. It generates DDL definitions and does not modify data.
 </Warning>
 
 <Note>
-Setting `IBMI_EXECUTE_SQL_READONLY=true` **explicitly** also pins read-only mode: the connection stays read-only even if a YAML tool or CLI flag requests write access at runtime. Leaving it unset produces the same default but allows those runtime overrides. See [Read-Only Policy Precedence](/configuration#read-only-policy-precedence).
+Setting `IBMI_EXECUTE_SQL_ACCESS` **explicitly** makes it a ceiling: a YAML tool or `ibmi sql --access` can lower the mode at runtime but never raise it, and the CLI reports an error instead of silently downgrading. Leaving it unset produces the same `read` default but lets the runtime decide. See [execute_sql access mode](/configuration#execute_sql-access-mode).
 </Note>
 
 ### Examples
@@ -397,11 +394,11 @@ npx -y @ibm/ibmi-mcp-server@latest --execute-sql --tools ./tools
 # Only YAML tools (default — no built-in tools)
 npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
 
-# Enable write access for execute_sql
-IBMI_EXECUTE_SQL_READONLY=false npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
+# Allow CALL to stored procedures (writes still blocked)
+IBMI_EXECUTE_SQL_ACCESS=read-call npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
 
-# Strict/audit mode — validate every statement with IBM i's own parser
-IBMI_EXECUTE_SQL_PARSE_VALIDATION=always npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
+# Enable write access for execute_sql
+IBMI_EXECUTE_SQL_ACCESS=write npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
 ```
 
 ---
@@ -420,7 +417,7 @@ All built-in tools include [MCP tool annotations](https://modelcontextprotocol.i
 | `execute_sql` | Dynamic* | Dynamic* |
 | `describe_sql_object` | `true` | `false` |
 
-*`execute_sql` annotations change based on `IBMI_EXECUTE_SQL_READONLY`: when `true` (default), `readOnlyHint=true` and `destructiveHint=false`; when `false`, `readOnlyHint=false` and `destructiveHint=true`.
+*`execute_sql` annotations follow `IBMI_EXECUTE_SQL_ACCESS`: in `read` (default) `readOnlyHint=true` and `destructiveHint=false`; in `read-call` and `write` `readOnlyHint=false` and `destructiveHint=true`, because a `CALL` can mutate data.
 
 ---
 

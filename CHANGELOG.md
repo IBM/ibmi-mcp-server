@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [Unreleased]
+
+### ⚠ BREAKING CHANGES
+
+* **`execute_sql` access mode replaces the read-only boolean.** One setting, `IBMI_EXECUTE_SQL_ACCESS`, now decides what `execute_sql` may run and what the shared connection pool permits at the JDBC layer, so the SQL validator and Db2 always agree:
+
+  | Mode | The tool accepts | JDBC `access` |
+  |------|------------------|---------------|
+  | `read` (default) | SELECT, CTEs, table and scalar functions | `read call` |
+  | `read-call` | `read` plus `CALL` to stored procedures | `read call` |
+  | `write` | everything the user profile allows | `all` |
+
+  `read-call` is new: it lets agents run procedures without opening INSERT/UPDATE/DELETE/DDL.
+
+  Migration:
+
+  | Before | After |
+  |--------|-------|
+  | `IBMI_EXECUTE_SQL_READONLY=true` (or unset) | `IBMI_EXECUTE_SQL_ACCESS=read` (or unset) |
+  | `IBMI_EXECUTE_SQL_READONLY=false` | `IBMI_EXECUTE_SQL_ACCESS=write` |
+  | `IBMI_EXECUTE_SQL_PARSE_VALIDATION=auto|always` | removed; `PARSE_STATEMENT` runs only when the in-process parser cannot classify a statement |
+  | `DB2i_JDBC_OPTIONS='access=...'` | still honored as the final override of the pool's JDBC `access` (now logged as a warning); usually no longer needed |
+  | `ibmi sql --read-only` / `--no-read-only` | `ibmi sql --access read` / `--access write` (old flags still work with a deprecation notice) |
+  | `readOnly: true|false` on a CLI system | `access: read|write` (`readOnly` still accepted). A system's `access` is a ceiling only: `access: write` (or legacy `readOnly: false`) no longer runs statements as write unless you also pass `--access write` |
+
+  `IBMI_EXECUTE_SQL_READONLY` keeps working for one release and prints a deprecation notice; `IBMI_EXECUTE_SQL_ACCESS` wins when both are set. Setting the variable explicitly makes it a ceiling: the CLI and YAML tools can lower the mode but never raise it, and `ibmi sql` now exits with code 4 and names the variable instead of letting Db2 reject the statement. `.env.example` ships the variable commented out so a copied file never pins anything. `execute_sql` advertises `readOnlyHint: false` in `read-call` and `write`.
+
+### Features
+
+* **execute_sql:** skip the redundant `QSYS2.PARSE_STATEMENT` round trip when the in-process parser already classified the statement ([#151](https://github.com/IBM/ibmi-mcp-server/issues/151)); set Toolbox JDBC `access` on the shared pool from the access mode as a fail-closed backstop
+* **cli:** `ibmi sql --access <mode>`, `ibmi system add --access <mode>`, per-system `access:` ceiling, and an `ACCESS` column in `ibmi system list`
+
+### Bug Fixes
+
+* **cli:** `ibmi sql` no longer appends `FETCH FIRST n ROWS ONLY` to non-query statements such as `CALL`, which Db2 rejected with SQL0199 ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173))
+
 ## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1) (2026-04-20)
 
 Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior ([#146](https://github.com/IBM/ibmi-mcp-server/pull/146)). Ships CI reliability fixes and root-level README coverage for the new two-package layout.

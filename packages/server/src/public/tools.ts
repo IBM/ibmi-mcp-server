@@ -11,6 +11,17 @@ export {
   configureExecuteSqlTool,
 } from "../ibmi-mcp-server/tools/executeSql.tool.js";
 export {
+  EXECUTE_SQL_ACCESS_LEVELS,
+  EXECUTE_SQL_ACCESS_ENV,
+  accessAtLeast,
+  accessFromLegacyReadOnly,
+  getExecuteSqlAccessCeiling,
+  minAccess,
+  parseExecuteSqlAccess,
+  resolveAccess,
+  type ExecuteSqlAccess,
+} from "../ibmi-mcp-server/services/executeSqlAccess.js";
+export {
   generateSqlTool,
   OBJECT_TYPES,
 } from "../ibmi-mcp-server/tools/generateSql.tool.js";

@@ -41,7 +41,7 @@ systems:
     port: 8076
     user: DEVUSER
     password: ${DB2i_PASS}
-    readOnly: false
+    access: write
     confirm: false
     timeout: 60
     maxRows: 5000
@@ -52,7 +52,7 @@ systems:
     port: 8076
     user: ${PROD_USER}
     password: ${PROD_PASS}
-    readOnly: true
+    access: read
     confirm: true
 ```
 
@@ -66,7 +66,8 @@ systems:
 | `password` | string | — | Password or `${ENV_VAR}` reference |
 | `description` | string | — | Human-readable label |
 | `defaultSchema` | string | — | Default schema for unqualified table names |
-| `readOnly` | boolean | `true` | Restrict to SELECT statements |
+| `access` | `read` \| `read-call` \| `write` | — | Ceiling for `execute_sql` on this system: `read` (SELECT and functions), `read-call` (adds `CALL`), `write` (everything). Unset means no ceiling; `ibmi sql --access` (default `read`) decides |
+| `readOnly` | boolean | — | Deprecated alias for `access`: `true` → `read`, `false` → `write` |
 | `confirm` | boolean | `false` | Prompt before executing write operations |
 | `timeout` | number | `30` | Query timeout in seconds |
 | `maxRows` | number | `5000` | Default row limit for queries |

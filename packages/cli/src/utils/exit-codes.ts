@@ -73,6 +73,7 @@ export function classifyError(error: Error): ClassifiedError {
   if (
     msg.includes("read-only") ||
     msg.includes("readonly") ||
+    msg.includes("access mode") ||
     msg.includes("security") ||
     msg.includes("forbidden") ||
     msg.includes("blocked") ||

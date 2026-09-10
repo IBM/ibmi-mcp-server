@@ -174,8 +174,7 @@ Environment Variables:
   MCP_LOG_LEVEL                Log level: debug, info, warning, error
   IBMI_ENABLE_DEFAULT_TOOLS    Enable built-in tools (default: false)
   IBMI_ENABLE_EXECUTE_SQL      Enable execute_sql tool (default: false)
-  IBMI_EXECUTE_SQL_READONLY    Restrict execute_sql to SELECT only (default: true)
-  IBMI_EXECUTE_SQL_PARSE_VALIDATION  auto (default) or always — wire PARSE_STATEMENT
+  IBMI_EXECUTE_SQL_ACCESS      execute_sql access: read (default), read-call, or write
 
   See .env.example for complete environment variable reference.
 

@@ -14,6 +14,7 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
+import type { ExecuteSqlAccess } from "@/ibmi-mcp-server/services/executeSqlAccess.js";
 
 // Load .env from multiple possible locations for monorepo flexibility
 // Priority order:
@@ -343,45 +344,45 @@ const EnvSchema = z.object({
     .transform((val) => val === "true"),
 
   /**
-   * Control readonly mode for execute_sql tool. When true (default), only
-   * SELECT queries are allowed.
+   * Access mode for the execute_sql tool and the singleton IBM i pool:
+   * - `read` (default): SELECT and table/scalar functions only
+   * - `read-call`: read + CALL to stored procedures
+   * - `write`: everything the connection's user profile allows
    *
-   * Fail-closed: only an explicit `false`/`0` (case-insensitive, trimmed)
-   * disables read-only mode. Any other value — including typos and case
-   * variants like `TRUE` — keeps read-only ON, because this boolean gates
-   * write access and seeds the JDBC access backstop.
+   * Fail-closed: an unrecognized value falls back to `read` with a stderr
+   * warning. A strict z.enum here would fail whole-env validation on a typo
+   * and silently reset unrelated settings to defaults. `undefined` means the
+   * variable was not set, which matters for the runtime ceiling (see
+   * services/executeSqlAccess.ts).
+   */
+  IBMI_EXECUTE_SQL_ACCESS: z
+    .string()
+    .optional()
+    .transform((val): ExecuteSqlAccess | undefined => {
+      if (val === undefined) return undefined;
+      const v = val.trim().toLowerCase();
+      if (v === "read" || v === "read-call" || v === "write") return v;
+      // stderr, not TTY-gated: a silent change of access mode must be
+      // visible in stdio/container logs.
+      console.error(
+        `[config] Unrecognized IBMI_EXECUTE_SQL_ACCESS="${val}" (expected "read", "read-call", or "write"); using "read"`,
+      );
+      return "read";
+    }),
+
+  /**
+   * @deprecated Use IBMI_EXECUTE_SQL_ACCESS. `true` → `read`, `false` →
+   * `write`. Only an explicit `false`/`0` (case-insensitive, trimmed) maps to
+   * write; any other value maps to read. Ignored when IBMI_EXECUTE_SQL_ACCESS
+   * is also set.
    */
   IBMI_EXECUTE_SQL_READONLY: z
     .string()
     .optional()
-    .default("true")
-    .transform((val) => {
+    .transform((val): boolean | undefined => {
+      if (val === undefined) return undefined;
       const v = val.trim().toLowerCase();
       return !(v === "false" || v === "0");
-    }),
-
-  /**
-   * When to run QSYS2.PARSE_STATEMENT before execute_sql.
-   * - `auto` (default): skip the wire round trip when the in-process parser classified the statement (read-only or write mode)
-   * - `always`: always run PARSE_STATEMENT (legacy strict/audit mode)
-   *
-   * Fail-safe by design (matches the repo's boolean idiom): any value other
-   * than `always` means `auto`. A strict z.enum here would fail whole-env
-   * validation on a typo and silently reset unrelated settings to defaults.
-   */
-  IBMI_EXECUTE_SQL_PARSE_VALIDATION: z
-    .string()
-    .optional()
-    .default("auto")
-    .transform((val): "auto" | "always" => {
-      const v = val.trim().toLowerCase();
-      if (v === "auto" || v === "always") return v;
-      // stderr, not TTY-gated: a silent downgrade of strict/audit mode
-      // must be visible in stdio/container logs.
-      console.error(
-        `[config] Unrecognized IBMI_EXECUTE_SQL_PARSE_VALIDATION="${val}" (expected "auto" or "always"); using "auto"`,
-      );
-      return "auto";
     }),
 
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
@@ -574,7 +575,30 @@ if (!validatedLogsPath) {
  *     accepts string values for all options; no bool/number coercion
  *   - Malformed pairs (non-empty with no `=`) throw to surface typos early
  *   - Pairs with an empty value (e.g. `access=`) are treated as unset
+ *   - `access` is honored as the final override of the value the singleton
+ *     pool derives from IBMI_EXECUTE_SQL_ACCESS (see connectionPool.ts)
  */
+/**
+ * Resolve the execute_sql access mode from the environment.
+ * `IBMI_EXECUTE_SQL_ACCESS` wins; otherwise the deprecated
+ * `IBMI_EXECUTE_SQL_READONLY` maps `true` → `read`, `false` → `write` with a
+ * one-time stderr deprecation notice; otherwise `read`.
+ */
+function resolveExecuteSqlAccessFromEnv(
+  access: ExecuteSqlAccess | undefined,
+  legacyReadOnly: boolean | undefined,
+): ExecuteSqlAccess {
+  if (access !== undefined) return access;
+  if (legacyReadOnly !== undefined) {
+    const mapped: ExecuteSqlAccess = legacyReadOnly ? "read" : "write";
+    console.error(
+      `[config] IBMI_EXECUTE_SQL_READONLY is deprecated; use IBMI_EXECUTE_SQL_ACCESS=${mapped} instead`,
+    );
+    return mapped;
+  }
+  return "read";
+}
+
 function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
@@ -596,8 +620,8 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
       );
     }
     // A dangling pair with no value (e.g. "access=") is treated as unset, not
-    // as an explicit override — otherwise it would silently suppress the
-    // read-only access backstop and forward an empty value to the driver.
+    // as an explicit override — otherwise it would silently replace the
+    // mode-derived access and forward an empty value to the driver.
     if (!value) continue;
     if (key === "libraries") {
       result[key] = value
@@ -750,8 +774,14 @@ export const config = {
     .map((ts) => ts.trim())
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
-  ibmi_executeSqlReadonly: env.IBMI_EXECUTE_SQL_READONLY,
-  ibmi_executeSqlParseValidation: env.IBMI_EXECUTE_SQL_PARSE_VALIDATION,
+  /**
+   * execute_sql access mode. From `IBMI_EXECUTE_SQL_ACCESS`, falling back to
+   * the deprecated `IBMI_EXECUTE_SQL_READONLY`, then `read`.
+   */
+  ibmi_executeSqlAccess: resolveExecuteSqlAccessFromEnv(
+    env.IBMI_EXECUTE_SQL_ACCESS,
+    env.IBMI_EXECUTE_SQL_READONLY,
+  ),
   ibmi_enableDefaultTools: env.IBMI_ENABLE_DEFAULT_TOOLS,
 
   /** Rate limiting configuration for HTTP transport. From `MCP_RATE_LIMIT_*` environment variables. */

@@ -27,6 +27,11 @@ import {
   createCliContext,
 } from "../utils/command-helpers.js";
 import { resolveSystem } from "../config/resolver.js";
+import {
+  accessFromReadOnly,
+  assertAccessNotLowered,
+  resolveEffectiveAccess,
+} from "../utils/access-mode.js";
 import { connectSystem } from "../utils/connection.js";
 import {
   renderOutput,
@@ -281,11 +286,14 @@ async function executeTool(
       processedSql = tool.statement;
     }
 
-    // Enforce read-only: tool security config + system readOnly override
-    const effectiveReadOnly =
-      (tool.security?.readOnly ?? true) || resolved.config.readOnly;
+    // Access mode: the tool's own security.readOnly (read unless it says
+    // false) lowered to the system's configured ceiling.
+    const access = resolveEffectiveAccess(
+      accessFromReadOnly(tool.security?.readOnly ?? true),
+      [resolved.config],
+    );
 
-    // The singleton pool's JDBC access backstop reads the effective policy at
+    // The singleton pool derives its JDBC access from the effective policy at
     // lazy init — without this, a write-enabled YAML tool would be blocked at
     // the connection level even though its security config allows writes.
     // Route through configureExecuteSqlTool (the single policy writer) so the
@@ -293,16 +301,17 @@ async function executeTool(
     const { configureExecuteSqlTool } = await import(
       "@ibm/ibmi-mcp-server/tools"
     );
-    configureExecuteSqlTool({ security: { readOnly: effectiveReadOnly } });
+    const effective = configureExecuteSqlTool({ security: { access } });
+    assertAccessNotLowered(access, effective);
 
-    if (effectiveReadOnly) {
+    if (access !== "write") {
       const { SqlSecurityValidator } = await import(
         "@ibm/ibmi-mcp-server/services"
       );
       SqlSecurityValidator.validateQuery(
         processedSql,
         {
-          readOnly: true,
+          access,
           maxQueryLength: tool.security?.maxQueryLength,
           forbiddenKeywords: tool.security?.forbiddenKeywords,
         },
