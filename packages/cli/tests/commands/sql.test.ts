@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createProgram } from "../../src/index";
+import { applyRowLimit } from "../../src/commands/sql";
 import { writeFileSync, unlinkSync } from "fs";
 import path from "path";
 import os from "os";
@@ -180,5 +181,45 @@ describe("ibmi sql command", () => {
       process.stderr.write = originalStderr;
       try { unlinkSync(tmpFile); } catch { /* cleanup */ }
     }
+  });
+
+  describe("applyRowLimit", () => {
+    it("appends FETCH FIRST to SELECT statements", () => {
+      expect(applyRowLimit("SELECT * FROM QSYS2.SYSTABLES;", 10)).toBe(
+        "SELECT * FROM QSYS2.SYSTABLES FETCH FIRST 10 ROWS ONLY",
+      );
+    });
+
+    it("appends FETCH FIRST to WITH and VALUES statements", () => {
+      expect(
+        applyRowLimit(
+          "WITH t AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) SELECT * FROM t",
+          5,
+        ),
+      ).toMatch(/ FETCH FIRST 5 ROWS ONLY$/);
+      expect(applyRowLimit("VALUES 1", 5)).toBe(
+        "VALUES 1 FETCH FIRST 5 ROWS ONLY",
+      );
+    });
+
+    it("leaves non-query statements unchanged (#173)", () => {
+      const call = "CALL QSYS2.QCMDEXC('DSPLIBL')";
+      expect(applyRowLimit(call, 10)).toBe(call);
+      const insert = "INSERT INTO MYLIB.T VALUES (1)";
+      expect(applyRowLimit(insert, 10)).toBe(insert);
+      const ddl = "CREATE TABLE QTEMP.T (C INT)";
+      expect(applyRowLimit(ddl, 10)).toBe(ddl);
+    });
+
+    it("does not add a second fetch clause", () => {
+      const sql = "SELECT 1 FROM SYSIBM.SYSDUMMY1 FETCH FIRST 1 ROWS ONLY";
+      expect(applyRowLimit(sql, 10)).toBe(sql);
+    });
+
+    it("is a no-op when no limit is set", () => {
+      expect(applyRowLimit("SELECT 1 FROM SYSIBM.SYSDUMMY1", undefined)).toBe(
+        "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+      );
+    });
   });
 });
