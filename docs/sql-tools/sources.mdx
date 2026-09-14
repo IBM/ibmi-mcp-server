@@ -161,18 +161,18 @@ These fields have sensible defaults and can be omitted for most configurations:
         port: 9000
     ```
 
-    **Environment variable with default:**
+    **Environment variable (same value as server `.env`):**
     ```yaml
     sources:
       ibmi-system:
         host: ${DB2i_HOST}
         user: ${DB2i_USER}
         password: ${DB2i_PASS}
-        port: ${DB2i_PORT:8076}  # Uses 8076 if not set
+        port: ${DB2i_PORT}
     ```
 
     <Note>
-    The default port 8076 is the standard port for the Mapepire daemon on IBM i systems.
+    Interpolation supports `${VAR_NAME}` only — there is no `${VAR:default}` syntax. If `DB2i_PORT` is unset at YAML load time, the placeholder stays literal and validation fails; omit `port` instead to use Mapepire's default **8076**, or set `DB2i_PORT` in `.env` before starting the server.
     </Note>
   </Tab>
 

@@ -506,6 +506,20 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     expect(poolArgs.opts).toBeUndefined();
   });
 
+  it("4.2b – forwards poolConfig.port to Mapepire DaemonServer creds", async () => {
+    pool = new TestConnectionPool();
+    await pool.testInitializePool(
+      "test-custom-port",
+      { ...BASE_CONFIG, port: 8077 },
+      TEST_CONTEXT,
+    );
+
+    expect(MockPool).toHaveBeenCalledTimes(1);
+    const poolArgs = MockPool.mock.calls[0][0];
+    expect(poolArgs.creds.port).toBe(8077);
+    expect(poolArgs.creds.host).toBe(BASE_CONFIG.host);
+  });
+
   it("4.3 – does not pass opts when jdbcOptions is empty object {}", async () => {
     pool = new TestConnectionPool();
     const configWithEmpty: PoolConnectionConfig = {

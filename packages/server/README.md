@@ -1212,7 +1212,7 @@ sources:
 ```
 
 > [!NOTE]
-> The environment variables `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and `DB2i_PORT` can be set in the server `.env` file. See [Configuration](#️-configuration) for all available settings.
+> Set `DB2i_HOST`, `DB2i_USER`, and `DB2i_PASS` in the server `.env` file (or reference them in YAML as `${DB2i_*}`). **`DB2i_PORT`** applies to the singleton pool (built-in tools) and to YAML sources that use `port: ${DB2i_PORT}`; the example above uses literal `port: 8076`, so changing `.env` alone does not retarget YAML tools unless you switch to `${DB2i_PORT}`. Use hostname-only values for `DB2i_HOST` — do not embed `:port` in the host. See [Configuration](#️-configuration) for all available settings.
 
 ### Tools
 
@@ -1503,13 +1503,15 @@ Configuration for connecting to IBM i Db2 for i databases via Mapepire.
 | `DB2i_HOST` | IBM i system hostname or IP address | None | ✅ Yes (for SQL tools) |
 | `DB2i_USER` | IBM i user profile for database connections | None | ✅ Yes (for SQL tools) |
 | `DB2i_PASS` | Password for IBM i user profile | None | ✅ Yes (for SQL tools) |
-| `DB2i_PORT` | Mapepire daemon/gateway port | `8076` | No |
+| `DB2i_PORT` | Mapepire daemon/gateway port | `8076` | No (empty/unset also defaults to `8076`) |
 | `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification (for self-signed certs) | `true` | No |
 
 **Connection Flow:**
 1. Server connects to Mapepire daemon/gateway at `DB2i_HOST:DB2i_PORT`
 2. Authenticates using `DB2i_USER` and `DB2i_PASS`
 3. Executes SQL tools through authenticated connection pool
+
+**`DB2i_PORT` scope:** Applies to the singleton connection pool (built-in tools such as `execute_sql`, shared credentials) and the CLI. YAML SQL tools use each source's `port` field — literal value, `${DB2i_PORT}`, or omit for Mapepire default **8076**. Shipped YAML packs use literal `8076`; env alone does not override unless the YAML references `${DB2i_PORT}`. Restart the server after changing `.env` (YAML hot-reload does not re-read env vars).
 
 **Examples:**
 ```bash

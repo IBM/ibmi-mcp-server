@@ -28,8 +28,9 @@
               },
               "port": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "description": "Database port (default: 8471 for IBM i)"
+                "minimum": 1,
+                "maximum": 65535,
+                "description": "Mapepire daemon port (default: 8076)"
               },
               "ignore-unauthorized": {
                 "type": "boolean",

@@ -14,7 +14,12 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
+import {
+  DEFAULT_MAPEPIRE_PORT,
+  MapepirePortEnvSchema,
+} from "@/ibmi-mcp-server/schemas/common.js";
 
+export { DEFAULT_MAPEPIRE_PORT };
 // Load .env from multiple possible locations for monorepo flexibility
 // Priority order:
 // 1. MCP_SERVER_CONFIG environment variable (explicit override)
@@ -143,6 +148,9 @@ const loadPackageJson = (): { name: string; version: string } => {
 
 const pkg = loadPackageJson();
 
+/** Shared schema for `DB2i_PORT` (startup env + runtime `config.db2i` getter). */
+const Db2iPortSchema = MapepirePortEnvSchema;
+
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
@@ -250,6 +258,11 @@ const EnvSchema = z.object({
     .string()
     .min(1, "DB2i_HOST is required for IBM i connections.")
     .optional(),
+  /**
+   * IBM i Mapepire daemon server port. From `DB2i_PORT`.
+   * Defaults to 8076 when unset.
+   */
+  DB2i_PORT: Db2iPortSchema,
   /** IBM i DB2 user name. From `DB2i_USER`. */
   DB2i_USER: z
     .string()
@@ -665,6 +678,7 @@ export const config = {
   get db2i():
     | {
         host: string;
+        port: number;
         user: string;
         password: string;
         ignoreUnauthorized: boolean;
@@ -682,6 +696,7 @@ export const config = {
       : undefined;
     return {
       host,
+      port: Db2iPortSchema.parse(process.env.DB2i_PORT),
       user,
       password,
       ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",
