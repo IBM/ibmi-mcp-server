@@ -51,11 +51,17 @@ function resolveSql(
 }
 
 /**
- * Apply FETCH FIRST N ROWS ONLY if not already present.
+ * Apply FETCH FIRST N ROWS ONLY to queries if not already present.
+ * Non-query statements (CALL, INSERT, DDL, ...) do not accept a fetch clause
+ * and are passed through unchanged (#173).
  */
-function applyRowLimit(sql: string, maxRows: number | undefined): string {
+export function applyRowLimit(
+  sql: string,
+  maxRows: number | undefined,
+): string {
   if (
     maxRows &&
+    /^\s*(SELECT|WITH|VALUES)\b/i.test(sql) &&
     !sql.toUpperCase().includes("FETCH FIRST") &&
     !sql.toUpperCase().includes("FETCH NEXT")
   ) {

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [standa
 
 * **Claude Code/Cowork tool schema dialect.** Rewrites `tools/list` schema `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
 * **`DB2i_PORT` is honored for Mapepire connections** ([#168](https://github.com/IBM/ibmi-mcp-server/issues/168)). The env var and CLI `port` setting now reach the Mapepire daemon for the singleton connection pool (built-in tools such as `execute_sql`) and for YAML sources that reference `${DB2i_PORT}`. Empty or unset `DB2i_PORT` defaults to **8076**. Previously every connection used Mapepire's hardcoded default regardless of configuration.
+* **`ibmi sql --limit` no longer breaks `CALL` and other non-query statements** ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173)). `FETCH FIRST n ROWS ONLY` is appended only to `SELECT`, `WITH`, and `VALUES` statements; a `CALL` with a configured `maxRows` or `--limit` previously failed with SQL0199.
 
 ### Documentation
 
