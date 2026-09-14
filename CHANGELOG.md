@@ -2,17 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [Unreleased]
+## [0.6.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.6.0...v0.6.1) (2026-09-14)
+
+Patch release. Restores installation on IBM i, which 0.6.0 broke ([#177](https://github.com/IBM/ibmi-mcp-server/issues/177)), and fixes the tool schema dialect that made Claude Code and Cowork reject every tool ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). No configuration changes; every fix keeps existing behavior for deployments that were already working.
 
 ### Fixed
 
-* **Claude Code/Cowork tool schema dialect.** Rewrites `tools/list` schema `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
-* **`DB2i_PORT` is honored for Mapepire connections** ([#168](https://github.com/IBM/ibmi-mcp-server/issues/168)). The env var and CLI `port` setting now reach the Mapepire daemon for the singleton connection pool (built-in tools such as `execute_sql`) and for YAML sources that reference `${DB2i_PORT}`. Empty or unset `DB2i_PORT` defaults to **8076**. Previously every connection used Mapepire's hardcoded default regardless of configuration.
-* **`ibmi sql --limit` no longer breaks `CALL` and other non-query statements** ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173)). `FETCH FIRST n ROWS ONLY` is appended only to `SELECT`, `WITH`, and `VALUES` statements; a `CALL` with a configured `maxRows` or `--limit` previously failed with SQL0199.
+* **Installs on IBM i again; startup no longer loads the OpenTelemetry tree** ([#176](https://github.com/IBM/ibmi-mcp-server/pull/176)). `@opentelemetry/auto-instrumentations-node` pulled in `systeminformation`, whose `os` allowlist rejects `os400` (`EBADPLATFORM`). The dependency is gone; only the Pino and undici instrumentations are registered, and the whole OTel stack is loaded lazily when `OTEL_ENABLED=true`. Startup no longer resolves the ~21k-file OTel tree, the cause of the 14–17 s cold starts reported in [#162](https://github.com/IBM/ibmi-mcp-server/issues/162), [#177](https://github.com/IBM/ibmi-mcp-server/issues/177)).
+* **Claude Code / Cowork tool schema dialect** ([#178](https://github.com/IBM/ibmi-mcp-server/pull/178)). `tools/list` rewrites each schema's `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
+* **`DB2i_PORT` is honored for Mapepire connections** ([#171](https://github.com/IBM/ibmi-mcp-server/pull/171)). The env var and CLI `port` setting now reach the Mapepire daemon for the singleton connection pool (built-in tools such as `execute_sql`) and for YAML sources that reference `${DB2i_PORT}`. Empty or unset `DB2i_PORT` defaults to **8076**. Previously every connection used Mapepire's hardcoded default regardless of configuration ([#168](https://github.com/IBM/ibmi-mcp-server/issues/168)).
+* **`--tools <directory>` works on Windows** ([#152](https://github.com/IBM/ibmi-mcp-server/pull/152)). The directory glob was built with `path.join`, producing backslashes that `glob` treats as escape characters, so no YAML files were discovered ([#150](https://github.com/IBM/ibmi-mcp-server/issues/150)).
+* **`ibmi sql --limit` no longer breaks `CALL` and other non-query statements** ([#181](https://github.com/IBM/ibmi-mcp-server/pull/181)). `FETCH FIRST n ROWS ONLY` is appended only to `SELECT`, `WITH`, and `VALUES` statements; a `CALL` with a configured `maxRows` or `--limit` previously failed with SQL0199 ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173)).
 
 ### Documentation
 
-* Clarify `DB2i_PORT` scope (env/CLI/singleton pool vs YAML `port`) and correct YAML `${VAR}` interpolation (no `:default` suffix).
+* Clarify `DB2i_PORT` scope (env/CLI/singleton pool vs YAML `port`) and correct YAML `${VAR}` interpolation (no `:default` suffix) ([#171](https://github.com/IBM/ibmi-mcp-server/pull/171)).
 
 ## [0.6.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.1...v0.6.0) (2026-08-26)
 
