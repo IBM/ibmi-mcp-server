@@ -14,7 +14,12 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
+import {
+  DEFAULT_MAPEPIRE_PORT,
+  MapepirePortEnvSchema,
+} from "@/ibmi-mcp-server/schemas/common.js";
 
+export { DEFAULT_MAPEPIRE_PORT };
 // Load .env from multiple possible locations for monorepo flexibility
 // Priority order:
 // 1. MCP_SERVER_CONFIG environment variable (explicit override)
@@ -143,6 +148,9 @@ const loadPackageJson = (): { name: string; version: string } => {
 
 const pkg = loadPackageJson();
 
+/** Shared schema for `DB2i_PORT` (startup env + runtime `config.db2i` getter). */
+const Db2iPortSchema = MapepirePortEnvSchema;
+
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
@@ -155,7 +163,7 @@ const EnvSchema = z.object({
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
   MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
   MCP_HTTP_PORT: z.coerce.number().int().positive().default(3010),
-  MCP_HTTP_HOST: z.string().default("0.0.0.0"),
+  MCP_HTTP_HOST: z.string().default("127.0.0.1"),
   MCP_HTTP_ENDPOINT_PATH: z.string().default("/mcp"),
   MCP_HTTP_MAX_PORT_RETRIES: z.coerce.number().int().nonnegative().default(15),
   MCP_HTTP_PORT_RETRY_DELAY_MS: z.coerce
@@ -169,6 +177,12 @@ const EnvSchema = z.object({
     .positive()
     .default(1_800_000),
   MCP_ALLOWED_ORIGINS: z.string().optional(),
+  MCP_ALLOWED_HOSTS: z.string().optional(),
+  MCP_ALLOW_UNAUTHENTICATED_HTTP: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
   MCP_AUTH_SECRET_KEY: z
     .string()
     .min(
@@ -244,6 +258,11 @@ const EnvSchema = z.object({
     .string()
     .min(1, "DB2i_HOST is required for IBM i connections.")
     .optional(),
+  /**
+   * IBM i Mapepire daemon server port. From `DB2i_PORT`.
+   * Defaults to 8076 when unset.
+   */
+  DB2i_PORT: Db2iPortSchema,
   /** IBM i DB2 user name. From `DB2i_USER`. */
   DB2i_USER: z
     .string()
@@ -591,6 +610,10 @@ export const config = {
   mcpAllowedOrigins: env.MCP_ALLOWED_ORIGINS?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
+  mcpAllowedHosts: env.MCP_ALLOWED_HOSTS?.split(",")
+    .map((host) => host.trim())
+    .filter(Boolean),
+  mcpAllowUnauthenticatedHttp: env.MCP_ALLOW_UNAUTHENTICATED_HTTP,
   mcpAuthSecretKey: env.MCP_AUTH_SECRET_KEY,
   mcpAuthMode: env.MCP_AUTH_MODE,
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,
@@ -655,6 +678,7 @@ export const config = {
   get db2i():
     | {
         host: string;
+        port: number;
         user: string;
         password: string;
         ignoreUnauthorized: boolean;
@@ -672,6 +696,7 @@ export const config = {
       : undefined;
     return {
       host,
+      port: Db2iPortSchema.parse(process.env.DB2i_PORT),
       user,
       password,
       ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",

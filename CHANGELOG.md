@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.6.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.6.0...v0.6.1) (2026-09-14)
+
+Patch release. Restores installation on IBM i, which 0.6.0 broke ([#177](https://github.com/IBM/ibmi-mcp-server/issues/177)), and fixes the tool schema dialect that made Claude Code and Cowork reject every tool ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). No configuration changes; every fix keeps existing behavior for deployments that were already working.
+
+### Fixed
+
+* **Installs on IBM i again; startup no longer loads the OpenTelemetry tree** ([#176](https://github.com/IBM/ibmi-mcp-server/pull/176)). `@opentelemetry/auto-instrumentations-node` pulled in `systeminformation`, whose `os` allowlist rejects `os400` (`EBADPLATFORM`). The dependency is gone; only the Pino and undici instrumentations are registered, and the whole OTel stack is loaded lazily when `OTEL_ENABLED=true`. Startup no longer resolves the ~21k-file OTel tree, the cause of the 14–17 s cold starts reported in [#162](https://github.com/IBM/ibmi-mcp-server/issues/162), [#177](https://github.com/IBM/ibmi-mcp-server/issues/177)).
+* **Claude Code / Cowork tool schema dialect** ([#178](https://github.com/IBM/ibmi-mcp-server/pull/178)). `tools/list` rewrites each schema's `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
+* **`DB2i_PORT` is honored for Mapepire connections** ([#171](https://github.com/IBM/ibmi-mcp-server/pull/171)). The env var and CLI `port` setting now reach the Mapepire daemon for the singleton connection pool (built-in tools such as `execute_sql`) and for YAML sources that reference `${DB2i_PORT}`. Empty or unset `DB2i_PORT` defaults to **8076**. Previously every connection used Mapepire's hardcoded default regardless of configuration ([#168](https://github.com/IBM/ibmi-mcp-server/issues/168)).
+* **`--tools <directory>` works on Windows** ([#152](https://github.com/IBM/ibmi-mcp-server/pull/152)). The directory glob was built with `path.join`, producing backslashes that `glob` treats as escape characters, so no YAML files were discovered ([#150](https://github.com/IBM/ibmi-mcp-server/issues/150)).
+* **`ibmi sql --limit` no longer breaks `CALL` and other non-query statements** ([#181](https://github.com/IBM/ibmi-mcp-server/pull/181)). `FETCH FIRST n ROWS ONLY` is appended only to `SELECT`, `WITH`, and `VALUES` statements; a `CALL` with a configured `maxRows` or `--limit` previously failed with SQL0199 ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173)).
+
+### Documentation
+
+* Clarify `DB2i_PORT` scope (env/CLI/singleton pool vs YAML `port`) and correct YAML `${VAR}` interpolation (no `:default` suffix) ([#171](https://github.com/IBM/ibmi-mcp-server/pull/171)).
+
+## [0.6.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.1...v0.6.0) (2026-08-26)
+
+Security release. Closes a DNS rebinding hole in the HTTP transport that let a malicious web page drive the server's SQL tools with the operator's own IBM i credentials ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)), and clears every `npm audit` finding in both published packages ([#159](https://github.com/IBM/ibmi-mcp-server/pull/159)). The hardening changes defaults for HTTP deployments; stdio deployments and the `ibmi` CLI are unaffected.
+
+### ⚠ BREAKING CHANGES
+
+* **`MCP_HTTP_HOST` defaults to `127.0.0.1`** (was `0.0.0.0`). Deployments that relied on the old default to listen on all interfaces must set `MCP_HTTP_HOST=0.0.0.0` explicitly. The Docker image does so.
+* **Every HTTP request is checked against a `Host` allowlist.** Loopback names (`localhost`, `127.x.x.x`, `::1`) are always allowed; any other name returns `403 Forbidden: Host not allowed.` until it is listed in the new `MCP_ALLOWED_HOSTS` (comma-separated). The check covers every route, including `/healthz` and `/api/v1/auth`. `MCP_ALLOWED_HOSTS=*` disables the Host check only. Kubernetes probes, which send the pod IP as `Host`, must set a `Host: localhost` header.
+* **Browser `Origin` headers are validated.** A present `Origin` must match `MCP_ALLOWED_ORIGINS` or an allowlisted hostname; `Origin: null` is rejected. Requests without an `Origin` header (non-browser clients) are unaffected.
+* **The server refuses to start unauthenticated off-host while holding credentials.** When the HTTP transport is bound to a non-loopback address, IBM i credentials are present (`DB2i_*` env vars or a tools YAML), and authentication is not enforced, startup fails with `Refusing to start: unauthenticated HTTP transport on non-loopback bind …`. "Not enforced" covers `MCP_AUTH_MODE=none` and `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` (that state accepts any bearer token). Enable authentication, bind to loopback, or opt out with the new `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`. The most common container setup — `DB2i_*` env vars and no auth mode — hits this by default.
+* **Development CORS `*` fallback removed.** With `MCP_ALLOWED_ORIGINS` unset, no `Access-Control-Allow-Origin` header is emitted in any environment. Browser clients must be allowlisted explicitly. MCP Inspector is unaffected (it connects through its Node proxy).
+
+### Migration
+
+| Deployment | Set |
+|---|---|
+| Local development, client on the same machine | nothing — remove any `MCP_HTTP_HOST=0.0.0.0` override |
+| Docker, local only, no authentication | `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` and publish with `-p 127.0.0.1:3010:3010` |
+| Remote host reached as `mcp.example.com` | `MCP_HTTP_HOST=0.0.0.0`, `MCP_ALLOWED_HOSTS=mcp.example.com`, `MCP_AUTH_MODE=ibmi` (or another enforced mode) |
+| Compose or OpenShift where another service uses the container name | `MCP_ALLOWED_HOSTS=ibmi-mcp-server` plus an auth mode or the opt-out |
+| Browser client | `MCP_ALLOWED_ORIGINS=https://app.example.com` |
+
+Full guidance: [Docker & Podman](https://ibm-d95bab6e.mintlify.app/deployment/docker), [Configuration](https://ibm-d95bab6e.mintlify.app/configuration).
+
+### Security
+
+* **DNS rebinding protection for the HTTP transport** ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)). A page served from an attacker's hostname with a TTL-0 DNS record re-resolves that hostname to `127.0.0.1` after loading. Its `fetch()` calls are then same-origin from the browser's point of view but land on the operator's local MCP server, which executes tools with the credentials it already holds. CORS cannot stop this because the request is same-origin. The fix is a Host/Origin allowlist middleware registered ahead of CORS and every route, plus the startup guard above for the case Host validation cannot cover (any non-browser client can forge `Host`). Rejection responses name only the class of failure; the offending `Host`/`Origin`, the TCP peer, and any claimed proxy headers are written to the server log.
+* **All `npm audit` findings resolved in both published packages** ([#159](https://github.com/IBM/ibmi-mcp-server/pull/159)) — 52 → 0 (3 critical, 18 high, 29 moderate, 2 low). Runtime: `axios` (prototype-pollution family: credential theft, MITM via `config.proxy`, SSRF bypasses), `hono` (CORS credential reflection, JWT scheme laxity, body-limit bypass), `sanitize-html` (XSS via `xmp` passthrough), `js-yaml` (quadratic merge-key DoS; parses tool YAML), `@hono/node-server` `^1.17` → `^2.1` (serve-static path traversal; only `serve`/`ServerType` are used, no code change), OpenTelemetry suite `0.203` → `0.221`, and transitive `ws`, `form-data`, `fast-uri`, `ip-address`. Dev-only: `vitest`/`@vitest/coverage-v8` `3.2.7`.
+
+### Fixed
+
+* **Docker image ships `MCP_HTTP_HOST=0.0.0.0`** ([#169](https://github.com/IBM/ibmi-mcp-server/pull/169)). #163 set it in the root `Dockerfile`, which CI does not build; without this fix the published image binds loopback inside the container and every `docker run -p …` gets connection refused. The orphaned root `Dockerfile` is removed; `app/compose.yaml` and `deployment/mcpgateway/docker-compose.yml` now build `packages/server/Dockerfile` from the repo root.
+
+### Documentation
+
+* **Docker & Podman guide rewritten for the new posture** ([#169](https://github.com/IBM/ibmi-mcp-server/pull/169)): loopback port publishing, `MCP_ALLOW_UNAUTHENTICATED_HTTP`, the Host allowlist, the startup refusal, and current build-from-source instructions.
+* `.env.example` (root and server), `docs/configuration.mdx`, `docs/sql-tools/using-default-tools.mdx`, and the OpenShift README updated; the OpenShift deployment's probes send `Host: localhost` ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)).
+
+### Chores
+
+* **deps:** prune example-agent lockfiles feeding Dependabot alert noise ([#160](https://github.com/IBM/ibmi-mcp-server/pull/160)) — example and demo manifests only; nothing in either npm package.
+
 ## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1) (2026-04-20)
 
 Consolidates the fetch-limit UX introduced in 0.5.0 before downstream adoption locks in the current behavior ([#146](https://github.com/IBM/ibmi-mcp-server/pull/146)). Ships CI reliability fixes and root-level README coverage for the new two-package layout.

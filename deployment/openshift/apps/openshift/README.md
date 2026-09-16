@@ -37,7 +37,29 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    cp ./ibmi-agent-infra/agent-os-api/.env.example ./ibmi-agent-infra/agent-os-api/.env
    ```
 
-2. **Set your namespace**
+2. **Configure DNS rebinding protection in `./ibmi-mcp-server/.env`**
+
+   The server validates the `Host` header on every request and refuses to start when it is bound to a non-loopback address with IBM i credentials configured and authentication not enforced. The downloaded `.env.example` defaults to a loopback bind, which does not work in a pod. Set:
+
+   ```bash
+   # Required in a container — the pod must bind all interfaces
+   MCP_HTTP_HOST=0.0.0.0
+
+   # Allowlist the Route hostname clients use (see ibmi-mcp-server-route.yaml);
+   # requests arriving under any other Host are rejected with 403
+   MCP_ALLOWED_HOSTS=ibmi-mcp-server.apps.example.com
+
+   # Authentication must be enforced, or the server refuses to start.
+   # Note: MCP_AUTH_MODE=jwt ALSO requires MCP_AUTH_SECRET_KEY — without it,
+   # JWT verification is bypassed and the guard still trips.
+   MCP_AUTH_MODE=ibmi
+   # ...or accept the risk explicitly on a trusted cluster network:
+   # MCP_ALLOW_UNAUTHENTICATED_HTTP=true
+   ```
+
+   The liveness and readiness probes in `ibmi-mcp-server-deployment.yaml` already override their `Host` header to `localhost`, since kubelet otherwise sends the (dynamic) pod IP and the probes would 403.
+
+3. **Set your namespace**
 
    Replace `<NAMESPACE_PLACEHOLDER>` in the root `kustomization.yaml` with your actual OpenShift namespace.
 
@@ -47,13 +69,13 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    oc project <your_namespace>
    ```
 
-3. **Deploy using Kustomize**:
+4. **Deploy using Kustomize**:
 
    ```bash
    kustomize build . | oc apply -f -
    ```
 
-4. **Monitor the image build**:
+5. **Monitor the image build**:
 
    ```bash
    oc logs -f bc/mcp-context-forge
@@ -62,13 +84,13 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    oc logs -f bc/pgvector
    ```
 
-5. **Check deployment status**:
+6. **Check deployment status**:
 
    ```bash
    oc get pods
    ```
 
-6. **Get the URL for each application**
+7. **Get the URL for each application**
 
    ```bash
    echo "https://$(oc get route mcp-context-forge -o jsonpath='{.spec.host}')"
@@ -76,7 +98,7 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    echo "https://$(oc get route agent-ui -o jsonpath='{.spec.host}')"
    ```
 
-6. **Trigger the build manually**:
+8. **Trigger the build manually**:
 
    ```bash
    # Trigger a new build using the source from remote repo

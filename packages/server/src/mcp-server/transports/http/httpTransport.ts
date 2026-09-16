@@ -36,6 +36,11 @@ import { StatefulTransportManager } from "./../core/statefulTransportManager.js"
 import { setServerReplacementCallback } from "@/ibmi-mcp-server/index.js";
 import { httpErrorHandler } from "./httpErrorHandler.js";
 import { HonoNodeBindings } from "./httpTypes.js";
+import {
+  assertHttpSecurityPosture,
+  createHostValidationMiddleware,
+  resolveHostPolicy,
+} from "./hostValidation.js";
 import { mcpTransportMiddleware } from "./mcpTransportMiddleware.js";
 
 const HTTP_PORT = config.mcpHttpPort;
@@ -280,16 +285,23 @@ export function createHttpApp(
   // 2. Security Headers
   app.use(secureHeaders());
 
-  // 3. CORS
+  // 3. DNS rebinding protection — Host/Origin allowlist. MUST precede CORS
+  //    and all route handlers: CORS is a browser read-policy and provides no
+  //    rebinding protection (under rebinding the request is same-origin and
+  //    CORS never engages). Applying to "*" also covers /healthz and
+  //    /api/v1/auth.
+  const hostPolicy = resolveHostPolicy(transportContext);
+  app.use("*", createHostValidationMiddleware(hostPolicy));
+
+  // 4. CORS. Origins must be allowlisted explicitly via MCP_ALLOWED_ORIGINS;
+  //    an empty list emits no Access-Control-Allow-Origin header at all.
   app.use(
     "*",
     cors({
       origin:
         config.mcpAllowedOrigins && config.mcpAllowedOrigins.length > 0
           ? config.mcpAllowedOrigins
-          : config.environment === "production"
-            ? []
-            : "*",
+          : [],
       allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowHeaders: [
         "Content-Type",
@@ -301,10 +313,10 @@ export function createHttpApp(
     }),
   );
 
-  // 4. Content Type Enforcement (Specific to MCP endpoint)
+  // 5. Content Type Enforcement (Specific to MCP endpoint)
   app.use(MCP_ENDPOINT_PATH, enforceJsonContentType);
 
-  // 5. Authentication and Advanced Rate Limiting (Order Matters)
+  // 6. Authentication and Advanced Rate Limiting (Order Matters)
 
   const authStrategy = createAuthStrategy();
 
@@ -537,6 +549,11 @@ export async function startHttpTransport(
     component: "HttpTransportStart",
   };
   logger.info(transportContext, "Starting HTTP transport.");
+
+  // Refuse the dangerous posture (unauthenticated + non-loopback + IBM i
+  // credentials) before any transport or tool loading happens. Runs after
+  // applyCliOverrides, so CLI-provided transport/tools flags are visible.
+  assertHttpSecurityPosture(transportContext);
 
   const transportManager = createTransportManager(
     createServerInstanceFn,
