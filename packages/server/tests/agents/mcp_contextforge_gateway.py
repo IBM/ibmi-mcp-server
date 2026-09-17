@@ -65,7 +65,6 @@ async def main():
             tools=[tools],  # Use original tools but with specific instructions
             name="agno-agent",
             description=f"An agent that specializes in IBM i security analysis.",
-            show_tool_calls=True,
             debug_mode=True,
             debug_level=2,
             markdown=True,

@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "agno==2.4.3",
+    "agno[mcp]==2.9.0",
     "ibm-watsonx-ai>=1.4.4",
     "mcp>=1.20.0",
     "ollama>=0.6.0",
