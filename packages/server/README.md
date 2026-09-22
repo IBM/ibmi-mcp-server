@@ -1599,10 +1599,10 @@ YAML_AUTO_RELOAD=false
 **CLI Override:**
 ```bash
 # Override TOOLS_YAML_PATH at runtime
-npx ibmi-mcp-server --tools ./my-custom-tools
+npx @ibm/ibmi-mcp-server --tools ./my-custom-tools
 
 # Load specific toolsets only
-npx ibmi-mcp-server --toolsets performance,security
+npx @ibm/ibmi-mcp-server --toolsets performance,security
 ```
 
 </details>

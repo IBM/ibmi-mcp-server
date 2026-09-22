@@ -141,7 +141,7 @@ export function showHelp(): void {
   console.log(`
 IBM i MCP Server
 
-Usage: npx ibmi-mcp-server [options]
+Usage: npx @ibm/ibmi-mcp-server [options]
 
 Options:
   --tools <path>    Path to YAML tools configuration
@@ -161,12 +161,12 @@ Options:
   -h, --help        Show this help message
 
 Examples:
-  npx ibmi-mcp-server --builtin-tools --execute-sql
-  npx ibmi-mcp-server --builtin-tools --transport http
-  npx ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance.yaml
-  npx ibmi-mcp-server --tools tools
-  npx ibmi-mcp-server --toolsets performance,system
-  npx ibmi-mcp-server --list-toolsets --tools tools
+  npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql
+  npx @ibm/ibmi-mcp-server --builtin-tools --transport http
+  npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance.yaml
+  npx @ibm/ibmi-mcp-server --tools tools
+  npx @ibm/ibmi-mcp-server --toolsets performance,system
+  npx @ibm/ibmi-mcp-server --list-toolsets --tools tools
 
 Environment Variables:
   TOOLS_YAML_PATH              Path to YAML tools (CLI --tools takes precedence)
