@@ -279,6 +279,78 @@ describe("SqlSecurityValidator", () => {
     });
   });
 
+  describe("Read-Only Mode - Dangerous Scalar Function Bypass (CVE-class: CWE-693)", () => {
+    const readOnlyConfig = { readOnly: true };
+
+    it("should reject QCMDEXC used as a scalar function inside SELECT", () => {
+      // This is the primary bypass: a top-level SELECT is classified as read-only
+      // by the outer statement type, but QCMDEXC executes a CL command.
+      const payload =
+        "SELECT QSYS2.QCMDEXC('CRTDTARA DTAARA(QTEMP/MCPPOC) TYPE(*CHAR) LEN(10)') AS RC FROM SYSIBM.SYSDUMMY1";
+
+      expect(() =>
+        SqlSecurityValidator.validateQuery(payload, readOnlyConfig, context),
+      ).toThrow(McpError);
+
+      try {
+        SqlSecurityValidator.validateQuery(payload, readOnlyConfig, context);
+      } catch (error) {
+        if (error instanceof McpError) {
+          expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+          expect(error.message).toContain("QCMDEXC");
+        }
+      }
+    });
+
+    it("should reject QCMDEXC inside a CASE expression within SELECT", () => {
+      const payload = [
+        "SELECT JOB_NAME,",
+        "  CASE",
+        "    WHEN QSYS2.QCMDEXC('HLDJOB ' concat JOB_NAME) = 1 THEN 'Job Held'",
+        "    ELSE 'Job not held'",
+        "  END AS HLDJOB_RESULT",
+        "FROM TABLE(QSYS2.ACTIVE_JOB_INFO(DETAILED_INFO => 'ALL'))",
+        "WHERE SQL_STATEMENT_START_TIMESTAMP < current timestamp - 2 hours",
+      ].join("\n");
+
+      expect(() =>
+        SqlSecurityValidator.validateQuery(payload, readOnlyConfig, context),
+      ).toThrow(McpError);
+    });
+
+    it("should reject QCMDEXC inside a subquery within SELECT", () => {
+      const payload =
+        "SELECT * FROM SYSIBM.SYSDUMMY1 WHERE 1 = (SELECT QSYS2.QCMDEXC('DLTLIB LIB(TESTLIB)') FROM SYSIBM.SYSDUMMY1)";
+
+      expect(() =>
+        SqlSecurityValidator.validateQuery(payload, readOnlyConfig, context),
+      ).toThrow(McpError);
+    });
+
+    it("should still allow legitimate QSYS2 table/view references inside SELECT", () => {
+      // QSYS2 schema references in FROM are fine; only the QCMDEXC *function call* is forbidden
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          "SELECT * FROM QSYS2.SYSTABLES WHERE TABLE_SCHEMA = 'MYLIB'",
+          readOnlyConfig,
+          context,
+        ),
+      ).not.toThrow();
+    });
+
+    it("should still allow QSYS2 UDTF references that are not dangerous", () => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO(DETAILED_INFO => 'ALL')) AS T",
+          readOnlyConfig,
+          context,
+        ),
+      ).not.toThrow();
+    });
+  });
+
+
+
   describe("Read-Only Mode - Multi-Statement Queries", () => {
     const readOnlyConfig = { readOnly: true };
 
