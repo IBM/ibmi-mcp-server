@@ -29,6 +29,7 @@ import {
   createAuthMiddleware,
   createAuthStrategy,
 } from "../auth/index.js";
+import { resolveProtectedResourceMetadata } from "../auth/lib/protectedResourceMetadata.js";
 import { AutoTransportManager } from "../core/autoTransportManager.js";
 import { StatelessTransportManager } from "../core/statelessTransportManager.js";
 import { TransportManager, TransportResponse } from "../core/transportTypes.js";
@@ -309,6 +310,10 @@ export function createHttpApp(
         "Last-Event-ID",
         "Authorization",
       ],
+      // Browser clients read the bearer challenge to locate the authorization
+      // server, and the session id to resume a stateful session. Neither is
+      // CORS-safelisted, so both are invisible unless exposed explicitly.
+      exposeHeaders: ["WWW-Authenticate", "Mcp-Session-Id"],
       credentials: true,
     }),
   );
@@ -401,6 +406,28 @@ export function createHttpApp(
       pools,
     });
   });
+
+  // OAuth 2.0 Protected Resource Metadata (RFC 9728). Clients read this to
+  // discover the authorization server, so it must be reachable unauthenticated;
+  // these routes sit outside the auth middleware, which is scoped to
+  // MCP_ENDPOINT_PATH.
+  const protectedResourceMetadata = resolveProtectedResourceMetadata();
+  if (protectedResourceMetadata) {
+    const { document, canonicalPath, fallbackPath } = protectedResourceMetadata;
+    const serveMetadata = (c: Context<{ Bindings: HonoNodeBindings }>) =>
+      c.json(document);
+
+    // Clients probe the canonical (resource-path-suffixed) form first, then the
+    // bare form. Serve both so discovery succeeds either way.
+    app.get(canonicalPath, serveMetadata);
+    if (canonicalPath !== fallbackPath) {
+      app.get(fallbackPath, serveMetadata);
+    }
+    logger.info(
+      transportContext,
+      `OAuth protected resource metadata served at ${canonicalPath}`,
+    );
+  }
 
   // IBM i HTTP Authentication endpoint (conditional)
   if (config.ibmiHttpAuth.enabled) {
