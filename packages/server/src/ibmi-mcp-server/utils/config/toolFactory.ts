@@ -54,6 +54,9 @@ export class SQLToolFactory {
    * @param parameterDefinitions - Parameter definitions for validation
    * @param context - Request context (optional)
    * @param securityConfig - Security configuration for validation (optional)
+   * @param rowsToFetch - Per-call row cap, or page size with fetchAllRows (optional)
+   * @param fetchAllRows - Paginate until the result is exhausted (optional)
+   * @param queryTimeoutMs - Per-tool query timeout; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables (optional)
    * @returns Execution result
    */
   static async executeStatementWithParameters<T = Record<string, unknown>>(
@@ -66,6 +69,7 @@ export class SQLToolFactory {
     securityConfig?: SqlToolSecurityConfig,
     rowsToFetch?: number,
     fetchAllRows?: boolean,
+    queryTimeoutMs?: number,
   ): Promise<SqlToolExecutionResult> {
     const operationContext =
       context ||
@@ -201,6 +205,7 @@ export class SQLToolFactory {
           securityConfig,
           rowsToFetch,
           fetchAllRows,
+          queryTimeoutMs,
         );
 
         const executionTime = Date.now() - startTime;
@@ -263,6 +268,9 @@ export class SQLToolFactory {
    * @param sourceName - Source name for fallback routing
    * @param context - Request context
    * @param securityConfig - Optional security configuration
+   * @param rowsToFetch - Optional per-call row cap, or page size with fetchAllRows
+   * @param fetchAllRows - Optional pagination policy
+   * @param queryTimeoutMs - Optional per-tool query timeout (0 disables)
    * @returns Query execution result
    * @private
    */
@@ -274,6 +282,7 @@ export class SQLToolFactory {
     securityConfig?: SqlToolSecurityConfig,
     rowsToFetch?: number,
     fetchAllRows?: boolean,
+    queryTimeoutMs?: number,
   ): Promise<QueryResult<T>> {
     // Check for IBM i authentication context
     const authInfo = authContext.getStore()?.authInfo;
@@ -303,6 +312,7 @@ export class SQLToolFactory {
             context,
             rowsToFetch,
             securityConfig,
+            queryTimeoutMs,
           )
         : await this.sourceManager.executeQueryWithPagination(
             sourceName,
@@ -311,6 +321,7 @@ export class SQLToolFactory {
             context,
             rowsToFetch,
             securityConfig,
+            queryTimeoutMs,
           );
 
       // Adapt the paginated shape to QueryResult<T> so downstream
@@ -349,6 +360,7 @@ export class SQLToolFactory {
         context,
         securityConfig,
         rowsToFetch,
+        queryTimeoutMs,
       );
     } else {
       // Fall back to regular source manager (environment credentials)
@@ -358,13 +370,26 @@ export class SQLToolFactory {
           sourceName,
           routingMode: "environment",
           rowsToFetch,
+          queryTimeoutMs,
         },
         "Executing SQL via source manager",
       );
 
       // Preserve the existing conditional call shape so downstream tests
-      // that assert exact arity keep passing. rowsToFetch/securityConfig are
-      // optional trailing args in sourceManager.executeQuery and safe to omit.
+      // that assert exact arity keep passing. rowsToFetch/securityConfig/
+      // queryTimeoutMs are optional trailing args in
+      // sourceManager.executeQuery and safe to omit.
+      if (queryTimeoutMs !== undefined) {
+        return this.sourceManager.executeQuery<T>(
+          sourceName,
+          sql,
+          parameters,
+          context,
+          securityConfig,
+          rowsToFetch,
+          queryTimeoutMs,
+        );
+      }
       if (rowsToFetch !== undefined) {
         return this.sourceManager.executeQuery<T>(
           sourceName,
