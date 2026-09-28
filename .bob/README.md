@@ -65,7 +65,7 @@ export DB2i_PORT="8076"
 
 ### 3. Install the Server Package (If Using npx)
 
-The template uses `npx ibmi-mcp-server` which requires the package to be installed:
+The template uses `npx @ibm/ibmi-mcp-server` which requires the package to be installed:
 
 ```bash
 cd ibmi-mcp-server
@@ -96,7 +96,7 @@ The `mcp.json` includes two MCP servers:
 1. **`ibmi-mcp-server`**: Your local development server
    - Executes SQL queries against your IBM i system
    - Loads tools from `TOOLS_YAML_PATH` (default: `.bob/tools/services-tools.yaml`)
-   - Uses `npx ibmi-mcp-server` to run the server
+   - Uses `npx @ibm/ibmi-mcp-server` to run the server
    - Set `"disabled": false` to enable (or `true` to disable)
 
 2. **`ibmi-mcp-docs`**: Live documentation server (experimental)

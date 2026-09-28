@@ -167,7 +167,7 @@ This document outlines the step-by-step process for creating effective, secure, 
 #### Steps:
 1. **Generate a valid command to start server over http**
  ```bash
- npx ibmi-mcp-server --tools <file.yaml> --tansport http
+ npx @ibm/ibmi-mcp-server --tools <file.yaml> --tansport http
  ```
  - Either start the command, or let the user run the command manually
 

@@ -1708,19 +1708,19 @@ toolsets:
 
 **List available toolsets:**
 ```bash
-npx ibmi-mcp-server --list-toolsets --tools tools/sample/employee-info.yaml
+npx @ibm/ibmi-mcp-server --list-toolsets --tools tools/sample/employee-info.yaml
 ```
 
 **Start server with specific toolsets:**
 ```bash
 # Load only employee information tools
-npx ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information
+npx @ibm/ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information
 
 # Load multiple toolsets
-npx ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information,salary_analysis
+npx @ibm/ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information,salary_analysis
 
 # Load entire directory (all sample tools)
-npx ibmi-mcp-server --tools tools/sample
+npx @ibm/ibmi-mcp-server --tools tools/sample
 ```
 
 ---

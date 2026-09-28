@@ -185,7 +185,7 @@ To use your own YAML tool configurations, mount them into the container:
       --env-file .env \
       -v $(pwd)/tools:/usr/src/app/tools:ro \
       ghcr.io/ibm/ibmi-mcp-server:latest \
-      npx ibmi-mcp-server --tools /usr/src/app/tools
+      npx @ibm/ibmi-mcp-server --tools /usr/src/app/tools
     ```
   </Tab>
   <Tab title="Podman">
@@ -196,7 +196,7 @@ To use your own YAML tool configurations, mount them into the container:
       --env-file .env \
       -v $(pwd)/tools:/usr/src/app/tools:ro \
       ghcr.io/ibm/ibmi-mcp-server:latest \
-      npx ibmi-mcp-server --tools /usr/src/app/tools
+      npx @ibm/ibmi-mcp-server --tools /usr/src/app/tools
     ```
   </Tab>
 </Tabs>

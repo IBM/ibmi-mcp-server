@@ -147,7 +147,7 @@ async function listToolsetsCommand(): Promise<void> {
 
     logger.info("💡 Usage examples:");
     logger.info(
-      `   npx ibmi-mcp-server --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets).slice(0, 2).join(",")}`,
+      `   npx @ibm/ibmi-mcp-server --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets).slice(0, 2).join(",")}`,
     );
     logger.info(
       `   npm run start:http -- --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets)[0]}`,
