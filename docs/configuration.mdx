@@ -248,6 +248,8 @@ Below is the reference for core server configuration options. Each section inclu
 **How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed automatically. The next query triggers a transparent re-initialization through the existing lazy-init path — no manual intervention needed. The query timeout uses `Promise.race()` to abort queries on stale connections, marking the pool unhealthy so it is re-created on the next request.
 </Info>
 
+A YAML tool can override `MCP_POOL_QUERY_TIMEOUT_MS` with its own [`queryTimeoutMs`](/sql-tools/tools#query-timeout).
+
 <Warning>
 **Setting `MCP_POOL_QUERY_TIMEOUT_MS=0` disables query timeouts entirely.** This means queries on dead connections will hang until the client's own timeout fires. Only disable this in trusted, stable network environments.
 </Warning>
