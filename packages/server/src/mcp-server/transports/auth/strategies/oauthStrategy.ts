@@ -86,15 +86,17 @@ export class OauthStrategy implements AuthStrategy {
         "OAuth token signature verified successfully.",
       );
 
-      // Robust scope parsing (mirroring JwtStrategy):
+      // Robust scope parsing. Providers differ in both claim name and shape:
+      // 'scp' may be an array or a space-delimited string (Microsoft Entra ID
+      // emits the latter), and others use a space-delimited 'scope' claim.
       let scopes: string[] = [];
-      // Check for 'scp' claim (array format)
       if (
         Array.isArray(payload.scp) &&
         (payload.scp as unknown[]).every((s) => typeof s === "string")
       ) {
         scopes = payload.scp as string[];
-        // Check for 'scope' claim (space-delimited string format)
+      } else if (typeof payload.scp === "string" && payload.scp.trim()) {
+        scopes = payload.scp.split(" ").filter(Boolean);
       } else if (typeof payload.scope === "string" && payload.scope.trim()) {
         scopes = payload.scope.split(" ").filter(Boolean);
       }
@@ -110,13 +112,20 @@ export class OauthStrategy implements AuthStrategy {
         );
       }
 
+      // The client identifier claim is provider-specific: OAuth 2.1 specifies
+      // 'client_id', while Microsoft Entra ID emits 'azp' (v2) or 'appid' (v1).
+      const clientIdClaim =
+        payload.client_id ?? payload.azp ?? payload.appid ?? undefined;
       const clientId =
-        typeof payload.client_id === "string" ? payload.client_id : undefined;
+        typeof clientIdClaim === "string" ? clientIdClaim : undefined;
       if (!clientId) {
-        logger.warning(context, "Invalid token: missing 'client_id' claim.");
+        logger.warning(
+          context,
+          "Invalid token: missing 'client_id', 'azp', and 'appid' claims.",
+        );
         throw new McpError(
           JsonRpcErrorCode.Unauthorized,
-          "Token must contain a 'client_id' claim.",
+          "Token must contain a client identifier claim ('client_id', 'azp', or 'appid').",
           context,
         );
       }
