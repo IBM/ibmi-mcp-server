@@ -159,6 +159,17 @@ const EnvSchema = z.object({
   LOGS_DIR: z
     .string()
     .default(path.join(homedir(), ".ibmi-mcp-server", "logs")),
+  /**
+   * Write logs to rotating files under `LOGS_DIR`. Set to "false" when the
+   * platform already captures stdout/stderr (e.g. ECS awslogs, systemd) or
+   * when the container has no writable log directory. From `MCP_LOG_TO_FILE`.
+   * Default: true.
+   */
+  MCP_LOG_TO_FILE: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
   NODE_ENV: z.string().default("development"),
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
   MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
@@ -491,11 +502,12 @@ const ensureDirectory = (
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      if (process.stdout.isTTY) {
-        console.error(
-          `Error creating ${dirName} directory at ${resolvedDirPath}: ${errorMessage}`,
-        );
-      }
+      // Always report this: it is the only place the underlying reason (e.g.
+      // EACCES on a read-only or root-owned mount) is visible, and log
+      // collectors do not attach a TTY.
+      console.error(
+        `Error creating ${dirName} directory at ${resolvedDirPath}: ${errorMessage}`,
+      );
       return null;
     }
   } else {
@@ -503,44 +515,36 @@ const ensureDirectory = (
     try {
       const stats = statSync(resolvedDirPath);
       if (!stats.isDirectory()) {
-        if (process.stdout.isTTY) {
-          console.error(
-            `Error: ${dirName} path ${resolvedDirPath} exists but is not a directory.`,
-          );
-        }
+        console.error(
+          `Error: ${dirName} path ${resolvedDirPath} exists but is not a directory.`,
+        );
         return null;
       }
     } catch (statError: unknown) {
-      if (process.stdout.isTTY) {
-        const statErrorMessage =
-          statError instanceof Error ? statError.message : String(statError);
-        console.error(
-          `Error accessing ${dirName} path ${resolvedDirPath}: ${statErrorMessage}`,
-        );
-      }
+      const statErrorMessage =
+        statError instanceof Error ? statError.message : String(statError);
+      console.error(
+        `Error accessing ${dirName} path ${resolvedDirPath}: ${statErrorMessage}`,
+      );
       return null;
     }
   }
   return resolvedDirPath;
 };
 
-// Ensure logs directory exists
+// Ensure logs directory exists, unless file logging is turned off entirely.
 // Supports multiple path formats:
 // - Absolute: /var/log/ibmi-mcp
 // - Relative: ./logs (resolved from process.cwd())
 // - Tilde: ~/my-logs (expanded to home directory)
-const validatedLogsPath: string | null = ensureDirectory(
-  env.LOGS_DIR,
-  process.cwd(),
-  "logs",
-);
+const validatedLogsPath: string | null = env.MCP_LOG_TO_FILE
+  ? ensureDirectory(env.LOGS_DIR, process.cwd(), "logs")
+  : null;
 
-if (!validatedLogsPath) {
-  if (process.stdout.isTTY) {
-    console.warn(
-      `Warning: Could not create logs directory at '${env.LOGS_DIR}'. File logging will be disabled.`,
-    );
-  }
+if (env.MCP_LOG_TO_FILE && !validatedLogsPath) {
+  console.warn(
+    `Warning: Could not create logs directory at '${env.LOGS_DIR}'. Set MCP_LOG_TO_FILE=false to log to the console only.`,
+  );
 }
 
 /**
@@ -598,6 +602,8 @@ export const config = {
   mcpServerVersion: env.MCP_SERVER_VERSION || pkg.version,
   logLevel: env.MCP_LOG_LEVEL,
   logsPath: validatedLogsPath,
+  /** Whether logs are written to rotating files. From `MCP_LOG_TO_FILE`. */
+  logToFile: env.MCP_LOG_TO_FILE,
   environment: env.NODE_ENV,
   mcpTransportType: env.MCP_TRANSPORT_TYPE,
   mcpSessionMode: env.MCP_SESSION_MODE,
