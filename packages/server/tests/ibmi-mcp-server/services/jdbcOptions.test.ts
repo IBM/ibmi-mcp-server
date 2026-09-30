@@ -60,6 +60,11 @@ import {
 } from "../../../src/ibmi-mcp-server/schemas/config.js";
 import { config } from "../../../src/config/index.js";
 import { logger } from "../../../src/utils/internal/index.js";
+import {
+  IBMiConnectionPool,
+  resolveSingletonJdbcOptions,
+} from "../../../src/ibmi-mcp-server/services/connectionPool.js";
+import { setExecuteSqlAccessPolicy } from "../../../src/ibmi-mcp-server/services/executeSqlAccess.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -862,5 +867,77 @@ describe("SourceManager – jdbc-options wiring", () => {
       libraries: ["YAMLLIB"],
       naming: "sql",
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 6 – singleton pool JDBC access follows the execute_sql guardrail mode
+// ═══════════════════════════════════════════════════════════════════════════
+describe("IBMiConnectionPool – JDBC access from the execute_sql mode", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    resetMocks();
+    config.poolTimeouts.queryTimeoutMs = 0;
+    config.poolTimeouts.idleTimeoutMs = 0;
+    process.env.DB2i_HOST = "testhost";
+    process.env.DB2i_USER = "testuser";
+    process.env.DB2i_PASS = "testpass";
+    delete process.env.DB2i_JDBC_OPTIONS;
+  });
+
+  afterEach(async () => {
+    await IBMiConnectionPool.close();
+    await BaseConnectionPool.shutdownAll();
+    // The singleton keeps its pool config across close(); start fresh
+    (IBMiConnectionPool as unknown as { instance?: unknown }).instance =
+      undefined;
+    setExecuteSqlAccessPolicy("read");
+    process.env = { ...originalEnv };
+    restoreConfig();
+    vi.restoreAllMocks();
+  });
+
+  it("6.1 – resolveSingletonJdbcOptions derives access and keeps other options", () => {
+    expect(resolveSingletonJdbcOptions(undefined, "read")).toEqual({
+      access: "read call",
+    });
+    expect(
+      resolveSingletonJdbcOptions({ libraries: ["A"] }, "read-call"),
+    ).toEqual({ libraries: ["A"], access: "read call" });
+    expect(resolveSingletonJdbcOptions(undefined, "write")).toEqual({
+      access: "all",
+    });
+    expect(
+      resolveSingletonJdbcOptions({ access: "read only" }, "write"),
+    ).toEqual({ access: "read only" });
+  });
+
+  it.each([
+    ["read", "read call"],
+    ["read-call", "read call"],
+    ["write", "all"],
+  ] as const)(
+    "6.2 – %s mode opens the pool with access=%s",
+    async (mode, jdbcAccess) => {
+      setExecuteSqlAccessPolicy(mode);
+      await IBMiConnectionPool.executeQuery("SELECT 1 FROM SYSIBM.SYSDUMMY1");
+      expect(MockPool.mock.calls[0][0].opts).toEqual({ access: jdbcAccess });
+    },
+  );
+
+  it("6.3 – an explicit access in DB2i_JDBC_OPTIONS wins, with a warning", async () => {
+    const warning = vi.spyOn(logger, "warning");
+    process.env.DB2i_JDBC_OPTIONS = "access=all;naming=system";
+    setExecuteSqlAccessPolicy("read");
+    await IBMiConnectionPool.executeQuery("SELECT 1 FROM SYSIBM.SYSDUMMY1");
+    expect(MockPool.mock.calls[0][0].opts).toEqual({
+      access: "all",
+      naming: "system",
+    });
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({ accessMode: "read", jdbcAccess: "all" }),
+      expect.stringContaining("overrides"),
+    );
   });
 });

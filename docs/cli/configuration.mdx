@@ -41,7 +41,6 @@ systems:
     port: 8076
     user: DEVUSER
     password: ${DB2i_PASS}
-    readOnly: false
     confirm: false
     timeout: 60
     maxRows: 5000
@@ -52,7 +51,8 @@ systems:
     port: 8076
     user: ${PROD_USER}
     password: ${PROD_PASS}
-    readOnly: true
+    access: read          # ceiling: ibmi sql --access read-call/write is refused here
+    forbiddenKeywords: [DROP, TRUNCATE, "PAYROLL.*"]
     confirm: true
 ```
 
@@ -66,8 +66,10 @@ systems:
 | `password` | string | — | Password or `${ENV_VAR}` reference |
 | `description` | string | — | Human-readable label |
 | `defaultSchema` | string | — | Default schema for unqualified table names |
-| `readOnly` | boolean | `true` | Restrict to SELECT statements |
-| `confirm` | boolean | `false` | Prompt before executing write operations |
+| `access` | `read` \| `read-call` \| `write` | — | Ceiling for the `ibmi sql` guardrail mode on this system. `ibmi sql --access` above it stops with exit code `4`. It is never a default: `--access` defaults to `read`. Unset means no ceiling. See [Guardrails](/cli/commands#guardrails) |
+| `forbiddenKeywords` | list of strings | `[]` | Keyword and name patterns (`*` wildcard, case-insensitive) that `ibmi sql` rejects on this system in every mode, including `write`. Added to `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` when that is set |
+| `readOnly` | boolean | — | Deprecated for `ibmi sql`: `true` acts as `access: read`, `false` as no ceiling. `ibmi tool` still uses it as before: `true` validates every YAML tool statement as read-only |
+| `confirm` | boolean | `false` | Prompt before running a statement on this system (interactive terminals only) |
 | `timeout` | number | `30` | Query timeout in seconds |
 | `maxRows` | number | `5000` | Default row limit for queries |
 | `ignoreUnauthorized` | boolean | `false` | Accept self-signed TLS certificates |

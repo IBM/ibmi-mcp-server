@@ -4,6 +4,20 @@
  */
 
 import { z } from "zod";
+import type { ExecuteSqlAccess } from "@ibm/ibmi-mcp-server/tools";
+
+/**
+ * execute_sql guardrail modes, least to most permissive. The server's
+ * `EXECUTE_SQL_ACCESS_LEVELS` (a test keeps them equal); a static value
+ * import of the server barrel would load its config before the CLI sets
+ * the DB2i_* connection variables.
+ */
+export const ACCESS_MODES = [
+  "read",
+  "read-call",
+  "write",
+] as const satisfies readonly ExecuteSqlAccess[];
+
 /**
  * Default Mapepire daemon port.
  * Keep in sync with server `DEFAULT_MAPEPIRE_PORT` / mapepire-js `DEFAULT_PORT`.
@@ -35,7 +49,15 @@ export const SystemConfigSchema = z.object({
   user: z.string().min(1, "user is required"),
   password: z.string().optional(),
   defaultSchema: z.string().optional(),
+  /** execute_sql guardrail ceiling for this system (never a default). */
+  access: z.enum(ACCESS_MODES).optional(),
+  /**
+   * @deprecated for `ibmi sql`: use `access: read`. `true` caps `ibmi sql`
+   * at read; `ibmi tool` still reads it as its read-only override.
+   */
   readOnly: z.boolean().default(false),
+  /** Keyword patterns (`*` wildcard) execute_sql rejects in every mode. */
+  forbiddenKeywords: z.array(z.string().min(1)).optional(),
   confirm: z.boolean().default(false),
   timeout: z.coerce.number().int().positive().default(60),
   maxRows: z.coerce.number().int().positive().default(5000),

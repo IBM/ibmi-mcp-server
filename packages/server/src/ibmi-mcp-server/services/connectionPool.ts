@@ -6,7 +6,12 @@
  * @module src/services/mapepire/connectionPool
  */
 
-import { BindingValue, QueryResult, QueryMetaData } from "@ibm/mapepire-js";
+import {
+  BindingValue,
+  QueryResult,
+  QueryMetaData,
+  type JDBCOptions,
+} from "@ibm/mapepire-js";
 import { config } from "@/config/index.js";
 import { logger } from "@/utils/internal/logger.js";
 import { ErrorHandler } from "@/utils/internal/errorHandler.js";
@@ -19,9 +24,32 @@ import {
   BaseConnectionPool,
   PoolConnectionConfig,
 } from "./baseConnectionPool.js";
+import {
+  getExecuteSqlAccessPolicy,
+  jdbcAccessFor,
+  type ExecuteSqlAccess,
+} from "./executeSqlAccess.js";
 
 // Singleton identifier for the IBM i connection pool
 const IBM_I_POOL_ID = Symbol("ibmi-singleton-pool");
+
+/**
+ * JDBC options for the singleton pool (execute_sql and the built-in tools).
+ *
+ * The JDBC `access` property follows the execute_sql guardrail mode:
+ * `read` / `read-call` → "read call", `write` → "all". jt400 enforces it in
+ * the Mapepire JVM by checking the statement's first keyword only; Db2 does
+ * not see it, and it does not stop writes inside a query. An explicit
+ * `access` in `DB2i_JDBC_OPTIONS` is the final override (the caller logs a
+ * warning). YAML source pools are unaffected.
+ */
+export function resolveSingletonJdbcOptions(
+  existing: JDBCOptions | undefined,
+  access: ExecuteSqlAccess,
+): JDBCOptions {
+  if (existing?.access !== undefined) return existing;
+  return { ...(existing ?? {}), access: jdbcAccessFor(access) };
+}
 
 /**
  * IBM i connection pool manager with lazy initialization
@@ -68,7 +96,27 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         );
       }
 
-      const { host, port, user, password, ignoreUnauthorized } = config.db2i;
+      const { host, port, user, password, ignoreUnauthorized, jdbcOptions } =
+        config.db2i;
+
+      // Read the effective mode at lazy init, after runtime configuration
+      // (configureExecuteSqlTool / the CLI) has been applied.
+      const accessMode = getExecuteSqlAccessPolicy();
+      const resolvedJdbc = resolveSingletonJdbcOptions(jdbcOptions, accessMode);
+      if (
+        jdbcOptions?.access !== undefined &&
+        jdbcOptions.access !== jdbcAccessFor(accessMode)
+      ) {
+        logger.warning(
+          {
+            ...context,
+            accessMode,
+            derivedJdbcAccess: jdbcAccessFor(accessMode),
+            jdbcAccess: jdbcOptions.access,
+          },
+          `DB2i_JDBC_OPTIONS access=${jdbcOptions.access} overrides the JDBC access derived from the execute_sql ${accessMode} guardrail mode`,
+        );
+      }
 
       logger.info(
         {
@@ -77,6 +125,8 @@ export class IBMiConnectionPool extends BaseConnectionPool<
           port,
           user: user.substring(0, 3) + "***", // Mask username for security
           ignoreUnauthorized,
+          accessMode,
+          jdbcAccess: resolvedJdbc.access,
         },
         "Initializing IBM i connection pool",
       );
@@ -88,9 +138,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         user,
         password,
         ignoreUnauthorized,
-        ...(config.db2i.jdbcOptions
-          ? { jdbcOptions: config.db2i.jdbcOptions }
-          : {}),
+        jdbcOptions: resolvedJdbc,
       };
 
       // Initialize the pool using base class

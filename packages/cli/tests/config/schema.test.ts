@@ -44,6 +44,34 @@ describe("SystemConfigSchema", () => {
     }
   });
 
+  it("should accept an access ceiling and forbidden keywords", () => {
+    const result = SystemConfigSchema.safeParse({
+      host: "myhost.com",
+      user: "MYUSER",
+      access: "read-call",
+      forbiddenKeywords: ["QSYS2.HTTP_*"],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.access).toBe("read-call");
+      expect(result.data.forbiddenKeywords).toEqual(["QSYS2.HTTP_*"]);
+    }
+  });
+
+  it("should leave access unset by default (no ceiling)", () => {
+    const result = SystemConfigSchema.parse({ host: "h", user: "u" });
+    expect(result.access).toBeUndefined();
+  });
+
+  it("should reject an unrecognized access value", () => {
+    const result = SystemConfigSchema.safeParse({
+      host: "myhost.com",
+      user: "MYUSER",
+      access: "readonly",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("should reject missing host", () => {
     const result = SystemConfigSchema.safeParse({ user: "TEST" });
     expect(result.success).toBe(false);

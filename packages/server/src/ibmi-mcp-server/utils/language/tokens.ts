@@ -239,7 +239,9 @@ export default class SQLTokeniser {
       becomes: `not`,
     },
   ];
-  readonly spaces = [`\t`, ` `];
+  // Db2 for i separators besides LF and CR (verified live on 7.4):
+  // TAB, SPACE, FF, NEL (U+0085) and IDEOGRAPHIC SPACE (U+3000).
+  readonly spaces = [`\t`, ` `, `\f`, `\u0085`, `\u3000`];
   readonly splitParts: string[] = [
     `(`,
     `)`,
@@ -300,6 +302,8 @@ export default class SQLTokeniser {
 
   tokenise(content: string) {
     let commentStart = -1;
+    // Db2 nests block comments: only the outermost `*/` ends the comment.
+    let commentDepth = 0;
 
     let state: ReadState = ReadState.NORMAL;
 
@@ -322,7 +326,8 @@ export default class SQLTokeniser {
         // Handle when the end of line is there and we're in a comment
       } else if (
         state === ReadState.IN_SIMPLE_COMMENT &&
-        content[i] === this.endCommentString
+        // Db2 ends `--` comments at LF and NEL (U+0085), not at CR
+        (content[i] === this.endCommentString || content[i] === `\u0085`)
       ) {
         const preNewLine = i - 1;
 
@@ -348,8 +353,27 @@ export default class SQLTokeniser {
         content[i + 1] &&
         content.substring(i, i + 2) === this.startCommentBlock
       ) {
+        // A block comment separates words: `FINAL/*x*/TABLE` is two tokens
+        if (currentText.trim() !== ``) {
+          result.push({
+            value: currentText,
+            type: `word`,
+            range: { start: startsAt, end: startsAt + currentText.length },
+          });
+        }
+        currentText = ``;
         commentStart = i;
+        commentDepth = 1;
         state = ReadState.IN_BLOCK_COMMENT;
+        i++; // Skip the `*` so `/*/` opens a comment and does not also close it
+
+        // Nested block comment opener
+      } else if (
+        state === ReadState.IN_BLOCK_COMMENT &&
+        content.substring(i, i + 2) === this.startCommentBlock
+      ) {
+        commentDepth++;
+        i++;
 
         // Handle when the end of line is there and we're in a comment
       } else if (
@@ -358,6 +382,10 @@ export default class SQLTokeniser {
         content[i + 1] &&
         content.substring(i, i + 2) === this.endCommentBlock
       ) {
+        if (--commentDepth > 0) {
+          i++;
+          continue;
+        }
         const endOfBlock = i + 1;
         content =
           content.substring(0, commentStart) +
@@ -365,6 +393,9 @@ export default class SQLTokeniser {
           content.substring(endOfBlock);
         i++;
         state = ReadState.NORMAL;
+        // The next word starts after the comment (token values of matched
+        // tokens are read back from the content by range)
+        startsAt = i + 1;
 
         // Handle block comment
       } else if (
@@ -398,8 +429,25 @@ export default class SQLTokeniser {
                 range: { start: startsAt, end: startsAt + currentText.length },
               });
               currentText = ``;
+              // The next word starts after the quote
+              startsAt = i + 1;
             } else {
-              startsAt = i;
+              // Db2 starts a new token at a quote: `LIKE'x'` is two tokens.
+              // Only a literal prefix (X'..', N'..', GX'..') joins the string.
+              if (!/^(X|N|G|GX|UX|BX)$/i.test(currentText)) {
+                if (currentText.trim() !== ``) {
+                  result.push({
+                    value: currentText,
+                    type: `word`,
+                    range: {
+                      start: startsAt,
+                      end: startsAt + currentText.length,
+                    },
+                  });
+                }
+                currentText = ``;
+                startsAt = i;
+              }
               currentText += content[i];
             }
 
@@ -419,7 +467,21 @@ export default class SQLTokeniser {
                 range: { start: startsAt, end: startsAt + currentText.length },
               });
               currentText = ``;
+              // The next word starts after the quote
+              startsAt = i + 1;
             } else {
+              // Db2 starts a new token at `"`: `DISTINCT"QCMDEXC"` is two tokens
+              if (currentText.trim() !== ``) {
+                result.push({
+                  value: currentText,
+                  type: `word`,
+                  range: {
+                    start: startsAt,
+                    end: startsAt + currentText.length,
+                  },
+                });
+              }
+              currentText = ``;
               startsAt = i;
               currentText += content[i];
             }
