@@ -10,9 +10,8 @@ from agno.tools.mcp import MCPTools
 import os
 from pathlib import Path
 from agno.tools.reasoning import ReasoningTools
-from agno.memory.v2.db.sqlite import SqliteMemoryDb
-from agno.memory.v2.memory import Memory
-from agno.storage.sqlite import SqliteStorage
+from agno.db.sqlite import SqliteDb
+from agno.memory.manager import MemoryManager
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -34,14 +33,16 @@ async def create_agent(
     # Get the language model
     model = get_model(model_id)
 
-    # Store agent sessions in a SQLite database
-    storage = SqliteStorage(table_name="agent_sessions", db_file="tmp/agent.db")
+    # Store agent sessions and user memories in a SQLite database
+    db = SqliteDb(
+        db_file="tmp/agent.db",
+        session_table="agent_sessions",
+        memory_table="user_memories",
+    )
 
-    memory = Memory(
+    memory_manager = MemoryManager(
         # Use any model for creating and managing memories
         model=get_model(model_id),
-        # Store memories in a SQLite database
-        db=SqliteMemoryDb(table_name="user_memories", db_file="tmp/agent.db"),
         # We disable deletion by default, enable it if needed
         delete_memories=True,
         clear_memories=True,
@@ -74,19 +75,17 @@ async def create_agent(
         name="IBM i SYS Admin Agent",
         model=model,
         tools=[mcp_tools, ReasoningTools(add_instructions=True, add_few_shot=True)],
-        storage=storage,
-        memory=memory,
+        db=db,
+        memory_manager=memory_manager,
         enable_agentic_memory=True,
         enable_session_summaries=True,
         instructions=instructions,
         description="Specialized IBM i PTF and Technology Refresh management expert",
         markdown=True,
-        show_tool_calls=True,
         debug_mode=debug,
-        add_history_to_messages=True,
-        add_datetime_to_instructions=True,
+        add_history_to_context=True,
+        add_datetime_to_context=True,
         num_history_runs=3,
-        num_history_responses=3
     )
     
     

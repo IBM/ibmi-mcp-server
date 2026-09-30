@@ -1,8 +1,9 @@
 /**
  * Execute SQL Tool
  *
- * Executes SQL queries on IBM i database with optional security restrictions.
- * Migrated from 3-file pattern to factory pattern.
+ * Executes SQL on the IBM i database behind the execute_sql guardrails
+ * (read | read-call | write). The guardrails constrain the SQL text; the
+ * connection's IBM i user profile is the security boundary.
  *
  * @module executeSql.tool
  * @feature 001-tool-factory
@@ -17,8 +18,10 @@ import {
   type RequestContext,
 } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
-import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
-import type { SqlValidationClassification } from "../utils/security/sqlSecurityValidator.js";
+import {
+  enforceExecuteSqlGuardrails,
+  stripStatementTerminator,
+} from "../utils/security/executeSqlGuardrail.js";
 import {
   logOperationStart,
   logOperationSuccess,
@@ -27,10 +30,10 @@ import { IBMiConnectionPool } from "../services/connectionPool.js";
 import {
   accessAtLeast,
   accessFromLegacyReadOnly,
-  getExecuteSqlAccessCeiling,
-  resolveAccess,
-  setExecuteSqlAccessPolicy,
   EXECUTE_SQL_ACCESS_ENV,
+  getExecuteSqlAccessCeiling,
+  getExecuteSqlAccessPolicy,
+  setExecuteSqlAccessPolicy,
   type ExecuteSqlAccess,
 } from "../services/executeSqlAccess.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
@@ -42,8 +45,21 @@ import { config } from "../../config/index.js";
 // =============================================================================
 
 const TOOL_NAME = "execute_sql";
-const TOOL_DESCRIPTION =
-  "Executes a SELECT query on the IBM i database and returns the results. Use this after validating your query with validate_query.";
+
+/** LLM-facing description per guardrail mode. */
+const TOOL_DESCRIPTIONS: Record<ExecuteSqlAccess, () => string> = {
+  read: () => {
+    const functions = config.ibmi_executeSqlForbiddenFunctions;
+    const forbidden = functions.length
+      ? ` and the functions ${functions.join(", ")}`
+      : "";
+    return `Executes a read-only query (SELECT, WITH or VALUES) on the IBM i database and returns the results. Not allowed: INSERT/UPDATE/DELETE/MERGE (including FINAL TABLE (INSERT ...)), CALL, DDL, sequence references (NEXT VALUE FOR, PREVIOUS VALUE FOR)${forbidden}. Validate your query with validate_query first.`;
+  },
+  "read-call": () =>
+    "Executes a query (SELECT, WITH or VALUES) or a CALL to a stored procedure on the IBM i database and returns the results. Functions and procedures may have side effects. Not allowed: INSERT/UPDATE/DELETE/MERGE (including FINAL TABLE (INSERT ...)), DDL, SET, COMMIT/ROLLBACK and compound statements. Validate your query with validate_query first.",
+  write: () =>
+    "Executes any single SQL statement on the IBM i database (queries, CALL, INSERT/UPDATE/DELETE/MERGE, DDL) and returns the results. What it can change is limited only by the connection user profile's authority.",
+};
 
 /**
  * Configuration for the execute SQL tool
@@ -53,20 +69,21 @@ export interface ExecuteSqlToolConfig {
   description?: string;
   security?: {
     /**
-     * Access mode: `read` (SELECT and functions), `read-call` (+ CALL),
-     * `write` (everything). Defaults to IBMI_EXECUTE_SQL_ACCESS, then `read`.
+     * Guardrail mode: `read`, `read-call` or `write`. Lowered to
+     * IBMI_EXECUTE_SQL_ACCESS when that is set (a ceiling).
      */
     access?: ExecuteSqlAccess;
     /** @deprecated Use `access`. `true` → `read`, `false` → `write`. */
     readOnly?: boolean;
+    /** Keyword patterns added to IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS. */
+    forbiddenKeywords?: string[];
     maxQueryLength?: number;
   };
 }
 
 /**
- * Default tool configuration
- * Access mode is controlled by IBMI_EXECUTE_SQL_ACCESS (defaults to `read`)
- * so CALL and write statements are opt-in for security
+ * Default tool configuration. The guardrail mode lives in the access policy
+ * (services/executeSqlAccess.ts), seeded from IBMI_EXECUTE_SQL_ACCESS.
  *
  * Enabled when:
  * - IBMI_ENABLE_EXECUTE_SQL=true (explicit override), OR
@@ -75,7 +92,6 @@ export interface ExecuteSqlToolConfig {
 let toolConfig: ExecuteSqlToolConfig = {
   enabled: config.ibmi_enableExecuteSql || config.ibmi_enableDefaultTools,
   security: {
-    access: config.ibmi_executeSqlAccess,
     maxQueryLength: 10000,
   },
 };
@@ -83,8 +99,8 @@ let toolConfig: ExecuteSqlToolConfig = {
 /**
  * Configure the execute SQL tool
  * @param config - Configuration options
- * @returns The effective access mode after applying the operator's env
- *   ceiling. Compare with what you requested to detect a downgrade.
+ * @returns The effective guardrail mode after applying the env ceiling.
+ *   Compare it with the requested mode to detect a downgrade.
  */
 export function configureExecuteSqlTool(
   config: Partial<ExecuteSqlToolConfig>,
@@ -99,29 +115,21 @@ export function configureExecuteSqlTool(
     toolName: TOOL_NAME,
   });
 
-  // Translate the deprecated boolean before merging so it cannot be shadowed
-  // by the access level already present in the defaults.
-  const { readOnly, ...incomingSecurity } = config.security ?? {};
-  if (incomingSecurity.access === undefined && readOnly !== undefined) {
-    incomingSecurity.access = accessFromLegacyReadOnly(readOnly);
-  }
-
-  // Merge with existing config
+  // The mode is held by the access policy, not the tool config
+  const { access, readOnly, ...security } = config.security ?? {};
   toolConfig = {
     ...toolConfig,
     ...config,
     security: {
       ...toolConfig.security,
-      ...incomingSecurity,
+      ...security,
     },
   };
 
-  // Keep the singleton pool's JDBC access in sync with the effective access
-  // mode (the pool reads this at lazy init). The env ceiling may lower it.
-  const requested = resolveAccess(toolConfig.security);
+  const requested =
+    access ?? accessFromLegacyReadOnly(readOnly) ?? getExecuteSqlAccessPolicy();
   const effective = setExecuteSqlAccessPolicy(requested);
   if (effective !== requested) {
-    toolConfig.security = { ...toolConfig.security, access: effective };
     logger.warning(
       {
         ...context,
@@ -129,7 +137,7 @@ export function configureExecuteSqlTool(
         effective,
         ceiling: getExecuteSqlAccessCeiling(),
       },
-      `execute_sql access lowered from ${requested} to ${effective}: ${EXECUTE_SQL_ACCESS_ENV} is set in the environment and acts as a ceiling`,
+      `execute_sql guardrail mode lowered from ${requested} to ${effective}: ${EXECUTE_SQL_ACCESS_ENV} is set and acts as a ceiling`,
     );
   }
 
@@ -224,165 +232,21 @@ type ExecuteSqlInput = z.infer<typeof ExecuteSqlInputSchema>;
 type ExecuteSqlResponse = z.infer<typeof ExecuteSqlResponseSchema>;
 
 // =============================================================================
-// Security Validation
-// =============================================================================
-
-/**
- * Validates SQL query against security restrictions
- * Delegates to centralized SqlSecurityValidator
- * @param sql - SQL query to validate
- * @param appContext - Request context for logging
- * @returns Layer-1 classification used to decide whether wire PARSE_STATEMENT is needed
- * @throws McpError if query violates security restrictions
- */
-function validateSqlSecurity(
-  sql: string,
-  appContext: RequestContext,
-): SqlValidationClassification {
-  const config = getExecuteSqlConfig();
-
-  const securityConfig = {
-    access: resolveAccess(config.security),
-    maxQueryLength: config.security?.maxQueryLength ?? 10000,
-  };
-
-  // execute_sql needs classification even in write mode to decide whether the
-  // wire PARSE_STATEMENT round trip can be skipped.
-  return SqlSecurityValidator.validateQuery(sql, securityConfig, appContext, {
-    classify: true,
-  });
-}
-
-/**
- * PARSE_STATEMENT `SQL_STATEMENT_TYPE` values permitted per access mode.
- * `undefined` (write) means every type is permitted.
- */
-const PARSE_STATEMENT_ALLOWED_TYPES: Record<
-  ExecuteSqlAccess,
-  ReadonlySet<string> | undefined
-> = {
-  read: new Set(["QUERY"]),
-  "read-call": new Set(["QUERY", "CALL"]),
-  write: undefined,
-};
-
-/**
- * Validate SQL query using IBM i PARSE_STATEMENT
- * Verifies every statement type is permitted at the access mode
- * Uses IBM i's native SQL parser for authoritative statement type detection
- *
- * Invoked only when the in-process parser could not classify the statement.
- *
- * @param sql - SQL query to validate (should be pre-sanitized without trailing semicolons)
- * @param access - Effective access mode
- * @param appContext - Request context for logging
- * @throws {McpError} If validation fails (syntax error, statement type not permitted, or execution failure)
- *
- * @see https://www.ibm.com/docs/en/i/7.5?topic=services-parse-statement-table-function
- */
-async function validateWithParseStatement(
-  sql: string,
-  access: ExecuteSqlAccess,
-  appContext: RequestContext,
-): Promise<void> {
-  // Build PARSE_STATEMENT query with named parameters
-  const parseQuery = `
-    SELECT DISTINCT SQL_STATEMENT_TYPE
-    FROM TABLE(QSYS2.PARSE_STATEMENT(
-      SQL_STATEMENT => ?,
-      NAMING => '*SQL',
-      DECIMAL_POINT => '*PERIOD',
-      SQL_STRING_DELIMITER => '*APOSTSQL'
-    )) AS P
-  `.trim();
-
-  try {
-    // Execute PARSE_STATEMENT via connection pool
-    const result = await IBMiConnectionPool.executeQuery(
-      parseQuery,
-      [sql],
-      appContext,
-    );
-
-    // Empty result = syntax error (PARSE_STATEMENT returns no rows on parse failure)
-    if (!result.data || result.data.length === 0) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
-        "SQL syntax error: Query could not be parsed by IBM i",
-        {
-          query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
-          validationMethod: "parse_statement",
-        },
-      );
-    }
-
-    // Every distinct statement type must be permitted at this access mode
-    // A missing type is "UNKNOWN" so it can never satisfy a read allow-set.
-    const statementTypes = (
-      result.data as { SQL_STATEMENT_TYPE?: string }[]
-    ).map((row) => (row.SQL_STATEMENT_TYPE || "UNKNOWN").toUpperCase());
-    const allowedTypes = PARSE_STATEMENT_ALLOWED_TYPES[access];
-    const disallowed = allowedTypes
-      ? statementTypes.filter((t) => !allowedTypes.has(t))
-      : [];
-
-    if (disallowed.length > 0) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
-        `Statement type '${disallowed.join("', '")}' not permitted in ${access} access mode`,
-        {
-          query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
-          sqlStatementTypes: statementTypes,
-          access,
-          validationMethod: "parse_statement",
-        },
-      );
-    }
-
-    logger.debug(
-      {
-        ...appContext,
-        sqlStatementTypes: statementTypes,
-        access,
-      },
-      "PARSE_STATEMENT validation passed",
-    );
-  } catch (error) {
-    // Re-throw McpError as-is
-    if (error instanceof McpError) {
-      throw error;
-    }
-
-    // Fail closed on unexpected errors
-    throw new McpError(
-      JsonRpcErrorCode.ValidationError,
-      "SQL validation failed: Unable to execute PARSE_STATEMENT",
-      {
-        query: sql.substring(0, 100) + (sql.length > 100 ? "..." : ""),
-        validationMethod: "parse_statement",
-        originalError: error instanceof Error ? error.message : String(error),
-      },
-    );
-  }
-}
-
-// =============================================================================
 // Business Logic
 // =============================================================================
 
 /**
- * Core logic for executing SQL queries
- * Validates security restrictions and executes the query
- * (Not exported: consumers use `executeSqlTool.logic`, as the CLI does.)
+ * Core logic for executing SQL queries.
+ * Guardrail rejections throw (the handler returns them with isError);
+ * execution failures are returned in the response.
  */
 async function executeSqlLogic(
   params: ExecuteSqlInput,
   appContext: RequestContext,
   _sdkContext: SdkContext,
 ): Promise<ExecuteSqlResponse> {
-  // Sanitize SQL: Remove trailing semicolons (statement terminators)
-  // IBM i SQL execution and PARSE_STATEMENT expect pure SQL without terminators
-  const sanitizedSql = params.sql.trim().replace(/;+\s*$/, "");
+  // IBM i SQL execution and PARSE_STATEMENT expect no statement terminator
+  const sanitizedSql = stripStatementTerminator(params.sql);
 
   logger.debug(
     {
@@ -393,39 +257,26 @@ async function executeSqlLogic(
     "Processing execute SQL logic.",
   );
 
+  await enforceExecuteSqlGuardrails(
+    sanitizedSql,
+    {
+      access: getExecuteSqlAccessPolicy(),
+      parseStatement: (query, bindings, rowsToFetch) =>
+        IBMiConnectionPool.executeQuery(
+          query,
+          bindings,
+          appContext,
+          rowsToFetch,
+        ),
+      forbiddenKeywords: toolConfig.security?.forbiddenKeywords,
+      maxQueryLength: toolConfig.security?.maxQueryLength,
+    },
+    appContext,
+  );
+
   const startTime = Date.now();
 
   try {
-    // Layer 1: in-process AST/regex + vscode-db2i classification
-    const classification = validateSqlSecurity(sanitizedSql, appContext);
-
-    // Layer 2: wire PARSE_STATEMENT — only when Layer 1 could not classify
-    // (regex fallback / uncertain). The JDBC access derived from the access
-    // mode on the singleton pool is the fail-closed backstop for the skip
-    // path (read / read-call → "read call" blocks writes at Db2).
-    const access = resolveAccess(getExecuteSqlConfig().security);
-    if (!classification.classified) {
-      logger.debug(
-        {
-          ...appContext,
-          access,
-          validatedBy: classification.validatedBy,
-        },
-        "Running PARSE_STATEMENT validation (in-process parser could not classify)",
-      );
-      await validateWithParseStatement(sanitizedSql, access, appContext);
-    } else {
-      logger.debug(
-        {
-          ...appContext,
-          access,
-          validatedBy: classification.validatedBy,
-          statementTypes: classification.statementTypes,
-        },
-        "Skipping PARSE_STATEMENT; in-process parser classified statement",
-      );
-    }
-
     // Execute the query with sanitized SQL. Fetch size and the overall
     // row cap are controlled by IBMI_PAGINATION_* env vars at the
     // service layer, so execute_sql inherits the same ceiling as any
@@ -574,25 +425,24 @@ const executeSqlResponseFormatter = (
 export const executeSqlTool = defineTool({
   name: TOOL_NAME,
   title: "Execute SQL",
-  description: toolConfig.description || TOOL_DESCRIPTION,
+  // Getters: registration reads them after configuration has been applied
+  get description() {
+    return (
+      toolConfig.description || TOOL_DESCRIPTIONS[getExecuteSqlAccessPolicy()]()
+    );
+  },
   inputSchema: ExecuteSqlInputSchema,
   outputSchema: ExecuteSqlResponseSchema,
   logic: executeSqlLogic,
   responseFormatter: executeSqlResponseFormatter,
-  annotations: {
-    // Only `read` is read-only; CALL can mutate, so read-call is not.
-    readOnlyHint: !accessAtLeast(
-      resolveAccess(toolConfig.security),
-      "read-call",
-    ),
-    destructiveHint: accessAtLeast(
-      resolveAccess(toolConfig.security),
-      "read-call",
-    ),
-    openWorldHint: accessAtLeast(
-      resolveAccess(toolConfig.security),
-      "read-call",
-    ),
+  // Only `read` is read-only; functions and procedures can change state
+  get annotations() {
+    const mayChange = accessAtLeast(getExecuteSqlAccessPolicy(), "read-call");
+    return {
+      readOnlyHint: !mayChange,
+      destructiveHint: mayChange,
+      openWorldHint: mayChange,
+    };
   },
   enabled: () =>
     toolConfig.enabled ||

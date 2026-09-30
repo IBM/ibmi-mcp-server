@@ -44,7 +44,10 @@ export default class Statement {
     public tokens: Token[],
     public range: IRange,
   ) {
-    this.tokens = this.tokens.filter((newToken) => newToken.type !== `newline`);
+    // A lone CR is a `newliner` token; like LF it only separates words
+    this.tokens = this.tokens.filter(
+      (newToken) => newToken.type !== `newline` && newToken.type !== `newliner`,
+    );
 
     let first = this.tokens[0];
 

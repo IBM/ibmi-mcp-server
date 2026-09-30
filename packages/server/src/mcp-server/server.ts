@@ -31,6 +31,7 @@ import { startHttpTransport } from "@/mcp-server/transports/http/index.js";
 import { startStdioTransport } from "@/mcp-server/transports/stdio/index.js";
 import { registerSQLTools } from "@/ibmi-mcp-server/index.js";
 import { registerLoggingSetLevelHandler } from "@/mcp-server/logging/setLevelHandler.js";
+import { advertiseJsonSchema202012 } from "@/mcp-server/schema/advertiseJsonSchema202012.js";
 
 /**
  * Creates and configures a new instance of the `McpServer`.
@@ -70,6 +71,9 @@ async function createMcpServerInstance(): Promise<McpServer> {
     logOperationError(context, "Failed to register resources/tools", err);
     throw err;
   }
+
+  // Temporary fix until typescript-sdk#2085 emits 2020-12 on tools/list.
+  advertiseJsonSchema202012(server.server);
 
   return server;
 }

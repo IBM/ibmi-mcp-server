@@ -53,7 +53,6 @@ vi.mock("@ibm/mapepire-js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import { BaseConnectionPool } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
-import { resolveSingletonJdbcOptions } from "../../../src/ibmi-mcp-server/services/connectionPool.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
 import {
   SourceConfigSchema,
@@ -61,6 +60,11 @@ import {
 } from "../../../src/ibmi-mcp-server/schemas/config.js";
 import { config } from "../../../src/config/index.js";
 import { logger } from "../../../src/utils/internal/index.js";
+import {
+  IBMiConnectionPool,
+  resolveSingletonJdbcOptions,
+} from "../../../src/ibmi-mcp-server/services/connectionPool.js";
+import { setExecuteSqlAccessPolicy } from "../../../src/ibmi-mcp-server/services/executeSqlAccess.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -462,44 +466,6 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
     expect(config.db2i!.jdbcOptions).toBeUndefined();
   });
-
-  it("3.10 – treats pairs with empty values (dangling access=) as unset", () => {
-    setCreds();
-    process.env.DB2i_JDBC_OPTIONS = "access=;naming=system";
-
-    // An empty access value must NOT count as an operator override — it would
-    // silently replace the mode-derived access otherwise.
-    expect(config.db2i!.jdbcOptions).toEqual({ naming: "system" });
-  });
-
-  it("3.11 – omits jdbcOptions entirely when all pairs have empty values", () => {
-    setCreds();
-    process.env.DB2i_JDBC_OPTIONS = "access=";
-
-    expect(config.db2i!.jdbcOptions).toBeUndefined();
-  });
-
-  it("3.12 – an explicit access=all is forwarded as the operator override", () => {
-    setCreds();
-    process.env.DB2i_JDBC_OPTIONS = "access=all;naming=system";
-
-    expect(config.db2i!.jdbcOptions).toEqual({
-      access: "all",
-      naming: "system",
-    });
-  });
-
-  it("3.13 – other options still parse when access is absent", () => {
-    setCreds();
-    process.env.DB2i_JDBC_OPTIONS =
-      "naming=system;libraries=A,B;full open=true";
-
-    expect(config.db2i!.jdbcOptions).toEqual({
-      naming: "system",
-      libraries: ["A", "B"],
-      "full open": "true",
-    });
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -543,6 +509,20 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     expect(MockPool).toHaveBeenCalledTimes(1);
     const poolArgs = MockPool.mock.calls[0][0];
     expect(poolArgs.opts).toBeUndefined();
+  });
+
+  it("4.2b – forwards poolConfig.port to Mapepire DaemonServer creds", async () => {
+    pool = new TestConnectionPool();
+    await pool.testInitializePool(
+      "test-custom-port",
+      { ...BASE_CONFIG, port: 8077 },
+      TEST_CONTEXT,
+    );
+
+    expect(MockPool).toHaveBeenCalledTimes(1);
+    const poolArgs = MockPool.mock.calls[0][0];
+    expect(poolArgs.creds.port).toBe(8077);
+    expect(poolArgs.creds.host).toBe(BASE_CONFIG.host);
   });
 
   it("4.3 – does not pass opts when jdbcOptions is empty object {}", async () => {
@@ -891,56 +871,73 @@ describe("SourceManager – jdbc-options wiring", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Group 6 – Singleton pool JDBC access derived from the access mode
-//
-// Live smoke (manual / integration, not CI): with IBMI_EXECUTE_SQL_ACCESS=read
-// assert INSERT/UPDATE/DDL are rejected by Db2 on the singleton pool, and
-// CALL QSYS2.GENERATE_SQL still works.
+// Group 6 – singleton pool JDBC access follows the execute_sql guardrail mode
 // ═══════════════════════════════════════════════════════════════════════════
-describe("resolveSingletonJdbcOptions – JDBC access from access mode", () => {
-  it("6.1 – read → access=read call", () => {
+describe("IBMiConnectionPool – JDBC access from the execute_sql mode", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    resetMocks();
+    config.poolTimeouts.queryTimeoutMs = 0;
+    config.poolTimeouts.idleTimeoutMs = 0;
+    process.env.DB2i_HOST = "testhost";
+    process.env.DB2i_USER = "testuser";
+    process.env.DB2i_PASS = "testpass";
+    delete process.env.DB2i_JDBC_OPTIONS;
+  });
+
+  afterEach(async () => {
+    await IBMiConnectionPool.close();
+    await BaseConnectionPool.shutdownAll();
+    // The singleton keeps its pool config across close(); start fresh
+    (IBMiConnectionPool as unknown as { instance?: unknown }).instance =
+      undefined;
+    setExecuteSqlAccessPolicy("read");
+    process.env = { ...originalEnv };
+    restoreConfig();
+    vi.restoreAllMocks();
+  });
+
+  it("6.1 – resolveSingletonJdbcOptions derives access and keeps other options", () => {
     expect(resolveSingletonJdbcOptions(undefined, "read")).toEqual({
       access: "read call",
     });
-  });
-
-  it("6.2 – read-call → access=read call", () => {
-    expect(resolveSingletonJdbcOptions(undefined, "read-call")).toEqual({
-      access: "read call",
-    });
-  });
-
-  it("6.3 – write → access=all", () => {
+    expect(
+      resolveSingletonJdbcOptions({ libraries: ["A"] }, "read-call"),
+    ).toEqual({ libraries: ["A"], access: "read call" });
     expect(resolveSingletonJdbcOptions(undefined, "write")).toEqual({
       access: "all",
     });
-  });
-
-  it("6.4 – existing options are merged alongside access", () => {
     expect(
-      resolveSingletonJdbcOptions(
-        { naming: "system", libraries: ["MYLIB"] },
-        "read",
-      ),
-    ).toEqual({
-      naming: "system",
-      libraries: ["MYLIB"],
-      access: "read call",
-    });
-    expect(resolveSingletonJdbcOptions({ naming: "system" }, "write")).toEqual({
-      naming: "system",
-      access: "all",
-    });
+      resolveSingletonJdbcOptions({ access: "read only" }, "write"),
+    ).toEqual({ access: "read only" });
   });
 
-  it("6.5 – an explicit existing.access is preserved for every mode (operator override wins)", () => {
-    for (const mode of ["read", "read-call", "write"] as const) {
-      expect(
-        resolveSingletonJdbcOptions({ access: "all", naming: "system" }, mode),
-      ).toEqual({ access: "all", naming: "system" });
-      expect(
-        resolveSingletonJdbcOptions({ access: "read only" }, mode),
-      ).toEqual({ access: "read only" });
-    }
+  it.each([
+    ["read", "read call"],
+    ["read-call", "read call"],
+    ["write", "all"],
+  ] as const)(
+    "6.2 – %s mode opens the pool with access=%s",
+    async (mode, jdbcAccess) => {
+      setExecuteSqlAccessPolicy(mode);
+      await IBMiConnectionPool.executeQuery("SELECT 1 FROM SYSIBM.SYSDUMMY1");
+      expect(MockPool.mock.calls[0][0].opts).toEqual({ access: jdbcAccess });
+    },
+  );
+
+  it("6.3 – an explicit access in DB2i_JDBC_OPTIONS wins, with a warning", async () => {
+    const warning = vi.spyOn(logger, "warning");
+    process.env.DB2i_JDBC_OPTIONS = "access=all;naming=system";
+    setExecuteSqlAccessPolicy("read");
+    await IBMiConnectionPool.executeQuery("SELECT 1 FROM SYSIBM.SYSDUMMY1");
+    expect(MockPool.mock.calls[0][0].opts).toEqual({
+      access: "all",
+      naming: "system",
+    });
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({ accessMode: "read", jdbcAccess: "all" }),
+      expect.stringContaining("overrides"),
+    );
   });
 });

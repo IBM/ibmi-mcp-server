@@ -82,6 +82,12 @@ RUN groupadd -r appgroup \
 USER appuser
 
 ENV MCP_TRANSPORT_TYPE=http
+# Containers must bind all interfaces to be reachable through published ports.
+# Set explicitly — the server defaults to loopback-only (DNS rebinding hardening).
+# Do NOT set MCP_ALLOW_UNAUTHENTICATED_HTTP here: with IBM i credentials present
+# and MCP_AUTH_MODE=none the server intentionally refuses to start; that override
+# is the operator's explicit, per-deployment decision.
+ENV MCP_HTTP_HOST=0.0.0.0
 EXPOSE 3010
 
 # Run node directly on the built entry rather than via `npx` — avoids

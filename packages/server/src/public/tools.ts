@@ -13,14 +13,18 @@ export {
 export {
   EXECUTE_SQL_ACCESS_LEVELS,
   EXECUTE_SQL_ACCESS_ENV,
-  accessAtLeast,
-  accessFromLegacyReadOnly,
   getExecuteSqlAccessCeiling,
+  jdbcAccessFor,
   minAccess,
-  parseExecuteSqlAccess,
-  resolveAccess,
   type ExecuteSqlAccess,
 } from "../ibmi-mcp-server/services/executeSqlAccess.js";
+export {
+  enforceExecuteSqlGuardrails,
+  stripStatementTerminator,
+  type ExecuteSqlGuardrailOptions,
+  type GuardrailPath,
+  type ParseStatementExecutor,
+} from "../ibmi-mcp-server/utils/security/executeSqlGuardrail.js";
 export {
   generateSqlTool,
   OBJECT_TYPES,

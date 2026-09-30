@@ -7,8 +7,7 @@
  * @module src/index
  */
 
-// IMPORTANT: This line MUST be the first import to ensure OpenTelemetry is
-// initialized before any other modules are loaded.
+// First import: OTel facade (lazy-loads the SDK only when OTEL_ENABLED=true).
 import { shutdownOpenTelemetry } from "@/utils/telemetry/instrumentation.js";
 
 import { config, environment } from "@/config/index.js";
@@ -148,7 +147,7 @@ async function listToolsetsCommand(): Promise<void> {
 
     logger.info("💡 Usage examples:");
     logger.info(
-      `   npx ibmi-mcp-server --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets).slice(0, 2).join(",")}`,
+      `   npx @ibm/ibmi-mcp-server --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets).slice(0, 2).join(",")}`,
     );
     logger.info(
       `   npm run start:http -- --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets)[0]}`,

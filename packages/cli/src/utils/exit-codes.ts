@@ -44,13 +44,47 @@ export interface ClassifiedError {
   message: string;
 }
 
+/** A CLI-side refusal to run a statement (e.g. an access ceiling). */
+export class SecurityViolationError extends Error {
+  override name = "SecurityViolationError";
+}
+
+/**
+ * The `details.rule` of an execute_sql guardrail rejection (an McpError
+ * whose details carry `rule` and `access`), else undefined.
+ */
+function guardrailRule(error: Error): string | undefined {
+  const details = (error as { details?: unknown }).details;
+  if (typeof details !== "object" || details === null) return undefined;
+  const { rule, access } = details as Record<string, unknown>;
+  return typeof rule === "string" && typeof access === "string"
+    ? rule
+    : undefined;
+}
+
 /**
  * Classify an error into an exit code and error code based on its message and type.
  *
- * Pattern matching is intentionally broad — we check common patterns from
- * Mapepire, SqlSecurityValidator, and our own error messages.
+ * Guardrail rejections (every rule, including `unverifiable`: the statement
+ * was not run because PARSE_STATEMENT could not verify it) and CLI security
+ * refusals are classified by type. A PARSE_STATEMENT execution failure is
+ * rethrown unchanged by the guardrail and classified by its message.
+ * Otherwise pattern matching is intentionally broad —
+ * we check common patterns from Mapepire, SqlSecurityValidator, and our own
+ * error messages.
  */
 export function classifyError(error: Error): ClassifiedError {
+  if (
+    error instanceof SecurityViolationError ||
+    guardrailRule(error) !== undefined
+  ) {
+    return {
+      exitCode: ExitCode.SECURITY,
+      errorCode: ErrorCode.SECURITY_VIOLATION,
+      message: error.message,
+    };
+  }
+
   const msg = error.message.toLowerCase();
 
   // Authentication failures
@@ -73,7 +107,6 @@ export function classifyError(error: Error): ClassifiedError {
   if (
     msg.includes("read-only") ||
     msg.includes("readonly") ||
-    msg.includes("access mode") ||
     msg.includes("security") ||
     msg.includes("forbidden") ||
     msg.includes("blocked") ||

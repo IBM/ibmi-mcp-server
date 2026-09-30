@@ -6,15 +6,16 @@
 
 import { readFileSync } from "fs";
 import { Command } from "commander";
-import { withConnection, getFormat, createCliContext } from "../utils/command-helpers.js";
+import { withConnection, getFormat } from "../utils/command-helpers.js";
 import { renderMessage, renderMultiSystemOutput, renderMultiSystemNdjson } from "../formatters/output.js";
-import { ExitCode } from "../utils/exit-codes.js";
+import { ExitCode, classifyError } from "../utils/exit-codes.js";
 import {
   accessFromFlags,
-  assertAccessNotLowered,
-  resolveEffectiveAccess,
+  assertNotLoweredByEnv,
+  assertWithinSystemCeilings,
 } from "../utils/access-mode.js";
-import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
+import type { ResolvedSystem } from "../config/types.js";
+import type { ExecuteSqlAccess, SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 /**
  * Read SQL from stdin (piped input).
@@ -60,7 +61,10 @@ function resolveSql(
  * Non-query statements (CALL, INSERT, DDL, ...) do not accept a fetch clause
  * and are passed through unchanged (#173).
  */
-function applyRowLimit(sql: string, maxRows: number | undefined): string {
+export function applyRowLimit(
+  sql: string,
+  maxRows: number | undefined,
+): string {
   if (
     maxRows &&
     /^\s*(SELECT|WITH|VALUES)\b/i.test(sql) &&
@@ -72,6 +76,21 @@ function applyRowLimit(sql: string, maxRows: number | undefined): string {
   return sql;
 }
 
+/**
+ * Ask for confirmation on a system configured with `confirm: true`
+ * (interactive terminals only).
+ *
+ * @throws Error when the user declines
+ */
+async function confirmExecution(system: ResolvedSystem): Promise<void> {
+  if (!system.config.confirm || !process.stdin.isTTY) return;
+  const { promptPassword } = await import("../config/credentials.js");
+  const answer = await promptPassword(`Execute on [${system.name}]? (y/N) `);
+  if (answer.toLowerCase() !== "y") {
+    throw new Error("Execution cancelled by user");
+  }
+}
+
 export function registerSqlCommand(program: Command): void {
   program
     .command("sql [statement]")
@@ -80,7 +99,7 @@ export function registerSqlCommand(program: Command): void {
     .option("--limit <n>", "Maximum rows to return")
     .option(
       "--access <mode>",
-      "Access mode: read (default), read-call (allow CALL), or write",
+      "Guardrail mode: read (default, queries only), read-call (also CALL), or write",
     )
     .option("--read-only", "[deprecated] Same as --access read")
     .option("--no-read-only", "[deprecated] Same as --access write")
@@ -94,6 +113,17 @@ export function registerSqlCommand(program: Command): void {
           );
           process.exitCode = ExitCode.USAGE;
         }
+        return;
+      }
+
+      let access: ExecuteSqlAccess;
+      try {
+        access = accessFromFlags(opts);
+      } catch (err) {
+        process.stderr.write(
+          `Error: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -116,33 +146,33 @@ export function registerSqlCommand(program: Command): void {
           return;
         }
 
-        await handleMultiSystemSql(sql, opts, cmd, systemFlag);
+        await handleMultiSystemSql(sql, access, opts, cmd, systemFlag);
         return;
       }
 
-      // Existing single-system path (unchanged)
       await withConnection(cmd, "execute_sql", async (resolved, ctx) => {
-        // Access mode: --access (or deprecated --read-only flags), lowered to
-        // the system's configured ceiling; defaults to read.
-        const access = resolveEffectiveAccess(accessFromFlags(opts), [
-          resolved.config,
-        ]);
+        assertWithinSystemCeilings(access, [resolved]);
 
-        // Confirm execution if system requires it
-        if (resolved.config.confirm && process.stdin.isTTY) {
-          const { promptPassword } = await import(
-            "../config/credentials.js"
-          );
-          const answer = await promptPassword(
-            `Execute on [${resolved.name}]? (y/N) `,
-          );
-          if (answer.toLowerCase() !== "y") {
-            throw new Error("Execution cancelled by user");
-          }
-        }
+        // Configure execute_sql before its first query: the singleton pool
+        // takes its JDBC access from the mode when it initializes
+        const {
+          configureExecuteSqlTool,
+          executeSqlTool,
+          stripStatementTerminator,
+          EXECUTE_SQL_ACCESS_ENV,
+        } = await import("@ibm/ibmi-mcp-server/tools");
+        const effective = configureExecuteSqlTool({
+          enabled: true,
+          security: {
+            access,
+            forbiddenKeywords: resolved.config.forbiddenKeywords,
+          },
+        });
+        assertNotLoweredByEnv(access, effective, EXECUTE_SQL_ACCESS_ENV);
 
-        // Apply maxRows limit
-        let execSql = sql;
+        await confirmExecution(resolved);
+
+        // Apply maxRows limit; the guardrails validate the limited text
         let maxRows = resolved.config.maxRows;
         if (opts["limit"]) {
           maxRows = parseInt(opts["limit"] as string, 10);
@@ -150,20 +180,10 @@ export function registerSqlCommand(program: Command): void {
             throw new Error(`Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`);
           }
         }
-        execSql = applyRowLimit(execSql, maxRows);
+        const execSql = applyRowLimit(stripStatementTerminator(sql), maxRows);
 
-        // Configure execute_sql tool security before importing
-        const { configureExecuteSqlTool, executeSqlTool } = await import(
-          "@ibm/ibmi-mcp-server/tools"
-        );
-        const effective = configureExecuteSqlTool({
-          enabled: true,
-          security: { access },
-        });
-        assertAccessNotLowered(access, effective);
-        const logicFn = executeSqlTool.logic;
-
-        const result = await logicFn(
+        // Guardrail rejections throw (classified as security violations)
+        const result = await executeSqlTool.logic(
           { sql: execSql },
           ctx,
           {} as SdkContext,
@@ -195,9 +215,12 @@ export function registerSqlCommand(program: Command): void {
 /**
  * Execute SQL against multiple systems in parallel via SourceManager.
  * Creates a temporary SourceManager — each system gets its own pool.
+ * Each system runs the same execute_sql guardrails as the single-system
+ * path, with PARSE_STATEMENT (when needed) on that system's own pool.
  */
 async function handleMultiSystemSql(
   sql: string,
+  access: ExecuteSqlAccess,
   opts: Record<string, unknown>,
   cmd: Command,
   systemFlag: string,
@@ -210,26 +233,22 @@ async function handleMultiSystemSql(
     const { executeMultiSystem } = await import("../utils/multi-connection.js");
 
     const systems = resolveSystems(systemFlag);
+    assertWithinSystemCeilings(access, systems);
 
-    // Access mode: the flag lowered to the most restrictive system ceiling.
-    // Multi-system runs use per-system SourceManager pools, so the in-process
-    // validator is the enforcement point here.
-    const access = resolveEffectiveAccess(
-      accessFromFlags(opts),
-      systems.map((s) => s.config),
+    const {
+      enforceExecuteSqlGuardrails,
+      stripStatementTerminator,
+      getExecuteSqlAccessCeiling,
+      minAccess,
+      jdbcAccessFor,
+      EXECUTE_SQL_ACCESS_ENV,
+    } = await import("@ibm/ibmi-mcp-server/tools");
+    const ceiling = getExecuteSqlAccessCeiling();
+    assertNotLoweredByEnv(
+      access,
+      ceiling ? minAccess(ceiling, access) : access,
+      EXECUTE_SQL_ACCESS_ENV,
     );
-
-    if (access !== "write") {
-      const { SqlSecurityValidator } = await import(
-        "@ibm/ibmi-mcp-server/services"
-      );
-      const ctx = createCliContext("multi_sql_security");
-      SqlSecurityValidator.validateQuery(
-        sql,
-        { access, maxQueryLength: 10000 },
-        ctx,
-      );
-    }
 
     // Respect the most restrictive system's row limit when none is explicit
     let maxRows: number | undefined;
@@ -249,11 +268,33 @@ async function handleMultiSystemSql(
       if (!isFinite(maxRows)) maxRows = undefined;
     }
 
-    const execSql = applyRowLimit(sql, maxRows);
+    // The guardrails validate exactly the text that runs
+    const execSql = applyRowLimit(stripStatementTerminator(sql), maxRows);
 
+    // Prompts are interactive, so ask before the parallel fan-out
+    for (const sys of systems) await confirmExecution(sys);
+
+    const byName = new Map(systems.map((s) => [s.name, s]));
     const results = await executeMultiSystem(
       systems,
       async (sourceName, mgr, ctx) => {
+        await enforceExecuteSqlGuardrails(
+          execSql,
+          {
+            access,
+            parseStatement: (query, params, rowsToFetch) =>
+              mgr.executeQuery(
+                sourceName,
+                query,
+                params,
+                ctx,
+                undefined,
+                rowsToFetch,
+              ),
+            forbiddenKeywords: byName.get(sourceName)?.config.forbiddenKeywords,
+          },
+          ctx,
+        );
         const result = await mgr.executeQuery(
           sourceName,
           execSql,
@@ -263,6 +304,7 @@ async function handleMultiSystemSql(
         const data = (result.data ?? []) as Record<string, unknown>[];
         return { data, meta: { rowCount: data.length } };
       },
+      { access: jdbcAccessFor(access) },
     );
 
     if (isStream && format === "json") {
@@ -270,10 +312,15 @@ async function handleMultiSystemSql(
     } else {
       renderMultiSystemOutput(results, format);
     }
+
+    // Per-system failures stay in the output; the exit code reports the first
+    const failed = results.find((r) => r.exitCode !== undefined);
+    if (failed) process.exitCode = failed.exitCode;
   } catch (err) {
     const { renderError } = await import("../formatters/output.js");
     const error = err instanceof Error ? err : new Error(String(err));
-    renderError(error, format);
-    process.exitCode = ExitCode.GENERAL;
+    const classified = classifyError(error);
+    renderError(error, format, undefined, classified.errorCode);
+    process.exitCode = classified.exitCode;
   }
 }

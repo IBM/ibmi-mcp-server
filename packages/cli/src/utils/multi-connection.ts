@@ -9,6 +9,13 @@ import type { ResolvedSystem } from "../config/types.js";
 import type { RequestContext } from "@ibm/ibmi-mcp-server/context";
 import { resolvePassword } from "../config/credentials.js";
 import { createCliContext, type CommandResult } from "./command-helpers.js";
+import { classifyError, type ExitCodeValue } from "./exit-codes.js";
+
+type SourceConfig = Parameters<
+  InstanceType<
+    typeof import("@ibm/ibmi-mcp-server/services").SourceManager
+  >["registerSource"]
+>[1];
 
 /** Result from a single system in a multi-system execution. */
 export interface MultiSystemResult {
@@ -18,6 +25,8 @@ export interface MultiSystemResult {
   rowCount: number;
   elapsedMs: number;
   error?: string;
+  /** Exit code classified from the error, when the system failed. */
+  exitCode?: ExitCodeValue;
 }
 
 /**
@@ -25,6 +34,9 @@ export interface MultiSystemResult {
  *
  * Creates a temporary SourceManager instance with one pool per system,
  * fans out the action via Promise.allSettled, and cleans up all pools.
+ *
+ * @param jdbcOptions - JDBC options for every system's pool
+ *   (DB2i_JDBC_OPTIONS still overrides them, as for any source)
  */
 export async function executeMultiSystem(
   systems: ResolvedSystem[],
@@ -33,6 +45,7 @@ export async function executeMultiSystem(
     mgr: InstanceType<typeof import("@ibm/ibmi-mcp-server/services").SourceManager>,
     ctx: RequestContext,
   ) => Promise<CommandResult>,
+  jdbcOptions?: SourceConfig["jdbc-options"],
 ): Promise<MultiSystemResult[]> {
   // Dynamic import to avoid pulling server modules into static CLI chain
   const { SourceManager } = await import("@ibm/ibmi-mcp-server/services");
@@ -61,6 +74,7 @@ export async function executeMultiSystem(
         password: credentials.get(sys.name)!,
         port: sys.config.port,
         "ignore-unauthorized": sys.config.ignoreUnauthorized,
+        ...(jdbcOptions ? { "jdbc-options": jdbcOptions } : {}),
       });
     }
 
@@ -86,16 +100,18 @@ export async function executeMultiSystem(
         return outcome.value;
       }
       const sys = systems[i]!;
+      const error =
+        outcome.reason instanceof Error
+          ? outcome.reason
+          : new Error(String(outcome.reason));
       return {
         system: sys.name,
         host: sys.config.host,
         data: [],
         rowCount: 0,
         elapsedMs: 0,
-        error:
-          outcome.reason instanceof Error
-            ? outcome.reason.message
-            : String(outcome.reason),
+        error: error.message,
+        exitCode: classifyError(error).exitCode,
       };
     });
   } finally {

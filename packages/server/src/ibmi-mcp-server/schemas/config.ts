@@ -10,6 +10,7 @@ import {
   ResponseFormatSchema,
   MetadataSchema,
   ToolAnnotationsSchema,
+  MapepirePortSchema,
 } from "./common.js";
 
 /**
@@ -86,12 +87,9 @@ export const SourceConfigSchema = z
       .string()
       .min(1, "Password cannot be empty")
       .describe("Database password"),
-    port: z
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .describe("Database port (default: 8471 for IBM i)"),
+    port: MapepirePortSchema.optional().describe(
+      "Mapepire daemon port (default: 8076)",
+    ),
     "ignore-unauthorized": z
       .boolean()
       .optional()

@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { resolve, join } from "path";
+import { resolve } from "path";
 import { existsSync } from "fs";
 import { glob } from "glob";
 import {
@@ -727,8 +727,11 @@ export class ToolConfigBuilder {
       );
     }
 
-    const pattern = join(resolvedDir, "**/*.{yaml,yml}");
-    return glob.sync(pattern, { absolute: true });
+    // glob requires forward-slash patterns even on Windows; backslashes are
+    // interpreted as escape characters, not path separators. Pass the resolved
+    // directory via `cwd` (a filesystem path, so separators are fine there) and
+    // keep the pattern forward-slash only so directory sources work on Windows.
+    return glob.sync("**/*.{yaml,yml}", { cwd: resolvedDir, absolute: true });
   }
 
   /**
@@ -736,13 +739,15 @@ export class ToolConfigBuilder {
    * @private
    */
   private resolveGlobPaths(pattern: string, baseDir?: string): string[] {
-    const searchPattern = baseDir ? join(baseDir, pattern) : pattern;
-    const paths = glob.sync(searchPattern, { absolute: true });
+    // Resolve the pattern relative to baseDir via glob's `cwd` option rather
+    // than join(), which would corrupt the forward-slash glob pattern into
+    // backslashes on Windows (glob treats backslashes as escape characters).
+    const paths = glob.sync(pattern, { absolute: true, cwd: baseDir });
 
     if (paths.length === 0) {
       throw new McpError(
         JsonRpcErrorCode.ConfigurationError,
-        `No files found matching pattern: ${searchPattern}`,
+        `No files found matching pattern: ${baseDir ? `${baseDir} :: ${pattern}` : pattern}`,
       );
     }
 

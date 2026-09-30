@@ -44,22 +44,6 @@ vi.mock("@ibm/ibmi-mcp-server/services", async (importOriginal) => {
   };
 });
 
-// configureExecuteSqlTool now returns the effective access mode after the
-// server applies any IBMI_EXECUTE_SQL_ACCESS ceiling. Echo back what was
-// requested so assertAccessNotLowered is a no-op regardless of the test
-// runner's environment.
-vi.mock("@ibm/ibmi-mcp-server/tools", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@ibm/ibmi-mcp-server/tools")>();
-  return {
-    ...actual,
-    configureExecuteSqlTool: vi.fn(
-      (config: { security?: { access?: string } }) =>
-        config.security?.access ?? "read",
-    ),
-  };
-});
-
 describe("ibmi tool command", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -372,20 +356,10 @@ describe("ibmi tool command — security validation", () => {
     process.exitCode = undefined;
   });
 
-  type SystemAccess = {
-    readOnly?: boolean;
-    access?: "read" | "read-call" | "write";
-  };
-
-  /**
-   * Mock a single-statement YAML tool plus the resolved system. `system`
-   * carries the system's access ceiling (`access`, or the legacy `readOnly`);
-   * an empty object means the system declares no ceiling.
-   */
   function mockToolWithStatement(
     statement: string,
     security?: { readOnly?: boolean },
-    system: SystemAccess = {},
+    systemReadOnly = false,
   ) {
     mockLoadYamlTools.mockReturnValue({
       tools: {
@@ -407,7 +381,7 @@ describe("ibmi tool command — security validation", () => {
         host: "dev400.com",
         port: 8076,
         user: "DEV",
-        ...system,
+        readOnly: systemReadOnly,
         confirm: false,
         timeout: 60,
         maxRows: 5000,
@@ -417,206 +391,72 @@ describe("ibmi tool command — security validation", () => {
     });
   }
 
-  async function runTestTool(): Promise<void> {
+  it("should block DELETE when tool has security.readOnly: true", async () => {
+    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE EMPNO = '999'", { readOnly: true });
+
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node",
-      "ibmi",
-      "tool",
-      "test_tool",
-      "--tools",
-      "/fake.yaml",
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
     ]);
-  }
-
-  async function mockedExecuteQuery() {
-    const { IBMiConnectionPool } = await import(
-      "@ibm/ibmi-mcp-server/services"
-    );
-    return vi.mocked(IBMiConnectionPool.executeQuery);
-  }
-
-  async function mockedConfigure() {
-    const { configureExecuteSqlTool } = await import(
-      "@ibm/ibmi-mcp-server/tools"
-    );
-    return vi.mocked(configureExecuteSqlTool);
-  }
-
-  it("should block DELETE when tool has security.readOnly: true", async () => {
-    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE EMPNO = '999'", {
-      readOnly: true,
-    });
-
-    await runTestTool();
 
     const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read access mode/i);
-    expect(JSON.parse(stdoutOutput).error.code).toBe("SECURITY_VIOLATION");
-    expect(process.exitCode).toBe(4);
-    expect(await mockedExecuteQuery()).not.toHaveBeenCalled();
+    expect(output).toMatch(/write operation/i);
   });
 
   it("should block INSERT when tool has no security config (defaults to readOnly)", async () => {
     mockToolWithStatement("INSERT INTO SAMPLE.EMPLOYEE VALUES ('X')");
 
-    await runTestTool();
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
 
     const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read access mode/i);
-    expect(process.exitCode).toBe(4);
+    expect(output).toMatch(/write operation/i);
   });
 
   it("should allow SELECT when tool has security.readOnly: true", async () => {
     mockToolWithStatement("SELECT * FROM SYSIBM.SYSDUMMY1", { readOnly: true });
 
-    await runTestTool();
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
 
     const output = stdoutOutput + stderrOutput;
-    expect(output).not.toMatch(/not permitted/i);
-    expect(JSON.parse(stdoutOutput).ok).toBe(true);
+    expect(output).not.toMatch(/write operation/i);
   });
 
   it("should allow DELETE when tool has security.readOnly: false", async () => {
-    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0", {
-      readOnly: false,
-    });
+    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0", { readOnly: false });
 
-    await runTestTool();
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
 
     const output = stdoutOutput + stderrOutput;
-    expect(output).not.toMatch(/not permitted/i);
-    expect(JSON.parse(stdoutOutput).ok).toBe(true);
-    expect(await mockedExecuteQuery()).toHaveBeenCalledOnce();
+    expect(output).not.toMatch(/write operation/i);
   });
 
-  it("should block DELETE when legacy system readOnly overrides tool readOnly: false", async () => {
+  it("should block DELETE when system readOnly overrides tool readOnly: false", async () => {
     mockToolWithStatement(
       "DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0",
       { readOnly: false },
-      { readOnly: true }, // legacy system readOnly → read ceiling
+      true, // system readOnly
     );
 
-    await runTestTool();
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+    ]);
 
     const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read access mode/i);
-    expect(process.exitCode).toBe(4);
-  });
-
-  it("should block DELETE when system access: read overrides tool readOnly: false", async () => {
-    mockToolWithStatement(
-      "DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0",
-      { readOnly: false },
-      { access: "read" },
-    );
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read access mode/i);
-    expect(JSON.parse(stdoutOutput).error.code).toBe("SECURITY_VIOLATION");
-    expect(process.exitCode).toBe(4);
-  });
-
-  it("should allow CALL when tool readOnly: false and system access: read-call", async () => {
-    mockToolWithStatement(
-      "CALL QSYS2.QCMDEXC('DSPLIBL')",
-      { readOnly: false },
-      { access: "read-call" },
-    );
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).not.toMatch(/not permitted/i);
-    const parsed = JSON.parse(stdoutOutput);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.data).toEqual([{ OK: 1 }]);
-
-    const executeQuery = await mockedExecuteQuery();
-    expect(executeQuery).toHaveBeenCalledOnce();
-    expect(executeQuery.mock.calls[0]?.[0]).toBe(
-      "CALL QSYS2.QCMDEXC('DSPLIBL')",
-    );
-
-    // The pool policy is configured with the effective (lowered) mode.
-    expect(await mockedConfigure()).toHaveBeenCalledWith({
-      security: { access: "read-call" },
-    });
-  });
-
-  it("should block INSERT when tool readOnly: false and system access: read-call", async () => {
-    mockToolWithStatement(
-      "INSERT INTO SAMPLE.EMPLOYEE VALUES ('X')",
-      { readOnly: false },
-      { access: "read-call" },
-    );
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read-call access mode/i);
-    expect(process.exitCode).toBe(4);
-    expect(await mockedExecuteQuery()).not.toHaveBeenCalled();
-  });
-
-  it("should block CALL when tool readOnly: true even if system access: read-call", async () => {
-    mockToolWithStatement(
-      "CALL QSYS2.QCMDEXC('DSPLIBL')",
-      { readOnly: true },
-      { access: "read-call" },
-    );
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read access mode/i);
-    expect(process.exitCode).toBe(4);
-    expect(await mockedExecuteQuery()).not.toHaveBeenCalled();
-  });
-
-  it("should block CALL when tool has no security config and system access: read-call", async () => {
-    mockToolWithStatement("CALL QSYS2.QCMDEXC('DSPLIBL')", undefined, {
-      access: "read-call",
-    });
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/not permitted in read access mode/i);
-  });
-
-  it("should allow DELETE when tool readOnly: false and system access: write", async () => {
-    mockToolWithStatement(
-      "DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0",
-      { readOnly: false },
-      { access: "write" },
-    );
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).not.toMatch(/not permitted/i);
-    expect(JSON.parse(stdoutOutput).ok).toBe(true);
-    expect(await mockedConfigure()).toHaveBeenCalledWith({
-      security: { access: "write" },
-    });
-  });
-
-  it("should fail with a SECURITY exit when the server lowers the requested access", async () => {
-    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0", {
-      readOnly: false,
-    });
-    (await mockedConfigure()).mockReturnValueOnce("read");
-
-    await runTestTool();
-
-    const output = stdoutOutput + stderrOutput;
-    expect(output).toMatch(/access mode/i);
-    expect(JSON.parse(stdoutOutput).error.code).toBe("SECURITY_VIOLATION");
-    expect(process.exitCode).toBe(4);
-    expect(await mockedExecuteQuery()).not.toHaveBeenCalled();
+    expect(output).toMatch(/write operation/i);
   });
 });

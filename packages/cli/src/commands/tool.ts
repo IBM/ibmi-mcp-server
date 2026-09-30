@@ -27,11 +27,6 @@ import {
   createCliContext,
 } from "../utils/command-helpers.js";
 import { resolveSystem } from "../config/resolver.js";
-import {
-  accessFromReadOnly,
-  assertAccessNotLowered,
-  resolveEffectiveAccess,
-} from "../utils/access-mode.js";
 import { connectSystem } from "../utils/connection.js";
 import {
   renderOutput,
@@ -286,32 +281,18 @@ async function executeTool(
       processedSql = tool.statement;
     }
 
-    // Access mode: the tool's own security.readOnly (read unless it says
-    // false) lowered to the system's configured ceiling.
-    const access = resolveEffectiveAccess(
-      accessFromReadOnly(tool.security?.readOnly ?? true),
-      [resolved.config],
-    );
+    // Enforce read-only: tool security config + system readOnly override
+    const effectiveReadOnly =
+      (tool.security?.readOnly ?? true) || resolved.config.readOnly;
 
-    // The singleton pool derives its JDBC access from the effective policy at
-    // lazy init — without this, a write-enabled YAML tool would be blocked at
-    // the connection level even though its security config allows writes.
-    // Route through configureExecuteSqlTool (the single policy writer) so the
-    // tool config and the pool policy cannot desync.
-    const { configureExecuteSqlTool } = await import(
-      "@ibm/ibmi-mcp-server/tools"
-    );
-    const effective = configureExecuteSqlTool({ security: { access } });
-    assertAccessNotLowered(access, effective);
-
-    if (access !== "write") {
+    if (effectiveReadOnly) {
       const { SqlSecurityValidator } = await import(
         "@ibm/ibmi-mcp-server/services"
       );
       SqlSecurityValidator.validateQuery(
         processedSql,
         {
-          access,
+          readOnly: true,
           maxQueryLength: tool.security?.maxQueryLength,
           forbiddenKeywords: tool.security?.forbiddenKeywords,
         },

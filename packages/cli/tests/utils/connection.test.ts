@@ -32,6 +32,22 @@ describe("connectSystem", () => {
     await cleanup();
   });
 
+  it("should set DB2i_PORT env var", async () => {
+    const cleanup = await connectSystem(testSystem);
+    expect(process.env.DB2i_PORT).toBe("8076");
+    await cleanup();
+  });
+
+  it("should set a non-default DB2i_PORT from system config", async () => {
+    const system: ResolvedSystem = {
+      ...testSystem,
+      config: { ...testSystem.config, port: 8077 },
+    };
+    const cleanup = await connectSystem(system);
+    expect(process.env.DB2i_PORT).toBe("8077");
+    await cleanup();
+  });
+
   it("should set DB2i_USER env var", async () => {
     const cleanup = await connectSystem(testSystem);
     expect(process.env.DB2i_USER).toBe("TESTUSER");

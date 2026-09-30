@@ -178,7 +178,7 @@ const Heading6 = ({ className, ...props }: HeadingProps) => (
 const Img = ({ src, alt }: ImgProps) => {
   const [error, setError] = useState(false)
 
-  if (!src) return null
+  if (!src || typeof src !== 'string') return null
 
   return (
     <div className="w-full max-w-xl">

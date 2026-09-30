@@ -14,8 +14,16 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
-import type { ExecuteSqlAccess } from "@/ibmi-mcp-server/services/executeSqlAccess.js";
+import {
+  parseExecuteSqlAccess,
+  type ExecuteSqlAccess,
+} from "@/ibmi-mcp-server/services/executeSqlAccessLevels.js";
+import {
+  DEFAULT_MAPEPIRE_PORT,
+  MapepirePortEnvSchema,
+} from "@/ibmi-mcp-server/schemas/common.js";
 
+export { DEFAULT_MAPEPIRE_PORT };
 // Load .env from multiple possible locations for monorepo flexibility
 // Priority order:
 // 1. MCP_SERVER_CONFIG environment variable (explicit override)
@@ -144,6 +152,9 @@ const loadPackageJson = (): { name: string; version: string } => {
 
 const pkg = loadPackageJson();
 
+/** Shared schema for `DB2i_PORT` (startup env + runtime `config.db2i` getter). */
+const Db2iPortSchema = MapepirePortEnvSchema;
+
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
@@ -156,7 +167,7 @@ const EnvSchema = z.object({
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
   MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
   MCP_HTTP_PORT: z.coerce.number().int().positive().default(3010),
-  MCP_HTTP_HOST: z.string().default("0.0.0.0"),
+  MCP_HTTP_HOST: z.string().default("127.0.0.1"),
   MCP_HTTP_ENDPOINT_PATH: z.string().default("/mcp"),
   MCP_HTTP_MAX_PORT_RETRIES: z.coerce.number().int().nonnegative().default(15),
   MCP_HTTP_PORT_RETRY_DELAY_MS: z.coerce
@@ -170,6 +181,12 @@ const EnvSchema = z.object({
     .positive()
     .default(1_800_000),
   MCP_ALLOWED_ORIGINS: z.string().optional(),
+  MCP_ALLOWED_HOSTS: z.string().optional(),
+  MCP_ALLOW_UNAUTHENTICATED_HTTP: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
   MCP_AUTH_SECRET_KEY: z
     .string()
     .min(
@@ -245,6 +262,11 @@ const EnvSchema = z.object({
     .string()
     .min(1, "DB2i_HOST is required for IBM i connections.")
     .optional(),
+  /**
+   * IBM i Mapepire daemon server port. From `DB2i_PORT`.
+   * Defaults to 8076 when unset.
+   */
+  DB2i_PORT: Db2iPortSchema,
   /** IBM i DB2 user name. From `DB2i_USER`. */
   DB2i_USER: z
     .string()
@@ -344,37 +366,29 @@ const EnvSchema = z.object({
     .transform((val) => val === "true"),
 
   /**
-   * Access mode for the execute_sql tool and the singleton IBM i pool:
-   * - `read` (default): SELECT and table/scalar functions only
-   * - `read-call`: read + CALL to stored procedures
-   * - `write`: everything the connection's user profile allows
-   *
-   * Fail-closed: an unrecognized value falls back to `read` with a stderr
-   * warning. A strict z.enum here would fail whole-env validation on a typo
-   * and silently reset unrelated settings to defaults. `undefined` means the
-   * variable was not set, which matters for the runtime ceiling (see
-   * services/executeSqlAccess.ts).
+   * Guardrail mode for execute_sql: `read` (default), `read-call` or `write`.
+   * When set it is a ceiling that runtime configuration can only lower.
+   * An unrecognized value fails closed to `read` with a stderr warning (a
+   * strict enum would fail whole-env validation and reset unrelated settings).
+   * `undefined` means the variable is not set.
    */
   IBMI_EXECUTE_SQL_ACCESS: z
     .string()
     .optional()
     .transform((val): ExecuteSqlAccess | undefined => {
       if (val === undefined) return undefined;
-      const v = val.trim().toLowerCase();
-      if (v === "read" || v === "read-call" || v === "write") return v;
-      // stderr, not TTY-gated: a silent change of access mode must be
-      // visible in stdio/container logs.
+      const access = parseExecuteSqlAccess(val);
+      if (access) return access;
       console.error(
-        `[config] Unrecognized IBMI_EXECUTE_SQL_ACCESS="${val}" (expected "read", "read-call", or "write"); using "read"`,
+        `[config] Unrecognized IBMI_EXECUTE_SQL_ACCESS="${val}" (expected read, read-call or write); using "read"`,
       );
       return "read";
     }),
 
   /**
-   * @deprecated Use IBMI_EXECUTE_SQL_ACCESS. `true` → `read`, `false` →
-   * `write`. Only an explicit `false`/`0` (case-insensitive, trimmed) maps to
-   * write; any other value maps to read. Ignored when IBMI_EXECUTE_SQL_ACCESS
-   * is also set.
+   * @deprecated Use IBMI_EXECUTE_SQL_ACCESS. `false`/`0` seeds `write`, any
+   * other value seeds `read`. Only a default, never a ceiling; ignored when
+   * IBMI_EXECUTE_SQL_ACCESS is set.
    */
   IBMI_EXECUTE_SQL_READONLY: z
     .string()
@@ -384,6 +398,19 @@ const EnvSchema = z.object({
       const v = val.trim().toLowerCase();
       return !(v === "false" || v === "0");
     }),
+
+  /**
+   * Comma-separated function name patterns (`*` wildcard, case-insensitive)
+   * that execute_sql rejects in `read` mode. Unset → `QCMDEXC`; an explicitly
+   * empty value disables the gate.
+   */
+  IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS: z.string().optional(),
+
+  /**
+   * Comma-separated keyword/identifier patterns (`*` wildcard,
+   * case-insensitive) that execute_sql rejects in every mode. Default: none.
+   */
+  IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS: z.string().optional(),
 
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
   IBMI_ENABLE_DEFAULT_TOOLS: z
@@ -561,6 +588,35 @@ if (!validatedLogsPath) {
 }
 
 /**
+ * Resolve the execute_sql guardrail mode default: `IBMI_EXECUTE_SQL_ACCESS`,
+ * else the deprecated `IBMI_EXECUTE_SQL_READONLY` (with a stderr notice),
+ * else `read`.
+ */
+function resolveExecuteSqlAccessDefault(
+  access: ExecuteSqlAccess | undefined,
+  legacyReadOnly: boolean | undefined,
+): ExecuteSqlAccess {
+  if (legacyReadOnly !== undefined) {
+    const mapped: ExecuteSqlAccess = legacyReadOnly ? "read" : "write";
+    console.error(
+      access !== undefined
+        ? "[config] IBMI_EXECUTE_SQL_READONLY is deprecated and ignored because IBMI_EXECUTE_SQL_ACCESS is set; remove it"
+        : `[config] IBMI_EXECUTE_SQL_READONLY is deprecated; use IBMI_EXECUTE_SQL_ACCESS=${mapped} instead`,
+    );
+    return access ?? mapped;
+  }
+  return access ?? "read";
+}
+
+/** Split a comma-separated pattern list, dropping empty entries. */
+function parsePatternList(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/**
  * Parse DB2i_JDBC_OPTIONS env var: a semicolon-separated list of key=value
  * pairs modeled on DB2 JDBC URL syntax.
  *
@@ -574,31 +630,7 @@ if (!validatedLogsPath) {
  *   - All other values are forwarded as strings — mapepire's JDBC driver
  *     accepts string values for all options; no bool/number coercion
  *   - Malformed pairs (non-empty with no `=`) throw to surface typos early
- *   - Pairs with an empty value (e.g. `access=`) are treated as unset
- *   - `access` is honored as the final override of the value the singleton
- *     pool derives from IBMI_EXECUTE_SQL_ACCESS (see connectionPool.ts)
  */
-/**
- * Resolve the execute_sql access mode from the environment.
- * `IBMI_EXECUTE_SQL_ACCESS` wins; otherwise the deprecated
- * `IBMI_EXECUTE_SQL_READONLY` maps `true` → `read`, `false` → `write` with a
- * one-time stderr deprecation notice; otherwise `read`.
- */
-function resolveExecuteSqlAccessFromEnv(
-  access: ExecuteSqlAccess | undefined,
-  legacyReadOnly: boolean | undefined,
-): ExecuteSqlAccess {
-  if (access !== undefined) return access;
-  if (legacyReadOnly !== undefined) {
-    const mapped: ExecuteSqlAccess = legacyReadOnly ? "read" : "write";
-    console.error(
-      `[config] IBMI_EXECUTE_SQL_READONLY is deprecated; use IBMI_EXECUTE_SQL_ACCESS=${mapped} instead`,
-    );
-    return mapped;
-  }
-  return "read";
-}
-
 function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
@@ -619,10 +651,6 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
         `Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`,
       );
     }
-    // A dangling pair with no value (e.g. "access=") is treated as unset, not
-    // as an explicit override — otherwise it would silently replace the
-    // mode-derived access and forward an empty value to the driver.
-    if (!value) continue;
     if (key === "libraries") {
       result[key] = value
         .split(",")
@@ -655,6 +683,10 @@ export const config = {
   mcpAllowedOrigins: env.MCP_ALLOWED_ORIGINS?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
+  mcpAllowedHosts: env.MCP_ALLOWED_HOSTS?.split(",")
+    .map((host) => host.trim())
+    .filter(Boolean),
+  mcpAllowUnauthenticatedHttp: env.MCP_ALLOW_UNAUTHENTICATED_HTTP,
   mcpAuthSecretKey: env.MCP_AUTH_SECRET_KEY,
   mcpAuthMode: env.MCP_AUTH_MODE,
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,
@@ -719,6 +751,7 @@ export const config = {
   get db2i():
     | {
         host: string;
+        port: number;
         user: string;
         password: string;
         ignoreUnauthorized: boolean;
@@ -736,6 +769,7 @@ export const config = {
       : undefined;
     return {
       host,
+      port: Db2iPortSchema.parse(process.env.DB2i_PORT),
       user,
       password,
       ignoreUnauthorized: ignoreRaw === "true" || ignoreRaw === "1",
@@ -774,13 +808,20 @@ export const config = {
     .map((ts) => ts.trim())
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
-  /**
-   * execute_sql access mode. From `IBMI_EXECUTE_SQL_ACCESS`, falling back to
-   * the deprecated `IBMI_EXECUTE_SQL_READONLY`, then `read`.
-   */
-  ibmi_executeSqlAccess: resolveExecuteSqlAccessFromEnv(
+  /** execute_sql guardrail mode default (see resolveExecuteSqlAccessDefault). */
+  ibmi_executeSqlAccess: resolveExecuteSqlAccessDefault(
     env.IBMI_EXECUTE_SQL_ACCESS,
     env.IBMI_EXECUTE_SQL_READONLY,
+  ),
+  /** execute_sql mode ceiling: `IBMI_EXECUTE_SQL_ACCESS` when set. */
+  ibmi_executeSqlAccessCeiling: env.IBMI_EXECUTE_SQL_ACCESS,
+  /** Function patterns rejected in `read`. From `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS`. */
+  ibmi_executeSqlForbiddenFunctions: parsePatternList(
+    env.IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS ?? "QCMDEXC",
+  ),
+  /** Keyword patterns rejected in every mode. From `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS`. */
+  ibmi_executeSqlForbiddenKeywords: parsePatternList(
+    env.IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS ?? "",
   ),
   ibmi_enableDefaultTools: env.IBMI_ENABLE_DEFAULT_TOOLS,
 

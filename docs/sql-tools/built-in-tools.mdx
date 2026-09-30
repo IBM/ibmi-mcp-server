@@ -252,7 +252,7 @@ Validate SQL query syntax and verify that referenced tables, columns, functions,
 
 ### execute_sql
 
-Execute a SQL query on the IBM i database and return the results. Use this after validating your query with `validate_query`.
+Execute one SQL statement on the IBM i database and return the results. Which statements are accepted depends on the guardrail mode (`read`, `read-call`, or `write`); see [Execute SQL guardrails](#execute-sql-guardrails). The tool's description tells the agent which statements the current mode accepts.
 
 #### Parameters
 
@@ -275,23 +275,11 @@ Execute a SQL query on the IBM i database and return the results. Use this after
 }
 ```
 
-#### Security
+A trailing `;` is removed before the statement is checked and run.
 
-`execute_sql` applies layered validation before running any query:
+#### Guardrails
 
-1. **In-process validation** via `SqlSecurityValidator` — classifies the statement with the vscode-db2i parser and rejects anything outside the configured access mode; also enforces query length
-2. **Native IBM i validation** via `QSYS2.PARSE_STATEMENT` — runs only when the in-process parser could not classify the statement, and applies the same per-mode allow-list (`QUERY` in `read`, `QUERY` and `CALL` in `read-call`)
-3. **JDBC connection backstop** — the connection pool is created with `access=read call` in `read` and `read-call` mode (Db2 rejects INSERT/UPDATE/DELETE/DDL at the connection; CALL stays open for `describe_sql_object`) and `access=all` in `write` mode. An explicit `access` in `DB2i_JDBC_OPTIONS` overrides this value
-
-Layer 1 runs on every query, layer 2 only as a fallback, and layer 3 applies to the connection pool shared by `execute_sql` and the built-in tools — **YAML source pools are not affected** and keep their own `jdbc-options`.
-
-<Note>
-The mode is `IBMI_EXECUTE_SQL_ACCESS`: `read` (default, SELECT and functions), `read-call` (adds `CALL`), or `write` (everything). Full reference: [execute_sql access mode](/configuration#execute_sql-access-mode).
-</Note>
-
-<Warning>
-All three layers classify the statement. None of them inspect what it invokes. A SELECT that calls `QSYS2.QCMDEXC` passes every layer and runs in `read` mode. The access mode is not a security boundary. The boundary is the IBM i user profile's object authority; run the server under a least-privilege profile.
-</Warning>
+Before the statement is sent to IBM i, `execute_sql` checks it against the guardrail mode set by `IBMI_EXECUTE_SQL_ACCESS` (default `read`). A statement the guardrail rejects is not sent; the tool returns an error result (`isError: true`) that names the mode, the rule, and the lowest mode that would allow the statement. A statement that passes runs as the IBM i user profile in `DB2i_USER`, and that profile's authority decides what it can do. See [Execute SQL guardrails](#execute-sql-guardrails).
 
 ---
 
@@ -324,6 +312,185 @@ Generate the SQL DDL statement for an IBM i database object. Use this to see the
   "executionTime": 230
 }
 ```
+
+---
+
+## Execute SQL guardrails
+
+`execute_sql` has three guardrails: `read`, `read-call`, and `write`. One of them is in effect at a time, set by `IBMI_EXECUTE_SQL_ACCESS` (default `read`). The guardrail checks the SQL text of each statement before the server sends it to IBM i.
+
+<Warning>
+**The guardrails are not the security boundary. The IBM i user profile is.** `execute_sql` runs every statement as the profile in `DB2i_USER` (the `ibmi sql` CLI uses the system's `user`). Db2 for i and IBM i object authority decide what the statement can read or change. The guardrails reject statements by their SQL text; they cannot see what a function, procedure, view, or trigger does when it runs. Connect with a profile that can do only what you are willing to let an agent do. See [Configure a least-privilege profile](#configure-a-least-privilege-profile).
+</Warning>
+
+### The three modes
+
+| Mode | Statement types allowed | Also rejected in this mode | JDBC `access` |
+|------|-------------------------|----------------------------|---------------|
+| `read` (default) | Queries: `SELECT`, `WITH`, `VALUES` | Data-change table references such as `SELECT * FROM FINAL TABLE (INSERT ...)`; sequence references (`NEXT VALUE FOR`, `PREVIOUS VALUE FOR`); functions that match `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` (default `QCMDEXC`) | `read call` |
+| `read-call` | Queries and `CALL` | Any table used as the target of `INSERT`, `UPDATE`, `DELETE`, or `MERGE`, including inside `FINAL TABLE (...)` | `read call` |
+| `write` | Every statement type | Nothing beyond the length limit and forbidden keywords | `all` |
+
+In `read` and `read-call`, every other statement type is rejected: `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL (`CREATE`, `ALTER`, `DROP`, ...), `SET`, `COMMIT`, `ROLLBACK`, compound statements, and input with more than one statement. `read` also rejects `CALL`. Every mode rejects a statement longer than 10,000 characters and any statement that matches a [forbidden keyword](#forbidden-keywords-every-mode).
+
+**`read`** accepts queries whose SQL text has no side effects. It does not make the connection read-only. A function that is not on the forbidden-functions list can still have side effects when it runs. Examples on IBM i 7.4 include `HTTP_POST`, `MQRECEIVE`, `RECEIVE_DATA_QUEUE`, `IFS_UNLINK`, and `CHANGE_USER_PROFILE`, and any user-defined function declared `MODIFIES SQL DATA`. To reject such functions in `read`, add them to `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS`. To prevent their effects, deny the profile authority to them.
+
+**`read-call`** adds `CALL` and removes the function and sequence checks. A procedure runs with the profile's authority, and the guardrail does not look inside it. `CALL QSYS2.QCMDEXC('...')` runs any CL command the profile is authorized to, including `RUNSQL`, which runs any SQL statement. A `read-call` agent can therefore do anything the profile can do; `read-call` limits only the statements the agent sends directly.
+
+**`write`** applies only the length limit and the forbidden-keywords gate, and never calls `PARSE_STATEMENT`. What a statement can change is decided by the profile's authority alone.
+
+### How a statement is checked
+
+<Steps>
+  <Step title="Length limit">
+    Statements longer than 10,000 characters are rejected in every mode.
+  </Step>
+  <Step title="Forbidden keywords">
+    Patterns in `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` are checked in every mode, including `write`. In `write`, the statement is then sent to IBM i.
+  </Step>
+  <Step title="Quick path (read and read-call)">
+    The server's built-in Db2 for i parser checks the statement in-process. It approves the statement only when all of the following hold:
+
+    - The input is one statement of plain ASCII text. It has no block comments (`/* */`), JDBC escapes (`{ }`), `U&` literals, `;` separators, delimited names that contain characters other than letters, digits, spaces, and `_ $ # @`, a word written directly against a quote (such as `DISTINCT"NAME"`; the literal prefixes in `X'41'` and `GX'...'` are fine), or any of the characters `! ^ ~ [ ] \` and backtick.
+    - The statement starts with the keyword `SELECT`, `WITH`, or `VALUES`, or with `CALL` in `read-call` (a delimited `"SELECT"` is a name, not the keyword).
+    - None of these appear outside string literals and comments: `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `INTO`, `FINAL TABLE`, `NEW TABLE`, `OLD TABLE`, or `CALL` after the first word. In `read`, also `NEXTVAL`, `PREVVAL`, `VALUE FOR`, and any name that matches a forbidden-function pattern.
+
+    The quick path rejects a plain single statement that starts with `CALL` (in `read`) or with a keyword that never starts a query: `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `TRUNCATE`, `CREATE`, `ALTER`, `DROP`, `RENAME`, `GRANT`, `REVOKE`, `DECLARE`, `SET`, `COMMIT`, `ROLLBACK`, `LOCK`, or `REFRESH`.
+
+    Every other statement goes to the slow path. A word such as `UPDATE` in a query does not reject the query; it only means `PARSE_STATEMENT` decides. The quick path does not check syntax: a malformed query can pass it, and Db2 then rejects the statement when it runs.
+  </Step>
+  <Step title="Slow path: QSYS2.PARSE_STATEMENT">
+    The server makes one call to [`QSYS2.PARSE_STATEMENT`](https://www.ibm.com/docs/en/i/7.5?topic=services-parse-statement-table-function) with the statement as a bound parameter, on the same connection pool the statement would run on, using the connection's naming and decimal point. `PARSE_STATEMENT` parses the statement and lists every object it references and how each is used. It does not run the statement. The statement is rejected when:
+
+    - `PARSE_STATEMENT` returns no rows: a syntax error, more than one statement, or a statement that references no objects;
+    - `PARSE_STATEMENT` returns more than 10,000 rows (one per name reference), so its result is not complete;
+    - a statement type is not allowed in the mode (`read`: `QUERY`; `read-call`: `QUERY` or `CALL`);
+    - an object is used other than for a query, for example as the `TARGET TABLE` of an insert (in `read-call`, the procedure named by the `CALL` is allowed);
+    - in `read`, a sequence is referenced (`NEXT VALUE FOR` and `PREVIOUS VALUE FOR` look the same to `PARSE_STATEMENT`, so both are rejected), or a function matches a forbidden-function pattern.
+
+    If the `PARSE_STATEMENT` call itself fails, for example because the connection is lost, the statement is not run and the tool returns that error unchanged.
+  </Step>
+</Steps>
+
+The quick path approves only statements that the `PARSE_STATEMENT` rules would also allow; the exception is plain queries for which `PARSE_STATEMENT` returns no rows, such as `VALUES 1`, which cannot write anything. A test corpus of 667 statements, labelled by `PARSE_STATEMENT` on IBM i 7.4, checks this in the test suite.
+
+**Latency.** The quick path runs in-process and takes microseconds. The slow path adds one round trip to IBM i. On an IBM i 7.4 test system this was about 35–45 ms on a connection that had already run a statement, and about 170–260 ms when `PARSE_STATEMENT` was the first statement in a new job, which is the case for each `ibmi sql` invocation. Plain `SELECT` statements usually take the quick path. `write` never calls `PARSE_STATEMENT`.
+
+**Statements with no referenced objects.** A statement that goes to the slow path and references no table, view, function, or sequence is rejected, because `PARSE_STATEMENT` returns no rows for it. For example, `/* check */ VALUES 1` is rejected, while `VALUES 1` is approved on the quick path. Remove the block comment, or select from `SYSIBM.SYSDUMMY1`.
+
+### Optional gates
+
+Two optional gates add rejections on top of the mode.
+
+#### Forbidden functions (`read` only)
+
+`IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` is a comma-separated list of function name patterns. In `read`, a statement that calls a matching function is rejected.
+
+- Unset, the list is `QCMDEXC`, which blocks the SQL function form of `QSYS2.QCMDEXC` that runs CL commands from a query.
+- Setting the variable replaces the default. Include `QCMDEXC` in your list to keep it.
+- An empty value (`IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS=`) turns the gate off. A line with nothing after `=` in `.env` counts as empty.
+- `*` matches any run of characters. Matching is case-insensitive and covers the whole name.
+- A pattern is compared with the function name, and with `SCHEMA.NAME` when the call is qualified. Use unqualified patterns: the name of an unqualified call is not resolved through the SQL path, so the pattern `QSYS2.QCMDEXC` does not match the call `QCMDEXC(...)`.
+- The gate does not apply in `read-call` or `write`.
+- A pattern that also matches a table or column name sends statements that use that name to `PARSE_STATEMENT`, which costs latency but does not reject them.
+
+```bash
+IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS=QCMDEXC,HTTP_POST*,MQRECEIVE*,RECEIVE_DATA_QUEUE,IFS_UNLINK,CHANGE_USER_PROFILE
+```
+
+#### Forbidden keywords (every mode)
+
+`IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` is a comma-separated list of patterns rejected in every mode, including `write`. The default is empty.
+
+- Patterns are compared with each keyword and identifier in the statement, and with each qualified name as `SCHEMA.NAME`. A name written with system naming (`SCHEMA/NAME`) is compared as `SCHEMA.NAME`. Delimited identifiers are compared without their quotes.
+- String literals and comments are not checked.
+- `*` matches any run of characters. Matching is case-insensitive and covers the whole token: `DROP` matches the keyword `DROP` but not a column named `DROP_DATE`.
+- The `ibmi sql` CLI adds each system's `forbiddenKeywords` to this list.
+
+```bash
+IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS=DROP,TRUNCATE,PAYROLL.*
+```
+
+This gate matches words, not effects. A procedure, a function, or a CL command run through `QCMDEXC` can reach the same operation without the word appearing in the statement.
+
+### Setting the mode
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IBMI_EXECUTE_SQL_ACCESS` | `read` | `read`, `read-call`, or `write`. When set, it is a ceiling: the `ibmi sql --access` flag and runtime configuration can lower the mode, never raise it. An unrecognized value, including an empty one, is treated as `read` (which also becomes the ceiling) and a warning is printed to stderr. |
+| `IBMI_EXECUTE_SQL_READONLY` | — | **Deprecated.** Used only when `IBMI_EXECUTE_SQL_ACCESS` is not set. `false` or `0` selects `write`; any other value selects `read`. It sets the default only, never a ceiling, and prints a deprecation notice to stderr. |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` | `QCMDEXC` | See [Forbidden functions](#forbidden-functions-read-only). |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` | (empty) | See [Forbidden keywords](#forbidden-keywords-every-mode). |
+
+The mode is fixed when the server starts. Restart the server after changing these variables.
+
+### Rejections
+
+A rejected statement is not sent to IBM i. The tool returns an error result (`isError: true`). The message names the mode, what was found, and the lowest mode that would allow the statement:
+
+```text
+Error: execute_sql read guardrail rejected the statement: statement type INSERT is not allowed. The write guardrail mode allows it.
+```
+
+`structuredContent.details` carries the same information for programs:
+
+| Field | Description |
+|-------|-------------|
+| `access` | The mode in effect |
+| `rule` | `max-length`, `forbidden-keyword`, `statement-type`, `write-usage`, `sequence`, `forbidden-function`, or `unverifiable` (`PARSE_STATEMENT` returned no rows or an incomplete result) |
+| `offending` | The keyword, statement type, or object name that caused the rejection |
+| `lowestMode` | The lowest mode that allows the statement, or `null` when no mode does (length limit, forbidden keywords) |
+| `validatedBy` | `quick` or `parse_statement` |
+| `query` | The first 100 characters of the statement |
+
+Errors from Db2 when a statement runs, such as a missing authority, are returned in the response with `success: false`.
+
+### JDBC access property
+
+The connection pool shared by `execute_sql` and the other built-in tools sets the JDBC `access` property from the mode: `read call` for `read` and `read-call`, and `all` for `write`. `read` uses `read call` because the `describe_sql_object` tool calls `QSYS2.GENERATE_SQL`.
+
+This property is a check in the IBM Toolbox for Java JDBC driver inside the Mapepire server. It looks only at the first keyword of a statement. Db2 for i does not enforce it, and it does not stop a query that writes through a data-change table reference or a function. An `access=` value in `DB2i_JDBC_OPTIONS` overrides the derived value, and the server logs a warning when the two differ. Pools created from YAML sources are not affected.
+
+### Annotations by mode
+
+| Mode | `readOnlyHint` | `destructiveHint` | `openWorldHint` |
+|------|----------------|-------------------|-----------------|
+| `read` | `true` | `false` | `false` |
+| `read-call` | `false` | `true` | `true` |
+| `write` | `false` | `true` | `true` |
+
+Some MCP clients run tools marked `readOnlyHint: true` without asking the user. The hint describes the guardrail, not the profile. Allow automatic approval only when the profile is limited as described below.
+
+### What no guardrail can see
+
+The guardrails check the SQL text. They cannot see:
+
+- what a user-defined or external function or procedure does when it runs, whatever its name or declared data access;
+- IBM-supplied functions with side effects that are not on the forbidden-functions list;
+- functions called from inside a view, and triggers that fire on a table;
+- anything a procedure does in `read-call`;
+- job state. The server reuses pooled jobs, so a change made by one statement stays for later statements from any built-in tool on that pool: objects in `QTEMP`, overrides such as `OVRDBF ... OVRSCOPE(*JOB)` run through `QCMDEXC`, the library list, and special registers.
+
+`execute_sql` and the other built-in tools always run as `DB2i_USER`, also when IBM i HTTP authentication is enabled. Per-user connections under HTTP authentication apply to YAML tools only.
+
+### Configure a least-privilege profile
+
+<Note>
+This is guidance, not a validated procedure. Test it on a non-production system before you rely on it.
+</Note>
+
+1. **Use a dedicated profile for the server** with user class `*USER` and no special authorities (`SPCAUT(*NONE)`). In particular, do not give it `*ALLOBJ`: `*ALLOBJ` overrides object authority, so for such a profile the guardrails are the only control.
+2. **Grant only the authority the agent needs.** For `read`, grant `*USE` (SQL `SELECT`) on the libraries and tables the agent may query. For `read-call`, also grant `EXECUTE` on the procedures it may call, and nothing else. For `write`, grant change authority (`INSERT`, `UPDATE`, `DELETE`) only on the tables it may change.
+
+   ```sql
+   GRANT SELECT ON APPLIB.ORDERS TO MCPAGENT;
+   GRANT EXECUTE ON PROCEDURE APPLIB.REFRESH_TOTALS TO MCPAGENT;  -- read-call
+   GRANT INSERT, UPDATE ON APPLIB.ORDER_NOTES TO MCPAGENT;        -- write
+   ```
+
+3. **Check `*PUBLIC` authority.** Objects created with a `*PUBLIC` authority of `*CHANGE` (the shipped `QCRTAUT` value) can be changed by any profile. Review the `*PUBLIC` entries in `QSYS2.OBJECT_PRIVILEGES` for the libraries the profile can reach.
+4. **Deny command execution the agent does not need.** Consider private `*EXCLUDE` authority for the profile to `QSYS/QCMDEXC` and to the IBM services you do not want it to use. Then check that the connection and the built-in tools still work.
+5. **Do not rely on these for read-only access:** limited capabilities (`LMTCPB(*YES)`) restricts the command line, not SQL; the JDBC `access` property checks only the first keyword; `SET TRANSACTION READ ONLY` does not stop functions or procedures from writing.
 
 ---
 
@@ -369,15 +536,14 @@ Combine both flags for the complete text-to-SQL workflow. Each flag can also be 
 |----------|---------|-------------|
 | `IBMI_ENABLE_DEFAULT_TOOLS` | `false` | Enable the 5 schema discovery tools. |
 | `IBMI_ENABLE_EXECUTE_SQL` | `false` | Enable the `execute_sql` tool. |
-| `IBMI_EXECUTE_SQL_ACCESS` | `read` | What `execute_sql` may run: `read` (SELECT and functions), `read-call` (adds `CALL`), `write` (everything). Unrecognized values fall back to `read`. Replaces the deprecated `IBMI_EXECUTE_SQL_READONLY`. |
+| `IBMI_EXECUTE_SQL_ACCESS` | `read` | `execute_sql` guardrail mode: `read`, `read-call`, or `write`. A ceiling when set. See [Setting the mode](#setting-the-mode). |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` | `QCMDEXC` | Function name patterns `execute_sql` rejects in `read`. Empty turns the gate off. |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` | (empty) | Keyword and name patterns `execute_sql` rejects in every mode. |
+| `IBMI_EXECUTE_SQL_READONLY` | — | Deprecated. Used only when `IBMI_EXECUTE_SQL_ACCESS` is unset: `false` selects `write`, other values `read`. |
 
 <Warning>
 `describe_sql_object` is **always registered** regardless of these flags. It generates DDL definitions and does not modify data.
 </Warning>
-
-<Note>
-Setting `IBMI_EXECUTE_SQL_ACCESS` **explicitly** makes it a ceiling: a YAML tool or `ibmi sql --access` can lower the mode at runtime but never raise it, and the CLI reports an error instead of silently downgrading. Leaving it unset produces the same `read` default but lets the runtime decide. See [execute_sql access mode](/configuration#execute_sql-access-mode).
-</Note>
 
 ### Examples
 
@@ -394,10 +560,10 @@ npx -y @ibm/ibmi-mcp-server@latest --execute-sql --tools ./tools
 # Only YAML tools (default — no built-in tools)
 npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
 
-# Allow CALL to stored procedures (writes still blocked)
+# Let execute_sql call procedures (queries and CALL)
 IBMI_EXECUTE_SQL_ACCESS=read-call npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
 
-# Enable write access for execute_sql
+# Let execute_sql run any statement the DB2i_USER profile is authorized to run
 IBMI_EXECUTE_SQL_ACCESS=write npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
 ```
 
@@ -417,7 +583,7 @@ All built-in tools include [MCP tool annotations](https://modelcontextprotocol.i
 | `execute_sql` | Dynamic* | Dynamic* |
 | `describe_sql_object` | `true` | `false` |
 
-*`execute_sql` annotations follow `IBMI_EXECUTE_SQL_ACCESS`: in `read` (default) `readOnlyHint=true` and `destructiveHint=false`; in `read-call` and `write` `readOnlyHint=false` and `destructiveHint=true`, because a `CALL` can mutate data.
+*`execute_sql` annotations follow the guardrail mode: `readOnlyHint=true` and `destructiveHint=false` in `read`; `readOnlyHint=false` and `destructiveHint=true` in `read-call` and `write`. The hints describe the guardrail, not the profile. See [Annotations by mode](#annotations-by-mode).
 
 ---
 

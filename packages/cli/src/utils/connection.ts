@@ -31,6 +31,7 @@ export async function connectSystem(
 
   // Set env vars for IBMiConnectionPool (reads from global config singleton)
   process.env.DB2i_HOST = resolved.config.host;
+  process.env.DB2i_PORT = resolved.config.port.toString();
   process.env.DB2i_USER = resolved.config.user;
   process.env.DB2i_PASS = password;
   process.env.DB2i_IGNORE_UNAUTHORIZED = String(

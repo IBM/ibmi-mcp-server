@@ -271,7 +271,6 @@ class StdioMcpServerTest:
                     tools=[tools],
                     name="test-agent",
                     description="Test agent for MCP server validation",
-                    show_tool_calls=True,
                     debug_mode=False
                 )
                 
@@ -418,7 +417,6 @@ async def interactive_mode():
                 tools=[tools],
                 name="interactive-mcp-agent",
                 description="Interactive agent for testing MCP server",
-                show_tool_calls=True,
                 debug_mode=True
             )
             

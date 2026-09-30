@@ -34,38 +34,21 @@ import {
 const IBM_I_POOL_ID = Symbol("ibmi-singleton-pool");
 
 /**
- * Resolve JDBC options for the singleton execute_sql / builtin-tools pool.
+ * JDBC options for the singleton pool (execute_sql and the built-in tools).
  *
- * The Toolbox JDBC `access` property is derived from the execute_sql access
- * mode so Db2 enforces the same policy the SQL validator does:
- * `read` and `read-call` → `"read call"` (Db2 rejects INSERT/UPDATE/DELETE/DDL
- * at the connection; CALL stays open because this pool is shared with
- * `generate_sql`, which issues `CALL QSYS2.GENERATE_SQL`), `write` → `"all"`.
- * An explicit `access` in `DB2i_JDBC_OPTIONS` is the final override and is
- * preserved untouched (the caller logs a warning when it widens the mode).
- * YAML source pools are unaffected.
- *
- * Access is read from the *effective* runtime policy (seeded from
- * `IBMI_EXECUTE_SQL_ACCESS`, lowered by `configureExecuteSqlTool` / the CLI)
- * at pool init time. Pools are created lazily on first query, after runtime
- * configuration has been applied. A policy change after the pool is warm does
- * not reconfigure it (JDBC access is fixed at connect time).
- *
- * @param existing - JDBC options from `DB2i_JDBC_OPTIONS` (may be undefined)
- * @param access - The effective execute_sql access mode
+ * The JDBC `access` property follows the execute_sql guardrail mode:
+ * `read` / `read-call` → "read call", `write` → "all". jt400 enforces it in
+ * the Mapepire JVM by checking the statement's first keyword only; Db2 does
+ * not see it, and it does not stop writes inside a query. An explicit
+ * `access` in `DB2i_JDBC_OPTIONS` is the final override (the caller logs a
+ * warning). YAML source pools are unaffected.
  */
 export function resolveSingletonJdbcOptions(
   existing: JDBCOptions | undefined,
   access: ExecuteSqlAccess,
 ): JDBCOptions {
-  // Operator override wins (e.g. DB2i_JDBC_OPTIONS='access=all')
-  if (existing?.access !== undefined) {
-    return existing;
-  }
-  return {
-    ...(existing ?? {}),
-    access: jdbcAccessFor(access),
-  };
+  if (existing?.access !== undefined) return existing;
+  return { ...(existing ?? {}), access: jdbcAccessFor(access) };
 }
 
 /**
@@ -113,13 +96,11 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         );
       }
 
-      const { host, user, password, ignoreUnauthorized, jdbcOptions } =
+      const { host, port, user, password, ignoreUnauthorized, jdbcOptions } =
         config.db2i;
 
-      // JDBC access derived from the effective execute_sql access mode
-      // (read / read-call → "read call", write → "all"). Reads the runtime
-      // policy, not the env var, so CLI-lowered access (configureExecuteSqlTool
-      // / ibmi tool) is honored by the lazily-created pool.
+      // Read the effective mode at lazy init, after runtime configuration
+      // (configureExecuteSqlTool / the CLI) has been applied.
       const accessMode = getExecuteSqlAccessPolicy();
       const resolvedJdbc = resolveSingletonJdbcOptions(jdbcOptions, accessMode);
       if (
@@ -133,7 +114,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
             derivedJdbcAccess: jdbcAccessFor(accessMode),
             jdbcAccess: jdbcOptions.access,
           },
-          `DB2i_JDBC_OPTIONS access=${jdbcOptions.access} overrides the JDBC access derived from IBMI_EXECUTE_SQL_ACCESS=${accessMode}; the SQL validator still enforces ${accessMode}`,
+          `DB2i_JDBC_OPTIONS access=${jdbcOptions.access} overrides the JDBC access derived from the execute_sql ${accessMode} guardrail mode`,
         );
       }
 
@@ -141,6 +122,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
         {
           ...context,
           host,
+          port,
           user: user.substring(0, 3) + "***", // Mask username for security
           ignoreUnauthorized,
           accessMode,
@@ -152,6 +134,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
       // Convert config to pool connection config
       const poolConfig: PoolConnectionConfig = {
         host,
+        port,
         user,
         password,
         ignoreUnauthorized,

@@ -4,39 +4,117 @@ All notable changes to this project will be documented in this file. See [standa
 
 ## [Unreleased]
 
+`execute_sql` (the MCP tool and `ibmi sql`) now has three guardrails, `read`, `read-call`, and `write`, set by `IBMI_EXECUTE_SQL_ACCESS`. They replace the read-only boolean. The guardrails check the SQL text of a statement before it is sent to IBM i. They are not the security boundary: the IBM i user profile the statement runs as decides what it can read or change. YAML tools and `ibmi tool` are unchanged in this release.
+
 ### ⚠ BREAKING CHANGES
 
-* **`execute_sql` access mode replaces the read-only boolean.** One setting, `IBMI_EXECUTE_SQL_ACCESS`, now decides what `execute_sql` may run and what the shared connection pool permits at the JDBC layer, so the SQL validator and Db2 always agree:
+* **`IBMI_EXECUTE_SQL_ACCESS` replaces `IBMI_EXECUTE_SQL_READONLY`.**
 
-  | Mode | The tool accepts | JDBC `access` |
-  |------|------------------|---------------|
-  | `read` (default) | SELECT, CTEs, table and scalar functions | `read call` |
-  | `read-call` | `read` plus `CALL` to stored procedures | `read call` |
-  | `write` | everything the user profile allows | `all` |
+  | Mode | Accepts | JDBC `access` on the built-in tools pool |
+  |------|---------|------------------------------------------|
+  | `read` (default) | Queries (`SELECT`, `WITH`, `VALUES`) | `read call` |
+  | `read-call` | Queries and `CALL`; functions and procedures may have side effects | `read call` |
+  | `write` | Every statement | `all` |
 
-  `read-call` is new: it lets agents run procedures without opening INSERT/UPDATE/DELETE/DDL.
+  When `IBMI_EXECUTE_SQL_ACCESS` is set, it is a ceiling: the CLI and runtime configuration can lower the mode but not raise it. An unrecognized or empty value is treated as `read`, with a warning on stderr. `IBMI_EXECUTE_SQL_READONLY` still works when `IBMI_EXECUTE_SQL_ACCESS` is unset (`false` selects `write`, other values `read`); it sets the default only and prints a deprecation notice. When both are set, `IBMI_EXECUTE_SQL_READONLY` is ignored and the notice says so.
+* **`read` rejects queries that change state.** Queries accepted before are now rejected in `read`: data-change table references (`SELECT * FROM FINAL TABLE (INSERT ...)`), sequence references (`NEXT VALUE FOR`, `PREVIOUS VALUE FOR`), and calls to functions matching `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` (default `QCMDEXC`, the SQL function that runs CL commands).
+* **Guardrail rejections are tool errors.** A rejected statement returns `isError: true` with `details` (`access`, `rule`, `offending`, `lowestMode`, `validatedBy`, `query`) instead of a `success: false` result. The message names the mode, the rule, and the lowest mode that would allow the statement. Errors raised by Db2 when a statement runs are still returned with `success: false`.
+* **The built-in tools pool sets JDBC `access`.** It was the driver default (`all`); it is now `read call` in `read` and `read-call` and `all` in `write`. An `access=` in `DB2i_JDBC_OPTIONS` still overrides it and is now logged as a warning when it differs. YAML source pools are unaffected.
+* **`execute_sql` annotations follow the mode.** `readOnlyHint` is `true` only in `read`; `destructiveHint` and `openWorldHint` are `true` in `read-call` and `write`. The description lists what the current mode accepts.
+* **`ibmi sql`:** `--access <read|read-call|write>` (default `read`) replaces `--read-only` / `--no-read-only`, which still work with a deprecation notice. A system's `access` in `~/.ibmi/config.yaml` is a ceiling, never a default; `--access` above it exits with code `4`. `--access` above an `IBMI_EXECUTE_SQL_ACCESS` ceiling also exits with code `4` and names the variable. A system's `readOnly` is deprecated for `ibmi sql` (`true` means `access: read`); `ibmi tool` still reads it as before.
+* **`ibmi system list` / `show`:** the `READ_ONLY` column and JSON key of `ibmi system list` are replaced by `ACCESS` (the system's ceiling, or `-`). `ibmi system show` adds `access` and `forbiddenKeywords` rows.
+* **Multi-system `ibmi sql` exit code:** a run where any system fails, including an unreachable system, now exits with the code of the first failed system; before, it exited `0`. Each system's `confirm` prompt is asked before the run, and declining any of them cancels the whole run.
+* **`ibmi sql` exit codes:** every guardrail rejection exits `4`, including a statement that `PARSE_STATEMENT` cannot parse. A failure of the `PARSE_STATEMENT` call itself (for example a lost connection) keeps the exit code of that error.
+* **`@ibm/ibmi-mcp-server/tools`:** `configureExecuteSqlTool` returns the effective mode (`ExecuteSqlAccess`) instead of `void` and accepts `security.access` and `security.forbiddenKeywords`; `security.readOnly` is deprecated.
 
-  Migration:
+### Migration
 
-  | Before | After |
-  |--------|-------|
-  | `IBMI_EXECUTE_SQL_READONLY=true` (or unset) | `IBMI_EXECUTE_SQL_ACCESS=read` (or unset) |
-  | `IBMI_EXECUTE_SQL_READONLY=false` | `IBMI_EXECUTE_SQL_ACCESS=write` |
-  | `IBMI_EXECUTE_SQL_PARSE_VALIDATION=auto|always` | removed; `PARSE_STATEMENT` runs only when the in-process parser cannot classify a statement |
-  | `DB2i_JDBC_OPTIONS='access=...'` | still honored as the final override of the pool's JDBC `access` (now logged as a warning); usually no longer needed |
-  | `ibmi sql --read-only` / `--no-read-only` | `ibmi sql --access read` / `--access write` (old flags still work with a deprecation notice) |
-  | `readOnly: true|false` on a CLI system | `access: read|write` (`readOnly` still accepted). A system's `access` is a ceiling only: `access: write` (or legacy `readOnly: false`) no longer runs statements as write unless you also pass `--access write` |
-
-  `IBMI_EXECUTE_SQL_READONLY` keeps working for one release and prints a deprecation notice; `IBMI_EXECUTE_SQL_ACCESS` wins when both are set. Setting the variable explicitly makes it a ceiling: the CLI and YAML tools can lower the mode but never raise it, and `ibmi sql` now exits with code 4 and names the variable instead of letting Db2 reject the statement. `.env.example` ships the variable commented out so a copied file never pins anything. `execute_sql` advertises `readOnlyHint: false` in `read-call` and `write`.
+| Before | After |
+|--------|-------|
+| `IBMI_EXECUTE_SQL_READONLY=true`, or unset | `IBMI_EXECUTE_SQL_ACCESS=read`, or unset |
+| `IBMI_EXECUTE_SQL_READONLY=false` | `IBMI_EXECUTE_SQL_ACCESS=write`, or `read-call` if the agent only needs `CALL` |
+| An agent relies on `SELECT QSYS2.QCMDEXC(...)`, `FINAL TABLE (INSERT ...)`, or `NEXT VALUE FOR` in read mode | `IBMI_EXECUTE_SQL_ACCESS=read-call` for functions and sequences, `write` for data-change table references; or set `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` to your own list |
+| `DB2i_JDBC_OPTIONS='access=...'` | Still the final override. Usually not needed: the mode sets it |
+| `ibmi sql --read-only` / `--no-read-only` | `ibmi sql --access read` / `--access write` |
+| `readOnly: true` / `false` on a CLI system (for `ibmi sql`) | `access: read` / remove it. `access` is a ceiling only: to run as `write`, pass `--access write` |
+| Code that reads the `success: false` result of a rejected `execute_sql` call | Handle the `isError: true` result and its `details.rule` |
+| Scripts that read `READ_ONLY` from `ibmi system list --format json` | Read `ACCESS` |
+| Scripts that expect a multi-system `ibmi sql` run to exit `0` when a system fails | Check the exit code, or the `error` of each system row |
 
 ### Features
 
-* **execute_sql:** skip the redundant `QSYS2.PARSE_STATEMENT` round trip when the in-process parser already classified the statement ([#151](https://github.com/IBM/ibmi-mcp-server/issues/151)); set Toolbox JDBC `access` on the shared pool from the access mode as a fail-closed backstop
-* **cli:** `ibmi sql --access <mode>`, `ibmi system add --access <mode>`, per-system `access:` ceiling, and an `ACCESS` column in `ibmi system list`
+* **`read-call` mode** for agents that must call procedures without sending `INSERT`, `UPDATE`, `DELETE`, `MERGE`, or DDL directly. A procedure runs with the profile's authority and can do anything the profile can, including `CALL QSYS2.QCMDEXC`.
+* **Quick path, then `QSYS2.PARSE_STATEMENT`.** In `read` and `read-call`, the built-in Db2 for i parser approves statements it can classify with certainty in-process. Other statements are checked with one `QSYS2.PARSE_STATEMENT` call on the same connection pool, which parses without running the statement; its rows decide (statement types, how each object is used, sequences, functions). Before, every statement took a `PARSE_STATEMENT` round trip that checked only the statement type. `write` no longer calls `PARSE_STATEMENT`.
+* **`IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS`:** function name patterns (`*` wildcard) rejected in `read`. Default `QCMDEXC`; an empty value turns the gate off.
+* **`IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS`** and the per-system CLI setting **`forbiddenKeywords`:** keyword and name patterns rejected in every mode, including `write`.
+* **`ibmi sql` across systems** (`--system a,b`) runs the same guardrails on every system: the row limit is applied before the check, `PARSE_STATEMENT` runs on each system when needed, each system's `forbiddenKeywords` and `confirm` apply, and each connection gets the JDBC `access` for the mode. `ibmi system add --access <mode>` sets a system's ceiling.
+* **`@ibm/ibmi-mcp-server/tools` exports** `enforceExecuteSqlGuardrails`, `stripStatementTerminator`, `jdbcAccessFor`, `getExecuteSqlAccessCeiling`, `minAccess`, `EXECUTE_SQL_ACCESS_LEVELS`, `EXECUTE_SQL_ACCESS_ENV`, and the types `ExecuteSqlAccess`, `ExecuteSqlGuardrailOptions`, `GuardrailPath`, and `ParseStatementExecutor`.
 
-### Bug Fixes
+### Fixed
 
-* **cli:** `ibmi sql` no longer appends `FETCH FIRST n ROWS ONLY` to non-query statements such as `CALL`, which Db2 rejected with SQL0199 ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173))
+* **The SQL tokenizer splits text the way Db2 for i does.** Block comments nest; a `/*` ends the word before it; `/*/` opens a comment only; the token after a block comment or a quote has the right value; a quote ends the word before it (`DISTINCT"NAME"` is two tokens; literal prefixes such as `X'41'` stay joined); `--` comments end at LF and U+0085, not CR; form feed, U+0085, and U+3000 are whitespace. Before, some of these hid a keyword or function name from the checks. The tokenizer is shared, so YAML tool validation also sees the corrected tokens.
+
+### Documentation
+
+* The `execute_sql` guardrails, the quick path and `PARSE_STATEMENT` latency, the two optional gates, what no guardrail can see, and a least-privilege profile recipe are documented in [Built-in Tools](https://ibm-d95bab6e.mintlify.app/sql-tools/built-in-tools#execute-sql-guardrails), with [Configuration](https://ibm-d95bab6e.mintlify.app/configuration), the CLI pages, both READMEs, and both `.env.example` files updated. `.env.example` ships the new variables commented out, so copying it sets no ceiling.
+
+## [0.6.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.6.0...v0.6.1) (2026-09-14)
+
+Patch release. Restores installation on IBM i, which 0.6.0 broke ([#177](https://github.com/IBM/ibmi-mcp-server/issues/177)), and fixes the tool schema dialect that made Claude Code and Cowork reject every tool ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). No configuration changes; every fix keeps existing behavior for deployments that were already working.
+
+### Fixed
+
+* **Installs on IBM i again; startup no longer loads the OpenTelemetry tree** ([#176](https://github.com/IBM/ibmi-mcp-server/pull/176)). `@opentelemetry/auto-instrumentations-node` pulled in `systeminformation`, whose `os` allowlist rejects `os400` (`EBADPLATFORM`). The dependency is gone; only the Pino and undici instrumentations are registered, and the whole OTel stack is loaded lazily when `OTEL_ENABLED=true`. Startup no longer resolves the ~21k-file OTel tree, the cause of the 14–17 s cold starts reported in [#162](https://github.com/IBM/ibmi-mcp-server/issues/162), [#177](https://github.com/IBM/ibmi-mcp-server/issues/177)).
+* **Claude Code / Cowork tool schema dialect** ([#178](https://github.com/IBM/ibmi-mcp-server/pull/178)). `tools/list` rewrites each schema's `$schema` from draft-07 to 2020-12 so strict MCP clients accept advertised tool schemas ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). Temporary shim until [typescript-sdk#2085](https://github.com/modelcontextprotocol/typescript-sdk/pull/2085) ships.
+* **`DB2i_PORT` is honored for Mapepire connections** ([#171](https://github.com/IBM/ibmi-mcp-server/pull/171)). The env var and CLI `port` setting now reach the Mapepire daemon for the singleton connection pool (built-in tools such as `execute_sql`) and for YAML sources that reference `${DB2i_PORT}`. Empty or unset `DB2i_PORT` defaults to **8076**. Previously every connection used Mapepire's hardcoded default regardless of configuration ([#168](https://github.com/IBM/ibmi-mcp-server/issues/168)).
+* **`--tools <directory>` works on Windows** ([#152](https://github.com/IBM/ibmi-mcp-server/pull/152)). The directory glob was built with `path.join`, producing backslashes that `glob` treats as escape characters, so no YAML files were discovered ([#150](https://github.com/IBM/ibmi-mcp-server/issues/150)).
+* **`ibmi sql --limit` no longer breaks `CALL` and other non-query statements** ([#181](https://github.com/IBM/ibmi-mcp-server/pull/181)). `FETCH FIRST n ROWS ONLY` is appended only to `SELECT`, `WITH`, and `VALUES` statements; a `CALL` with a configured `maxRows` or `--limit` previously failed with SQL0199 ([#173](https://github.com/IBM/ibmi-mcp-server/issues/173)).
+
+### Documentation
+
+* Clarify `DB2i_PORT` scope (env/CLI/singleton pool vs YAML `port`) and correct YAML `${VAR}` interpolation (no `:default` suffix) ([#171](https://github.com/IBM/ibmi-mcp-server/pull/171)).
+
+## [0.6.0](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.1...v0.6.0) (2026-08-26)
+
+Security release. Closes a DNS rebinding hole in the HTTP transport that let a malicious web page drive the server's SQL tools with the operator's own IBM i credentials ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)), and clears every `npm audit` finding in both published packages ([#159](https://github.com/IBM/ibmi-mcp-server/pull/159)). The hardening changes defaults for HTTP deployments; stdio deployments and the `ibmi` CLI are unaffected.
+
+### ⚠ BREAKING CHANGES
+
+* **`MCP_HTTP_HOST` defaults to `127.0.0.1`** (was `0.0.0.0`). Deployments that relied on the old default to listen on all interfaces must set `MCP_HTTP_HOST=0.0.0.0` explicitly. The Docker image does so.
+* **Every HTTP request is checked against a `Host` allowlist.** Loopback names (`localhost`, `127.x.x.x`, `::1`) are always allowed; any other name returns `403 Forbidden: Host not allowed.` until it is listed in the new `MCP_ALLOWED_HOSTS` (comma-separated). The check covers every route, including `/healthz` and `/api/v1/auth`. `MCP_ALLOWED_HOSTS=*` disables the Host check only. Kubernetes probes, which send the pod IP as `Host`, must set a `Host: localhost` header.
+* **Browser `Origin` headers are validated.** A present `Origin` must match `MCP_ALLOWED_ORIGINS` or an allowlisted hostname; `Origin: null` is rejected. Requests without an `Origin` header (non-browser clients) are unaffected.
+* **The server refuses to start unauthenticated off-host while holding credentials.** When the HTTP transport is bound to a non-loopback address, IBM i credentials are present (`DB2i_*` env vars or a tools YAML), and authentication is not enforced, startup fails with `Refusing to start: unauthenticated HTTP transport on non-loopback bind …`. "Not enforced" covers `MCP_AUTH_MODE=none` and `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` (that state accepts any bearer token). Enable authentication, bind to loopback, or opt out with the new `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`. The most common container setup — `DB2i_*` env vars and no auth mode — hits this by default.
+* **Development CORS `*` fallback removed.** With `MCP_ALLOWED_ORIGINS` unset, no `Access-Control-Allow-Origin` header is emitted in any environment. Browser clients must be allowlisted explicitly. MCP Inspector is unaffected (it connects through its Node proxy).
+
+### Migration
+
+| Deployment | Set |
+|---|---|
+| Local development, client on the same machine | nothing — remove any `MCP_HTTP_HOST=0.0.0.0` override |
+| Docker, local only, no authentication | `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` and publish with `-p 127.0.0.1:3010:3010` |
+| Remote host reached as `mcp.example.com` | `MCP_HTTP_HOST=0.0.0.0`, `MCP_ALLOWED_HOSTS=mcp.example.com`, `MCP_AUTH_MODE=ibmi` (or another enforced mode) |
+| Compose or OpenShift where another service uses the container name | `MCP_ALLOWED_HOSTS=ibmi-mcp-server` plus an auth mode or the opt-out |
+| Browser client | `MCP_ALLOWED_ORIGINS=https://app.example.com` |
+
+Full guidance: [Docker & Podman](https://ibm-d95bab6e.mintlify.app/deployment/docker), [Configuration](https://ibm-d95bab6e.mintlify.app/configuration).
+
+### Security
+
+* **DNS rebinding protection for the HTTP transport** ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)). A page served from an attacker's hostname with a TTL-0 DNS record re-resolves that hostname to `127.0.0.1` after loading. Its `fetch()` calls are then same-origin from the browser's point of view but land on the operator's local MCP server, which executes tools with the credentials it already holds. CORS cannot stop this because the request is same-origin. The fix is a Host/Origin allowlist middleware registered ahead of CORS and every route, plus the startup guard above for the case Host validation cannot cover (any non-browser client can forge `Host`). Rejection responses name only the class of failure; the offending `Host`/`Origin`, the TCP peer, and any claimed proxy headers are written to the server log.
+* **All `npm audit` findings resolved in both published packages** ([#159](https://github.com/IBM/ibmi-mcp-server/pull/159)) — 52 → 0 (3 critical, 18 high, 29 moderate, 2 low). Runtime: `axios` (prototype-pollution family: credential theft, MITM via `config.proxy`, SSRF bypasses), `hono` (CORS credential reflection, JWT scheme laxity, body-limit bypass), `sanitize-html` (XSS via `xmp` passthrough), `js-yaml` (quadratic merge-key DoS; parses tool YAML), `@hono/node-server` `^1.17` → `^2.1` (serve-static path traversal; only `serve`/`ServerType` are used, no code change), OpenTelemetry suite `0.203` → `0.221`, and transitive `ws`, `form-data`, `fast-uri`, `ip-address`. Dev-only: `vitest`/`@vitest/coverage-v8` `3.2.7`.
+
+### Fixed
+
+* **Docker image ships `MCP_HTTP_HOST=0.0.0.0`** ([#169](https://github.com/IBM/ibmi-mcp-server/pull/169)). #163 set it in the root `Dockerfile`, which CI does not build; without this fix the published image binds loopback inside the container and every `docker run -p …` gets connection refused. The orphaned root `Dockerfile` is removed; `app/compose.yaml` and `deployment/mcpgateway/docker-compose.yml` now build `packages/server/Dockerfile` from the repo root.
+
+### Documentation
+
+* **Docker & Podman guide rewritten for the new posture** ([#169](https://github.com/IBM/ibmi-mcp-server/pull/169)): loopback port publishing, `MCP_ALLOW_UNAUTHENTICATED_HTTP`, the Host allowlist, the startup refusal, and current build-from-source instructions.
+* `.env.example` (root and server), `docs/configuration.mdx`, `docs/sql-tools/using-default-tools.mdx`, and the OpenShift README updated; the OpenShift deployment's probes send `Host: localhost` ([#163](https://github.com/IBM/ibmi-mcp-server/pull/163)).
+
+### Chores
+
+* **deps:** prune example-agent lockfiles feeding Dependabot alert noise ([#160](https://github.com/IBM/ibmi-mcp-server/pull/160)) — example and demo manifests only; nothing in either npm package.
 
 ## [0.5.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.5.0...v0.5.1) (2026-04-20)
 

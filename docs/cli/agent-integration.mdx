@@ -30,7 +30,7 @@ The CLI uses semantic exit codes for programmatic error handling:
 | `1` | GENERAL | Connection failure or unexpected error |
 | `2` | USAGE | Invalid arguments or missing options |
 | `3` | QUERY | SQL execution error |
-| `4` | SECURITY | Read-only violation or forbidden operation |
+| `4` | SECURITY | Statement rejected by a guardrail or security check, or `ibmi sql --access` above a ceiling (a system's `access` or `IBMI_EXECUTE_SQL_ACCESS`) |
 | `5` | AUTH | Authentication failure |
 
 ### Exit Code Routing

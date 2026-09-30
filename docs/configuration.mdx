@@ -76,7 +76,7 @@ MCP_LOG_LEVEL=info
 | `DB2i_HOST` | IBM i hostname where Mapepire runs | Always set to your IBM i system |
 | `DB2i_USER` | IBM i user profile | Set to your credentials |
 | `DB2i_PASS` | IBM i password | Set to your credentials |
-| `DB2i_PORT` | Mapepire daemon port | Only if you changed Mapepire's default |
+| `DB2i_PORT` | Mapepire daemon port (singleton pool, CLI; YAML uses source `port`) | Only if you changed Mapepire's default |
 | `TOOLS_YAML_PATH` | Location of SQL tool definitions | Change if using custom tools |
 | `MCP_TRANSPORT_TYPE` | How clients connect (http or stdio) | Use `http` for most cases |
 | `MCP_HTTP_PORT` | Port for HTTP server | Change if 3010 is in use |
@@ -121,7 +121,9 @@ Below is the reference for core server configuration options. Each section inclu
 | `MCP_TRANSPORT_TYPE` | Server transport mode | `stdio` | `http` |
 | `MCP_HTTP_PORT` | HTTP server port | `3010` | `3010` |
 | `MCP_HTTP_HOST` | HTTP server host | `127.0.0.1` | `0.0.0.0` |
-| `MCP_ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | (none) | `http://localhost:3000,https://myapp.com` |
+| `MCP_ALLOWED_ORIGINS` | CORS + browser `Origin` allowlist (comma-separated). Governs browsers only — it does not restrict non-browser clients | (none) | `http://localhost:3000,https://myapp.com` |
+| `MCP_ALLOWED_HOSTS` | `Host` header allowlist for DNS rebinding protection; extends the always-allowed loopback set. `*` disables Host checking only — Origin is still enforced | (loopback only) | `mcp.example.com` |
+| `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present (server refuses to start otherwise). Note `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` counts as unauthenticated | `false` | `true` |
 
 <Tabs>
   <Tab title="HTTP Transport (Recommended)">
@@ -539,7 +541,7 @@ Below is the reference for core server configuration options. Each section inclu
 | `DB2i_HOST` | IBM i host (Mapepire daemon) | (none) | `my-ibmi-system.company.com` | Use hostname, not `127.0.0.1` in Docker |
 | `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Shared credentials (dev only) |
 | `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
-| `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Ensure firewall allows this port |
+| `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Empty or unset also defaults to `8076` |
 | `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
 | `DB2i_JDBC_OPTIONS` | Mapepire JDBC options ([syntax](#db2i-jdbc-options-env-var)) | (none) | `naming=system;date format=iso` | `key ring password` redacted from logs |
 
@@ -599,12 +601,6 @@ DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=MYLIB,DEVDATA'
 | Types | All other values forwarded as strings — no boolean/number coercion |
 | Keys with spaces | Work unquoted: `date format=iso` is valid |
 | Malformed pairs | A non-empty segment with no `=` throws a clear error at startup |
-| Empty values | A pair with a key but no value (`access=`) is treated as **unset**, not as an override |
-| `access` | Final override. The pool shared by `execute_sql` and the built-in tools normally derives JDBC `access` from [`IBMI_EXECUTE_SQL_ACCESS`](#execute_sql-access-mode); an explicit value here replaces it and is logged as a warning |
-
-<Note>
-**`access` overrides the JDBC value only.** The SQL validator still enforces the access mode. `access=all` with mode `read` removes the connection-level backstop but leaves the validator in place; `access=read only` with mode `write` makes Db2 reject statements the validator allowed, which surfaces as a driver error. Use the override deliberately.
-</Note>
 
 <Tabs>
   <Tab title="Library List">
@@ -675,17 +671,15 @@ naming: system           # env wins
 date format: iso         # YAML only, preserved
 ```
 
-#### JDBC `access` and the execute_sql access mode
+#### JDBC `access` Option for Built-in Tools
 
-**The pool shared by `execute_sql` and the built-in tools derives its Toolbox JDBC `access` property from [`IBMI_EXECUTE_SQL_ACCESS`](#execute_sql-access-mode):** `read` and `read-call` connect with `access=read call`, `write` with `access=all`. An explicit `access=` in `DB2i_JDBC_OPTIONS` is the final override and is logged as a warning. YAML source pools are unaffected and use exactly the `jdbc-options` you configure.
+The connection pool shared by `execute_sql` and the other built-in tools sets the JDBC `access` option from the [execute_sql guardrail mode](#execute-sql-guardrails): `read call` for `read` and `read-call`, `all` for `write`. An `access=` value in `DB2i_JDBC_OPTIONS` overrides this, and the server logs a warning when the two differ. YAML source pools use only the `jdbc-options` you configure.
 
-<Warning>
-**Access modes restrict statement types, not effects.** The in-process validator, `PARSE_STATEMENT`, and the JDBC `access` setting each classify the submitted statement. None of them inspect what it invokes. `SELECT QSYS2.QCMDEXC('...') FROM SYSIBM.SYSDUMMY1` is a query to all three, so the CL command runs even in `read` mode. The security boundary is the IBM i user profile. Run the server under a profile with least-privilege object authority.
-</Warning>
+The `access` option is checked by the JDBC driver inside the Mapepire server and looks only at the first keyword of a statement. Db2 for i does not enforce it. The IBM i user profile's authority is what limits a statement.
 
 #### Security: Log Redaction
 
-The server logs **only** the `libraries` field at pool initialization. Other JDBC fields — including potentially sensitive values like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from every log level to prevent credential leakage.
+The server logs **only** the `libraries` field at pool initialization (the built-in tools pool also logs its `access` value). Other JDBC fields — including potentially sensitive values like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from every log level to prevent credential leakage.
 
 <Note>
 If you need to verify that a non-`libraries` option took effect, inspect driver behavior directly (for example, run `SELECT CHAR(CURRENT_DATE)` to confirm `date format`) rather than searching the logs.
@@ -755,7 +749,7 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 | `get_table_columns` | Disabled by default | Get column metadata for a table | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
 | `get_related_objects` | Disabled by default | Find dependent objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
 | `validate_query` | Disabled by default | Validate SQL syntax and verify objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
-| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (`read` mode by default) | `--execute-sql` | `IBMI_ENABLE_EXECUTE_SQL` |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL behind a guardrail mode (`read` by default) | `--execute-sql` | `IBMI_ENABLE_EXECUTE_SQL` |
 
 <Tip>
 Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. Use `--builtin-tools` alone to let agents discover schema while routing queries through curated YAML tools. See the [Built-in Tools Reference](/sql-tools/built-in-tools) for complete parameter and response documentation.
@@ -767,11 +761,35 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
 |----------|-------------|---------|---------|
 | `IBMI_ENABLE_DEFAULT_TOOLS` | Enable schema discovery tools | `false` | `true`, `false` |
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
-| `IBMI_EXECUTE_SQL_ACCESS` | What `execute_sql` may run — see [execute_sql access mode](#execute_sql-access-mode) | `read` | `read`, `read-call`, `write` |
+| `IBMI_EXECUTE_SQL_ACCESS` | `execute_sql` guardrail mode. A ceiling when set | `read` | `read`, `read-call`, `write` |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` | Function name patterns rejected in `read` (`*` wildcard). Empty turns the gate off | `QCMDEXC` | Comma-separated patterns |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` | Keyword and name patterns rejected in every mode (`*` wildcard) | (empty) | Comma-separated patterns |
+| `IBMI_EXECUTE_SQL_READONLY` | **Deprecated.** Used only when `IBMI_EXECUTE_SQL_ACCESS` is unset; sets the default, not a ceiling | — | `true` → `read`, `false` → `write` |
+
+### Execute SQL Guardrails
+
+`execute_sql` has three guardrails, selected with `IBMI_EXECUTE_SQL_ACCESS`:
+
+| Mode | Accepts | Rejects |
+|------|---------|---------|
+| `read` (default) | Queries (`SELECT`, `WITH`, `VALUES`) | Every other statement type, including `CALL`; data-change table references such as `FINAL TABLE (INSERT ...)`; sequence references; functions matching `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` |
+| `read-call` | Queries and `CALL`. Functions and procedures may have side effects | `INSERT`, `UPDATE`, `DELETE`, `MERGE` (also inside `FINAL TABLE (...)`), DDL, `SET`, `COMMIT`, `ROLLBACK`, compound statements, and every other statement type |
+| `write` | Every statement | Nothing beyond the length limit and forbidden keywords |
 
 <Warning>
-**Security**: `execute_sql` lets clients run ad-hoc SQL. By default (`read`) only SELECT statements are accepted, enforced in-process and by the JDBC `access` property on the connection. `read-call` adds `CALL`; `write` allows everything and belongs in development only. These checks restrict statement types and cannot stop a query that invokes a side-effecting function such as `QSYS2.QCMDEXC`. The security boundary is the IBM i user profile. In production, use curated YAML tools and a least-privilege profile.
+**The guardrails are not the security boundary. The IBM i user profile is.** `execute_sql` runs every statement as `DB2i_USER`, and that profile's authority decides what the statement can read or change. In `read`, a function can still change data if the profile allows it. In `read-call`, so can a procedure, and `CALL QSYS2.QCMDEXC(...)` can run any CL command the profile is authorized to. Use a dedicated profile without `*ALLOBJ` that has only the authority the agent needs.
 </Warning>
+
+How the modes behave:
+
+- **Setting the mode.** When `IBMI_EXECUTE_SQL_ACCESS` is set, it is a ceiling: the `ibmi sql --access` flag and runtime configuration can lower the mode, never raise it. An unrecognized value, including an empty one, is treated as `read` with a warning on stderr. The deprecated `IBMI_EXECUTE_SQL_READONLY` is read only when `IBMI_EXECUTE_SQL_ACCESS` is unset, sets the default only, and prints a deprecation notice.
+- **Quick path and PARSE_STATEMENT.** In `read` and `read-call`, the server's built-in Db2 for i parser approves statements it can classify with certainty, such as a plain `SELECT`, without a round trip. Anything else is checked with one call to `QSYS2.PARSE_STATEMENT`, which parses the statement without running it. That call adds about 35–45 ms on an active connection and about 170–260 ms as the first statement in a new job. `write` never calls `PARSE_STATEMENT`.
+- **Rejections.** A rejected statement is not sent to IBM i. The tool returns an error (`isError: true`) naming the mode, the rule, and the lowest mode that would allow the statement.
+- **JDBC `access`.** The built-in tools pool uses `read call` in `read` and `read-call` and `all` in `write`. This is a first-keyword check in the JDBC driver, not a Db2 control. See [JDBC `access` option for built-in tools](#jdbc-access-option-for-built-in-tools).
+
+The full rules, the two optional gates, what no guardrail can see, and a least-privilege profile recipe are in the [Built-in Tools reference](/sql-tools/built-in-tools#execute-sql-guardrails).
+
+### Examples
 
 <Tabs>
   <Tab title="Full Workflow (CLI)">
@@ -798,18 +816,16 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
     npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
     ```
 
-    **Use for**: Running stored procedures while INSERT/UPDATE/DELETE/DDL stay blocked
+    **Use for**: Agents that must call stored procedures. Procedures run with the profile's authority, so grant `EXECUTE` only on the procedures the agent may call
   </Tab>
 
-  <Tab title="Write Mode (Opt-in)">
+  <Tab title="Write Mode">
     ```bash
     IBMI_EXECUTE_SQL_ACCESS=write
     npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
     ```
 
-    **Use for**: Development when write operations are explicitly needed
-
-    ⚠️ **Warning**: Only use in trusted environments with proper authentication
+    **Use for**: Agents that must change data. Only the profile's authority limits what a statement can do; use a profile with change authority only on the objects the agent may change
   </Tab>
 
   <Tab title="YAML Tools Only (Default)">
@@ -846,90 +862,26 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
   </Accordion>
 
   <Accordion title="execute_sql (--execute-sql)" icon="code">
-    Executes ad-hoc SQL queries with multi-layered security controls:
+    Executes one ad-hoc SQL statement as `DB2i_USER`:
 
-    - **Access mode**: `IBMI_EXECUTE_SQL_ACCESS` is `read` (default), `read-call`, or `write` — see [execute_sql access mode](#execute_sql-access-mode)
-    - **In-process classification**: The vscode-db2i parser classifies each statement locally and rejects anything outside the mode, with regex pattern matching as a fallback
-    - **PARSE_STATEMENT fallback**: IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) runs only when local classification is inconclusive and applies the same allow-list
-    - **JDBC access backstop**: the connection is created with `access=read call` (`read`, `read-call`) or `access=all` (`write`), so the driver refuses writes in the first two modes
-    - **Fail-closed security**: All validation failures result in query rejection
-    - **Query length limit**: Maximum 10,000 characters per query
+    - **Guardrail mode**: `read` (default), `read-call`, or `write`, set by `IBMI_EXECUTE_SQL_ACCESS`. See [Execute SQL Guardrails](#execute-sql-guardrails)
+    - **Checks**: the built-in Db2 for i parser approves statements it is certain about; everything else is checked with `QSYS2.PARSE_STATEMENT` (`read` and `read-call` only)
+    - **Fails closed**: a statement that cannot be verified is rejected
+    - **Length limit**: 10,000 characters per statement
+    - **Security boundary**: the `DB2i_USER` profile's authority, not the guardrail
     - **Use case**: Development exploration, debugging queries, ad-hoc data analysis
   </Accordion>
 </AccordionGroup>
 
 <Note>
 **Built-in vs YAML Tools**:
-- **Built-in tools**: Compiled TypeScript, controlled by feature flags, runtime validation with PARSE_STATEMENT
+- **Built-in tools**: Compiled TypeScript, controlled by feature flags; `execute_sql` accepts ad-hoc SQL behind a guardrail mode
 - **YAML tools**: User-defined, curated queries with parameters, explicit query control
-- **Security**: Built-in tools use IBM i's SQL parser for defense-in-depth; YAML tools use explicit query whitelisting
+- **Security**: In both cases the connecting IBM i profile's authority limits what a statement can do; YAML tools also limit which statements can run
 - **Recommendation**: Use YAML tools in production for explicit query control and parameterization
 
 See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 </Note>
-
-### execute_sql Access Mode
-
-**`IBMI_EXECUTE_SQL_ACCESS` is the one setting that decides what `execute_sql` may run.** It configures the in-process SQL validator, the `PARSE_STATEMENT` fallback, and the JDBC `access` property of the connection pool together, so every layer enforces the same rule and a blocked statement always fails with a validation error that names the mode.
-
-| Mode | The tool accepts | `PARSE_STATEMENT` allows | JDBC `access` on the shared pool |
-|------|------------------|--------------------------|----------------------------------|
-| `read` **(default)** | SELECT, CTEs, table and scalar functions | `QUERY` | `read call` |
-| `read-call` | `read` plus `CALL` to stored procedures | `QUERY`, `CALL` | `read call` |
-| `write` | Every statement the connection's user profile allows | unchecked | `all` |
-
-```bash
-# Default — SELECT and functions only
-IBMI_EXECUTE_SQL_ACCESS=read
-
-# Run stored procedures, still no INSERT/UPDATE/DELETE/DDL
-IBMI_EXECUTE_SQL_ACCESS=read-call
-
-# Everything — development only
-IBMI_EXECUTE_SQL_ACCESS=write
-```
-
-<Note>
-**Why `read` still connects with `access=read call`**: the pool is shared with `describe_sql_object`, which runs `CALL QSYS2.GENERATE_SQL`. The in-process parser and `PARSE_STATEMENT` are what keep `CALL` out of `read` mode; the JDBC layer guarantees that no write statement reaches Db2 in either non-write mode.
-</Note>
-
-#### Validation layers
-
-1. **In-process classification** (every query): the vscode-db2i parser classifies each statement and rejects anything outside the mode. If the parser cannot classify the input, a regex keyword check runs instead.
-2. **`QSYS2.PARSE_STATEMENT`** (fallback only): runs when the local parser could not classify the statement, for example on comment-only input or unusual syntax, and applies the allow-list from the table. Classified statements skip this round trip.
-3. **JDBC `access`** (connection level): Db2 itself rejects INSERT/UPDATE/DELETE/DDL on a `read call` connection, even if a statement slipped past the first two layers. An explicit `access=` in `DB2i_JDBC_OPTIONS` overrides this value.
-
-#### Precedence: the environment is a ceiling
-
-Runtime configuration can also set the mode: `ibmi sql --access <mode>`, a system's `access` in `~/.ibmi/config.yaml`, a YAML tool's `security.readOnly`, or `configureExecuteSqlTool()` in code. Whether the environment or the runtime wins depends on whether the variable was set explicitly:
-
-| Environment | Runtime request | Effective mode |
-|-------------|-----------------|----------------|
-| **Unset** | any | the runtime request (default `read`) |
-| `IBMI_EXECUTE_SQL_ACCESS=read` | `read-call` or `write` | `read` — the CLI reports an error naming the variable |
-| `IBMI_EXECUTE_SQL_ACCESS=read-call` | `write` | `read-call` |
-| `IBMI_EXECUTE_SQL_ACCESS=read-call` | `read` | `read` — lowering is always allowed |
-| `IBMI_EXECUTE_SQL_ACCESS=write` | any | the runtime request |
-
-<Warning>
-**Unset and `=read` are not equivalent.** Both default to `read`. Only an explicit value is a ceiling. If a deployment must never accept CALL or write statements, set `IBMI_EXECUTE_SQL_ACCESS=read`. If the `ibmi` CLI should decide per command, leave the variable unset — a copied `.env.example` in the working directory is the most common reason `ibmi sql --access write` reports that access is capped.
-</Warning>
-
-#### Value parsing
-
-Values are trimmed and lowercased. Anything other than `read`, `read-call`, or `write` falls back to `read` and logs a warning to stderr; a strict enum would fail the entire environment config on a typo.
-
-#### Migrating from `IBMI_EXECUTE_SQL_READONLY`
-
-`IBMI_EXECUTE_SQL_READONLY` is deprecated and still honored for one release with a stderr notice. When both variables are set, `IBMI_EXECUTE_SQL_ACCESS` wins.
-
-| Before | After |
-|--------|-------|
-| `IBMI_EXECUTE_SQL_READONLY=true` (or unset) | `IBMI_EXECUTE_SQL_ACCESS=read` (or unset) |
-| `IBMI_EXECUTE_SQL_READONLY=false` | `IBMI_EXECUTE_SQL_ACCESS=write` |
-| `DB2i_JDBC_OPTIONS='access=...'` | still honored as the final override of the JDBC value; usually no longer needed |
-| `ibmi sql --read-only` / `--no-read-only` | `ibmi sql --access read` / `--access write` |
-| `readOnly: true` on a CLI system | `access: read` |
 
 ---
 
@@ -1262,6 +1214,7 @@ MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_HTTP_HOST=0.0.0.0
 MCP_SESSION_MODE=stateful
+MCP_ALLOWED_HOSTS=mcp.company.com
 MCP_ALLOWED_ORIGINS=https://myapp.company.com
 
 # Authentication

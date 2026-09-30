@@ -26,19 +26,38 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 |--------|-------------|---------|
 | `--file <path>` | Read SQL from a file | — |
 | `--limit <n>` | Maximum rows returned | system `maxRows` (5000) |
-| `--access <mode>` | Access mode: `read`, `read-call` (allow `CALL`), or `write`; never above the system's `access` ceiling | `read` |
-| `--read-only` / `--no-read-only` | Deprecated aliases for `--access read` / `--access write` | — |
+| `--access <mode>` | Guardrail mode: `read`, `read-call`, or `write` | `read` |
+| `--read-only` / `--no-read-only` | Deprecated. Same as `--access read` / `--access write`, with a notice on stderr | — |
 | `--dry-run` | Print resolved SQL without executing | — |
 
 **SQL source priority:** positional argument > `--file` > piped stdin.
 
-<Note>
-The default mode is `read` (SELECT and functions). Pass `--access read-call` to run stored procedures, or `--access write` for INSERT, UPDATE, DELETE, and DDL. A system's `access` in `~/.ibmi/config.yaml` is a ceiling for that system, never a default: `--access write` against a system configured as `read` runs as `read`, and a system configured as `write` still runs as `read` unless you pass `--access write`.
-</Note>
+#### Guardrails
+
+`ibmi sql` runs the same `execute_sql` guardrails as the MCP server. There are three modes:
+
+| Mode | Accepts |
+|------|---------|
+| `read` (default) | Queries (`SELECT`, `WITH`, `VALUES`) without data-change table references, sequence references, or forbidden functions (default `QCMDEXC`) |
+| `read-call` | Queries and `CALL`. Functions and procedures may have side effects; `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL, and other statement types are rejected |
+| `write` | Every statement |
 
 <Warning>
-**`IBMI_EXECUTE_SQL_ACCESS` in your environment is a ceiling.** If it is set lower than the mode you request, the command exits with code 4 and a message naming the variable instead of letting Db2 reject the statement later. Check your shell and any `.env` in the current directory. See [execute_sql access mode](/configuration#execute_sql-access-mode).
+**The guardrails are not the security boundary. The IBM i user profile is.** The statement runs as the system's `user`, and that profile's authority decides what it can read or change. A function can change data in `read`, and a procedure in `read-call`, if the profile allows it. See [Execute SQL guardrails](/sql-tools/built-in-tools#execute-sql-guardrails) for the full rules, what no guardrail can see, and a least-privilege profile recipe.
 </Warning>
+
+- **Default.** Every run is `read` unless you pass `--access`. A system's `access` setting never raises the mode.
+- **System ceiling.** A system's [`access`](/cli/configuration#system-properties) in the config file (or the deprecated `readOnly: true`, which means `read`) is a ceiling. If `--access` is above it, the command stops with exit code `4` and a message naming the system and its setting.
+- **Environment ceiling.** When `IBMI_EXECUTE_SQL_ACCESS` is set in your shell or in a `.env` file in the current or parent directory, it is also a ceiling. If it is lower than the mode you requested, the command stops with exit code `4` and a message naming the variable. The deprecated `IBMI_EXECUTE_SQL_READONLY` is not a ceiling.
+- **Forbidden keywords.** A system's `forbiddenKeywords` and `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` are rejected in every mode, including `write`. `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` applies in `read`.
+- **PARSE_STATEMENT.** In `read` and `read-call`, a statement the built-in parser cannot approve on its own is checked with one `QSYS2.PARSE_STATEMENT` call on the target system. Because each `ibmi sql` run starts a new job, that call adds about 170–260 ms. `write` never calls it.
+- **Rejections.** A rejected statement is not sent to IBM i. The command exits with code `4` and prints the mode, the rule, and the lowest mode that would allow the statement. This includes a rejection because `PARSE_STATEMENT` returned no rows (a syntax error or more than one statement). If the `PARSE_STATEMENT` call itself fails, for example because the connection is lost, the command exits with the code for that error.
+
+```bash
+ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE"                         # read (default)
+ibmi sql "CALL QSYS2.GENERATE_SQL('EMPLOYEE', 'SAMPLE', 'TABLE')" --access read-call
+ibmi sql "UPDATE SAMPLE.EMPLOYEE SET PHONENO = '1234' WHERE EMPNO = '000010'" --access write
+```
 
 ---
 
@@ -93,6 +112,19 @@ Each row in the output includes a `SYSTEM` column identifying which system retur
 - `--watch` is not supported with multiple systems.
 - If one system is unreachable, its results appear as an error row without affecting the other systems.
 - All systems share the same `--limit` value. When no `--limit` is specified, the smallest `maxRows` across all target systems is used.
+
+### Guardrails across systems
+
+Each target system is checked with the same guardrails as a single-system run:
+
+- One mode applies to every system. `--access` must be at or below the `access` ceiling of every target system; otherwise the command stops with exit code `4` before connecting.
+- The row limit is applied first, so the statement that is checked is the statement that runs.
+- Each system's own `forbiddenKeywords` apply to that system.
+- When `PARSE_STATEMENT` is needed, it runs on each target system.
+- Each system's connection gets the JDBC `access` value for the mode (`read call` or `all`). An `access=` in `DB2i_JDBC_OPTIONS` overrides it.
+- Each system with `confirm: true` asks for confirmation before any system runs the statement.
+- A rejection on one system appears as that system's error row. The command's exit code is that of the first system that failed, so a run where any system fails (including an unreachable one) exits non-zero; before, it exited `0`.
+- Each system's `confirm` setting is honored: the prompts are asked one after another before any system runs, and declining any of them cancels the whole run.
 
 ---
 
@@ -262,6 +294,7 @@ Manage named system connections in `.ibmi/config.yaml`.
 ibmi system list                          # list all configured systems
 ibmi system show dev                      # show system details
 ibmi system add dev --host h --user u     # add (prompts for missing fields)
+ibmi system add prod --host h --user u --access read   # cap ibmi sql at read on prod
 ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity
@@ -271,8 +304,8 @@ ibmi system config-path                   # show config file locations
 
 | Subcommand | Description |
 |------------|-------------|
-| `list` | Show all configured systems |
-| `show <name>` | Display details for a specific system |
+| `list` | Show all configured systems. The `ACCESS` column (also the `ACCESS` key in JSON output) shows each system's `ibmi sql` ceiling, or `-` for none; it replaces `READ_ONLY` |
+| `show <name>` | Display details for a specific system, including `access` and `forbiddenKeywords` |
 | `add <name>` | Add a new system connection |
 | `remove <name>` | Remove a system connection |
 | `default <name>` | Set the default system |

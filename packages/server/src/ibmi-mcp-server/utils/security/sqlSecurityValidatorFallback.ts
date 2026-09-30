@@ -83,20 +83,19 @@ export class SqlSecurityValidatorFallback {
   static validateReadOnly(
     query: string,
     context: RequestContext,
-    operations: readonly string[] = DANGEROUS_OPERATIONS,
   ): SecurityValidationResult {
     const violations: string[] = [];
 
     logger.debug(
-      { ...context, operationCount: operations.length },
-      "Using regex fallback for access-mode validation",
+      { ...context },
+      "Using regex fallback for read-only validation",
     );
 
     // Check for dangerous operations
     violations.push(
       ...this.validateWithRegexList(
         query,
-        operations,
+        DANGEROUS_OPERATIONS,
         (op) => new RegExp(`\\b${op}\\b`, "i"),
         (op) => `Write operation '${op}' detected`,
       ),

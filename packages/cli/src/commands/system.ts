@@ -21,7 +21,8 @@ import {
   renderMessage,
 } from "../formatters/output.js";
 import { ExitCode, classifyError } from "../utils/exit-codes.js";
-import { accessFromFlags, resolveSystemAccess } from "../utils/access-mode.js";
+import { ACCESS_MODES } from "../config/schema.js";
+import { systemAccessCeiling } from "../utils/access-mode.js";
 import { connectSystem } from "../utils/connection.js";
 import { getFormat } from "../utils/command-helpers.js";
 
@@ -94,7 +95,7 @@ export function registerSystemCommand(program: Command): void {
           HOST: sys.host,
           USER: sys.user,
           PORT: sys.port,
-          ACCESS: resolveSystemAccess(sys) ?? "-",
+          ACCESS: systemAccessCeiling(sys) ?? "-",
           DEFAULT: name === config.default ? "✓" : "",
         }));
 
@@ -128,7 +129,12 @@ export function registerSystemCommand(program: Command): void {
           { PROPERTY: "defaultSchema", VALUE: sys.defaultSchema ?? "(none)" },
           {
             PROPERTY: "access",
-            VALUE: resolveSystemAccess(sys) ?? "(no ceiling)",
+            VALUE: systemAccessCeiling(sys) ?? "(no ceiling)",
+          },
+          { PROPERTY: "readOnly", VALUE: String(sys.readOnly) },
+          {
+            PROPERTY: "forbiddenKeywords",
+            VALUE: sys.forbiddenKeywords?.join(", ") || "(none)",
           },
           { PROPERTY: "confirm", VALUE: String(sys.confirm) },
           { PROPERTY: "timeout", VALUE: `${sys.timeout}s` },
@@ -158,9 +164,13 @@ export function registerSystemCommand(program: Command): void {
     .option("--description <desc>", "Description")
     .option(
       "--access <mode>",
-      "Ceiling for execute_sql on this system: read, read-call, or write (default: no ceiling)",
+      "Ceiling for the ibmi sql guardrail mode on this system: read, read-call, or write (default: no ceiling)",
     )
-    .option("--read-only", "[deprecated] Same as --access read")
+    .option(
+      "--read-only",
+      "Caps ibmi sql at read (prefer --access read) and forces ibmi tool read-only",
+      false,
+    )
     .option("--default-schema <schema>", "Default schema/library")
     .action(async (name: string, opts, cmd: Command) => {
       const format = getFormat(cmd);
@@ -190,6 +200,16 @@ export function registerSystemCommand(program: Command): void {
           rl.close();
         }
 
+        const access = opts["access"] as string | undefined;
+        if (
+          access !== undefined &&
+          !(ACCESS_MODES as readonly string[]).includes(access)
+        ) {
+          throw new Error(
+            `Invalid --access value: "${access}". Expected one of: ${ACCESS_MODES.join(", ")}.`,
+          );
+        }
+
         const port = parseInt(opts["port"] as string, 10);
         if (isNaN(port) || port <= 0 || port > 65535) {
           throw new Error(`Invalid --port value: "${opts["port"]}". Must be a number between 1 and 65535.`);
@@ -202,7 +222,8 @@ export function registerSystemCommand(program: Command): void {
           password: opts["password"] as string | undefined,
           description: opts["description"] as string | undefined,
           defaultSchema: opts["defaultSchema"] as string | undefined,
-          access: accessFromFlags(opts),
+          access: access as SystemConfig["access"],
+          readOnly: opts["readOnly"] as boolean,
           confirm: false,
           timeout: 60,
           maxRows: 5000,

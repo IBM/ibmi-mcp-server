@@ -11,6 +11,7 @@ import { config } from "@/config/index.js";
 import {
   SourceConfig,
   SqlToolSecurityConfig,
+  DEFAULT_MAPEPIRE_PORT,
 } from "@/ibmi-mcp-server/schemas/index.js";
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
@@ -74,7 +75,7 @@ export class SourceManager extends BaseConnectionPool<string> {
           {
             ...operationContext,
             host: sourceConfig.host,
-            port: sourceConfig.port || 8471,
+            port: sourceConfig.port ?? DEFAULT_MAPEPIRE_PORT,
             user: sourceConfig.user.substring(0, 3) + "***", // Mask username for security
           },
           `Registering source: ${sourceName}`,

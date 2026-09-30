@@ -20,6 +20,7 @@ import {
 } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolSecurityConfig } from "@/ibmi-mcp-server/schemas/index.js";
+import { DEFAULT_MAPEPIRE_PORT } from "@/ibmi-mcp-server/schemas/common.js";
 import { SqlSecurityValidator } from "../utils/security/sqlSecurityValidator.js";
 import {
   config,
@@ -99,6 +100,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   ): Promise<DaemonServer> {
     const server: DaemonServer = {
       host: poolConfig.host,
+      port: poolConfig.port,
       user: poolConfig.user,
       password: poolConfig.password,
       rejectUnauthorized: !(poolConfig.ignoreUnauthorized ?? true),
@@ -198,7 +200,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         {
           ...context,
           host: poolState.config.host,
-          port: poolState.config.port || 8471,
+          port: poolState.config.port ?? DEFAULT_MAPEPIRE_PORT,
           user: poolState.config.user.substring(0, 3) + "***",
           ignoreUnauthorized: poolState.config.ignoreUnauthorized ?? true,
           // Intentionally logging only `libraries`: other JDBCOptions fields

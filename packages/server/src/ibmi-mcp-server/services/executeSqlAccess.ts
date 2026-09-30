@@ -1,25 +1,18 @@
 /**
- * @fileoverview execute_sql access mode: the single setting that decides what
- * the ad-hoc `execute_sql` tool (and the singleton IBM i pool it shares with
- * the built-in tools) may do.
+ * @fileoverview execute_sql guardrail mode: the setting that decides which
+ * statement shapes the ad-hoc `execute_sql` tool (MCP and `ibmi sql`) sends.
  *
- *   read       SELECT and table/scalar functions only              JDBC access=read call
- *   read-call  read + CALL to stored procedures                    JDBC access=read call
- *   write      everything the connection user profile allows       JDBC access=all
+ *   read       queries only (no side effects)               JDBC access=read call
+ *   read-call  queries and CALL (routines may have effects)  JDBC access=read call
+ *   write      anything the connection's user profile allows  JDBC access=all
  *
- * `read` keeps `read call` at the JDBC layer because `generate_sql` /
- * `describe_sql_object` share the singleton pool and issue
- * `CALL QSYS2.GENERATE_SQL`. The read vs read-call distinction is enforced by
- * the in-process parser and, when the parser cannot classify, by
- * QSYS2.PARSE_STATEMENT. An explicit `access` in `DB2i_JDBC_OPTIONS` remains
- * the final override of the JDBC value only; the SQL validator still enforces
- * the mode.
+ * These are guardrails, not a security boundary: the IBM i user profile's
+ * authority decides what a statement can actually do.
  *
- * Policy precedence: when `IBMI_EXECUTE_SQL_ACCESS` (or the deprecated
- * `IBMI_EXECUTE_SQL_READONLY`) is explicitly set in the environment it is a
- * ceiling — runtime configuration (`configureExecuteSqlTool`, the CLI, a YAML
- * tool's `security.readOnly`) can lower the level but never raise it. When the
- * variable is unset, runtime configuration is authoritative.
+ * Policy precedence: an explicitly set `IBMI_EXECUTE_SQL_ACCESS` is a ceiling
+ * — runtime configuration (`configureExecuteSqlTool`, the CLI) can lower the
+ * mode but never raise it. The deprecated `IBMI_EXECUTE_SQL_READONLY` only
+ * seeds the default. With neither set, runtime configuration is authoritative.
  *
  * Lives in services/ (importing only config) so both `executeSql.tool.ts` and
  * `connectionPool.ts` can depend on it without a circular import.
@@ -28,24 +21,19 @@
  */
 
 import { config } from "@/config/index.js";
+import {
+  EXECUTE_SQL_ACCESS_LEVELS,
+  type ExecuteSqlAccess,
+} from "./executeSqlAccessLevels.js";
 
-/** Access levels, least to most permissive. */
-export const EXECUTE_SQL_ACCESS_LEVELS = [
-  "read",
-  "read-call",
-  "write",
-] as const;
+export {
+  EXECUTE_SQL_ACCESS_LEVELS,
+  parseExecuteSqlAccess,
+  type ExecuteSqlAccess,
+} from "./executeSqlAccessLevels.js";
 
-export type ExecuteSqlAccess = (typeof EXECUTE_SQL_ACCESS_LEVELS)[number];
-
-/** Most restrictive level; the default and the fail-closed fallback. */
-export const DEFAULT_EXECUTE_SQL_ACCESS: ExecuteSqlAccess = "read";
-
-/** Env var that sets the access mode. */
+/** Env var that sets the guardrail mode (a ceiling when set). */
 export const EXECUTE_SQL_ACCESS_ENV = "IBMI_EXECUTE_SQL_ACCESS";
-
-/** Deprecated boolean predecessor (true → read, false → write). */
-export const LEGACY_READONLY_ENV = "IBMI_EXECUTE_SQL_READONLY";
 
 function rank(level: ExecuteSqlAccess): number {
   return EXECUTE_SQL_ACCESS_LEVELS.indexOf(level);
@@ -59,7 +47,7 @@ export function accessAtLeast(
   return rank(a) >= rank(b);
 }
 
-/** The more restrictive of two levels. */
+/** The more restrictive of two modes. */
 export function minAccess(
   a: ExecuteSqlAccess,
   b: ExecuteSqlAccess,
@@ -67,22 +55,7 @@ export function minAccess(
   return rank(a) <= rank(b) ? a : b;
 }
 
-/**
- * Parse a raw access-mode string (env var, CLI flag). Trims and lowercases.
- * Returns `undefined` for an unrecognised value so callers decide how loud to
- * be — the config layer falls back to `read` with a stderr warning.
- */
-export function parseExecuteSqlAccess(
-  raw: string | undefined,
-): ExecuteSqlAccess | undefined {
-  if (raw == null) return undefined;
-  const v = raw.trim().toLowerCase();
-  return (EXECUTE_SQL_ACCESS_LEVELS as readonly string[]).includes(v)
-    ? (v as ExecuteSqlAccess)
-    : undefined;
-}
-
-/** Map the deprecated boolean `readOnly` flag onto an access level. */
+/** Map the deprecated boolean `readOnly` flag onto a mode. */
 export function accessFromLegacyReadOnly(
   readOnly: boolean | undefined,
 ): ExecuteSqlAccess | undefined {
@@ -90,70 +63,44 @@ export function accessFromLegacyReadOnly(
   return readOnly ? "read" : "write";
 }
 
-/**
- * Resolve an access level from a security config that may carry the new
- * `access` field, the deprecated `readOnly` boolean, or neither. `access`
- * wins when both are present; neither → `read` (fail-closed).
- */
-export function resolveAccess(
-  security: { access?: ExecuteSqlAccess; readOnly?: boolean } | undefined,
-): ExecuteSqlAccess {
-  return (
-    security?.access ??
-    accessFromLegacyReadOnly(security?.readOnly) ??
-    DEFAULT_EXECUTE_SQL_ACCESS
-  );
-}
-
-/**
- * Ceiling set by the operator's environment. Present only when
- * `IBMI_EXECUTE_SQL_ACCESS` or the deprecated `IBMI_EXECUTE_SQL_READONLY` is
- * explicitly set; `undefined` means runtime configuration is authoritative.
- * A shared YAML tool declaring `security.readOnly: false` must not be able to
- * widen access past what the operator pinned.
- */
-const ENV_PINNED_ACCESS: ExecuteSqlAccess | undefined =
-  process.env[EXECUTE_SQL_ACCESS_ENV] !== undefined ||
-  process.env[LEGACY_READONLY_ENV] !== undefined
-    ? config.ibmi_executeSqlAccess
-    : undefined;
-
-let effectiveAccess: ExecuteSqlAccess = config.ibmi_executeSqlAccess;
-
-/** The env ceiling, if any (exposed for diagnostics and tests). */
+/** The env ceiling (`IBMI_EXECUTE_SQL_ACCESS` when set), else `undefined`. */
 export function getExecuteSqlAccessCeiling(): ExecuteSqlAccess | undefined {
-  return ENV_PINNED_ACCESS;
+  return config.ibmi_executeSqlAccessCeiling;
 }
 
+let effectiveAccess: ExecuteSqlAccess = config.ibmi_executeSqlAccess ?? "read";
+
 /**
- * Record the access level the singleton pool should enforce. Called by
- * `configureExecuteSqlTool` whenever the tool config changes — the single
- * policy writer; other callers (e.g. the CLI's `ibmi tool`) go through
- * `configureExecuteSqlTool` so the tool config and the pool policy can never
- * disagree.
+ * Record the requested mode, lowered to the env ceiling when one is set.
+ * Called only by `configureExecuteSqlTool`, so the tool and the singleton
+ * pool's JDBC access can never disagree.
  *
- * @returns The effective level after applying the env ceiling. Callers compare
- *   it with `requested` to detect (and surface) a downgrade.
+ * @returns The effective mode. Callers compare it with `requested` to detect
+ *   (and surface) a downgrade.
  */
 export function setExecuteSqlAccessPolicy(
   requested: ExecuteSqlAccess,
 ): ExecuteSqlAccess {
-  effectiveAccess = ENV_PINNED_ACCESS
-    ? minAccess(ENV_PINNED_ACCESS, requested)
-    : requested;
+  const ceiling = getExecuteSqlAccessCeiling();
+  effectiveAccess = ceiling ? minAccess(ceiling, requested) : requested;
   return effectiveAccess;
 }
 
 /**
- * The effective access level. Read at pool initialization time (pools are
- * created lazily, on first query, after CLI/runtime configuration has been
- * applied).
+ * The effective mode. The singleton pool reads it at (lazy) initialization,
+ * after CLI/runtime configuration has been applied.
  */
 export function getExecuteSqlAccessPolicy(): ExecuteSqlAccess {
   return effectiveAccess;
 }
 
-/** Toolbox JDBC `access` property for a level. */
+/**
+ * JDBC `access` property for a mode. This is a first-keyword check inside
+ * the jt400 driver in the Mapepire JVM, not a Db2 control: it does not see
+ * writes inside a query (data-change table references, functions,
+ * sequences). `read` keeps "read call" because the built-in tools share the
+ * singleton pool and `generate_sql` issues `CALL QSYS2.GENERATE_SQL`.
+ */
 export function jdbcAccessFor(level: ExecuteSqlAccess): "read call" | "all" {
   return level === "write" ? "all" : "read call";
 }

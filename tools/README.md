@@ -110,7 +110,7 @@ sources:
     port: 8076
     ignore-unauthorized: true
 ```
-> The environment variables DB2i_HOST, DB2i_USER, DB2i_PASS, and DB2i_PORT can be set in the server .env file.
+> Set `DB2i_HOST`, `DB2i_USER`, and `DB2i_PASS` in the server `.env` file (or reference them in YAML as `${DB2i_*}`). **`DB2i_PORT`** applies to the singleton pool (built-in tools, CLI) and to YAML sources that use `port: ${DB2i_PORT}`; the shipped examples above use literal `port: 8076`, so changing `.env` alone does not retarget YAML tools unless you switch to `${DB2i_PORT}` or edit the port value. Use hostname-only values for `DB2i_HOST` — do not embed `:port` in the host.
 
 ## Tools
 
@@ -1708,19 +1708,19 @@ toolsets:
 
 **List available toolsets:**
 ```bash
-npx ibmi-mcp-server --list-toolsets --tools tools/sample/employee-info.yaml
+npx @ibm/ibmi-mcp-server --list-toolsets --tools tools/sample/employee-info.yaml
 ```
 
 **Start server with specific toolsets:**
 ```bash
 # Load only employee information tools
-npx ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information
+npx @ibm/ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information
 
 # Load multiple toolsets
-npx ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information,salary_analysis
+npx @ibm/ibmi-mcp-server --tools tools/sample/employee-info.yaml --toolsets employee_information,salary_analysis
 
 # Load entire directory (all sample tools)
-npx ibmi-mcp-server --tools tools/sample
+npx @ibm/ibmi-mcp-server --tools tools/sample
 ```
 
 ---

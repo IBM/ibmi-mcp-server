@@ -84,7 +84,7 @@ const makeSampleConfig = (withDefault = true) => ({
       port: 8076,
       user: "devuser",
       password: undefined,
-      access: "write" as const,
+      readOnly: false,
       confirm: false,
       timeout: 60,
       maxRows: 5000,
@@ -146,10 +146,6 @@ describe("ibmi system command — registration", () => {
     expect(add?.options.find((o) => o.long === "--user")).toBeDefined();
     expect(add?.options.find((o) => o.long === "--password")).toBeDefined();
     expect(add?.options.find((o) => o.long === "--description")).toBeDefined();
-    expect(add?.options.find((o) => o.long === "--access")).toBeDefined();
-    expect(add?.options.find((o) => o.long === "--access")?.flags).toContain(
-      "<mode>",
-    );
     expect(add?.options.find((o) => o.long === "--read-only")).toBeDefined();
     expect(add?.options.find((o) => o.long === "--default-schema")).toBeDefined();
   });
@@ -225,7 +221,6 @@ describe("ibmi system list", () => {
     expect(output).toContain("USER");
     expect(output).toContain("PORT");
     expect(output).toContain("ACCESS");
-    expect(output).not.toContain("READ_ONLY");
     expect(output).toContain("DEFAULT");
     expect(output).toContain("prod");
     expect(output).toContain("prod.example.com");
@@ -270,31 +265,13 @@ describe("ibmi system list", () => {
     expect(devRow.DEFAULT).toBe("");
   });
 
-  it("should render the ACCESS column from access, legacy readOnly, or '-' for no ceiling", async () => {
-    const base = {
-      port: 8076,
-      confirm: false,
-      timeout: 60,
-      maxRows: 5000,
-      ignoreUnauthorized: true,
-    };
+  it("should render the access ceiling (readOnly: true caps at read)", async () => {
+    const config = makeSampleConfig();
     mockLoadConfig.mockReturnValue({
+      ...config,
       systems: {
-        plain: { ...base, host: "a.example.com", user: "A" },
-        writer: { ...base, host: "b.example.com", user: "B", access: "write" },
-        caller: {
-          ...base,
-          host: "c.example.com",
-          user: "C",
-          access: "read-call",
-        },
-        legacy: { ...base, host: "d.example.com", user: "D", readOnly: true },
-        legacyWriter: {
-          ...base,
-          host: "e.example.com",
-          user: "E",
-          readOnly: false,
-        },
+        ...config.systems,
+        test: { ...config.systems.dev, access: "read-call" as const },
       },
     });
 
@@ -305,14 +282,18 @@ describe("ibmi system list", () => {
     });
 
     const parsed = JSON.parse(output);
-    const row = (name: string) =>
-      parsed.data.find((r: Record<string, unknown>) => r.NAME === name);
-    expect(row("plain").ACCESS).toBe("-");
-    expect(row("writer").ACCESS).toBe("write");
-    expect(row("caller").ACCESS).toBe("read-call");
-    expect(row("legacy").ACCESS).toBe("read");
-    expect(row("legacyWriter").ACCESS).toBe("write");
-    expect(row("plain").READ_ONLY).toBeUndefined();
+    const prodRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "prod",
+    );
+    const devRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "dev",
+    );
+    const testRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "test",
+    );
+    expect(prodRow.ACCESS).toBe("read");
+    expect(devRow.ACCESS).toBe("-");
+    expect(testRow.ACCESS).toBe("read-call");
   });
 });
 
@@ -341,6 +322,50 @@ describe("ibmi system show", () => {
     expect(output).toContain("port");
   });
 
+  it("should show the access ceiling and forbidden keywords", async () => {
+    const config = makeSampleConfig();
+    mockLoadConfig.mockReturnValue({
+      ...config,
+      systems: {
+        ...config.systems,
+        dev: {
+          ...config.systems.dev,
+          access: "read-call" as const,
+          forbiddenKeywords: ["QSYS2.HTTP_*", "SYSTOOLS.*"],
+        },
+      },
+    });
+
+    const rows = async (name: string) => {
+      const output = await captureStdout(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync([
+          "node",
+          "ibmi",
+          "system",
+          "show",
+          name,
+          "--format",
+          "json",
+        ]);
+      });
+      return Object.fromEntries(
+        JSON.parse(output).data.map((r: Record<string, string>) => [
+          r.PROPERTY,
+          r.VALUE,
+        ]),
+      );
+    };
+
+    const dev = await rows("dev");
+    expect(dev.access).toBe("read-call");
+    expect(dev.forbiddenKeywords).toBe("QSYS2.HTTP_*, SYSTOOLS.*");
+    const prod = await rows("prod");
+    expect(prod.access).toBe("read");
+    expect(prod.forbiddenKeywords).toBe("(none)");
+  });
+
   it("should mask password with asterisks", async () => {
     mockLoadConfig.mockReturnValue(makeSampleConfig());
 
@@ -364,68 +389,6 @@ describe("ibmi system show", () => {
     });
 
     expect(output).toContain("(not set)");
-  });
-
-  it("should show an access property row", async () => {
-    mockLoadConfig.mockReturnValue(makeSampleConfig());
-
-    const accessRowFor = async (name: string) => {
-      const output = await captureStdout(async () => {
-        const program = createProgram();
-        program.exitOverride();
-        await program.parseAsync([
-          "node",
-          "ibmi",
-          "system",
-          "show",
-          name,
-          "--format",
-          "json",
-        ]);
-      });
-      return JSON.parse(output).data.find(
-        (r: Record<string, unknown>) => r.PROPERTY === "access",
-      );
-    };
-
-    // prod uses legacy readOnly: true → read; dev declares access: write
-    expect((await accessRowFor("prod"))?.VALUE).toBe("read");
-    expect((await accessRowFor("dev"))?.VALUE).toBe("write");
-  });
-
-  it("should show '(no ceiling)' for a system without access or readOnly", async () => {
-    mockLoadConfig.mockReturnValue({
-      systems: {
-        plain: {
-          host: "a.example.com",
-          port: 8076,
-          user: "A",
-          confirm: false,
-          timeout: 60,
-          maxRows: 5000,
-          ignoreUnauthorized: true,
-        },
-      },
-    });
-
-    const output = await captureStdout(async () => {
-      const program = createProgram();
-      program.exitOverride();
-      await program.parseAsync([
-        "node",
-        "ibmi",
-        "system",
-        "show",
-        "plain",
-        "--format",
-        "json",
-      ]);
-    });
-
-    const accessRow = JSON.parse(output).data.find(
-      (r: Record<string, unknown>) => r.PROPERTY === "access",
-    );
-    expect(accessRow?.VALUE).toBe("(no ceiling)");
   });
 
   it("should indicate which system is the default", async () => {
@@ -544,13 +507,11 @@ describe("ibmi system add", () => {
     expect(sysConfig.port).toBe(9000);
     expect(sysConfig.password).toBe("mypass");
     expect(sysConfig.description).toBe("My dev system");
-    expect(sysConfig.access).toBe("read");
-    expect(sysConfig.readOnly).toBeUndefined();
+    expect(sysConfig.readOnly).toBe(true);
     expect(sysConfig.defaultSchema).toBe("DEVLIB");
   });
 
-  /** Run `system add mydev --host ... --user ...` with extra flags; return the stored config. */
-  async function addSystemWith(...extraFlags: string[]) {
+  it("should save --access as the system's ceiling", async () => {
     await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
@@ -564,38 +525,19 @@ describe("ibmi system add", () => {
         "mydev.example.com",
         "--user",
         "admin",
-        ...extraFlags,
+        "--access",
+        "read-call",
         "--format",
         "json",
       ]);
     });
-    expect(mockUpsertSystem).toHaveBeenCalledOnce();
-    return mockUpsertSystem.mock.calls[0]![1];
-  }
 
-  it("should persist no access ceiling when no access flag is given", async () => {
-    const sysConfig = await addSystemWith();
-    expect(sysConfig.access).toBeUndefined();
-    expect(sysConfig.readOnly).toBeUndefined();
-  });
-
-  it("should persist access: read-call for --access read-call", async () => {
-    const sysConfig = await addSystemWith("--access", "read-call");
+    const [, sysConfig] = mockUpsertSystem.mock.calls[0]!;
     expect(sysConfig.access).toBe("read-call");
+    expect(sysConfig.readOnly).toBe(false);
   });
 
-  it("should persist access: write for --access write", async () => {
-    const sysConfig = await addSystemWith("--access", "write");
-    expect(sysConfig.access).toBe("write");
-  });
-
-  it("should persist access: read for the deprecated --read-only flag", async () => {
-    const sysConfig = await addSystemWith("--read-only");
-    expect(sysConfig.access).toBe("read");
-    expect(sysConfig.readOnly).toBeUndefined();
-  });
-
-  it("should reject an invalid --access value and not call upsertSystem", async () => {
+  it("should reject an unrecognized --access value", async () => {
     const stderr = await captureStderr(async () => {
       const program = createProgram();
       program.exitOverride();
@@ -610,14 +552,15 @@ describe("ibmi system add", () => {
         "--user",
         "admin",
         "--access",
-        "admin",
+        "readonly",
         "--format",
         "table",
       ]);
     });
 
+    expect(stderr).toContain('Invalid --access value: "readonly"');
     expect(mockUpsertSystem).not.toHaveBeenCalled();
-    expect(stderr).toContain("Invalid --access value");
+    process.exitCode = undefined;
   });
 
   it("should use default port 8076 when --port is not specified", async () => {

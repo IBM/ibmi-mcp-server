@@ -161,7 +161,6 @@ Follow the echoTool pattern in `src/mcp-server/tools/echoTool/`:
 - Framework: Vitest
 - Location: `packages/server/tests/` and `packages/cli/tests/` (each mirrors its `src/` structure)
 - Prefer integration tests over mocked unit tests
-- Use `@anatine/zod-mock` for test data generation
 
 Run a single test file:
 ```bash

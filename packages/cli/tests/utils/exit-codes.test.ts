@@ -3,6 +3,7 @@ import {
   ExitCode,
   ErrorCode,
   classifyError,
+  SecurityViolationError,
 } from "../../src/utils/exit-codes";
 
 describe("ExitCode constants", () => {
@@ -36,27 +37,6 @@ describe("classifyError", () => {
 
   it("should classify read-only violations as SECURITY (exit 4)", () => {
     const result = classifyError(new Error("System is read-only. Mutation queries are not allowed."));
-    expect(result.exitCode).toBe(ExitCode.SECURITY);
-    expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
-  });
-
-  it("should classify access mode violations as SECURITY (exit 4)", () => {
-    const result = classifyError(
-      new Error(
-        "SQL not permitted in read access mode: Call statement not permitted in read mode",
-      ),
-    );
-    expect(result.exitCode).toBe(4);
-    expect(result.exitCode).toBe(ExitCode.SECURITY);
-    expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
-  });
-
-  it("should classify a lowered access mode error as SECURITY", () => {
-    const result = classifyError(
-      new Error(
-        "Requested access mode 'write' but IBMI_EXECUTE_SQL_ACCESS=read in the environment caps execute_sql at 'read'.",
-      ),
-    );
     expect(result.exitCode).toBe(ExitCode.SECURITY);
     expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
   });
@@ -115,5 +95,45 @@ describe("classifyError", () => {
     const msg = "A very specific error message";
     const result = classifyError(new Error(msg));
     expect(result.message).toBe(msg);
+  });
+});
+
+describe("classifyError: execute_sql guardrails", () => {
+  /** Shape of the server's guardrail McpError. */
+  function guardrailError(rule: string, message: string): Error {
+    return Object.assign(new Error(message), {
+      code: -32007,
+      details: { access: "read", rule, offending: "X", lowestMode: "write" },
+    });
+  }
+
+  it("classifies a guardrail rejection as SECURITY by type, not message", () => {
+    // "AUTHORITY" would otherwise match the auth pattern
+    const result = classifyError(
+      guardrailError(
+        "forbidden-keyword",
+        'execute_sql read guardrail rejected the statement: "AUTHORITY_COLLECTION" matches forbidden keyword pattern "AUTH*"',
+      ),
+    );
+    expect(result.exitCode).toBe(ExitCode.SECURITY);
+    expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
+  });
+
+  it("classifies an unverifiable rejection as SECURITY", () => {
+    // Not run: PARSE_STATEMENT returned no rows (e.g. `SELECT 1; DROP ...`)
+    const result = classifyError(
+      guardrailError(
+        "unverifiable",
+        "execute_sql read guardrail rejected the statement: QSYS2.PARSE_STATEMENT returned no rows, so it could not be verified (a syntax error, more than one statement, or no referenced objects). Only the write guardrail mode skips this check.",
+      ),
+    );
+    expect(result.exitCode).toBe(ExitCode.SECURITY);
+  });
+
+  it("classifies a SecurityViolationError as SECURITY", () => {
+    const result = classifyError(
+      new SecurityViolationError("Guardrail mode 'write' is above the ceiling"),
+    );
+    expect(result.exitCode).toBe(ExitCode.SECURITY);
   });
 });
