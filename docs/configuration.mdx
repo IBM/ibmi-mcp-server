@@ -671,9 +671,15 @@ naming: system           # env wins
 date format: iso         # YAML only, preserved
 ```
 
+#### JDBC `access` Option for Built-in Tools
+
+The connection pool shared by `execute_sql` and the other built-in tools sets the JDBC `access` option from the [execute_sql guardrail mode](#execute-sql-guardrails): `read call` for `read` and `read-call`, `all` for `write`. An `access=` value in `DB2i_JDBC_OPTIONS` overrides this, and the server logs a warning when the two differ. YAML source pools use only the `jdbc-options` you configure.
+
+The `access` option is checked by the JDBC driver inside the Mapepire server and looks only at the first keyword of a statement. Db2 for i does not enforce it. The IBM i user profile's authority is what limits a statement.
+
 #### Security: Log Redaction
 
-The server logs **only** the `libraries` field at pool initialization. Other JDBC fields — including potentially sensitive values like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from every log level to prevent credential leakage.
+The server logs **only** the `libraries` field at pool initialization (the built-in tools pool also logs its `access` value). Other JDBC fields — including potentially sensitive values like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from every log level to prevent credential leakage.
 
 <Note>
 If you need to verify that a non-`libraries` option took effect, inspect driver behavior directly (for example, run `SELECT CHAR(CURRENT_DATE)` to confirm `date format`) rather than searching the logs.
@@ -743,7 +749,7 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 | `get_table_columns` | Disabled by default | Get column metadata for a table | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
 | `get_related_objects` | Disabled by default | Find dependent objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
 | `validate_query` | Disabled by default | Validate SQL syntax and verify objects | `--builtin-tools` | `IBMI_ENABLE_DEFAULT_TOOLS` |
-| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL queries (readonly by default) | `--execute-sql` | `IBMI_ENABLE_EXECUTE_SQL` |
+| `execute_sql` | ⚠️ Disabled by default | Execute ad-hoc SQL behind a guardrail mode (`read` by default) | `--execute-sql` | `IBMI_ENABLE_EXECUTE_SQL` |
 
 <Tip>
 Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. Use `--builtin-tools` alone to let agents discover schema while routing queries through curated YAML tools. See the [Built-in Tools Reference](/sql-tools/built-in-tools) for complete parameter and response documentation.
@@ -755,11 +761,35 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
 |----------|-------------|---------|---------|
 | `IBMI_ENABLE_DEFAULT_TOOLS` | Enable schema discovery tools | `false` | `true`, `false` |
 | `IBMI_ENABLE_EXECUTE_SQL` | Enable ad-hoc SQL execution | `false` | `true`, `false` |
-| `IBMI_EXECUTE_SQL_READONLY` | Control readonly mode (only SELECT queries) | `true` | `true`, `false` |
+| `IBMI_EXECUTE_SQL_ACCESS` | `execute_sql` guardrail mode. A ceiling when set | `read` | `read`, `read-call`, `write` |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` | Function name patterns rejected in `read` (`*` wildcard). Empty turns the gate off | `QCMDEXC` | Comma-separated patterns |
+| `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` | Keyword and name patterns rejected in every mode (`*` wildcard) | (empty) | Comma-separated patterns |
+| `IBMI_EXECUTE_SQL_READONLY` | **Deprecated.** Used only when `IBMI_EXECUTE_SQL_ACCESS` is unset; sets the default, not a ceiling | — | `true` → `read`, `false` → `write` |
+
+### Execute SQL Guardrails
+
+`execute_sql` has three guardrails, selected with `IBMI_EXECUTE_SQL_ACCESS`:
+
+| Mode | Accepts | Rejects |
+|------|---------|---------|
+| `read` (default) | Queries (`SELECT`, `WITH`, `VALUES`) | Every other statement type, including `CALL`; data-change table references such as `FINAL TABLE (INSERT ...)`; sequence references; functions matching `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS` |
+| `read-call` | Queries and `CALL`. Functions and procedures may have side effects | `INSERT`, `UPDATE`, `DELETE`, `MERGE` (also inside `FINAL TABLE (...)`), DDL, `SET`, `COMMIT`, `ROLLBACK`, compound statements, and every other statement type |
+| `write` | Every statement | Nothing beyond the length limit and forbidden keywords |
 
 <Warning>
-**Security**: `execute_sql` allows clients to run ad-hoc SQL queries. By default (`IBMI_EXECUTE_SQL_READONLY=true`), only SELECT queries are allowed. Set `IBMI_EXECUTE_SQL_READONLY=false` to enable write operations (INSERT, UPDATE, DELETE). Enable only in development or trusted environments. Production deployments should use YAML-defined tools for controlled query access.
+**The guardrails are not the security boundary. The IBM i user profile is.** `execute_sql` runs every statement as `DB2i_USER`, and that profile's authority decides what the statement can read or change. In `read`, a function can still change data if the profile allows it. In `read-call`, so can a procedure, and `CALL QSYS2.QCMDEXC(...)` can run any CL command the profile is authorized to. Use a dedicated profile without `*ALLOBJ` that has only the authority the agent needs.
 </Warning>
+
+How the modes behave:
+
+- **Setting the mode.** When `IBMI_EXECUTE_SQL_ACCESS` is set, it is a ceiling: the `ibmi sql --access` flag and runtime configuration can lower the mode, never raise it. An unrecognized value, including an empty one, is treated as `read` with a warning on stderr. The deprecated `IBMI_EXECUTE_SQL_READONLY` is read only when `IBMI_EXECUTE_SQL_ACCESS` is unset, sets the default only, and prints a deprecation notice.
+- **Quick path and PARSE_STATEMENT.** In `read` and `read-call`, the server's built-in Db2 for i parser approves statements it can classify with certainty, such as a plain `SELECT`, without a round trip. Anything else is checked with one call to `QSYS2.PARSE_STATEMENT`, which parses the statement without running it. That call adds about 35–45 ms on an active connection and about 170–260 ms as the first statement in a new job. `write` never calls `PARSE_STATEMENT`.
+- **Rejections.** A rejected statement is not sent to IBM i. The tool returns an error (`isError: true`) naming the mode, the rule, and the lowest mode that would allow the statement.
+- **JDBC `access`.** The built-in tools pool uses `read call` in `read` and `read-call` and `all` in `write`. This is a first-keyword check in the JDBC driver, not a Db2 control. See [JDBC `access` option for built-in tools](#jdbc-access-option-for-built-in-tools).
+
+The full rules, the two optional gates, what no guardrail can see, and a least-privilege profile recipe are in the [Built-in Tools reference](/sql-tools/built-in-tools#execute-sql-guardrails).
+
+### Examples
 
 <Tabs>
   <Tab title="Full Workflow (CLI)">
@@ -780,15 +810,22 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
     **Use for**: Production with curated YAML tools + schema exploration
   </Tab>
 
-  <Tab title="Write Mode (Opt-in)">
+  <Tab title="Procedures (read-call)">
     ```bash
-    IBMI_EXECUTE_SQL_READONLY=false
+    IBMI_EXECUTE_SQL_ACCESS=read-call
     npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
     ```
 
-    **Use for**: Development when write operations are explicitly needed
+    **Use for**: Agents that must call stored procedures. Procedures run with the profile's authority, so grant `EXECUTE` only on the procedures the agent may call
+  </Tab>
 
-    ⚠️ **Warning**: Only use in trusted environments with proper authentication
+  <Tab title="Write Mode">
+    ```bash
+    IBMI_EXECUTE_SQL_ACCESS=write
+    npx -y @ibm/ibmi-mcp-server@latest --builtin-tools --execute-sql
+    ```
+
+    **Use for**: Agents that must change data. Only the profile's authority limits what a statement can do; use a profile with change authority only on the objects the agent may change
   </Tab>
 
   <Tab title="YAML Tools Only (Default)">
@@ -825,23 +862,22 @@ Use `--builtin-tools --execute-sql` together for the full text-to-SQL workflow. 
   </Accordion>
 
   <Accordion title="execute_sql (--execute-sql)" icon="code">
-    Executes ad-hoc SQL queries with multi-layered security controls:
+    Executes one ad-hoc SQL statement as `DB2i_USER`:
 
-    - **Readonly by default**: Only SELECT/QUERY statements allowed when `IBMI_EXECUTE_SQL_READONLY=true` (default)
-    - **Write operations opt-in**: Set `IBMI_EXECUTE_SQL_READONLY=false` to enable INSERT, UPDATE, DELETE, etc.
-    - **PARSE_STATEMENT validation**: Uses IBM i's native SQL parser (`QSYS2.PARSE_STATEMENT`) for authoritative statement type detection
-    - **AST/Regex validation**: Fast pattern matching to catch dangerous SQL keywords
-    - **Fail-closed security**: All validation failures result in query rejection
-    - **Query length limit**: Maximum 10,000 characters per query
+    - **Guardrail mode**: `read` (default), `read-call`, or `write`, set by `IBMI_EXECUTE_SQL_ACCESS`. See [Execute SQL Guardrails](#execute-sql-guardrails)
+    - **Checks**: the built-in Db2 for i parser approves statements it is certain about; everything else is checked with `QSYS2.PARSE_STATEMENT` (`read` and `read-call` only)
+    - **Fails closed**: a statement that cannot be verified is rejected
+    - **Length limit**: 10,000 characters per statement
+    - **Security boundary**: the `DB2i_USER` profile's authority, not the guardrail
     - **Use case**: Development exploration, debugging queries, ad-hoc data analysis
   </Accordion>
 </AccordionGroup>
 
 <Note>
 **Built-in vs YAML Tools**:
-- **Built-in tools**: Compiled TypeScript, controlled by feature flags, runtime validation with PARSE_STATEMENT
+- **Built-in tools**: Compiled TypeScript, controlled by feature flags; `execute_sql` accepts ad-hoc SQL behind a guardrail mode
 - **YAML tools**: User-defined, curated queries with parameters, explicit query control
-- **Security**: Built-in tools use IBM i's SQL parser for defense-in-depth; YAML tools use explicit query whitelisting
+- **Security**: In both cases the connecting IBM i profile's authority limits what a statement can do; YAML tools also limit which statements can run
 - **Recommendation**: Use YAML tools in production for explicit query control and parameterization
 
 See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.

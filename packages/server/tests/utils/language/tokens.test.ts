@@ -1,5 +1,6 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import SQLTokeniser from "../../../src/ibmi-mcp-server/utils/language/tokens";
+import Document from "../../../src/ibmi-mcp-server/utils/language/document";
 
 // Edit an assertion and save to see HMR in action
 
@@ -126,4 +127,117 @@ test("For in data-type (issue #315)", () => {
   expect(tokens.length).toBe(35);
   expect(tokens[9].type).toBe(`word`);
   expect(tokens[9].value?.toLowerCase()).toBe(`for`);
+});
+
+// Db2 for i lexing fidelity (verified live on IBM i 7.4). The execute_sql
+// guardrails depend on the tokenizer splitting text the way Db2 does.
+describe("Db2 for i lexing fidelity", () => {
+  const values = (sql: string) =>
+    new SQLTokeniser()
+      .tokenise(sql)
+      .filter((t) => t.type !== `newline` && t.type !== `newliner`)
+      .map((t) => t.value);
+
+  test("a block comment ends the pending word", () => {
+    expect(values(`INSERT/*x*/INTO`)).toEqual([`INSERT`, `INTO`]);
+    expect(values(`FINAL/*x*/TABLE`)).toEqual([`FINAL`, `TABLE`]);
+  });
+
+  test("block comments nest", () => {
+    expect(values(`SELECT /* a /* b */ c */ 1`)).toEqual([`SELECT`, `1`]);
+    // Unnested reading would expose QCMDEXC after the first */
+    expect(values(`SELECT 1 /* /* */ QCMDEXC( */ AS A`)).toEqual([
+      `SELECT`,
+      `1`,
+      `AS`,
+      `A`,
+    ]);
+  });
+
+  test("`/*/` only opens a comment", () => {
+    expect(values(`SELECT 1 AS A /*/ , QCMDEXC('X') AS R */ FROM T`)).toEqual([
+      `SELECT`,
+      `1`,
+      `AS`,
+      `A`,
+      `FROM`,
+      `T`,
+    ]);
+  });
+
+  test("token values after a block comment are read from the right place", () => {
+    // Matched tokens (statementType, keyword) take their value from the text
+    expect(values(`(/*x*/INSERT`)).toEqual([`(`, `INSERT`]);
+    expect(values(`NEXT VALUE/*x*/FOR S`)).toEqual([
+      `NEXT`,
+      `VALUE`,
+      `FOR`,
+      `S`,
+    ]);
+  });
+
+  test("`--` comments end at LF and NEL, not at CR", () => {
+    expect(values(`SELECT 1 -- c\u0085, QCMDEXC('X')`)).toEqual([
+      `SELECT`,
+      `1`,
+      `,`,
+      `QCMDEXC`,
+      `(`,
+      `'X'`,
+      `)`,
+    ]);
+    expect(values(`SELECT 1 -- c\r, QCMDEXC('X')`)).toEqual([`SELECT`, `1`]);
+  });
+
+  test("FF, NEL and U+3000 separate words", () => {
+    expect(values(`SELECT\fA\u0085FROM\u3000T`)).toEqual([
+      `SELECT`,
+      `A`,
+      `FROM`,
+      `T`,
+    ]);
+  });
+
+  test("a quote ends the pending word", () => {
+    expect(values(`SELECT DISTINCT"QCMDEXC"('X')`)).toEqual([
+      `SELECT`,
+      `DISTINCT`,
+      `"QCMDEXC"`,
+      `(`,
+      `'X'`,
+      `)`,
+    ]);
+    expect(values(`UPDATE"LIB"."T"`)).toEqual([`UPDATE`, `"LIB"`, `.`, `"T"`]);
+    expect(values(`WHERE A LIKE'x'`)).toEqual([`WHERE`, `A`, `LIKE`, `'x'`]);
+  });
+
+  test("a literal prefix stays part of its string", () => {
+    expect(values(`SELECT X'41', gx'00' FROM T`)).toEqual([
+      `SELECT`,
+      `X'41'`,
+      `,`,
+      `gx'00'`,
+      `FROM`,
+      `T`,
+    ]);
+  });
+
+  test("token values after a quote are read from the right place", () => {
+    // DROP becomes a matched token whose value is read back by range
+    const tokens = new SQLTokeniser().tokenise(
+      `ALTER TABLE MYLIB."T"DROP COLUMN C`,
+    );
+    expect(tokens.map((t) => t.value)).toContain(`DROP`);
+    expect(values(`SELECT 'a'FROM T`)).toEqual([`SELECT`, `'a'`, `FROM`, `T`]);
+  });
+
+  test("a lone CR separates words and leaves no token in a statement", () => {
+    const statement = new Document(`SELECT\rA\rFROM T`).statements[0]!;
+    expect(statement.tokens.map((t) => t.value)).toEqual([
+      `SELECT`,
+      `A`,
+      `FROM`,
+      `T`,
+    ]);
+  });
 });

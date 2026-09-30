@@ -15,6 +15,10 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
 import {
+  parseExecuteSqlAccess,
+  type ExecuteSqlAccess,
+} from "@/ibmi-mcp-server/services/executeSqlAccessLevels.js";
+import {
   DEFAULT_MAPEPIRE_PORT,
   MapepirePortEnvSchema,
 } from "@/ibmi-mcp-server/schemas/common.js";
@@ -361,12 +365,52 @@ const EnvSchema = z.object({
     .default("false")
     .transform((val) => val === "true"),
 
-  /** Control readonly mode for execute_sql tool. When true (default), only SELECT queries are allowed. */
+  /**
+   * Guardrail mode for execute_sql: `read` (default), `read-call` or `write`.
+   * When set it is a ceiling that runtime configuration can only lower.
+   * An unrecognized value fails closed to `read` with a stderr warning (a
+   * strict enum would fail whole-env validation and reset unrelated settings).
+   * `undefined` means the variable is not set.
+   */
+  IBMI_EXECUTE_SQL_ACCESS: z
+    .string()
+    .optional()
+    .transform((val): ExecuteSqlAccess | undefined => {
+      if (val === undefined) return undefined;
+      const access = parseExecuteSqlAccess(val);
+      if (access) return access;
+      console.error(
+        `[config] Unrecognized IBMI_EXECUTE_SQL_ACCESS="${val}" (expected read, read-call or write); using "read"`,
+      );
+      return "read";
+    }),
+
+  /**
+   * @deprecated Use IBMI_EXECUTE_SQL_ACCESS. `false`/`0` seeds `write`, any
+   * other value seeds `read`. Only a default, never a ceiling; ignored when
+   * IBMI_EXECUTE_SQL_ACCESS is set.
+   */
   IBMI_EXECUTE_SQL_READONLY: z
     .string()
     .optional()
-    .default("true")
-    .transform((val) => val === "true" || val === "1"),
+    .transform((val): boolean | undefined => {
+      if (val === undefined) return undefined;
+      const v = val.trim().toLowerCase();
+      return !(v === "false" || v === "0");
+    }),
+
+  /**
+   * Comma-separated function name patterns (`*` wildcard, case-insensitive)
+   * that execute_sql rejects in `read` mode. Unset → `QCMDEXC`; an explicitly
+   * empty value disables the gate.
+   */
+  IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS: z.string().optional(),
+
+  /**
+   * Comma-separated keyword/identifier patterns (`*` wildcard,
+   * case-insensitive) that execute_sql rejects in every mode. Default: none.
+   */
+  IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS: z.string().optional(),
 
   /** Enable built-in default tools for text-to-SQL workflows (list_schemas, list_tables_in_schema, get_table_columns, validate_query). */
   IBMI_ENABLE_DEFAULT_TOOLS: z
@@ -541,6 +585,35 @@ if (!validatedLogsPath) {
       `Warning: Could not create logs directory at '${env.LOGS_DIR}'. File logging will be disabled.`,
     );
   }
+}
+
+/**
+ * Resolve the execute_sql guardrail mode default: `IBMI_EXECUTE_SQL_ACCESS`,
+ * else the deprecated `IBMI_EXECUTE_SQL_READONLY` (with a stderr notice),
+ * else `read`.
+ */
+function resolveExecuteSqlAccessDefault(
+  access: ExecuteSqlAccess | undefined,
+  legacyReadOnly: boolean | undefined,
+): ExecuteSqlAccess {
+  if (legacyReadOnly !== undefined) {
+    const mapped: ExecuteSqlAccess = legacyReadOnly ? "read" : "write";
+    console.error(
+      access !== undefined
+        ? "[config] IBMI_EXECUTE_SQL_READONLY is deprecated and ignored because IBMI_EXECUTE_SQL_ACCESS is set; remove it"
+        : `[config] IBMI_EXECUTE_SQL_READONLY is deprecated; use IBMI_EXECUTE_SQL_ACCESS=${mapped} instead`,
+    );
+    return access ?? mapped;
+  }
+  return access ?? "read";
+}
+
+/** Split a comma-separated pattern list, dropping empty entries. */
+function parsePatternList(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -735,7 +808,21 @@ export const config = {
     .map((ts) => ts.trim())
     .filter(Boolean) as string[] | undefined,
   ibmi_enableExecuteSql: env.IBMI_ENABLE_EXECUTE_SQL,
-  ibmi_executeSqlReadonly: env.IBMI_EXECUTE_SQL_READONLY,
+  /** execute_sql guardrail mode default (see resolveExecuteSqlAccessDefault). */
+  ibmi_executeSqlAccess: resolveExecuteSqlAccessDefault(
+    env.IBMI_EXECUTE_SQL_ACCESS,
+    env.IBMI_EXECUTE_SQL_READONLY,
+  ),
+  /** execute_sql mode ceiling: `IBMI_EXECUTE_SQL_ACCESS` when set. */
+  ibmi_executeSqlAccessCeiling: env.IBMI_EXECUTE_SQL_ACCESS,
+  /** Function patterns rejected in `read`. From `IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS`. */
+  ibmi_executeSqlForbiddenFunctions: parsePatternList(
+    env.IBMI_EXECUTE_SQL_FORBIDDEN_FUNCTIONS ?? "QCMDEXC",
+  ),
+  /** Keyword patterns rejected in every mode. From `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS`. */
+  ibmi_executeSqlForbiddenKeywords: parsePatternList(
+    env.IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS ?? "",
+  ),
   ibmi_enableDefaultTools: env.IBMI_ENABLE_DEFAULT_TOOLS,
 
   /** Rate limiting configuration for HTTP transport. From `MCP_RATE_LIMIT_*` environment variables. */

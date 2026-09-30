@@ -11,6 +11,21 @@ export {
   configureExecuteSqlTool,
 } from "../ibmi-mcp-server/tools/executeSql.tool.js";
 export {
+  EXECUTE_SQL_ACCESS_LEVELS,
+  EXECUTE_SQL_ACCESS_ENV,
+  getExecuteSqlAccessCeiling,
+  jdbcAccessFor,
+  minAccess,
+  type ExecuteSqlAccess,
+} from "../ibmi-mcp-server/services/executeSqlAccess.js";
+export {
+  enforceExecuteSqlGuardrails,
+  stripStatementTerminator,
+  type ExecuteSqlGuardrailOptions,
+  type GuardrailPath,
+  type ParseStatementExecutor,
+} from "../ibmi-mcp-server/utils/security/executeSqlGuardrail.js";
+export {
   generateSqlTool,
   OBJECT_TYPES,
 } from "../ibmi-mcp-server/tools/generateSql.tool.js";

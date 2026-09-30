@@ -333,6 +333,10 @@ export DB2i_JDBC_OPTIONS='naming=system;date format=iso;libraries=AUDITLIB,QGPL'
 
 See the [Configuration Reference → DB2i_JDBC_OPTIONS](/configuration#db2i-jdbc-options-env-var) for the full syntax and parser rules.
 
+<Note>
+**The execute_sql guardrail mode does not apply to YAML sources.** The server derives the JDBC `access` option from `IBMI_EXECUTE_SQL_ACCESS` only for the pool shared by `execute_sql` and the built-in tools. Pools created from YAML sources use the `jdbc-options` you configure. See [Execute SQL Guardrails](/configuration#execute-sql-guardrails).
+</Note>
+
 ### Security: Credential Logging
 
 The server logs only the `libraries` field of `jdbc-options` at pool initialization. All other JDBC fields — including potentially sensitive ones like `key ring password`, `proxy server`, and `trace` — are **intentionally excluded** from logs to prevent credential leakage.

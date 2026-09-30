@@ -3,6 +3,8 @@
  * @module cli/config/types
  */
 
+import type { ExecuteSqlAccess } from "@ibm/ibmi-mcp-server/tools";
+
 /** Connection configuration for a single IBM i system. */
 export interface SystemConfig {
   /** Human-readable description of this system. */
@@ -17,8 +19,22 @@ export interface SystemConfig {
   password?: string;
   /** Default schema/library for queries. */
   defaultSchema?: string;
-  /** Block mutation queries (INSERT, UPDATE, DELETE, DROP). */
+  /**
+   * Ceiling for the `ibmi sql` guardrail mode on this system: `--access`
+   * (default `read`) can be lowered by it, never raised. Unset: no ceiling.
+   */
+  access?: ExecuteSqlAccess;
+  /**
+   * @deprecated for `ibmi sql`: use `access: read` (`true` caps it at read).
+   * `ibmi tool` still uses it to force read-only validation.
+   */
   readOnly: boolean;
+  /**
+   * Keyword/identifier patterns (`*` wildcard, case-insensitive) `ibmi sql`
+   * rejects in every guardrail mode, added to
+   * IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS.
+   */
+  forbiddenKeywords?: string[];
   /** Require interactive confirmation before executing queries. */
   confirm: boolean;
   /** Query execution timeout in seconds. */
