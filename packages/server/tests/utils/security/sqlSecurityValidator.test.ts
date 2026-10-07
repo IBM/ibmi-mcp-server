@@ -327,6 +327,26 @@ describe("SqlSecurityValidator", () => {
       ).toThrow(McpError);
     });
 
+    it.each([
+      `SELECT QSYS2."QCMDEXC"('DLYJOB DLY(1)') AS RC FROM SYSIBM.SYSDUMMY1`,
+      `SELECT "QSYS2"."QCMDEXC" ('DLYJOB DLY(1)') AS RC FROM SYSIBM.SYSDUMMY1`,
+      `SELECT * FROM SYSIBM.SYSDUMMY1 WHERE 1 = (SELECT "QCMDEXC"('DLYJOB DLY(1)') FROM SYSIBM.SYSDUMMY1)`,
+    ])("should reject QCMDEXC as a delimited identifier: %s", (payload) => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(payload, readOnlyConfig, context),
+      ).toThrow(/QCMDEXC/);
+    });
+
+    it("should allow a delimited column name that matches a dangerous keyword", () => {
+      expect(() =>
+        SqlSecurityValidator.validateQuery(
+          `SELECT "QCMDEXC", "Set" FROM MYLIB.T`,
+          readOnlyConfig,
+          context,
+        ),
+      ).not.toThrow();
+    });
+
     it("should still allow legitimate QSYS2 table/view references inside SELECT", () => {
       // QSYS2 schema references in FROM are fine; only the QCMDEXC *function call* is forbidden
       expect(() =>
@@ -348,8 +368,6 @@ describe("SqlSecurityValidator", () => {
       ).not.toThrow();
     });
   });
-
-
 
   describe("Read-Only Mode - Multi-Statement Queries", () => {
     const readOnlyConfig = { readOnly: true };
