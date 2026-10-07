@@ -8,7 +8,10 @@
 import { logger } from "@/utils/internal/logger.js";
 import { RequestContext } from "@/utils/internal/requestContext.js";
 import Document from "@/ibmi-mcp-server/utils/language/document.js";
-import { StatementType, Token } from "@/ibmi-mcp-server/utils/language/types.js";
+import {
+  StatementType,
+  Token,
+} from "@/ibmi-mcp-server/utils/language/types.js";
 import { DANGEROUS_OPERATIONS } from "./sqlSecurityValidator.js";
 
 /**
@@ -147,13 +150,25 @@ export class IbmiSqlParser {
     tokens: Token[],
     dangerousSet: Set<string>,
   ): string | undefined {
-    for (const token of tokens) {
+    for (const [i, token] of tokens.entries()) {
       if (
         token.type === "function" &&
         token.value &&
         dangerousSet.has(token.value.toUpperCase())
       ) {
         return token.value.toUpperCase();
+      }
+
+      // The tokeniser only marks unquoted words as "function", so a delimited
+      // name such as QSYS2."QCMDEXC"(...) arrives as sqlName + openbracket.
+      // Delimited identifiers are case-sensitive, so compare without folding.
+      if (
+        token.type === "sqlName" &&
+        token.value &&
+        tokens[i + 1]?.type === "openbracket"
+      ) {
+        const name = token.value.slice(1, -1);
+        if (dangerousSet.has(name)) return name;
       }
 
       // Recurse into parenthesised blocks (type "block") so nested calls are caught
