@@ -76,10 +76,31 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 |--------|-------------|---------|
 | `--file <path>` | Read SQL from a file | — |
 | `--limit <n>` | Max rows returned | system `maxRows` (5000) |
-| `--read-only` / `--no-read-only` | Enforce or disable read-only mode | `--read-only` |
+| `--access <mode>` | Guardrail mode: `read`, `read-call`, or `write` | `read` |
+| `--read-only` / `--no-read-only` | Deprecated. Same as `--access read` / `--access write`, with a notice on stderr | — |
 | `--dry-run` | Print SQL without executing (no connection needed) | — |
 
 SQL source priority: positional argument > `--file` > piped stdin.
+
+#### Guardrails
+
+`ibmi sql` has three guardrails, the same as the MCP server's `execute_sql` tool:
+
+| Mode | Accepts |
+|------|---------|
+| `read` (default) | Queries (`SELECT`, `WITH`, `VALUES`) without data-change table references (`FINAL TABLE (INSERT ...)`), sequence references, or forbidden functions (default `QCMDEXC`) |
+| `read-call` | Queries and `CALL`. Functions and procedures may have side effects; `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL, and other statement types are rejected |
+| `write` | Every statement |
+
+**The guardrails are not the security boundary. The IBM i user profile is.** The statement runs as the system's `user`, and that profile's authority decides what it can read or change. A function can change data in `read`, and a procedure in `read-call`, if the profile allows it. Use a profile with only the authority you want an agent to have.
+
+- A system's `access` in the config file is a ceiling, never a default: `--access` above it stops with exit code `4`.
+- `IBMI_EXECUTE_SQL_ACCESS`, when set in your shell or in a `.env` file in the current or parent directory, is also a ceiling: `--access` above it stops with exit code `4` and a message naming the variable.
+- A system's `forbiddenKeywords` and `IBMI_EXECUTE_SQL_FORBIDDEN_KEYWORDS` are rejected in every mode, including `write`.
+- In `read` and `read-call`, a statement the built-in parser cannot approve on its own is checked with one `QSYS2.PARSE_STATEMENT` call on the target system (about 170–260 ms, since each run starts a new job). `write` never calls it.
+- A rejected statement is not sent to IBM i and exits with code `4`.
+
+Full rules: [Execute SQL guardrails](https://ibm-d95bab6e.mintlify.app/sql-tools/built-in-tools#execute-sql-guardrails).
 
 #### Multi-system execution
 
@@ -92,6 +113,8 @@ ibmi sql "SELECT * FROM QSYS2.SYSTEM_STATUS_INFO" --system dev,prod --stream
 ```
 
 Each row includes a `SYSTEM` column. JSON output includes a `systems` array with per-system row counts, timing, and errors. If one system is unreachable, its results appear as an error row without affecting the others. `--watch` is not supported with multiple systems.
+
+Every system runs the same guardrails in the same mode. `--access` must be at or below each target system's `access`. The row limit is applied before the check, each system's `forbiddenKeywords` apply to it, `PARSE_STATEMENT` runs on each system when needed, and systems with `confirm: true` prompt before anything runs.
 
 ### `ibmi describe <objects>` — Generate DDL
 
@@ -146,6 +169,7 @@ ibmi toolsets --tools ../tools/
 ibmi system list                          # list all configured systems
 ibmi system show dev                      # show system details
 ibmi system add dev --host h --user u     # add (prompts for missing fields)
+ibmi system add prod --host h --user u --access read   # cap ibmi sql at read on prod
 ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity (live)
@@ -223,7 +247,6 @@ systems:
     port: 8076
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
-    readOnly: false
     confirm: false
     timeout: 60
     maxRows: 5000
@@ -233,7 +256,8 @@ systems:
     port: 8076
     user: ${PROD_USER}
     password: ${PROD_PASS}
-    readOnly: true
+    access: read                      # ceiling for ibmi sql on this system
+    forbiddenKeywords: [DROP, TRUNCATE]
     confirm: true
 ```
 
@@ -316,7 +340,7 @@ MYLIB,USER
 | `1` | GENERAL | Connection failure, unexpected error |
 | `2` | USAGE | Invalid arguments or missing options |
 | `3` | QUERY | SQL execution error |
-| `4` | SECURITY | Read-only violation, forbidden operation |
+| `4` | SECURITY | Statement rejected by a guardrail or security check, or `ibmi sql --access` above a ceiling (a system's `access` or `IBMI_EXECUTE_SQL_ACCESS`) |
 | `5` | AUTH | Authentication failure |
 
 ---
