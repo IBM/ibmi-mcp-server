@@ -71,12 +71,32 @@ class TestConnectionPool extends BaseConnectionPool<string> {
     query: string,
     params?: unknown[],
     context?: Record<string, unknown>,
+    queryTimeoutMs?: number,
   ) {
     return this.executeQuery(
       poolId,
       query,
       params as never,
       context as never,
+      undefined,
+      undefined,
+      queryTimeoutMs,
+    );
+  }
+
+  async testExecuteQueryWithPagination(
+    poolId: string,
+    query: string,
+    queryTimeoutMs?: number,
+  ) {
+    return this.executeQueryWithPagination(
+      poolId,
+      query,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      queryTimeoutMs,
     );
   }
 
@@ -265,6 +285,112 @@ describe("BaseConnectionPool – Query Timeout", () => {
     // Pool constructor should have been called twice (init + re-init)
     expect(MockPool).toHaveBeenCalledTimes(2);
     expect(mockPoolInstance.init).toHaveBeenCalledTimes(2);
+  });
+
+  it("1.7 – per-tool queryTimeoutMs longer than global lets the query run past the global limit", async () => {
+    let resolveQuery!: (value: typeof SUCCESSFUL_RESULT) => void;
+    mockQueryInstance.execute.mockReturnValue(
+      new Promise((resolve) => {
+        resolveQuery = resolve;
+      }),
+    );
+
+    const queryPromise = pool.testExecuteQuery(
+      "test",
+      "SELECT SLOW()",
+      undefined,
+      undefined,
+      5_000,
+    );
+
+    // Past the global 1s timeout — still running under the 5s tool timeout
+    await vi.advanceTimersByTimeAsync(2_000);
+    resolveQuery(SUCCESSFUL_RESULT);
+
+    const result = await queryPromise;
+    expect(result.success).toBe(true);
+    expect(mockPoolInstance.end).not.toHaveBeenCalled();
+  });
+
+  it("1.8 – per-tool queryTimeoutMs fires at its own limit", async () => {
+    mockQueryInstance.execute.mockReturnValue(new Promise(() => {}));
+
+    const queryPromise = pool.testExecuteQuery(
+      "test",
+      "SELECT SLOW()",
+      undefined,
+      undefined,
+      5_000,
+    );
+    const assertion = expect(queryPromise).rejects.toThrow(
+      /timed out after 5000ms/i,
+    );
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    await assertion;
+    expect(mockPoolInstance.end).toHaveBeenCalled();
+  });
+
+  it("1.9 – per-tool queryTimeoutMs shorter than global fires first", async () => {
+    mockQueryInstance.execute.mockReturnValue(new Promise(() => {}));
+
+    const queryPromise = pool.testExecuteQuery(
+      "test",
+      "SELECT SLOW()",
+      undefined,
+      undefined,
+      200,
+    );
+    const assertion = expect(queryPromise).rejects.toThrow(
+      /timed out after 200ms/i,
+    );
+
+    await vi.advanceTimersByTimeAsync(201);
+    await assertion;
+  });
+
+  it("1.10 – per-tool queryTimeoutMs=0 disables the timeout even when global is set", async () => {
+    let resolveQuery!: (value: typeof SUCCESSFUL_RESULT) => void;
+    mockQueryInstance.execute.mockReturnValue(
+      new Promise((resolve) => {
+        resolveQuery = resolve;
+      }),
+    );
+
+    const queryPromise = pool.testExecuteQuery(
+      "test",
+      "SELECT SLOW()",
+      undefined,
+      undefined,
+      0,
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    resolveQuery(SUCCESSFUL_RESULT);
+
+    const result = await queryPromise;
+    expect(result.success).toBe(true);
+    expect(mockPoolInstance.end).not.toHaveBeenCalled();
+  });
+
+  it("1.11 – pagination path honors per-tool queryTimeoutMs on the initial execute", async () => {
+    mockQueryInstance.execute.mockReturnValue(new Promise(() => {}));
+
+    const queryPromise = pool.testExecuteQueryWithPagination(
+      "test",
+      "SELECT SLOW()",
+      3_000,
+    );
+    const assertion = expect(queryPromise).rejects.toThrow(
+      /timed out after 3000ms/i,
+    );
+
+    // Global 1s would have fired here; the tool timeout has not
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(mockPoolInstance.end).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_501);
+    await assertion;
   });
 });
 

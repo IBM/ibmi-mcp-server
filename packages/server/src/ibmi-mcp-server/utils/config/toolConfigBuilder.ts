@@ -417,6 +417,7 @@ export class ToolConfigBuilder {
             config.security,
             config.rowsToFetch,
             config.fetchAllRows,
+            config.queryTimeoutMs,
           );
 
           const simplifiedColumns = (result.columns ?? []).map(
