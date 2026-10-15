@@ -873,6 +873,7 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 |----------|-------------|---------|---------|
 | `MCP_LOG_LEVEL` | Logging verbosity level | `info` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
 | `LOGS_DIR` | Directory for log files | `~/.ibmi-mcp-server/logs` | Any absolute, relative, or `~/` path |
+| `MCP_LOG_TO_FILE` | Write logs to rotating files in `LOGS_DIR` | `true` | `false` to log to the console only |
 | `NO_COLOR` | Disable colored console output | (none) | `1` to disable colors |
 | `FORCE_COLOR` | Force disable colored output | (none) | `0` to disable colors |
 
@@ -887,6 +888,14 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 </Info>
 
 #### Log Directory Configuration
+
+<Note>
+Set `MCP_LOG_TO_FILE=false` to skip file logging entirely. Logs then go only to
+stderr as JSON, which is what you want when the platform already collects
+stderr (ECS `awslogs`, Docker, Kubernetes, systemd) or when the container has no
+writable log directory. `LOGS_DIR` is ignored in that case, and nothing is
+created on disk.
+</Note>
 
 **Where logs are stored depends on how you specify the path:**
 
