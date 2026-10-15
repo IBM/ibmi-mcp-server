@@ -444,6 +444,18 @@ if (!parsedEnv.success) {
       parsedEnv.error.flatten().fieldErrors,
     );
   }
+
+  // Falling back to defaults also resets MCP_AUTH_MODE to "none", which would
+  // silently disable authentication. When any auth mode was requested, refuse
+  // to start instead of running unauthenticated.
+  const requestedAuthMode = process.env.MCP_AUTH_MODE?.trim();
+  if (requestedAuthMode && requestedAuthMode !== "none") {
+    throw new Error(
+      `Invalid environment variables with MCP_AUTH_MODE=${requestedAuthMode}: ${parsedEnv.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; ")}`,
+    );
+  }
 }
 
 const env = parsedEnv.success ? parsedEnv.data : EnvSchema.parse({});
