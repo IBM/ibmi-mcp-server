@@ -7,11 +7,13 @@ const mockExecuteQuery = vi.fn();
 const mockCloseAllSources = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@ibm/ibmi-mcp-server/services", () => ({
-  SourceManager: vi.fn().mockImplementation(() => ({
-    registerSource: mockRegisterSource,
-    executeQuery: mockExecuteQuery,
-    closeAllSources: mockCloseAllSources,
-  })),
+  SourceManager: vi.fn().mockImplementation(function () {
+    return {
+      registerSource: mockRegisterSource,
+      executeQuery: mockExecuteQuery,
+      closeAllSources: mockCloseAllSources,
+    };
+  }),
 }));
 
 vi.mock("../../src/config/credentials.js", () => ({
