@@ -207,7 +207,7 @@ lomond==0.3.3
     # via ibm-watsonx-ai
 lxml==6.1.1
     # via duckduckgo-search
-mako==1.4.1
+mako==1.4.2
     # via
     #   alembic
     #   mcp-contextforge-gateway
