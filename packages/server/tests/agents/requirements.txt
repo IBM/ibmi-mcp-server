@@ -44,7 +44,7 @@ beartype==0.22.9
     # via py-key-value-aio
 blessed==1.48.0
     # via inquirer
-brotli==1.2.0
+brotli==1.2.1
     # via
     #   mcp-contextforge-gateway
     #   starlette-compress
