@@ -29,7 +29,9 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
     return {
       mockPoolInstance,
       mockQueryInstance,
-      MockPool: vi.fn(() => mockPoolInstance),
+      MockPool: vi.fn(function () {
+        return mockPoolInstance;
+      }),
       mockGetRootCert: vi.fn().mockResolvedValue("cert"),
     };
   });

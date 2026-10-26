@@ -15,11 +15,13 @@ const mockSpanProcessor = {
 };
 
 vi.mock("@opentelemetry/sdk-node", () => {
-  const NodeSDK = vi.fn(() => ({
-    start: vi.fn(),
-    shutdown: vi.fn().mockResolvedValue(undefined),
-    spanProcessors: [mockSpanProcessor],
-  }));
+  const NodeSDK = vi.fn(function () {
+    return {
+      start: vi.fn(),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+      spanProcessors: [mockSpanProcessor],
+    };
+  });
   return { NodeSDK };
 });
 

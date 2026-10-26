@@ -236,7 +236,7 @@ msgpack==1.2.1
     # via mcp-contextforge-gateway
 numpy==2.5.2
     # via pandas
-oauthlib==3.3.1
+oauthlib==4.0.0
     # via requests-oauthlib
 ollama==0.6.2
     # via agents (pyproject.toml)
@@ -312,7 +312,7 @@ pygments==2.20.0
     # via
     #   rich
     #   rich-rst
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via
     #   mcp
     #   mcp-contextforge-gateway
@@ -427,6 +427,8 @@ typing-extensions==4.16.0
     #   agno
     #   alembic
     #   anthropic
+    #   anyio
+    #   exceptiongroup
     #   fastapi
     #   fastmcp-slim
     #   mcp
@@ -436,7 +438,9 @@ typing-extensions==4.16.0
     #   pydantic
     #   pydantic-core
     #   pygithub
+    #   referencing
     #   sqlalchemy
+    #   starlette
     #   typing-inspection
 typing-inspection==0.4.3
     # via
@@ -448,7 +452,7 @@ tzdata==2026.3
     # via pandas
 uncalled-for==0.4.0
     # via fastmcp-slim
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   ibm-cos-sdk-core
     #   ibm-watsonx-ai
