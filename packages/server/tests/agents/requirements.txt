@@ -105,7 +105,7 @@ fastapi==0.141.1
     # via
     #   cpex
     #   mcp-contextforge-gateway
-fastmcp==3.4.7
+fastmcp==3.4.10
     # via agno
 fastmcp-slim==3.4.7
     # via fastmcp
