@@ -244,7 +244,7 @@ openai==2.53.0
     # via agents (pyproject.toml)
 openapi-pydantic==0.5.1
     # via fastmcp-slim
-opentelemetry-api==1.44.0
+opentelemetry-api==1.45.1
     # via fastmcp-slim
 orjson==3.11.9
     # via
