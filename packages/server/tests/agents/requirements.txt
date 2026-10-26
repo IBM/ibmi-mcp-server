@@ -107,7 +107,7 @@ fastapi==0.141.1
     #   mcp-contextforge-gateway
 fastmcp==3.4.7
     # via agno
-fastmcp-slim==3.4.7
+fastmcp-slim==3.4.10
     # via fastmcp
 filelock==3.30.3
     # via mcp-contextforge-gateway
