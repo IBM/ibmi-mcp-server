@@ -109,7 +109,7 @@ fastmcp==3.4.7
     # via agno
 fastmcp-slim==3.4.7
     # via fastmcp
-filelock==3.30.3
+filelock==4.2.1
     # via mcp-contextforge-gateway
 griffelib==2.3.0
     # via fastmcp-slim
