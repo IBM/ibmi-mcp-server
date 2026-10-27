@@ -44,7 +44,7 @@ beartype==0.22.9
     # via py-key-value-aio
 blessed==1.48.0
     # via inquirer
-brotli==1.2.0
+brotli==1.2.1
     # via
     #   mcp-contextforge-gateway
     #   starlette-compress
@@ -54,7 +54,7 @@ cachetools==7.1.7
     #   py-key-value-aio
 caio==0.12.4
     # via aiofile
-certifi==2026.7.22
+certifi==2026.10.23
     # via
     #   httpcore
     #   httpx
