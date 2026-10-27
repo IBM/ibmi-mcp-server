@@ -15,3 +15,9 @@ dependencies = [
     "openai>=1.96.0",
     "python-dotenv>=1.1.1",
 ]
+
+[tool.uv]
+# mcp-contextforge-gateway pins filelock<3.31, but filelock <4.2.1 is affected by
+# GHSA-v4x8-3wr5-3wq8, GHSA-9vhv-jxww-xfm5 and GHSA-567q-5qvw-pf92. The gateway only
+# uses FileLock/Timeout, whose API is unchanged in 4.x.
+override-dependencies = ["filelock>=4.2.1"]
