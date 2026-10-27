@@ -54,8 +54,9 @@ cachetools==7.1.7
     #   py-key-value-aio
 caio==0.12.4
     # via aiofile
-certifi==2026.7.22
+certifi==2026.10.23
     # via
+    #   fastmcp-slim
     #   httpcore
     #   httpx
     #   ibm-watsonx-ai
@@ -105,12 +106,14 @@ fastapi==0.141.1
     # via
     #   cpex
     #   mcp-contextforge-gateway
-fastmcp==3.4.7
+fastmcp==3.4.11
     # via agno
-fastmcp-slim==3.4.7
+fastmcp-slim==3.4.11
     # via fastmcp
-filelock==3.30.3
-    # via mcp-contextforge-gateway
+filelock==4.2.4
+    # via
+    #   --override (workspace)
+    #   mcp-contextforge-gateway
 griffelib==2.3.0
     # via fastmcp-slim
 gunicorn==26.0.0
@@ -207,7 +210,7 @@ lomond==0.3.3
     # via ibm-watsonx-ai
 lxml==6.1.1
     # via duckduckgo-search
-mako==1.4.1
+mako==1.4.3
     # via
     #   alembic
     #   mcp-contextforge-gateway
@@ -244,7 +247,7 @@ openai==2.53.0
     # via agents (pyproject.toml)
 openapi-pydantic==0.5.1
     # via fastmcp-slim
-opentelemetry-api==1.44.0
+opentelemetry-api==1.45.1
     # via fastmcp-slim
 orjson==3.11.9
     # via
