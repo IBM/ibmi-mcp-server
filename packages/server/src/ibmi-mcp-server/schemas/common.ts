@@ -36,15 +36,15 @@ export const MapepirePortEnvSchema = z.preprocess(
 /**
  * Response format options for SQL tools
  */
-export const ResponseFormatSchema = z.enum(["json", "markdown"], {
-  description: "Response format for SQL tool output",
-});
+export const ResponseFormatSchema = z
+  .enum(["json", "markdown"])
+  .describe("Response format for SQL tool output");
 
 /**
  * Common metadata schema for extensible objects
  */
 export const MetadataSchema = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .describe("Extensible metadata object for storing additional information");
 
 /**

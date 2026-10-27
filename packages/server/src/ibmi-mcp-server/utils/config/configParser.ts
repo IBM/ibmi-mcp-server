@@ -91,7 +91,7 @@ export class ConfigParser {
         const validationResult = SqlToolsConfigSchema.safeParse(parsedYaml);
 
         if (!validationResult.success) {
-          const errors = validationResult.error.errors.map(
+          const errors = validationResult.error.issues.map(
             (err) => `${err.path.join(".")}: ${err.message}`,
           );
 
@@ -507,7 +507,7 @@ export class ConfigParser {
       return { valid: true, errors: [] };
     }
 
-    const errors = result.error.errors.map((err) => err.message);
+    const errors = result.error.issues.map((err) => err.message);
     return { valid: false, errors };
   }
 

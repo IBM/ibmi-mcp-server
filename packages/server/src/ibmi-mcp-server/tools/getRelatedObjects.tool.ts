@@ -70,7 +70,7 @@ const GetRelatedObjectsInputSchema = z.object({
 const GetRelatedObjectsOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "Array of dependent object records. Each record contains: SOURCE_SCHEMA_NAME, SOURCE_SQL_NAME (referenced object), SQL_OBJECT_TYPE (dependent type), SCHEMA_NAME, SQL_NAME (dependent object), LIBRARY_NAME, SYSTEM_NAME, OBJECT_OWNER, LONG_COMMENT, OBJECT_TEXT, LAST_ALTERED.",
@@ -87,7 +87,10 @@ const GetRelatedObjectsOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),

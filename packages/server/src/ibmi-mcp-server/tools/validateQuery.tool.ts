@@ -105,7 +105,7 @@ const ValidateQueryOutputSchema = z.object({
     .boolean()
     .describe("Whether the validation executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "PARSE_STATEMENT results including statement type, tokens, and parsing details. Empty array indicates invalid SQL.",
@@ -122,7 +122,10 @@ const ValidateQueryOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the validation failed."),

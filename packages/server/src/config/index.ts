@@ -238,7 +238,7 @@ const EnvSchema = z.object({
   OTEL_ENABLED: z
     .string()
     .transform((v) => v.toLowerCase() === "true")
-    .default("false"),
+    .default(false),
   /** The logical name of the service. Defaults to MCP_SERVER_NAME or package name. */
   OTEL_SERVICE_NAME: z.string().optional(),
   /** The version of the service. Defaults to MCP_SERVER_VERSION or package version. */

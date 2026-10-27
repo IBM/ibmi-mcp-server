@@ -42,7 +42,7 @@ const YamlToolSchema = z.object({
   parameters: z.array(YamlToolParameterSchema).optional(),
   domain: z.string().optional(),
   category: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
 const YamlToolsetSchema = z.object({
@@ -54,7 +54,7 @@ const YamlToolsConfigSchema = z
     sources: z.record(z.string().min(1), YamlSourceSchema).optional(),
     tools: z.record(z.string().min(1), YamlToolSchema).optional(),
     toolsets: z.record(z.string().min(1), YamlToolsetSchema).optional(),
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.string(), z.any()).optional(),
   })
   .refine(
     (data) => {
@@ -81,7 +81,7 @@ function parseYaml(yamlContent: string) {
     if (!result.success) {
       return {
         success: false,
-        errors: result.error.errors.map(
+        errors: result.error.issues.map(
           (e) => `${e.path.join(".")}: ${e.message}`,
         ),
       };
@@ -150,7 +150,7 @@ describe("YAML Parser Unit Tests", () => {
         result.errors?.some(
           (error) =>
             error.includes("YAML file must contain at least one section") ||
-            error.includes("Expected object, received null"),
+            error.includes("expected object, received null"),
         ),
       ).toBe(true);
     });
@@ -185,7 +185,7 @@ tools:
       const result = parseYaml(invalidParamConfig);
       expect(result.success).toBe(false);
       expect(
-        result.errors?.some((error) => error.includes("invalid-type")),
+        result.errors?.some((error) => error.includes("parameters.0.type")),
       ).toBe(true);
     });
 

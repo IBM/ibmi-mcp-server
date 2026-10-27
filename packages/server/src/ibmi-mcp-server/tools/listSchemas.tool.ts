@@ -51,7 +51,7 @@ const ListSchemasInputSchema = z.object({
 const ListSchemasOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "Array of schema records. Each record contains: SCHEMA_NAME, SCHEMA_TEXT, SYSTEM_SCHEMA_NAME, SCHEMA_SIZE.",
@@ -71,7 +71,10 @@ const ListSchemasOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),

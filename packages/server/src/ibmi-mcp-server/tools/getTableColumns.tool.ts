@@ -38,7 +38,7 @@ const GetTableColumnsInputSchema = z.object({
 const GetTableColumnsOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "Array of column detail records. Each record contains: COLUMN_NAME, SYSTEM_COLUMN_NAME (10-char DDS name), DATA_TYPE, LENGTH, NUMERIC_SCALE, NUMERIC_PRECISION, IS_NULLABLE (Y/N), HAS_DEFAULT (Y/N), COLUMN_DEFAULT, COLUMN_TEXT, COLUMN_HEADING (DDS heading), ORDINAL_POSITION, CCSID, HIDDEN (P=implicitly hidden, N=visible), IS_IDENTITY (YES/NO).",
@@ -52,7 +52,10 @@ const GetTableColumnsOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),
