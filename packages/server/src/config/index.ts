@@ -14,6 +14,7 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import type { JDBCOptions } from "@ibm/mapepire-js";
+import { parseOAuthScopes, validateOAuthEnvironment } from "./oauthConfig.js";
 import {
   DEFAULT_MAPEPIRE_PORT,
   MapepirePortEnvSchema,
@@ -194,6 +195,8 @@ const EnvSchema = z.object({
   OAUTH_ISSUER_URL: z.string().url().optional(),
   OAUTH_JWKS_URI: z.string().url().optional(),
   OAUTH_AUDIENCE: z.string().optional(),
+  OAUTH_RESOURCE_URL: z.string().url().optional(),
+  OAUTH_SCOPES_SUPPORTED: z.string().optional(),
   DEV_MCP_CLIENT_ID: z.string().optional(),
   DEV_MCP_SCOPES: z.string().optional(),
   OPENROUTER_APP_URL: z
@@ -592,6 +595,8 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
     : undefined;
 }
 
+validateOAuthEnvironment(env);
+
 export const config = {
   pkg,
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
@@ -619,6 +624,14 @@ export const config = {
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,
   oauthJwksUri: env.OAUTH_JWKS_URI,
   oauthAudience: env.OAUTH_AUDIENCE,
+  /**
+   * Canonical public URL of this MCP server, used as the OAuth protected
+   * resource identifier (RFC 9728). Must match the URL users enter in their MCP
+   * client exactly, including any path component. From `OAUTH_RESOURCE_URL`.
+   */
+  oauthResourceUrl: env.OAUTH_RESOURCE_URL,
+  /** Scopes advertised in protected resource metadata. From `OAUTH_SCOPES_SUPPORTED`. */
+  oauthScopesSupported: parseOAuthScopes(env.OAUTH_SCOPES_SUPPORTED),
   devMcpClientId: env.DEV_MCP_CLIENT_ID,
   devMcpScopes: env.DEV_MCP_SCOPES?.split(",").map((s) => s.trim()),
   openrouterAppUrl: env.OPENROUTER_APP_URL || "http://localhost:3000",
