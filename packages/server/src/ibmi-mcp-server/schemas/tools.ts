@@ -16,7 +16,9 @@ export const StandardSqlToolOutputSchema = z
   .object({
     success: z.boolean().describe("Whether the SQL execution succeeded"),
 
-    data: z.array(z.record(z.any())).describe("Rows returned by the SQL query"),
+    data: z
+      .array(z.record(z.string(), z.any()))
+      .describe("Rows returned by the SQL query"),
 
     error: z.string().optional().describe("Error message when execution fails"),
 
@@ -75,7 +77,7 @@ export const StandardSqlToolOutputSchema = z
           .describe("The SQL statement that was executed"),
 
         parameters: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .optional()
           .describe("Parameters passed to the query"),
       })

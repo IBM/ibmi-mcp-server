@@ -53,7 +53,7 @@ const ListTablesInputSchema = z.object({
 const ListTablesOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "Array of table records. Each record contains: TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE (T=Table, V=View, P=Physical file), TABLE_TEXT, NUMBER_ROWS, COLUMN_COUNT.",
@@ -73,7 +73,10 @@ const ListTablesOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),

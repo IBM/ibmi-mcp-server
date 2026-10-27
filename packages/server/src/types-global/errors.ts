@@ -115,7 +115,7 @@ export const ErrorSchema = z
      * This can include things like invalid field names, specific values that caused issues, or other relevant data.
      */
     details: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe(
         "Optional structured details providing more context about the error",
