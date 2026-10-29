@@ -235,7 +235,7 @@ more-itertools==11.1.0
     # via
     #   jaraco-classes
     #   jaraco-functools
-msgpack==1.2.1
+msgpack==1.2.3
     # via mcp-contextforge-gateway
 numpy==2.5.2
     # via pandas
