@@ -52,7 +52,35 @@ export class SourceManager extends BaseConnectionPool<string> {
   }
 
   /**
-   * Register a new source configuration
+   * Compare effective pool connection settings for YAML auto-reload reuse.
+   * Returns true when an existing live pool can be kept.
+   */
+  private static poolConfigsEqual(
+    a: PoolConnectionConfig,
+    b: PoolConnectionConfig,
+  ): boolean {
+    if (
+      a.host !== b.host ||
+      a.user !== b.user ||
+      a.password !== b.password ||
+      (a.port ?? DEFAULT_MAPEPIRE_PORT) !== (b.port ?? DEFAULT_MAPEPIRE_PORT) ||
+      (a.ignoreUnauthorized ?? true) !== (b.ignoreUnauthorized ?? true)
+    ) {
+      return false;
+    }
+
+    // JDBCOptions is a flat key/value bag; JSON equality is sufficient.
+    return (
+      JSON.stringify(a.jdbcOptions ?? null) ===
+      JSON.stringify(b.jdbcOptions ?? null)
+    );
+  }
+
+  /**
+   * Register a new source configuration.
+   * On re-registration (YAML auto-reload), keeps the existing pool when
+   * connection settings are unchanged; otherwise closes the old pool first
+   * so Mapepire jobs are not leaked.
    * @param sourceName - Name of the source
    * @param sourceConfig - Source configuration from YAML
    * @param context - Request context for logging
@@ -108,6 +136,28 @@ export class SourceManager extends BaseConnectionPool<string> {
             ? { jdbcOptions: mergedJdbc }
             : {}),
         };
+
+        const existing = this.pools.get(sourceName);
+        if (
+          existing &&
+          SourceManager.poolConfigsEqual(existing.config, poolConfig)
+        ) {
+          // Keep the live Mapepire pool; only refresh the YAML source snapshot.
+          this.sourceConfigs.set(sourceName, sourceConfig);
+          logger.info(
+            operationContext,
+            `Source unchanged, keeping existing pool: ${sourceName}`,
+          );
+          return;
+        }
+
+        if (existing) {
+          logger.info(
+            operationContext,
+            `Source connection settings changed, closing existing pool: ${sourceName}`,
+          );
+          await this.closePool(sourceName, operationContext);
+        }
 
         // Store the original source config for reference
         this.sourceConfigs.set(sourceName, sourceConfig);

@@ -7,7 +7,10 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { watch, FSWatcher } from "fs";
+import { createHash } from "crypto";
+import { watch, FSWatcher, existsSync, statSync, readFileSync } from "fs";
+import { readFile } from "fs/promises";
+import { resolve } from "path";
 import { config } from "@/config/index.js";
 import { SourceManager } from "../../services/sourceManager.js";
 import { SQLToolFactory } from "./toolFactory.js";
@@ -26,8 +29,6 @@ import {
 } from "./types.js";
 import { SqlToolsConfig } from "../../schemas/index.js";
 import { SourceConfig } from "../../schemas/index.js";
-import { resolve } from "path";
-import { existsSync, statSync } from "fs";
 import { ToolConfigBuilder } from "./toolConfigBuilder.js";
 import { createHandlerFromDefinition } from "./toolDefinitions.js";
 
@@ -77,6 +78,12 @@ export class ToolProcessor {
   private static nextCallbackId = 1;
   private static watchers: Map<string, FSWatcher> = new Map();
   private static watchedPaths: Set<string> = new Set();
+  /** Debounce timers keyed by watched file path (editors often emit multiple events). */
+  private static reloadDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  /** SHA-256 of last observed file content; used to skip no-op reloads. */
+  private static watchedFileHashes: Map<string, string> = new Map();
+  /** Settle window before hashing/reloading after a filesystem event. */
+  private static readonly RELOAD_DEBOUNCE_MS = 300;
 
   constructor() {
     // Initialize internal dependencies
@@ -600,6 +607,55 @@ export class ToolProcessor {
     return ToolProcessor.changeCallbacks.size;
   }
 
+  /** SHA-256 hash of YAML file contents for change detection. */
+  private static hashFileContent(content: Buffer | string): string {
+    return createHash("sha256").update(content).digest("hex");
+  }
+
+  /**
+   * After debounce, skip reload when file content is unchanged; otherwise notify.
+   */
+  private static async handleWatchedFileChange(
+    filePath: string,
+    eventType: string,
+    context?: RequestContext,
+  ): Promise<void> {
+    const logContext = context || {};
+
+    try {
+      const content = await readFile(filePath);
+      const hash = ToolProcessor.hashFileContent(content);
+      const previous = ToolProcessor.watchedFileHashes.get(filePath);
+      if (previous === hash) {
+        logger.debug(
+          logContext,
+          `YAML file unchanged (content hash match), skipping reload: ${filePath}`,
+        );
+        return;
+      }
+      ToolProcessor.watchedFileHashes.set(filePath, hash);
+    } catch (error) {
+      logger.warning(
+        logContext,
+        `Could not hash YAML file for change detection: ${filePath}. ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    logger.info(logContext, `YAML file changed (${eventType}): ${filePath}`);
+
+    for (const callback of ToolProcessor.changeCallbacks.values()) {
+      try {
+        callback(filePath, eventType, context);
+      } catch (error) {
+        logger.error(
+          logContext,
+          `Error in YAML change callback: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
   /**
    * Start watching YAML configuration files for changes
    * @param filePaths - Array of file paths to watch
@@ -616,23 +672,34 @@ export class ToolProcessor {
       }
 
       try {
-        const watcher = watch(filePath, { persistent: false }, (eventType) => {
-          logger.info(
-            context || {},
-            `YAML file changed (${eventType}): ${filePath}`,
+        // Seed hash so the first no-op save after watch starts is skipped.
+        try {
+          const initial = readFileSync(filePath);
+          ToolProcessor.watchedFileHashes.set(
+            filePath,
+            ToolProcessor.hashFileContent(initial),
           );
+        } catch {
+          // Best-effort; first readable event establishes the baseline.
+        }
 
-          // Call all registered callbacks
-          for (const callback of ToolProcessor.changeCallbacks.values()) {
-            try {
-              callback(filePath, eventType, context);
-            } catch (error) {
-              logger.error(
-                context || {},
-                `Error in YAML change callback: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
+        const watcher = watch(filePath, { persistent: false }, (eventType) => {
+          const existingTimer =
+            ToolProcessor.reloadDebounceTimers.get(filePath);
+          if (existingTimer) {
+            clearTimeout(existingTimer);
           }
+
+          const timer = setTimeout(() => {
+            ToolProcessor.reloadDebounceTimers.delete(filePath);
+            void ToolProcessor.handleWatchedFileChange(
+              filePath,
+              eventType,
+              context,
+            );
+          }, ToolProcessor.RELOAD_DEBOUNCE_MS);
+
+          ToolProcessor.reloadDebounceTimers.set(filePath, timer);
         });
 
         ToolProcessor.watchers.set(filePath, watcher);
@@ -652,6 +719,12 @@ export class ToolProcessor {
    * Stop watching all files and clear watchers
    */
   static clearWatchers(): void {
+    for (const timer of ToolProcessor.reloadDebounceTimers.values()) {
+      clearTimeout(timer);
+    }
+    ToolProcessor.reloadDebounceTimers.clear();
+    ToolProcessor.watchedFileHashes.clear();
+
     for (const watcher of ToolProcessor.watchers.values()) {
       try {
         watcher.close();
