@@ -19,6 +19,7 @@ import {
   withRequestContext,
 } from "@/utils/internal/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { ensureToolLogicSuccess } from "@/mcp-server/tools/utils/toolSuccess.js";
 
 // Import shared schemas from centralized location
 import {
@@ -357,9 +358,15 @@ export function createHandlerFromDefinition<
           rawParams ?? {},
         ) as z.infer<TInputSchema>;
 
+        // Soft-failure results (`{ success: false }`) must throw so that
+        // measureToolExecution records isSuccess:false and the catch path
+        // returns isError:true to MCP clients (see #205).
         const result = await measureToolExecution(
           definition.name,
-          () => definition.logic(validatedInput, handlerContext),
+          async () =>
+            ensureToolLogicSuccess(
+              await definition.logic(validatedInput, handlerContext),
+            ),
           validatedInput,
         );
 
