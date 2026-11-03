@@ -186,7 +186,7 @@ jmespath==1.0.1
     # via
     #   ibm-cos-sdk
     #   ibm-cos-sdk-core
-joserfc==1.7.5
+joserfc==1.7.6
     # via
     #   authlib
     #   fastmcp-slim
