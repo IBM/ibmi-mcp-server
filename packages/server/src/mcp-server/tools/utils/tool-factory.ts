@@ -31,6 +31,7 @@ import type {
   ResponseFormatter,
   SdkContext,
 } from "./types.js";
+import { ensureToolLogicSuccess } from "./toolSuccess.js";
 
 // =============================================================================
 // Validation Schema
@@ -129,9 +130,13 @@ export function createHandler<TInput, TOutput>(
     });
 
     try {
+      // Soft-failure results (`{ success: false }`) must throw so that
+      // measureToolExecution records isSuccess:false and this catch path
+      // returns isError:true to MCP clients (see #205).
       const result = await measureToolExecution(
         toolName,
-        () => logic(input, appContext, sdkContext),
+        async () =>
+          ensureToolLogicSuccess(await logic(input, appContext, sdkContext)),
         input,
       );
 
