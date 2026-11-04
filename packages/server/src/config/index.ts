@@ -669,6 +669,16 @@ export const config = {
   },
 
   /**
+   * JDBC options parsed from `DB2i_JDBC_OPTIONS`. Independent of the service
+   * account, so per-user pools can use them when `db2i` is undefined.
+   * Undefined if the env var is unset or has no options.
+   */
+  get db2iJdbcOptions(): JDBCOptions | undefined {
+    const rawJdbcOptions = process.env.DB2i_JDBC_OPTIONS;
+    return rawJdbcOptions ? parseJdbcOptionsString(rawJdbcOptions) : undefined;
+  },
+
+  /**
    * IBM i DB2 configuration. Undefined if no related env vars are set.
    *
    * Implemented as a getter so the CLI can set DB2i_* env vars at runtime
@@ -690,10 +700,7 @@ export const config = {
     const password = process.env.DB2i_PASS;
     if (!host || !user || !password) return undefined;
     const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
-    const rawJdbcOptions = process.env.DB2i_JDBC_OPTIONS;
-    const jdbcOptions = rawJdbcOptions
-      ? parseJdbcOptionsString(rawJdbcOptions)
-      : undefined;
+    const jdbcOptions = this.db2iJdbcOptions;
     return {
       host,
       port: Db2iPortSchema.parse(process.env.DB2i_PORT),
