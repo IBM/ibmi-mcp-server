@@ -239,7 +239,7 @@ msgpack==1.2.3
     # via mcp-contextforge-gateway
 numpy==2.5.2
     # via pandas
-oauthlib==4.0.0
+oauthlib==4.0.1
     # via requests-oauthlib
 ollama==0.6.2
     # via agents (pyproject.toml)
