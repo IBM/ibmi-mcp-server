@@ -1,7 +1,10 @@
 version: 2
 updates:
+  # Version updates for the published packages only (@ibm/ibmi-mcp-server and
+  # @ibm/ibmi-cli). The root entry covers both npm workspaces through the root
+  # package-lock.json. Example and demo code is intentionally not listed.
   - package-ecosystem: "npm"
-    directory: "/server"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -11,4 +14,8 @@ updates:
       - "dependencies"
       - "npm"
     open-pull-requests-limit: 5
-    versioning-strategy: auto
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"

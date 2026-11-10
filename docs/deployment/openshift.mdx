@@ -16,7 +16,7 @@ The OpenShift deployment uses:
 - **ImageStreamTag** triggers for automatic redeployment on new builds
 - **OpenShift Routes** for TLS-terminated external access
 
-The manifests deploy the IBM i MCP Server alongside optional components including MCP Context Forge Gateway and agent infrastructure.
+The manifests deploy the IBM i MCP Server alongside the optional MCP Context Forge Gateway.
 
 ---
 
@@ -140,12 +140,9 @@ The full Kustomize overlay can also deploy:
 | Component | Description |
 |-----------|-------------|
 | **MCP Context Forge** | Gateway with tool federation, auth, admin UI |
-| **Agent UI** | Web interface for interacting with agents |
-| **Agent OS API** | Backend API for agent infrastructure |
-| **pgvector** | PostgreSQL with vector extension for embeddings |
 
 <Note>
-Edit the root `kustomization.yaml` to select which components to deploy. You can deploy only the IBM i MCP Server if you don't need the full agent infrastructure.
+Edit the root `kustomization.yaml` to select which components to deploy. You can deploy only the IBM i MCP Server if you don't need the gateway.
 </Note>
 
 ---
@@ -193,8 +190,7 @@ deployment/openshift/apps/openshift/
 │   ├── ibmi-mcp-server-deployment.yaml   # Pod specification
 │   ├── ibmi-mcp-server-service.yaml      # Internal networking
 │   └── ibmi-mcp-server-route.yaml        # External access
-├── mcpgateway/                           # MCP Context Forge (optional)
-└── ibmi-agent-infra/                     # Agent infrastructure (optional)
+└── mcpgateway/                           # MCP Context Forge (optional)
 ```
 
 ---
