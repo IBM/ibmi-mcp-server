@@ -14,6 +14,12 @@ import {
 import { ErrorHandler } from "@/utils/internal/errorHandler.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolParameter } from "../../schemas/index.js";
+import { maskSqlLiteralsAndComments } from "./sqlTextMask.js";
+
+/** SQL text with literals, delimited identifiers and comments blanked out. */
+function codeOnly(sql: string): string {
+  return maskSqlLiteralsAndComments(sql).masked;
+}
 
 /**
  * Parameter processing mode
@@ -683,9 +689,10 @@ export class ParameterProcessor {
    * @returns Detected parameter mode
    */
   private static detectParameterMode(sql: string): ParameterMode {
-    const hasNamedParams = /:(\w+)/g.test(sql);
-    const hasPositionalParams = /\?/g.test(sql);
-    const hasTemplateParams = /\{\{(\w+)\}\}/g.test(sql);
+    const code = codeOnly(sql);
+    const hasNamedParams = /:(\w+)/.test(code);
+    const hasPositionalParams = /\?/.test(code);
+    const hasTemplateParams = /\{\{(\w+)\}\}/.test(code);
 
     if (hasTemplateParams) {
       return "template";
@@ -722,8 +729,10 @@ export class ParameterProcessor {
     const missingParameters: string[] = [];
     let match;
 
-    // Find all named parameter matches
-    while ((match = namedParamRegex.exec(sql)) !== null) {
+    // Find all named parameter matches. The masked text has the same
+    // offsets as `sql`, so match.index is valid in the original text.
+    const code = codeOnly(sql);
+    while ((match = namedParamRegex.exec(code)) !== null) {
       matches.push({
         fullMatch: match[0],
         paramName: match[1]!,
@@ -842,8 +851,7 @@ export class ParameterProcessor {
     context: RequestContext,
     strictTypeValidation: boolean,
   ): Promise<ParameterProcessingResult> {
-    const positionalParamRegex = /\?/g;
-    const parameterCount = (sql.match(positionalParamRegex) || []).length;
+    const parameterCount = this.countPositionalParameters(sql);
 
     // Convert parameters to array in order
     const parameters: BindingValue[] = [];
@@ -943,7 +951,9 @@ export class ParameterProcessor {
     );
 
     // If there are still ? placeholders, process them as positional
-    const positionalParamCount = (namedResult.sql.match(/\?/g) || []).length;
+    const positionalParamCount = this.countPositionalParameters(
+      namedResult.sql,
+    );
     if (positionalParamCount > namedResult.parameters.length) {
       logger.debug(
         {
@@ -1037,33 +1047,33 @@ export class ParameterProcessor {
    * @throws McpError if syntax is invalid
    */
   private static validateSqlSyntax(sql: string): void {
+    // Literals and comments can hold any text (a time such as '10:30:00',
+    // an apostrophe in "-- the library's tables"), so check only the code.
+    const { masked, unterminated } = maskSqlLiteralsAndComments(sql);
+
+    // An unclosed quote would hide the rest of the statement from parameter
+    // matching, so reject it here.
+    if (unterminated === "single") {
+      throw new McpError(
+        JsonRpcErrorCode.ValidationError,
+        "Unmatched single quotes in SQL statement",
+      );
+    }
+
+    if (unterminated === "double") {
+      throw new McpError(
+        JsonRpcErrorCode.ValidationError,
+        "Unmatched double quotes in SQL statement",
+      );
+    }
+
     // Check for malformed named parameters
-    const malformedNamedParams = sql.match(/:(\d)/g);
+    const malformedNamedParams = masked.match(/:(\d)/g);
     if (malformedNamedParams) {
       throw new McpError(
         JsonRpcErrorCode.ValidationError,
         `Invalid named parameter syntax found: ${malformedNamedParams.join(", ")}. Named parameters must start with a letter.`,
         { malformedParams: malformedNamedParams },
-      );
-    }
-
-    // Check for unmatched quotes that could affect parameter parsing
-    const singleQuotes = (sql.match(/'/g) || []).length;
-    const doubleQuotes = (sql.match(/"/g) || []).length;
-
-    if (singleQuotes % 2 !== 0) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
-        "Unmatched single quotes in SQL statement",
-        { singleQuoteCount: singleQuotes },
-      );
-    }
-
-    if (doubleQuotes % 2 !== 0) {
-      throw new McpError(
-        JsonRpcErrorCode.ValidationError,
-        "Unmatched double quotes in SQL statement",
-        { doubleQuoteCount: doubleQuotes },
       );
     }
   }
@@ -1078,7 +1088,8 @@ export class ParameterProcessor {
     const parameterNames: string[] = [];
     let match;
 
-    while ((match = namedParamRegex.exec(sql)) !== null) {
+    const code = codeOnly(sql);
+    while ((match = namedParamRegex.exec(code)) !== null) {
       if (!parameterNames.includes(match[1]!)) {
         parameterNames.push(match[1]!);
       }
@@ -1093,7 +1104,7 @@ export class ParameterProcessor {
    * @returns Number of ? placeholders
    */
   static countPositionalParameters(sql: string): number {
-    return (sql.match(/\?/g) || []).length;
+    return (codeOnly(sql).match(/\?/g) || []).length;
   }
 
   /**
