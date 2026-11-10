@@ -1,0 +1,433 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/IBM/ibmi-mcp-server.git/src/ibmi-mcp-server/schemas/json/sql-tools-config.json",
+  "$ref": "#/definitions/IBM i MCP Server SQL Tools Configuration",
+  "definitions": {
+    "IBM i MCP Server SQL Tools Configuration": {
+      "type": "object",
+      "properties": {
+        "sources": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Database host address"
+              },
+              "user": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Database user name"
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Database password"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535,
+                "description": "Mapepire daemon port (default: 8076)"
+              },
+              "ignore-unauthorized": {
+                "type": "boolean",
+                "description": "Whether to ignore unauthorized SSL certificates"
+              },
+              "jdbc-options": {
+                "type": "object",
+                "properties": {
+                  "libraries": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": true,
+                "description": "JDBC connection options passed to the mapepire connection pool. Supports any mapepire JDBCOption (libraries, naming, date format, etc.). The 'libraries' field accepts an array or comma-separated string. Env var DB2i_JDBC_OPTIONS overrides these values per-source."
+              }
+            },
+            "required": [
+              "host",
+              "user",
+              "password"
+            ],
+            "additionalProperties": false,
+            "description": "Database connection configuration"
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "description": "Database sources configuration"
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this tool is enabled and should be registered (default: true)"
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Source name to connect to (references source key)"
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Clear, concise description of what the tool does"
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "description": "SQL statement with parameter placeholders (:param or ?)"
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Parameter name used in SQL statement"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "string",
+                        "boolean",
+                        "integer",
+                        "float",
+                        "array"
+                      ],
+                      "description": "Parameter data type for validation"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Human-readable parameter description"
+                    },
+                    "default": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "array",
+                          "items": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Default value when parameter is not provided"
+                    },
+                    "required": {
+                      "type": "boolean",
+                      "description": "Whether parameter is required (overrides default)"
+                    },
+                    "itemType": {
+                      "type": "string",
+                      "enum": [
+                        "string",
+                        "boolean",
+                        "integer",
+                        "float"
+                      ],
+                      "description": "Array item type (only for array parameters)"
+                    },
+                    "min": {
+                      "type": "number",
+                      "description": "Minimum value for numeric types"
+                    },
+                    "max": {
+                      "type": "number",
+                      "description": "Maximum value for numeric types"
+                    },
+                    "minLength": {
+                      "type": "number",
+                      "description": "Minimum length for string/array types"
+                    },
+                    "maxLength": {
+                      "type": "number",
+                      "description": "Maximum length for string/array types"
+                    },
+                    "enum": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean"
+                        ]
+                      },
+                      "description": "Valid values (enum validation)"
+                    },
+                    "pattern": {
+                      "type": "string",
+                      "description": "Custom validation pattern (regex for strings)"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false,
+                  "description": "SQL tool parameter definition with validation constraints"
+                },
+                "description": "Parameter definitions for secure binding"
+              },
+              "domain": {
+                "type": "string",
+                "description": "Optional domain categorization"
+              },
+              "category": {
+                "type": "string",
+                "description": "Optional category within domain"
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Optional tool-specific metadata"
+              },
+              "responseFormat": {
+                "type": "string",
+                "enum": [
+                  "json",
+                  "markdown"
+                ],
+                "description": "Response format (default: json)"
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "Human-readable tool title for UI display"
+                  },
+                  "readOnlyHint": {
+                    "type": "boolean",
+                    "description": "Indicates the tool performs read-only operations"
+                  },
+                  "openWorldHint": {
+                    "type": "boolean",
+                    "description": "Indicates the tool interacts with external, unpredictable systems"
+                  },
+                  "idempotentHint": {
+                    "type": "boolean",
+                    "description": "Indicates the tool produces consistent results for identical inputs"
+                  },
+                  "destructiveHint": {
+                    "type": "boolean",
+                    "description": "Indicates the tool may perform destructive or irreversible operations"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "description": "Domain classification for client-side filtering"
+                  },
+                  "category": {
+                    "type": "string",
+                    "description": "Category classification for client-side filtering"
+                  },
+                  "toolsets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Toolset memberships for client-side grouping"
+                  },
+                  "customMetadata": {
+                    "$ref": "#/definitions/IBM i MCP Server SQL Tools Configuration/properties/tools/additionalProperties/properties/metadata",
+                    "description": "Additional custom metadata for the tool"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "Optional annotations for MCP clients"
+              },
+              "security": {
+                "type": "object",
+                "properties": {
+                  "readOnly": {
+                    "type": "boolean",
+                    "description": "Whether to restrict to read-only operations (default: true for safety)"
+                  },
+                  "maxQueryLength": {
+                    "type": "number",
+                    "description": "Maximum SQL query length in characters (default: 10000)"
+                  },
+                  "forbiddenKeywords": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Additional forbidden SQL keywords beyond the default list"
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Security configuration for tool execution"
+              },
+              "tableFormat": {
+                "type": "string",
+                "enum": [
+                  "markdown",
+                  "ascii",
+                  "grid",
+                  "compact"
+                ],
+                "default": "markdown",
+                "description": "Table formatting style for SQL results (default: markdown). Options: markdown (GitHub-style), ascii (plain text), grid (Unicode boxes), compact (minimal spacing)"
+              },
+              "maxDisplayRows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 100,
+                "description": "Maximum number of rows to display in result tables (default: 100). Rows beyond this limit will show a truncation message"
+              },
+              "rowsToFetch": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum rows to fetch from the database per call (default: mapepire's 100). Controls the actual query fetch, not display truncation. Takes precedence over fetchAllRows when both are set (a warning is logged)."
+              },
+              "fetchAllRows": {
+                "type": "boolean",
+                "description": "When true, fetches all rows using paginated fetches (bounded by internal safety cap ~30k). Ignored if rowsToFetch is also set — rowsToFetch is the safer default when both are present. Use sparingly — large result sets bloat LLM context."
+              },
+              "readOnlyHint": {
+                "type": "boolean",
+                "description": "@deprecated Use annotations.readOnlyHint instead"
+              },
+              "destructiveHint": {
+                "type": "boolean",
+                "description": "@deprecated Use annotations.destructiveHint instead"
+              },
+              "idempotentHint": {
+                "type": "boolean",
+                "description": "@deprecated Use annotations.idempotentHint instead"
+              },
+              "openWorldHint": {
+                "type": "boolean",
+                "description": "@deprecated Use annotations.openWorldHint instead"
+              }
+            },
+            "required": [
+              "source",
+              "description"
+            ],
+            "additionalProperties": false,
+            "description": "Individual SQL tool definition in YAML configuration"
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "description": "Tool definitions (SQL tools with predefined statements)"
+        },
+        "toolsets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Human-readable toolset title"
+              },
+              "description": {
+                "type": "string",
+                "description": "Toolset description"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1,
+                "description": "List of tool names in this toolset"
+              },
+              "metadata": {
+                "$ref": "#/definitions/IBM i MCP Server SQL Tools Configuration/properties/tools/additionalProperties/properties/metadata",
+                "description": "Optional toolset metadata"
+              }
+            },
+            "required": [
+              "tools"
+            ],
+            "additionalProperties": false,
+            "description": "Toolset definition for grouping related tools"
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "description": "Toolset definitions"
+        },
+        "typescript_tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "domain": {
+                "type": "string",
+                "description": "Tool domain (e.g., 'sysadmin', 'performance')"
+              },
+              "category": {
+                "type": "string",
+                "description": "Tool category (e.g., 'sql-generation', 'analysis')"
+              },
+              "description": {
+                "type": "string",
+                "description": "Tool description"
+              },
+              "toolsets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of specific toolsets this tool belongs to"
+              },
+              "global": {
+                "type": "boolean",
+                "description": "Whether this tool should be added to ALL toolsets"
+              }
+            },
+            "required": [
+              "domain",
+              "category"
+            ],
+            "additionalProperties": false,
+            "description": "TypeScript tool configuration for toolset assignment"
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "description": "TypeScript tool configurations"
+        },
+        "metadata": {
+          "$ref": "#/definitions/IBM i MCP Server SQL Tools Configuration/properties/tools/additionalProperties/properties/metadata",
+          "description": "Optional global metadata"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Root YAML configuration structure"
+    }
+  }
+}

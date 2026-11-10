@@ -1,0 +1,9 @@
+{
+  "name": "ibmi-mcp-tool-builder-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ajv": "^8.18.0",
+    "js-yaml": "^4.1.0"
+  }
+}
