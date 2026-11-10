@@ -89,9 +89,10 @@ function createPinoLogger(): PinoLogger {
       },
       level: "debug",
     });
-  } else if (!isStdioTransport) {
+  } else if (!isStdioTransport || !resolvedLogsDir) {
     // Plain JSON to stderr when colors disabled (NO_COLOR, prod, etc.)
-    // Skip for STDIO transport to keep stderr quieter (logs go to files only)
+    // STDIO transport normally keeps stderr quiet because logs go to files, but
+    // with no file target stderr is the only sink left.
     targets.push({
       target: "pino/file",
       options: {
@@ -101,13 +102,13 @@ function createPinoLogger(): PinoLogger {
     });
   }
 
-  // File logging: required for stdio/prod; optional for others when logs dir is available.
-  if (isStdioTransport || isProd) {
-    if (!resolvedLogsDir) {
-      throw new Error(
-        "Configuration Error: LOGS_PATH must be defined for STDIO transport or production environments.",
-      );
-    }
+  // File logging: required for stdio/prod unless it was turned off on purpose
+  // (MCP_LOG_TO_FILE=false), which is the norm when the platform already
+  // captures stderr. Optional for others when a logs dir is available.
+  if ((isStdioTransport || isProd) && config.logToFile && !resolvedLogsDir) {
+    throw new Error(
+      "Configuration Error: the LOGS_DIR directory could not be prepared (see the error above), and file logging is required for STDIO transport and production environments. Fix the directory's permissions or set MCP_LOG_TO_FILE=false to log to the console only.",
+    );
   }
 
   if (resolvedLogsDir) {
