@@ -5,6 +5,7 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
+import { ExitCode, ToolError } from "../utils/exit-codes.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 export function registerValidateCommand(program: Command): void {
@@ -22,7 +23,7 @@ export function registerValidateCommand(program: Command): void {
         );
 
         if (!result.success) {
-          throw new Error(result.error?.message ?? "Failed to validate query");
+          throw new ToolError(result.error, "Failed to validate query");
         }
 
         // Build a summary view for CLI output
@@ -90,6 +91,10 @@ export function registerValidateCommand(program: Command): void {
         return {
           data: summary,
           meta: { rowCount: summary.length },
+          // A failed check is still reported as rows, but must not exit 0
+          exitCode: summary.some((row) => row["STATUS"] === "FAIL")
+            ? ExitCode.QUERY
+            : undefined,
         };
       });
     });

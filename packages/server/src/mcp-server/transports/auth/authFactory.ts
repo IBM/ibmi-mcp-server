@@ -6,6 +6,7 @@
 import { config } from "@/config/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { logger, type RequestContext } from "@/utils/index.js";
+import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
 import { authenticateIbmiToken } from "./ibmiTokenAuth.js";
 import type { HttpAuth } from "./lib/authTypes.js";
 import { createOAuthAuth } from "./oauth.js";
@@ -41,6 +42,24 @@ export async function createHttpAuth(
       context,
       "IBM i HTTP token authentication is deprecated and will be removed in a future major release; use MCP_AUTH_MODE=oauth for multi-user remote deployments.",
     );
+    if (config.ibmiHttpAuth.allowedHosts.length === 0) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        "IBM i HTTP authentication needs the IBM i hosts users may sign on to: set IBMI_AUTH_ALLOWED_HOSTS (comma-separated host names) or DB2i_HOST.",
+      );
+    }
+  }
+  if (config.ibmiHttpAuth.enabled) {
+    // Read the key pair now: a bad key path must stop startup, not fail
+    // every sign-on.
+    try {
+      getPublicKeyMetadata();
+    } catch (error) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        `The IBM i HTTP authentication key pair could not be loaded (IBMI_AUTH_PRIVATE_KEY_PATH, IBMI_AUTH_PUBLIC_KEY_PATH): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   switch (config.mcpAuthMode) {

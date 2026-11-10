@@ -49,10 +49,14 @@ interface RunningEntry {
  * (plus PATH), and an empty env file, so neither the developer's shell nor a
  * local .env can reach it.
  */
-function startEntry(env: Record<string, string>): RunningEntry {
+function startEntry(
+  env: Record<string, string>,
+  args: string[] = ["--transport", "stdio"],
+  nodeArgs: string[] = [],
+): RunningEntry {
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", "src/index.ts", "--transport", "stdio"],
+    ["--import", "tsx", ...nodeArgs, "src/index.ts", ...args],
     {
       cwd: SERVER_ROOT,
       env: {
@@ -195,19 +199,173 @@ describe("server entry point start-up failures", () => {
     expect(entry.stdout()).toBe("");
   });
 
+  it("OpenTelemetry cannot start although OTEL_ENABLED=true: exits 1 with the cause on stderr", async () => {
+    // The SDK tolerates every misconfiguration an environment variable can
+    // express, so fail the import of the setup module with a module hook.
+    const breakTelemetry = join(tmpRoot, "break-telemetry.mjs");
+    const hook = `export async function resolve(specifier, context, next) {
+      if (/instrumentation\\.setup\\./.test(specifier)) {
+        throw new Error("exporter misconfigured");
+      }
+      return next(specifier, context);
+    }`;
+    writeFileSync(
+      breakTelemetry,
+      `import { register } from "node:module";
+register("data:text/javascript," + encodeURIComponent(${JSON.stringify(hook)}));
+`,
+    );
+
+    const entry = startEntry({ OTEL_ENABLED: "true" }, undefined, [
+      "--import",
+      breakTelemetry,
+    ]);
+
+    expect(await entry.exited).toBe(1);
+    expect(stderrLines(entry)).toEqual([
+      "@ibm/ibmi-mcp-server: Startup failed. exporter misconfigured",
+    ]);
+    expect(entry.stdout()).toBe("");
+  });
+});
+
+describe("server entry point with a LOGS_DIR that is not writable", () => {
   // root can write anywhere, so the directory would not be read-only.
   it.skipIf(process.getuid?.() === 0)(
-    "a LOGS_DIR that is not writable: exits 1 promptly, naming LOGS_DIR",
+    "starts, says once on stderr that it logs there at warn level, and exits 0 on SIGTERM",
     async () => {
       const readOnlyDir = join(tmpRoot, "read-only-logs");
       mkdirSync(readOnlyDir);
       chmodSync(readOnlyDir, 0o555);
 
-      const entry = startEntry({ LOGS_DIR: readOnlyDir });
+      const entry = startEntry({
+        LOGS_DIR: readOnlyDir,
+        NODE_ENV: "production",
+      });
+      await initialize(entry);
+
+      entry.child.kill("SIGTERM");
+      expect(await entry.exited).toBe(0);
+
+      expect(stderrLines(entry)).toEqual([
+        expect.stringMatching(
+          /^Warning: cannot write logs to LOGS_DIR '.*read-only-logs' \(EACCES.*\)\. File logging is disabled; logging to stderr at warn level instead\.$/,
+        ),
+      ]);
+      expect(readdirSync(readOnlyDir)).toEqual([]);
+    },
+  );
+});
+
+describe("server entry point command line", () => {
+  const toolFile = (toolName: string, toolsetName: string) => `
+sources:
+  test-source:
+    host: localhost
+    user: tester
+    password: not-a-real-password
+
+tools:
+  ${toolName}:
+    source: test-source
+    description: "${toolName}"
+    statement: "SELECT 1 FROM SYSIBM.SYSDUMMY1"
+
+toolsets:
+  ${toolsetName}:
+    tools: [${toolName}]
+`;
+  let toolsDir: string;
+
+  beforeAll(() => {
+    toolsDir = join(tmpRoot, "cli-tools");
+    mkdirSync(toolsDir);
+    writeFileSync(join(toolsDir, "one.yaml"), toolFile("tool_one", "set_one"));
+    writeFileSync(join(toolsDir, "two.yaml"), toolFile("tool_two", "set_two"));
+    writeFileSync(join(toolsDir, "broken.yml"), "tools: [not a tool map\n");
+  });
+
+  it.each([
+    ["an unknown flag", ["--verbose"], "--verbose"],
+    ["a flag without its value", ["--toolsets"], "--toolsets"],
+    [
+      "an invalid transport",
+      ["--transport=sse"],
+      "Invalid transport type: sse",
+    ],
+  ])(
+    "%s: exits 1 with the problem on stderr, also with --list-toolsets",
+    async (_case, args, problem) => {
+      const entry = startEntry({}, [
+        "--list-toolsets",
+        "--tools",
+        toolsDir,
+        ...args,
+      ]);
 
       expect(await entry.exited).toBe(1);
-      expect(entry.stderr()).toContain("LOGS_DIR must be a writable directory");
+      expect(entry.stderr()).toContain("Invalid arguments:");
+      expect(entry.stderr()).toContain(problem);
       expect(entry.stdout()).toBe("");
     },
   );
+
+  it("--list-toolsets accepts --tools=<glob> and lists what the pattern matches", async () => {
+    const entry = startEntry({}, [
+      "--list-toolsets",
+      `--tools=${join(toolsDir, "*.yaml")}`,
+    ]);
+
+    expect(await entry.exited).toBe(0);
+    expect(entry.stdout()).toContain("Found 2 toolsets");
+    expect(entry.stdout()).toContain("set_one");
+    expect(entry.stdout()).toContain("set_two");
+  });
+
+  it("--list-toolsets needs none of the variables the sources name; starting the server does", async () => {
+    const withVariables = join(tmpRoot, "with-variables.yaml");
+    writeFileSync(
+      withVariables,
+      toolFile("tool_env", "set_env").replace(
+        "password: not-a-real-password",
+        "password: ${ENTRY_TEST_UNSET_PASSWORD}",
+      ),
+    );
+
+    const listing = startEntry({}, [
+      "--list-toolsets",
+      "--tools",
+      withVariables,
+    ]);
+    expect(await listing.exited).toBe(0);
+    expect(listing.stdout()).toContain("set_env");
+
+    const serving = startEntry({}, ["--tools", withVariables]);
+    expect(await serving.exited).toBe(1);
+    expect(serving.stderr()).toContain(
+      "environment variable(s) not set: ENTRY_TEST_UNSET_PASSWORD",
+    );
+  });
+
+  it("--list-toolsets fails when one file of the directory is invalid", async () => {
+    const entry = startEntry({}, ["--list-toolsets", "--tools", toolsDir]);
+
+    expect(await entry.exited).toBe(1);
+    expect(entry.stderr()).toContain(join(toolsDir, "broken.yml"));
+  });
+
+  it("an unknown --toolsets name: start-up fails, naming it and the toolsets there are", async () => {
+    const entry = startEntry({}, [
+      "--tools",
+      join(toolsDir, "one.yaml"),
+      "--toolsets",
+      "typo_set",
+    ]);
+
+    expect(await entry.exited).toBe(1);
+    expect(entry.stderr()).toContain(
+      "Unknown toolsets requested: typo_set. Available toolsets: set_one",
+    );
+    expect(entry.stdout()).toBe("");
+  });
 });

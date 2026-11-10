@@ -16,10 +16,14 @@ const { mockPoolInstance, mockQueryInstance, MockPool } = vi.hoisted(() => {
     fetchMore: vi.fn(),
     close: vi.fn(),
   };
+  const query = vi.fn(() => mockQueryInstance);
   const mockPoolInstance = {
     init: vi.fn(),
     end: vi.fn(),
-    query: vi.fn(() => mockQueryInstance),
+    query,
+    // The pool picks one of these connections for each statement: one
+    // ready job, which starts every statement through `query`.
+    jobs: [{ getStatus: () => "ready", query }],
   };
   return {
     mockPoolInstance,
@@ -117,7 +121,7 @@ describe("AuthenticatedPoolManager – secret handling", () => {
         {},
         TEST_CONTEXT as never,
       ),
-    ).rejects.toThrow(/Password is incorrect/);
+    ).rejects.toThrow(/sign-on failed/i);
 
     const { poolState, storedCredentials } = getState("token-bad-signon");
     expect(poolState).toBeUndefined();
@@ -171,7 +175,10 @@ describe("AuthenticatedPoolManager – secret handling", () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toMatch(/timed out/i);
     expect(
-      JSON.stringify([(error as Error).message, error.details]),
+      JSON.stringify([
+        (error as Error).message,
+        (error as { details?: unknown }).details,
+      ]),
     ).not.toContain(token);
 
     const logged = logSpies.flatMap((spy) =>
@@ -183,7 +190,7 @@ describe("AuthenticatedPoolManager – secret handling", () => {
     // The pool is still identifiable in logs, by a one-way fingerprint
     expect(
       logged.some((entry) =>
-        /Closing connection pool: token:[0-9a-f]{12}/.test(entry),
+        /Query timed out on pool 'token:[0-9a-f]{12}'/.test(entry),
       ),
     ).toBe(true);
   });

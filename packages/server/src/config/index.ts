@@ -8,14 +8,7 @@
  */
 
 import dotenv from "dotenv";
-import {
-  accessSync,
-  constants,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-} from "fs";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -27,53 +20,24 @@ import {
 } from "@/ibmi-mcp-server/schemas/common.js";
 
 export { DEFAULT_MAPEPIRE_PORT };
-// Load .env from multiple possible locations for monorepo flexibility
-// Priority order:
-// 1. MCP_SERVER_CONFIG environment variable (explicit override)
-// 2. Current working directory (for production/user deployment)
-// 3. Parent directory (for monorepo development)
-let envLoaded = false;
+// .env: the file named by MCP_SERVER_CONFIG, otherwise <cwd>/.env.
+let envPath = path.resolve(process.cwd(), ".env");
 
-// Check for explicit config path via MCP_SERVER_CONFIG
 if (process.env.MCP_SERVER_CONFIG) {
   const configPath = path.resolve(process.env.MCP_SERVER_CONFIG);
   if (existsSync(configPath)) {
-    dotenv.config({ path: configPath });
-    envLoaded = true;
-    if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-      console.error(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
-    }
+    envPath = configPath;
   } else {
     console.error(
-      `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to default search.`,
+      `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to ${envPath}.`,
     );
   }
 }
 
-// If no explicit config or it failed, try default locations
-if (!envLoaded) {
-  const envLocations = [
-    // 1. Current working directory (for production/user deployment)
-    path.resolve(process.cwd(), ".env"),
-    // 2. Parent directory (for monorepo development)
-    path.resolve(process.cwd(), "../.env"),
-  ];
-
-  // Load from first location that exists
-  for (const envPath of envLocations) {
-    if (existsSync(envPath)) {
-      dotenv.config({ path: envPath });
-      envLoaded = true;
-      if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-        console.error(`Loaded .env from: ${envPath}`);
-      }
-      break;
-    }
-  }
-
-  // Fallback: try default dotenv behavior (looks in cwd)
-  if (!envLoaded) {
-    dotenv.config();
+if (existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
+    console.error(`Loaded .env from: ${envPath}`);
   }
 }
 
@@ -160,7 +124,19 @@ const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
   MCP_SERVER_VERSION: z.string().optional(),
-  MCP_LOG_LEVEL: z.string().default("debug"),
+  MCP_LOG_LEVEL: z
+    .enum([
+      "debug",
+      "info",
+      "notice",
+      "warning",
+      "warn",
+      "error",
+      "crit",
+      "alert",
+      "emerg",
+    ])
+    .default("debug"),
   LOGS_DIR: z
     .string()
     .default(path.join(homedir(), ".ibmi-mcp-server", "logs")),
@@ -169,15 +145,19 @@ const EnvSchema = z.object({
   MCP_HTTP_PORT: z.coerce.number().int().positive().default(3010),
   MCP_HTTP_HOST: z.string().default("127.0.0.1"),
   MCP_HTTP_ENDPOINT_PATH: z.string().default("/mcp"),
-  MCP_HTTP_MAX_PORT_RETRIES: z.coerce.number().int().nonnegative().default(15),
-  MCP_HTTP_PORT_RETRY_DELAY_MS: z.coerce
-    .number()
-    .int()
-    .nonnegative()
-    .default(50),
   MCP_ALLOWED_ORIGINS: z.string().optional(),
   MCP_ALLOWED_HOSTS: z.string().optional(),
   MCP_ALLOW_UNAUTHENTICATED_HTTP: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
+  /**
+   * Whether the server sits behind a reverse proxy it trusts. When true, the
+   * client address and scheme come from X-Forwarded-For (last entry) and
+   * X-Forwarded-Proto; when false those headers are ignored. Default: false.
+   */
+  MCP_TRUST_PROXY: z
     .string()
     .optional()
     .default("false")
@@ -323,6 +303,11 @@ const EnvSchema = z.object({
   IBMI_AUTH_PRIVATE_KEY_PATH: z.string().min(1).optional(),
   IBMI_AUTH_PUBLIC_KEY_PATH: z.string().min(1).optional(),
   IBMI_AUTH_KEY_ID: z.string().min(1).optional(),
+  /**
+   * Comma-separated IBM i host names `/api/v1/auth` may sign on to.
+   * Default: `DB2i_HOST`.
+   */
+  IBMI_AUTH_ALLOWED_HOSTS: z.string().optional(),
 
   /** Enable automatic reloading of YAML tools when configuration files change. From `YAML_AUTO_RELOAD`. Default: true. */
   YAML_AUTO_RELOAD: z
@@ -446,92 +431,6 @@ const expandTilde = (filePath: string): string => {
 };
 
 /**
- * Ensures a directory exists, creating it if necessary.
- * Handles absolute paths, relative paths, and tilde (~) expansion.
- *
- * @param dirPath - Directory path (absolute, relative, or with ~)
- * @param baseDir - Base directory for resolving relative paths (typically process.cwd())
- * @param dirName - Human-readable name for logging
- * @returns Resolved absolute path to the directory, or null if creation failed
- */
-const ensureDirectory = (
-  dirPath: string,
-  baseDir: string,
-  dirName: string,
-): string | null => {
-  // Expand ~ to home directory first
-  const expandedPath = expandTilde(dirPath);
-
-  // Resolve path: absolute paths used as-is, relative paths resolved from baseDir
-  const resolvedDirPath = path.isAbsolute(expandedPath)
-    ? expandedPath
-    : path.resolve(baseDir, expandedPath);
-
-  // Try to create directory if it doesn't exist
-  if (!existsSync(resolvedDirPath)) {
-    try {
-      mkdirSync(resolvedDirPath, { recursive: true });
-      if (process.stdout.isTTY) {
-        console.error(`Created ${dirName} directory: ${resolvedDirPath}`);
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      if (process.stdout.isTTY) {
-        console.error(
-          `Error creating ${dirName} directory at ${resolvedDirPath}: ${errorMessage}`,
-        );
-      }
-      return null;
-    }
-  } else {
-    // Verify existing path is actually a directory, and one this process can
-    // write to: log transports pointed at a read-only directory block the
-    // event loop while they fail to flush.
-    try {
-      const stats = statSync(resolvedDirPath);
-      if (!stats.isDirectory()) {
-        if (process.stdout.isTTY) {
-          console.error(
-            `Error: ${dirName} path ${resolvedDirPath} exists but is not a directory.`,
-          );
-        }
-        return null;
-      }
-      accessSync(resolvedDirPath, constants.W_OK);
-    } catch (statError: unknown) {
-      if (process.stdout.isTTY) {
-        const statErrorMessage =
-          statError instanceof Error ? statError.message : String(statError);
-        console.error(
-          `Error accessing ${dirName} path ${resolvedDirPath}: ${statErrorMessage}`,
-        );
-      }
-      return null;
-    }
-  }
-  return resolvedDirPath;
-};
-
-// Ensure logs directory exists
-// Supports multiple path formats:
-// - Absolute: /var/log/ibmi-mcp
-// - Relative: ./logs (resolved from process.cwd())
-// - Tilde: ~/my-logs (expanded to home directory)
-const validatedLogsPath: string | null = ensureDirectory(
-  env.LOGS_DIR,
-  process.cwd(),
-  "logs",
-);
-
-if (!validatedLogsPath) {
-  if (process.stdout.isTTY) {
-    console.warn(
-      `Warning: Could not create logs directory at '${env.LOGS_DIR}'. File logging will be disabled.`,
-    );
-  }
-}
-
-/**
  * Parse DB2i_JDBC_OPTIONS env var: a semicolon-separated list of key=value
  * pairs modeled on DB2 JDBC URL syntax.
  *
@@ -580,14 +479,16 @@ export const config = {
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
   mcpServerVersion: env.MCP_SERVER_VERSION || pkg.version,
   logLevel: env.MCP_LOG_LEVEL,
-  logsPath: validatedLogsPath,
+  /**
+   * Absolute path of `LOGS_DIR` (`~` expanded, relative paths resolved from
+   * the working directory). The logger creates it on first use.
+   */
+  logsPath: path.resolve(expandTilde(env.LOGS_DIR)),
   environment: env.NODE_ENV,
   mcpTransportType: env.MCP_TRANSPORT_TYPE,
   mcpHttpPort: env.MCP_HTTP_PORT,
   mcpHttpHost: env.MCP_HTTP_HOST,
   mcpHttpEndpointPath: env.MCP_HTTP_ENDPOINT_PATH,
-  mcpHttpMaxPortRetries: env.MCP_HTTP_MAX_PORT_RETRIES,
-  mcpHttpPortRetryDelayMs: env.MCP_HTTP_PORT_RETRY_DELAY_MS,
   mcpAllowedOrigins: env.MCP_ALLOWED_ORIGINS?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
@@ -595,6 +496,7 @@ export const config = {
     .map((host) => host.trim())
     .filter(Boolean),
   mcpAllowUnauthenticatedHttp: env.MCP_ALLOW_UNAUTHENTICATED_HTTP,
+  mcpTrustProxy: env.MCP_TRUST_PROXY,
   mcpAuthMode: env.MCP_AUTH_MODE,
   mcpResourceUrl: env.MCP_RESOURCE_URL,
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,
@@ -681,6 +583,11 @@ export const config = {
     privateKeyPath: env.IBMI_AUTH_PRIVATE_KEY_PATH,
     publicKeyPath: env.IBMI_AUTH_PUBLIC_KEY_PATH,
     keyId: env.IBMI_AUTH_KEY_ID,
+    /** Lower-case host names `/api/v1/auth` may sign on to. */
+    allowedHosts: (env.IBMI_AUTH_ALLOWED_HOSTS || env.DB2i_HOST || "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
   },
 
   /** Enable automatic reloading of YAML tools when configuration files change. From `YAML_AUTO_RELOAD`. Default: true. */

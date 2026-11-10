@@ -27,7 +27,8 @@
     "test:coverage": "npm run test:coverage -w @ibm/ibmi-mcp-server",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "format": "npm run format -w @ibm/ibmi-mcp-server",
+    "format": "prettier --write \"packages/**/*.{ts,js,json,html,css}\"",
+    "format:check": "prettier --check \"packages/**/*.{ts,js,json,html,css}\"",
     "validate": "tsx scripts/validate-config.ts",
     "inspector": "npx @modelcontextprotocol/inspector@0.15.0 --config mcp.json --server default-server",
     "list-toolsets": "npm run list-toolsets -w @ibm/ibmi-mcp-server",
@@ -57,7 +58,7 @@
   "author": "ajshedivy <adam.shedivy@ibm.com> (https://github.com/ajshedivy/ibmi-mcp-server#readme)",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.17"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
@@ -65,6 +66,7 @@
     "dotenv": "^16.6.1",
     "js-yaml": "^4.1.0",
     "standard-version": "^9.5.0",
-    "tsx": "^4.20.4"
+    "tsx": "^4.20.4",
+    "prettier": "^3.6.2"
   }
 }

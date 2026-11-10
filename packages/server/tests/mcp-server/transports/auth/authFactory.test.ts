@@ -5,7 +5,16 @@
  * @module tests/mcp-server/transports/auth/authFactory.test
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { config } from "../../../../src/config/index.js";
 import {
   assertAuthModeSupported,
@@ -13,27 +22,44 @@ import {
 } from "../../../../src/mcp-server/transports/auth/index.js";
 import { JsonRpcErrorCode } from "../../../../src/types-global/errors.js";
 import { logger, requestContextService } from "../../../../src/utils/index.js";
+import {
+  createTestKeyPair,
+  type TestKeyPair,
+} from "../../../ibmi-mcp-server/auth/testKeyPair.js";
 
 const DEPRECATION =
   "IBM i HTTP token authentication is deprecated and will be removed in a future major release; use MCP_AUTH_MODE=oauth for multi-user remote deployments.";
 
 const savedConfig = {
   mcpAuthMode: config.mcpAuthMode,
-  ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
+  ibmiHttpAuth: { ...config.ibmiHttpAuth },
 };
+let keyPair: TestKeyPair;
 
 const context = () =>
   requestContextService.createRequestContext({ operation: "authFactoryTest" });
 
+beforeAll(() => {
+  keyPair = createTestKeyPair();
+});
+
+afterAll(() => {
+  keyPair.remove();
+});
+
 beforeEach(() => {
   config.mcpAuthMode = "none";
-  config.ibmiHttpAuth.enabled = false;
+  Object.assign(config.ibmiHttpAuth, {
+    enabled: false,
+    ...keyPair.settings,
+    allowedHosts: ["ibmi.example.com"],
+  });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   config.mcpAuthMode = savedConfig.mcpAuthMode;
-  config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
+  Object.assign(config.ibmiHttpAuth, savedConfig.ibmiHttpAuth);
 });
 
 describe("assertAuthModeSupported", () => {
@@ -96,4 +122,22 @@ describe("createHttpAuth", () => {
     expect(warning).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(expect.anything(), DEPRECATION);
   });
+
+  it.each([
+    ["MCP_AUTH_MODE=ibmi", "ibmi", false],
+    ["only the /api/v1/auth endpoint is enabled", "none", true],
+  ] as const)(
+    "refuses to start without a sign-on host allow-list when %s",
+    async (_name, mode, endpointEnabled) => {
+      config.mcpAuthMode = mode;
+      config.ibmiHttpAuth.enabled = endpointEnabled;
+      config.ibmiHttpAuth.allowedHosts = [];
+
+      await expect(createHttpAuth(context())).rejects.toMatchObject({
+        code: JsonRpcErrorCode.ConfigurationError,
+        message:
+          "IBM i HTTP authentication needs the IBM i hosts users may sign on to: set IBMI_AUTH_ALLOWED_HOSTS (comma-separated host names) or DB2i_HOST.",
+      });
+    },
+  );
 });

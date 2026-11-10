@@ -7,8 +7,8 @@ import {
   renderMessage,
   renderMultiSystemOutput,
   renderMultiSystemNdjson,
-} from "../../src/formatters/output";
-import { ErrorCode } from "../../src/utils/exit-codes";
+} from "../../src/formatters/output.js";
+import { ErrorCode } from "../../src/utils/exit-codes.js";
 
 // Capture stdout/stderr writes
 let stdoutOutput: string;
@@ -199,11 +199,34 @@ describe("renderOutput — CSV format", () => {
     renderOutput([{ DESC: "line1\rline2" }], "csv");
     expect(stdoutOutput).toContain('"line1\rline2"');
   });
+
+  it("should write non-primitive values as JSON, not [object Object]", () => {
+    renderOutput(
+      [{ tool: "t", parameters: { schema: "QSYS2" }, tags: ["a", "b"] }],
+      "csv",
+    );
+    const lines = stdoutOutput.trim().split("\n");
+    expect(lines[0]).toBe("tool,parameters,tags");
+    // JSON contains quotes and commas, so the fields are CSV-quoted
+    expect(lines[1]).toBe('t,"{""schema"":""QSYS2""}","[""a"",""b""]"');
+  });
+});
+
+describe("renderOutput — table formats", () => {
+  it("should not truncate long cell values", () => {
+    const long = "X".repeat(80);
+    for (const format of ["table", "markdown"] as const) {
+      stdoutOutput = "";
+      renderOutput([{ NAME: "A", TEXT: long }], format);
+      expect(stdoutOutput).toContain(long);
+      expect(stdoutOutput).not.toContain("...");
+    }
+  });
 });
 
 describe("--stream flag registration", () => {
   it("should register --stream as a global option", async () => {
-    const { createProgram } = await import("../../src/program");
+    const { createProgram } = await import("../../src/program.js");
     const program = createProgram();
     const streamOpt = program.options.find((o) => o.long === "--stream");
     expect(streamOpt).toBeDefined();
@@ -212,7 +235,7 @@ describe("--stream flag registration", () => {
 
 describe("--format validation", () => {
   it("should reject an unknown --format value", async () => {
-    const { createProgram } = await import("../../src/program");
+    const { createProgram } = await import("../../src/program.js");
     const program = createProgram();
     program.exitOverride();
 

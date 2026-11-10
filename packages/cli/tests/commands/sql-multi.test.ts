@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 import os from "os";
 import path from "path";
-import { createProgram } from "../../src/program";
-import type { ResolvedSystem } from "../../src/config/types";
+import { createProgram } from "../../src/program.js";
+import type { ResolvedSystem } from "../../src/config/types.js";
 
 const mgr = {
   executeQuery: vi.fn(),
@@ -25,25 +25,43 @@ vi.mock("../../src/utils/multi-connection.js", () => ({
         sourceName: string,
         manager: typeof mgr,
         ctx: unknown,
-      ) => Promise<{ data: Record<string, unknown>[] }>,
+      ) => Promise<{
+        data: Record<string, unknown>[];
+        meta?: { hasMore?: boolean };
+      }>,
     ) => {
       const results = [];
       for (const sys of systems) {
-        const result = await action(sys.name, mgr, {});
-        results.push({
-          system: sys.name,
-          host: sys.config.host,
-          data: result.data,
-          rowCount: result.data.length,
-          elapsedMs: 1,
-        });
+        const base = { system: sys.name, host: sys.config.host, elapsedMs: 1 };
+        try {
+          const result = await action(sys.name, mgr, {});
+          results.push({
+            ...base,
+            data: result.data,
+            rowCount: result.data.length,
+            hasMore: result.meta?.hasMore === true,
+          });
+        } catch (err) {
+          results.push({
+            ...base,
+            data: [],
+            rowCount: 0,
+            error: (err as Error).message,
+          });
+        }
       }
       return results;
     },
   ),
 }));
 
-function makeSystem(name: string): ResolvedSystem {
+vi.mock("../../src/config/credentials.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/config/credentials.js")>();
+  return { ...actual, promptLine: vi.fn() };
+});
+
+function makeSystem(name: string, confirm = false): ResolvedSystem {
   return {
     name,
     config: {
@@ -51,13 +69,21 @@ function makeSystem(name: string): ResolvedSystem {
       port: 8076,
       user: "USER",
       readOnly: false,
-      confirm: false,
+      confirm,
       timeout: 60,
       maxRows: 5000,
       ignoreUnauthorized: true,
     },
     source: "flag",
   };
+}
+
+async function runSql(...args: string[]): Promise<void> {
+  const program = createProgram();
+  program.exitOverride();
+  await program.parseAsync([
+    "node", "ibmi", "--system", "dev,prod", ...args,
+  ]);
 }
 
 describe("ibmi sql — multiple systems", () => {
@@ -130,5 +156,137 @@ describe("ibmi sql — multiple systems", () => {
     } finally {
       if (existsSync(outputFile)) unlinkSync(outputFile);
     }
+  });
+
+  it("should exit 1 when any system fails", async () => {
+    mgr.executeQueryWithPagination
+      .mockResolvedValueOnce({ success: true, data: [{ EMPNO: "100" }] })
+      .mockRejectedValueOnce(new Error("connect ECONNREFUSED 10.0.0.2:8076"));
+
+    await runSql("--format", "json", "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE");
+
+    const parsed = JSON.parse(stdoutOutput);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.meta.systems_failed).toBe(1);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("should exit 0 when every system succeeds", async () => {
+    await runSql("--format", "json", "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE");
+
+    expect(JSON.parse(stdoutOutput).ok).toBe(true);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("should report truncation per system", async () => {
+    mgr.executeQueryWithPagination
+      // dev: the service-layer row cap was hit
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ EMPNO: "100" }],
+        truncated: true,
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ EMPNO: "200" }],
+        truncated: false,
+      });
+
+    await runSql("--format", "json", "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE");
+
+    const { systems } = JSON.parse(stdoutOutput);
+    expect(systems[0]).toMatchObject({ system: "dev", hasMore: true });
+    expect(systems[1]).not.toHaveProperty("hasMore");
+  });
+
+  it("should enforce --limit per system on the fetched rows and flag it in the table footer", async () => {
+    mgr.executeQueryWithPagination.mockResolvedValue({
+      success: true,
+      data: [{ EMPNO: "100" }, { EMPNO: "200" }, { EMPNO: "300" }],
+      truncated: false,
+    });
+
+    // LIMIT keeps the statement from being rewritten with FETCH FIRST
+    const sql = "SELECT EMPNO FROM SAMPLE.EMPLOYEE LIMIT 10";
+    await runSql("--format", "table", "sql", sql, "--limit", "2");
+
+    expect(mgr.executeQueryWithPagination.mock.calls[0]?.[1]).toBe(sql);
+    expect(stdoutOutput).not.toContain("300");
+    expect(stdoutOutput).toContain("[dev] 2 rows (truncated)");
+    expect(stdoutOutput).toContain("[prod] 2 rows (truncated)");
+  });
+
+  describe("systems marked confirm: true", () => {
+    const originalIsTTY = process.stdin.isTTY;
+
+    function setStdinTTY(value: boolean): void {
+      Object.defineProperty(process.stdin, "isTTY", {
+        value,
+        configurable: true,
+      });
+    }
+
+    beforeEach(async () => {
+      const resolver = await import("../../src/config/resolver.js");
+      vi.mocked(resolver.resolveSystems).mockReturnValue([
+        makeSystem("dev", true),
+        makeSystem("prod", true),
+      ]);
+    });
+
+    afterEach(() => {
+      setStdinTTY(originalIsTTY);
+    });
+
+    it("should refuse to run non-interactively without --yes (exit 2)", async () => {
+      setStdinTTY(false);
+      const { promptLine } = await import("../../src/config/credentials.js");
+
+      await runSql("--format", "json", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
+
+      expect(mgr.executeQueryWithPagination).not.toHaveBeenCalled();
+      expect(promptLine).not.toHaveBeenCalled();
+      const parsed = JSON.parse(stdoutOutput);
+      expect(parsed.error.code).toBe("USAGE_ERROR");
+      expect(parsed.error.message).toContain("[dev, prod]");
+      expect(parsed.error.message).toContain("--yes");
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("should run without a prompt when --yes is passed", async () => {
+      setStdinTTY(false);
+      const { promptLine } = await import("../../src/config/credentials.js");
+
+      await runSql(
+        "--format", "json", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1", "--yes",
+      );
+
+      expect(promptLine).not.toHaveBeenCalled();
+      expect(mgr.executeQueryWithPagination).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("should prompt once for all systems and run on 'y'", async () => {
+      setStdinTTY(true);
+      const { promptLine } = await import("../../src/config/credentials.js");
+      vi.mocked(promptLine).mockResolvedValue("y");
+
+      await runSql("--format", "json", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
+
+      expect(promptLine).toHaveBeenCalledTimes(1);
+      expect(promptLine).toHaveBeenCalledWith("Execute on [dev, prod]? (y/N) ");
+      expect(mgr.executeQueryWithPagination).toHaveBeenCalledTimes(2);
+    });
+
+    it("should not run when the prompt is declined", async () => {
+      setStdinTTY(true);
+      const { promptLine } = await import("../../src/config/credentials.js");
+      vi.mocked(promptLine).mockResolvedValue("n");
+
+      await runSql("--format", "json", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
+
+      expect(mgr.executeQueryWithPagination).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
   });
 });

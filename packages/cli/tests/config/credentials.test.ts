@@ -4,7 +4,7 @@ import {
   expandEnvVars,
   promptLine,
   promptPassword,
-} from "../../src/config/credentials";
+} from "../../src/config/credentials.js";
 
 describe("expandEnvVars", () => {
   const originalEnv = { ...process.env };

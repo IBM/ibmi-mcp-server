@@ -7,7 +7,6 @@
 export interface AuthRequest {
   host: string;
   duration?: number;
-  poolstart?: number;
   poolmax?: number;
 }
 

@@ -7,9 +7,16 @@
 import type { Context, Next } from "hono";
 import { logger, requestContextService } from "@/utils/index.js";
 import { authContext } from "./lib/authContext.js";
-import type { HttpAuth } from "./lib/authTypes.js";
+import type { AuthInfo, HttpAuth } from "./lib/authTypes.js";
 
-export function createAuthMiddleware(auth: HttpAuth) {
+/**
+ * @param onRefused - Called for every request authentication refuses, before
+ *   the refusal is answered. May throw to answer differently.
+ */
+export function createAuthMiddleware(
+  auth: HttpAuth,
+  onRefused?: (c: Context) => void,
+) {
   return async function authMiddleware(c: Context, next: Next) {
     const context = requestContextService.createRequestContext({
       operation: "authMiddleware",
@@ -17,8 +24,15 @@ export function createAuthMiddleware(auth: HttpAuth) {
       path: c.req.path,
     });
 
-    const authInfo = await auth.authenticate(c.req.raw);
+    let authInfo: AuthInfo | Response;
+    try {
+      authInfo = await auth.authenticate(c.req.raw);
+    } catch (error) {
+      onRefused?.(c);
+      throw error;
+    }
     if (authInfo instanceof Response) {
+      onRefused?.(c);
       logger.debug(
         { ...context, status: authInfo.status },
         "Request refused by authentication.",

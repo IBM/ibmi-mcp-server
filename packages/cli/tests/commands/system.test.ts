@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/program";
+import { createProgram } from "../../src/program.js";
 
 vi.mock("../../src/config/loader.js", () => ({
   loadConfig: vi.fn(),
@@ -291,6 +291,24 @@ describe("ibmi system list", () => {
     expect(prodRow.READ_ONLY).toBe("yes");
     expect(devRow.READ_ONLY).toBe("no");
   });
+
+  it("should show whether TLS certificate verification is on", async () => {
+    const config = makeSampleConfig();
+    config.systems.prod.ignoreUnauthorized = false;
+    mockLoadConfig.mockReturnValue(config);
+
+    const output = await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync(["node", "ibmi", "system", "list", "--format", "json"]);
+    });
+
+    const parsed = JSON.parse(output);
+    const prodRow = parsed.data.find((r: Record<string, unknown>) => r.NAME === "prod");
+    const devRow = parsed.data.find((r: Record<string, unknown>) => r.NAME === "dev");
+    expect(prodRow.VERIFY_TLS).toBe("yes");
+    expect(devRow.VERIFY_TLS).toBe("no");
+  });
 });
 
 // ─── system show <name> ───────────────────────────────────────────────────────
@@ -357,6 +375,26 @@ describe("ibmi system show", () => {
       (r: Record<string, unknown>) => r.PROPERTY === "default",
     );
     expect(defaultRow?.VALUE).toBe("yes");
+  });
+
+  it("should show whether TLS certificate verification is on", async () => {
+    const config = makeSampleConfig();
+    config.systems.prod.ignoreUnauthorized = false;
+    mockLoadConfig.mockReturnValue(config);
+
+    const verifyTls = async (name: string) => {
+      const output = await captureStdout(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync(["node", "ibmi", "system", "show", name, "--format", "json"]);
+      });
+      return JSON.parse(output).data.find(
+        (r: Record<string, unknown>) => r.PROPERTY === "verifyTls",
+      )?.VALUE;
+    };
+
+    expect(await verifyTls("prod")).toBe("true");
+    expect(await verifyTls("dev")).toBe("false");
   });
 
   it("should write error to stderr when system not found", async () => {
@@ -461,6 +499,27 @@ describe("ibmi system add", () => {
     expect(sysConfig.description).toBe("My dev system");
     expect(sysConfig.readOnly).toBe(true);
     expect(sysConfig.defaultSchema).toBe("DEVLIB");
+  });
+
+  it("should turn on TLS certificate verification only with --verify-tls", async () => {
+    const addWith = async (...flags: string[]) => {
+      mockUpsertSystem.mockReset();
+      await captureStdout(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync([
+          "node", "ibmi", "system", "add", "mydev",
+          "--host", "mydev.example.com", "--user", "admin",
+          ...flags, "--format", "json",
+        ]);
+      });
+      return mockUpsertSystem.mock.calls[0]![1].ignoreUnauthorized;
+    };
+
+    // The default is unchanged: certificates are not verified
+    expect(await addWith()).toBe(true);
+    expect(await addWith("--no-verify-tls")).toBe(true);
+    expect(await addWith("--verify-tls")).toBe(false);
   });
 
   it("should use default port 8076 when --port is not specified", async () => {

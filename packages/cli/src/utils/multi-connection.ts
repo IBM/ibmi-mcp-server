@@ -17,6 +17,8 @@ export interface MultiSystemResult {
   data: Record<string, unknown>[];
   rowCount: number;
   elapsedMs: number;
+  /** True when this system had more rows than were returned. */
+  hasMore?: boolean;
   error?: string;
 }
 
@@ -76,6 +78,7 @@ export async function executeMultiSystem(
           data: result.data,
           rowCount: result.data.length,
           elapsedMs: Date.now() - startTime,
+          hasMore: result.meta?.hasMore === true,
         } satisfies MultiSystemResult;
       }),
     );

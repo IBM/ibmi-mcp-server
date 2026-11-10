@@ -98,6 +98,7 @@ describe("Rate Limiter Config Integration", () => {
       mcpAllowedOrigins: config.mcpAllowedOrigins,
       mcpHttpHost: config.mcpHttpHost,
       mcpAuthMode: config.mcpAuthMode,
+      mcpTrustProxy: config.mcpTrustProxy,
       rateLimitEnabled: config.rateLimit.enabled,
       ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
     };
@@ -121,6 +122,7 @@ describe("Rate Limiter Config Integration", () => {
     function mcpPost(
       app: ReturnType<typeof buildApp>["app"],
       socketAddress: string,
+      headers: Record<string, string> = {},
     ) {
       return app.request(
         "/mcp",
@@ -130,6 +132,7 @@ describe("Rate Limiter Config Integration", () => {
             host: "localhost:3010",
             "content-type": "application/json",
             accept: "application/json, text/event-stream",
+            ...headers,
           },
           body: JSON.stringify({ jsonrpc: "2.0", method: "tools/list", id: 1 }),
         },
@@ -142,6 +145,7 @@ describe("Rate Limiter Config Integration", () => {
       config.mcpAllowedOrigins = undefined;
       config.mcpHttpHost = "127.0.0.1";
       config.mcpAuthMode = "none";
+      config.mcpTrustProxy = false;
       config.ibmiHttpAuth.enabled = false;
       config.rateLimit.enabled = true;
       rateLimiter.reset();
@@ -157,6 +161,7 @@ describe("Rate Limiter Config Integration", () => {
       config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
       config.mcpHttpHost = savedConfig.mcpHttpHost;
       config.mcpAuthMode = savedConfig.mcpAuthMode;
+      config.mcpTrustProxy = savedConfig.mcpTrustProxy;
       config.rateLimit.enabled = savedConfig.rateLimitEnabled;
       config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
       rateLimiter.reset();
@@ -184,6 +189,60 @@ describe("Rate Limiter Config Integration", () => {
       expect((await mcpPost(app, "10.9.9.9")).status).toBe(200);
       expect((await mcpPost(app, "10.8.8.8")).status).toBe(200);
       expect((await mcpPost(app, "10.9.9.9")).status).toBe(429);
+    });
+
+    it.each(["x-forwarded-for", "x-real-ip"])(
+      "ignores %s, so a caller cannot get a new budget by changing it",
+      async (header) => {
+        const { app } = buildApp();
+
+        expect(
+          (await mcpPost(app, "10.9.9.9", { [header]: "1.2.3.1" })).status,
+        ).toBe(200);
+        expect(
+          (await mcpPost(app, "10.9.9.9", { [header]: "1.2.3.2" })).status,
+        ).toBe(429);
+      },
+    );
+
+    describe("when MCP_TRUST_PROXY=true", () => {
+      // Every request arrives from the proxy's address.
+      const viaProxy = (
+        app: ReturnType<typeof buildApp>["app"],
+        headers: Record<string, string>,
+      ) => mcpPost(app, "10.0.0.1", headers);
+
+      beforeEach(() => {
+        config.mcpTrustProxy = true;
+      });
+
+      it("keys on the address the proxy wrote: the last X-Forwarded-For entry", async () => {
+        const { app } = buildApp();
+        const from = (address: string) =>
+          viaProxy(app, { "x-forwarded-for": address });
+
+        expect((await from("1.2.3.1")).status).toBe(200);
+        expect((await from("1.2.3.2")).status).toBe(200);
+        expect((await from("1.2.3.1")).status).toBe(429);
+      });
+
+      it("ignores the entries a caller put in front, which an appending proxy passes on", async () => {
+        const { app } = buildApp();
+        const claiming = (address: string) =>
+          viaProxy(app, { "x-forwarded-for": `${address}, 1.2.3.1` });
+
+        expect((await claiming("198.51.100.1")).status).toBe(200);
+        expect((await claiming("198.51.100.2")).status).toBe(429);
+      });
+
+      it("ignores X-Real-IP, which a proxy that sets only X-Forwarded-For passes on", async () => {
+        const { app } = buildApp();
+        const claiming = (address: string) =>
+          viaProxy(app, { "x-real-ip": address });
+
+        expect((await claiming("198.51.100.1")).status).toBe(200);
+        expect((await claiming("198.51.100.2")).status).toBe(429);
+      });
     });
 
     it("does not limit requests when MCP_RATE_LIMIT_ENABLED=false", async () => {

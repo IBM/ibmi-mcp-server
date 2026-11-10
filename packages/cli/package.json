@@ -3,8 +3,8 @@
   "version": "0.6.2",
   "description": "Command-line interface for IBM i systems — query, explore, and manage over Db2 for i",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/program.js",
+  "types": "dist/program.d.ts",
   "bin": {
     "ibmi": "dist/index.js"
   },
@@ -25,11 +25,12 @@
     "build": "tsc",
     "postbuild": "node ../../scripts/make-executable.mjs dist/index.js",
     "rebuild": "rm -rf dist && npm run build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:tests",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
     "@ibm/ibmi-mcp-server": "0.6.2",
@@ -58,6 +59,6 @@
   "author": "ajshedivy <adam.shedivy@ibm.com> (https://github.com/ajshedivy/ibmi-mcp-server#readme)",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.17"
   }
 }

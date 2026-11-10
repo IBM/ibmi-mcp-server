@@ -4,6 +4,7 @@
  * @module src/utils/cli/argumentParser
  */
 
+import { parseArgs } from "util";
 
 type mcpTransportType = "stdio" | "http";
 
@@ -15,76 +16,60 @@ export interface CliArguments {
   builtinTools?: boolean;
   executeSql?: boolean;
   help?: boolean;
-  errors?: string[];
-  warnings?: string[];
 }
 
 /**
  * Parses process.argv into CliArguments.
  *
- * Unknown `--` arguments produce a warning and are otherwise ignored; a
- * missing value after a flag that needs one produces an error. When a flag
- * is repeated, the last occurrence wins.
+ * Both `--flag value` and `--flag=value` are accepted. When a flag is
+ * repeated, the last occurrence wins.
+ *
+ * @throws {Error} For an unknown flag, a flag without its value, a positional
+ *   argument or an invalid transport type. The message is meant for the user.
  */
 export function parseCliArguments(): CliArguments {
-  const args = process.argv.slice(2);
-  const parsed: CliArguments = {
-    errors: [],
-    warnings: [],
-  };
+  const { values } = parseArgs({
+    // parseArgs only knows one-letter short options; -ts is spelled out.
+    args: process.argv
+      .slice(2)
+      .map((arg) => (arg === "-ts" ? "--toolsets" : arg)),
+    options: {
+      tools: { type: "string" },
+      transport: { type: "string", short: "t" },
+      toolsets: { type: "string" },
+      "list-toolsets": { type: "boolean" },
+      "builtin-tools": { type: "boolean" },
+      "execute-sql": { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+    allowPositionals: false,
+  });
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === "--tools") {
-      if (i + 1 < args.length) {
-        const toolsPath = args[i + 1];
-        parsed.tools = toolsPath;
-        i++; // Skip the next argument as it's the tools path
-      } else {
-        parsed.errors?.push("--tools flag requires a path argument");
-      }
-    } else if (arg === "--help" || arg === "-h") {
-      parsed.help = true;
-    } else if (arg === "--transport" || arg === "-t") {
-      if (i + 1 < args.length) {
-        const transport = args[i + 1] as mcpTransportType;
-        if (transport === "stdio" || transport === "http") {
-          parsed.transport = transport;
-          i++; // Skip the next argument as it's the transport type
-        } else {
-          parsed.errors?.push(`Invalid transport type: ${transport}`);
-        }
-      } else {
-        parsed.errors?.push("--transport flag requires a type argument");
-      }
-    } else if (arg === "--toolsets" || arg === "-ts") {
-      if (i + 1 < args.length) {
-        const toolsetsValue = args[i + 1];
-        // Split by comma and trim whitespace
-        parsed.toolsets =
-          toolsetsValue
-            ?.split(",")
-            .map((t) => t.trim())
-            .filter((t) => t.length > 0) || [];
-        i++; // Skip the next argument as it's the toolsets value
-      } else {
-        parsed.errors?.push(
-          "--toolsets flag requires a comma-separated list argument",
-        );
-      }
-    } else if (arg === "--list-toolsets") {
-      parsed.listToolsets = true;
-    } else if (arg === "--builtin-tools") {
-      parsed.builtinTools = true;
-    } else if (arg === "--execute-sql") {
-      parsed.executeSql = true;
-    } else if (arg?.startsWith("--")) {
-      parsed.warnings?.push(`Unknown argument detected: ${arg}`);
-    }
+  const { transport } = values;
+  if (
+    transport !== undefined &&
+    transport !== "stdio" &&
+    transport !== "http"
+  ) {
+    throw new Error(
+      `Invalid transport type: ${transport}. Use "stdio" or "http".`,
+    );
   }
 
-  return parsed;
+  return {
+    tools: values.tools,
+    transport,
+    // Split by comma and trim whitespace
+    toolsets: values.toolsets
+      ?.split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0),
+    listToolsets: values["list-toolsets"],
+    builtinTools: values["builtin-tools"],
+    executeSql: values["execute-sql"],
+    help: values.help,
+  };
 }
 
 /**

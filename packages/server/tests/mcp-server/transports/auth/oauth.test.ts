@@ -44,6 +44,7 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
+  mcpTrustProxy: config.mcpTrustProxy,
   mcpResourceUrl: config.mcpResourceUrl,
   oauthIssuerUrl: config.oauthIssuerUrl,
   oauthJwksUri: config.oauthJwksUri,
@@ -155,6 +156,7 @@ beforeEach(async () => {
   config.rateLimit.enabled = false;
   config.ibmiHttpAuth.enabled = false;
   config.mcpAuthMode = "oauth";
+  config.mcpTrustProxy = false;
   config.mcpResourceUrl = RESOURCE;
   config.oauthIssuerUrl = ISSUER;
   config.oauthJwksUri = undefined;
@@ -171,6 +173,7 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
+  config.mcpTrustProxy = savedConfig.mcpTrustProxy;
   config.mcpResourceUrl = savedConfig.mcpResourceUrl;
   config.oauthIssuerUrl = savedConfig.oauthIssuerUrl;
   config.oauthJwksUri = savedConfig.oauthJwksUri;
@@ -427,6 +430,45 @@ describe("OAuth: requests that are accepted", () => {
     expect(await asUser("user-1")).toBe(429);
   });
 
+  it("counts refused requests against the client address without locking out a valid token from it", async () => {
+    config.rateLimit.enabled = true;
+    rateLimiter.reset();
+    rateLimiter.configure({
+      windowMs: 60_000,
+      maxRequests: 2,
+      skipInDevelopment: false,
+    });
+    const app = await buildApp();
+    const from = async (address: string, token?: string) => {
+      const res = await app.request(
+        "/mcp",
+        {
+          method: "POST",
+          headers: {
+            host: HOST,
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        },
+        { incoming: { socket: { remoteAddress: address } } },
+      );
+      return res.status;
+    };
+    const valid = await authServer.token({ sub: "user-1" });
+
+    expect(await from("10.1.1.1", "not-a-token")).toBe(401);
+    expect(await from("10.1.1.1")).toBe(401);
+    // The address has used up its budget: further refused requests get 429.
+    expect(await from("10.1.1.1", "not-a-token")).toBe(429);
+    expect(await from("10.1.1.1")).toBe(429);
+    // A user behind the same address (proxy, NAT) is not locked out by them.
+    expect(await from("10.1.1.1", valid)).toBe(200);
+    // Other addresses still get the real answer.
+    expect(await from("10.2.2.2", "not-a-token")).toBe(401);
+  });
+
   it("accepts a token whose audience list includes this server", async () => {
     const app = await buildApp();
     const token = await authServer.token({
@@ -569,6 +611,8 @@ describe("OAuth: Protected Resource Metadata (RFC 9728)", () => {
   });
 
   it("does not let an unauthenticated caller use up a user's rate limit by claiming the user's name as its address", async () => {
+    // Behind a trusted proxy the claimed address is what requests are keyed on.
+    config.mcpTrustProxy = true;
     config.rateLimit.enabled = true;
     rateLimiter.reset();
     rateLimiter.configure({

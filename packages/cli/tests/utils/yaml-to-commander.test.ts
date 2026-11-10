@@ -4,8 +4,8 @@ import {
   registerToolOptions,
   optsToParams,
   validateRequiredParams,
-} from "../../src/utils/yaml-to-commander";
-import type { YamlToolParameter } from "../../src/utils/yaml-loader";
+} from "../../src/utils/yaml-to-commander.js";
+import type { YamlToolParameter } from "../../src/utils/yaml-loader.js";
 
 describe("registerToolOptions", () => {
   it("should register a string option", () => {

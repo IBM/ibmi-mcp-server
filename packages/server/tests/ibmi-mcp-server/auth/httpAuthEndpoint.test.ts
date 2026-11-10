@@ -7,15 +7,7 @@
  * @module tests/ibmi-mcp-server/auth/httpAuthEndpoint.test
  */
 
-import {
-  createCipheriv,
-  generateKeyPairSync,
-  publicEncrypt,
-  randomBytes,
-} from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { createCipheriv, publicEncrypt, randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import {
   afterAll,
@@ -38,8 +30,12 @@ import {
   JsonRpcErrorCode,
   McpError,
 } from "../../../src/types-global/errors.js";
+import {
+  createTestKeyPair,
+  TEST_KEY_ID as KEY_ID,
+  type TestKeyPair,
+} from "./testKeyPair.js";
 
-const KEY_ID = "test-key";
 const ENV_KEYS = [
   "DB2i_HOST",
   "DB2i_USER",
@@ -49,8 +45,7 @@ const ENV_KEYS = [
 
 const savedAuthConfig = { ...config.ibmiHttpAuth };
 let savedEnv: Record<string, string | undefined>;
-let keyDir: string;
-let publicKeyPem: string;
+let keyPair: TestKeyPair;
 
 const app = new Hono();
 app.post("/api/v1/auth", handleAuthRequest);
@@ -80,7 +75,7 @@ function buildEnvelope(
   return {
     keyId: KEY_ID,
     encryptedSessionKey: publicEncrypt(
-      { key: publicKeyPem, oaepHash: "sha256" },
+      { key: keyPair.publicKeyPem, oaepHash: "sha256" },
       sessionKey,
     ).toString("base64"),
     iv: iv.toString("base64"),
@@ -104,28 +99,18 @@ let createPool: ReturnType<typeof vi.spyOn>;
 let removePool: ReturnType<typeof vi.spyOn>;
 
 beforeAll(() => {
-  const { publicKey, privateKey } = generateKeyPairSync("rsa", {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: "spki", format: "pem" },
-    privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  });
-  publicKeyPem = publicKey;
-  keyDir = mkdtempSync(path.join(tmpdir(), "ibmi-auth-test-"));
-  writeFileSync(path.join(keyDir, "private.pem"), privateKey);
-  writeFileSync(path.join(keyDir, "public.pem"), publicKey);
-
+  keyPair = createTestKeyPair();
   Object.assign(config.ibmiHttpAuth, {
     enabled: true,
-    privateKeyPath: path.join(keyDir, "private.pem"),
-    publicKeyPath: path.join(keyDir, "public.pem"),
-    keyId: KEY_ID,
+    ...keyPair.settings,
+    allowedHosts: ["ibmi.example.com"],
   });
 });
 
 afterAll(() => {
   TokenManager.getInstance().shutdown();
   Object.assign(config.ibmiHttpAuth, savedAuthConfig);
-  rmSync(keyDir, { recursive: true, force: true });
+  keyPair.remove();
 });
 
 beforeEach(() => {
@@ -183,7 +168,7 @@ describe("POST /api/v1/auth", () => {
     );
 
     const res = await postAuth(buildEnvelope());
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(401);
 
     // A failed sign-on must not consume a concurrent-session slot.
     expect(sessionCount()).toBe(before);
@@ -192,6 +177,76 @@ describe("POST /api/v1/auth", () => {
       false,
     );
     expect(removePool).toHaveBeenCalledWith(failedToken, expect.anything());
+  });
+
+  it.each([
+    [
+      "a rejected password",
+      new McpError(
+        JsonRpcErrorCode.InitializationFailed,
+        "Error in performInitialization: Password is incorrect for TESTUSER",
+      ),
+    ],
+    ["an unreachable host", new Error("connect ECONNREFUSED 127.0.0.1:8076")],
+  ])(
+    "answers 401 'Authentication failed' without the reason for %s",
+    async (_name, failure) => {
+      createPool.mockRejectedValue(failure);
+
+      const res = await postAuth(buildEnvelope());
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({
+        error: {
+          code: JsonRpcErrorCode.Unauthorized,
+          message: "Authentication failed",
+        },
+      });
+    },
+  );
+
+  it("refuses a host that is not allow-listed with 403, before any connection attempt", async () => {
+    const before = sessionCount();
+
+    const res = await postAuth(
+      buildEnvelope({
+        credentials: { username: "TESTUSER", password: "secret" },
+        request: { host: "internal.example.com" },
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: JsonRpcErrorCode.Forbidden,
+        message: "Sign-on to this host is not allowed",
+      },
+    });
+    expect(createPool).not.toHaveBeenCalled();
+    expect(sessionCount()).toBe(before);
+  });
+
+  it("matches allow-listed host names without regard to case", async () => {
+    const res = await postAuth(
+      buildEnvelope({
+        credentials: { username: "TESTUSER", password: "secret" },
+        request: { host: "IBMI.Example.com" },
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("opens one connection for the sign-on, whatever pool size the client asks for", async () => {
+    await postAuth(
+      buildEnvelope({
+        credentials: { username: "TESTUSER", password: "secret" },
+        request: { host: "ibmi.example.com", poolstart: 50, poolmax: 20 },
+      }),
+    );
+    expect(createPool.mock.calls[0]![2]).toEqual({
+      startingSize: 1,
+      maxSize: 20,
+    });
   });
 
   it("skips IBM i certificate verification by default", async () => {

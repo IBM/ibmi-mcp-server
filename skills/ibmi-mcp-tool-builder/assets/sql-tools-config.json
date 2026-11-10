@@ -65,8 +65,8 @@
           "user",
           "password"
         ],
-        "description": "Database connection configuration",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Database connection configuration"
       }
     },
     "tools": {
@@ -95,9 +95,9 @@
             "description": "Clear, concise description of what the tool does"
           },
           "statement": {
-            "description": "SQL statement with parameter placeholders (:param or ?)",
             "type": "string",
-            "minLength": 1
+            "pattern": "\\S",
+            "description": "SQL statement with parameter placeholders (:param or ?)"
           },
           "parameters": {
             "description": "Parameter definitions for secure binding",
@@ -196,8 +196,8 @@
                 "name",
                 "type"
               ],
-              "description": "SQL tool parameter definition with validation constraints",
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "SQL tool parameter definition with validation constraints"
             }
           },
           "domain": {
@@ -343,10 +343,11 @@
         },
         "required": [
           "source",
-          "description"
+          "description",
+          "statement"
         ],
-        "description": "Individual SQL tool definition in YAML configuration",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Individual SQL tool definition in YAML configuration"
       }
     },
     "toolsets": {
@@ -388,50 +389,8 @@
         "required": [
           "tools"
         ],
-        "description": "Toolset definition for grouping related tools",
-        "additionalProperties": false
-      }
-    },
-    "typescript_tools": {
-      "description": "TypeScript tool configurations",
-      "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "domain": {
-            "type": "string",
-            "description": "Tool domain (e.g., 'sysadmin', 'performance')"
-          },
-          "category": {
-            "type": "string",
-            "description": "Tool category (e.g., 'sql-generation', 'analysis')"
-          },
-          "description": {
-            "description": "Tool description",
-            "type": "string"
-          },
-          "toolsets": {
-            "description": "List of specific toolsets this tool belongs to",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "global": {
-            "description": "Whether this tool should be added to ALL toolsets",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "domain",
-          "category"
-        ],
-        "description": "TypeScript tool configuration for toolset assignment",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Toolset definition for grouping related tools"
       }
     },
     "metadata": {
@@ -443,6 +402,6 @@
       "additionalProperties": {}
     }
   },
-  "description": "Root YAML configuration structure",
-  "additionalProperties": false
+  "additionalProperties": false,
+  "description": "Root YAML configuration structure"
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createCliContext } from "../../src/utils/command-helpers";
+import { createCliContext } from "../../src/utils/command-helpers.js";
 
 describe("createCliContext", () => {
   it("should return a context with requestId and timestamp", () => {

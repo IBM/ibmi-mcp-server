@@ -8,7 +8,10 @@
  */
 
 // First import: OTel facade (lazy-loads the SDK only when OTEL_ENABLED=true).
-import { shutdownOpenTelemetry } from "@/utils/telemetry/instrumentation.js";
+import {
+  openTelemetryStartupError,
+  shutdownOpenTelemetry,
+} from "@/utils/telemetry/instrumentation.js";
 
 import { config, environment, environmentIsValid } from "@/config/index.js";
 import {
@@ -28,12 +31,13 @@ import {
   logger,
   reinitializeLogger,
 } from "@/utils/internal/logger.js";
-import { statSync, existsSync } from "fs";
 import { applyCliOverrides } from "./config/resolver.js";
 import {
+  type CliArguments,
   parseCliArguments,
   showHelp,
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
+import { ToolConfigBuilder } from "@/ibmi-mcp-server/utils/config/toolConfigBuilder.js";
 import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
 import { BaseConnectionPool } from "@/ibmi-mcp-server/services/baseConnectionPool.js";
 import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
@@ -73,36 +77,14 @@ async function listToolsetsCommand(): Promise<boolean> {
       yamlPath: config.toolsYamlPath,
     });
 
-    // Parse YAML configuration to extract toolsets using ToolProcessor
-    // Determine the appropriate method based on the path type
-    let configResult;
-    if (existsSync(config.toolsYamlPath)) {
-      const stats = statSync(config.toolsYamlPath);
-      if (stats.isDirectory()) {
-        configResult = await ToolProcessor.fromDirectory(
-          config.toolsYamlPath,
-          context,
-        );
-      } else {
-        configResult = await ToolProcessor.fromFile(
-          config.toolsYamlPath,
-          context,
-        );
-      }
-    } else {
-      console.error(`❌ Path does not exist: ${config.toolsYamlPath}`);
-      return false;
-    }
-
-    if (!configResult.success || !configResult.config) {
-      console.error("❌ Failed to parse YAML configuration:");
-      if (configResult.errors) {
-        configResult.errors.forEach((error) => console.error(`   ${error}`));
-      }
-      return false;
-    }
-
-    const yamlConfig = configResult.config;
+    // Resolve and parse the tools path (file, directory or glob) the way the
+    // server does at startup, except that the variables the sources name
+    // (credentials, as a rule) need not be set: nothing connects here.
+    const { config: yamlConfig } = await ToolConfigBuilder.fromPath(
+      config.toolsYamlPath,
+      context,
+      { allowUnsetVariables: true },
+    );
 
     // Display global tools section
     console.log("🌍 Global Tools (automatically added to all toolsets):");
@@ -168,8 +150,20 @@ async function listToolsetsCommand(): Promise<boolean> {
   }
 }
 
-// Parse CLI arguments and handle immediate responses
-const cliArgs = parseCliArguments();
+// Parse CLI arguments and handle immediate responses. A problem with the
+// arguments goes straight to stderr (the logger has no console target in
+// stdio mode, the default) and comes before everything else, --list-toolsets
+// included.
+let cliArgs: CliArguments;
+try {
+  cliArgs = parseCliArguments();
+} catch (error) {
+  console.error(
+    `Invalid arguments: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  console.error("Run with --help for usage.");
+  process.exit(1);
+}
 
 // Handle help request immediately
 if (cliArgs.help) {
@@ -183,16 +177,6 @@ if (cliArgs.listToolsets) {
   process.exit(listed ? 0 : 1);
 }
 
-// CLI argument problems go straight to stderr: the logger has no console
-// target in stdio mode (the default), so the user would otherwise see nothing.
-
-// Handle any parsing errors
-if (cliArgs.errors && cliArgs.errors.length > 0) {
-  console.error("CLI Argument Errors:");
-  cliArgs.errors.forEach((error) => console.error(`  ✘ ${error}`));
-  process.exit(1);
-}
-
 // An invalid environment leaves every setting at its default (the config
 // module has reported which variables are at fault). A server must not run
 // with settings its operator did not choose.
@@ -201,12 +185,6 @@ if (!environmentIsValid) {
     `${config.mcpServerName}: Startup failed. Fix the invalid environment variables reported above.`,
   );
   process.exit(1);
-}
-
-// Show warnings but continue execution
-if (cliArgs.warnings && cliArgs.warnings.length > 0) {
-  console.error("CLI Argument Warnings:");
-  cliArgs.warnings.forEach((warning) => console.error(`  ⚠ ${warning}`));
 }
 
 // Apply CLI overrides directly to global config so downstream modules see changes
@@ -329,6 +307,9 @@ logOperationStart(
 );
 
 try {
+  if (openTelemetryStartupError) {
+    throw openTelemetryStartupError;
+  }
   runningServer = await initializeAndStartServer();
   if (config.mcpTransportType === "stdio") {
     // The client closing stdin is the portable way to stop a stdio server.

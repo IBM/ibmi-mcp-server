@@ -47,14 +47,6 @@ export function buildJsonSchema(
   const jsonSchema = z.toJSONSchema(zodSchema, {
     target: "draft-7",
     io: "input",
-    // Keep rejecting unknown keys in editors and `npm run validate`, as the
-    // published schema always has. Objects with a catchall stay open.
-    override: (ctx) => {
-      const def = ctx.zodSchema._zod.def;
-      if (def.type === "object" && !def.catchall) {
-        ctx.jsonSchema.additionalProperties = false;
-      }
-    },
   });
 
   // Add schema metadata for YAML Language Server

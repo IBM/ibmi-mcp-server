@@ -3,7 +3,7 @@
  * @module tests/utils/security/idGenerator.test
  */
 import { describe, it, expect } from "vitest";
-import { generateShortAlphanumericId } from "../../../src/utils/security/idGenerator";
+import { generateShortAlphanumericId } from "../../../src/utils/security/idGenerator.js";
 
 describe("generateShortAlphanumericId", () => {
   it("should generate an 8-character alphanumeric string", () => {

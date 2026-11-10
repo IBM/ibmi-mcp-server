@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/program";
-import type { ConfigLayer } from "../../src/config/loader";
+import { createProgram } from "../../src/program.js";
+import type { ConfigLayer } from "../../src/config/loader.js";
 
 vi.mock("../../src/config/loader.js", () => ({
   loadConfig: vi.fn(),

@@ -21,6 +21,7 @@ import {
   RequestContext,
   requestContextService,
 } from "@/utils/index.js";
+import { clientAddress } from "./clientAddress.js";
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "::1"]);
 const WILDCARD_BINDS = new Set(["0.0.0.0", "::", ""]);
@@ -64,35 +65,6 @@ function isLoopback(hostname: string): boolean {
     /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
     /^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
   );
-}
-
-/**
- * Source attribution for a rejected request.
- *
- * `clientIp` is the TCP peer address, which the caller cannot forge.
- * `forwardedFor` and `realIp` are proxy headers: authoritative only behind a
- * trusted proxy, and freely attacker-written otherwise.
- *
- * They are kept as separate, explicitly-claimed fields rather than collapsed
- * into `clientIp`. A rejection record is detection signal — if the field an
- * operator reads as "where did this come from" were sourced from a request
- * header, an attacker could attribute their own traffic to any address they
- * liked, or defeat per-source correlation by rotating it. Tolerates test
- * environments where no Node socket is attached.
- */
-function requestSource(c: Context): {
-  clientIp: string;
-  forwardedFor?: string;
-  realIp?: string;
-} {
-  const socketAddress = (
-    c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined
-  )?.incoming?.socket?.remoteAddress;
-  return {
-    clientIp: socketAddress || "unknown_ip",
-    forwardedFor: c.req.header("x-forwarded-for"),
-    realIp: c.req.header("x-real-ip"),
-  };
 }
 
 /**
@@ -193,7 +165,7 @@ export function createHostValidationMiddleware(policy: HostPolicy) {
         method: c.req.method,
         hostHeader: c.req.header("host"),
         originHeader: c.req.header("origin"),
-        ...requestSource(c),
+        clientIp: clientAddress(c),
         reason,
       });
       logger.warning(context, `Request rejected by host validation: ${reason}`);

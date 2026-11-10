@@ -181,11 +181,13 @@ mcp-config.json
 # =============================================================================
 # CREDENTIALS & SENSITIVE FILES (git-ignored, must not enter the build context)
 # =============================================================================
-secrets/
+**/secrets
 **/*.pem
-.ibmi/
-.mcp.json
+**/.ibmi
+**/.mcp.json
 **/mcp.json
+**/*credentials*.json
+**/*secrets*.json
 
 # =============================================================================
 # DEMO & EXAMPLE DIRECTORIES
@@ -211,7 +213,6 @@ docs/api/
 # =============================================================================
 agents/
 client/
-release/
 coverage/
 .git/
 .github/

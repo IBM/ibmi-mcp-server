@@ -1,7 +1,8 @@
 /**
  * @fileoverview Shared utilities for CLI command implementations.
  * Provides the `withConnection` wrapper that handles the full lifecycle
- * of system resolution, connection setup, execution, rendering, and cleanup.
+ * of system resolution, connection setup, execution, rendering, and cleanup,
+ * and the `withOutput` wrapper that applies --output and --watch.
  *
  * @module cli/utils/command-helpers
  */
@@ -12,7 +13,12 @@ import type { RequestContext } from "@ibm/ibmi-mcp-server/context";
 import { loadConfig } from "../config/loader.js";
 import { resolveSystem } from "../config/resolver.js";
 import { connectSystem } from "./connection.js";
-import { classifyError, ErrorCode, ExitCode } from "./exit-codes.js";
+import {
+  classifyError,
+  ErrorCode,
+  ExitCode,
+  type ExitCodeValue,
+} from "./exit-codes.js";
 import {
   detectFormat,
   renderOutput,
@@ -68,32 +74,24 @@ export function createCliContext(toolName: string): RequestContext {
 export interface CommandResult {
   data: Record<string, unknown>[];
   meta?: Partial<OutputMeta>;
+  /**
+   * Exit code to set after rendering, for a command that ran but whose
+   * result reports a failure (e.g. `validate` finding a syntax error).
+   */
+  exitCode?: ExitCodeValue;
 }
 
 /**
- * Standard command action wrapper.
+ * Run a command body with the global --output and --watch options applied.
  *
- * Handles the full lifecycle:
- * 1. Resolve target system from --system flag / env / config
- * 2. Connect (set env vars for IBMiConnectionPool)
- * 3. Run the action callback
- * 4. Render output in the requested format (or NDJSON if --stream)
- * 5. Cleanup (close pool) in finally block
- * 6. Set semantic exit code on error
- *
- * When --watch <seconds> is set, the connect-execute-render cycle repeats
- * at the given interval until Ctrl+C is received.
+ * With --output, everything the body renders is written to the file instead
+ * of stdout. With --watch <seconds>, the body repeats at that interval until
+ * Ctrl+C; combined with --output, the file is overwritten on every run.
  */
-export async function withConnection(
+export async function withOutput(
   cmd: Command,
-  toolName: string,
-  action: (
-    resolved: ResolvedSystem,
-    ctx: RequestContext,
-  ) => Promise<CommandResult>,
+  run: () => Promise<void>,
 ): Promise<void> {
-  const format = getFormat(cmd);
-  const stream = isStreaming(cmd);
   const opts = cmd.optsWithGlobals();
   const outputPath = opts["output"] as string | undefined;
   const watchInterval =
@@ -107,7 +105,7 @@ export async function withConnection(
       new Error(
         `Invalid --watch value: "${opts["watch"]}". Must be a positive integer (seconds).`,
       ),
-      format,
+      getFormat(cmd),
       undefined,
       ErrorCode.USAGE_ERROR,
     );
@@ -115,53 +113,87 @@ export async function withConnection(
     return;
   }
 
-  if (outputPath) {
+  const runOnce = async () => {
     setOutputFile(outputPath);
-  }
-
-  if (watchInterval !== undefined) {
     try {
-      await runWithWatch(cmd, toolName, action, format, stream, watchInterval);
+      await run();
     } finally {
-      if (outputPath) finalizeOutput();
+      finalizeOutput();
     }
+  };
+
+  if (watchInterval === undefined) {
+    await runOnce();
     return;
   }
 
-  let cleanup: (() => Promise<void>) | undefined;
-  let resolved: ResolvedSystem | undefined;
+  // Clear the screen between runs for human-readable formats; leave
+  // JSON/NDJSON clean for piping, and stdout alone when writing to a file.
+  const clearScreen = getFormat(cmd) !== "json" && !outputPath;
+  await runWithWatch(runOnce, clearScreen, watchInterval);
+}
 
-  try {
-    resolved = resolveSystem(opts["system"] as string | undefined);
-    cleanup = await connectSystem(resolved);
+/**
+ * Standard command action wrapper.
+ *
+ * Handles the full lifecycle:
+ * 1. Resolve target system from --system flag / env / config
+ * 2. Connect (set env vars for IBMiConnectionPool)
+ * 3. Run the action callback
+ * 4. Render output in the requested format (or NDJSON if --stream)
+ * 5. Cleanup (close pool) in finally block
+ * 6. Set semantic exit code on error
+ *
+ * --output and --watch are applied by {@link withOutput}; when watching, the
+ * whole connect-execute-render cycle repeats.
+ */
+export async function withConnection(
+  cmd: Command,
+  toolName: string,
+  action: (
+    resolved: ResolvedSystem,
+    ctx: RequestContext,
+  ) => Promise<CommandResult>,
+): Promise<void> {
+  const format = getFormat(cmd);
+  const stream = isStreaming(cmd);
+  const opts = cmd.optsWithGlobals();
 
-    const ctx = createCliContext(toolName);
-    const startTime = Date.now();
-    const result = await action(resolved, ctx);
-    const elapsedMs = Date.now() - startTime;
+  await withOutput(cmd, async () => {
+    let cleanup: (() => Promise<void>) | undefined;
+    let resolved: ResolvedSystem | undefined;
 
-    // NDJSON streaming: one JSON object per line, no envelope
-    if (stream && format === "json") {
-      renderNdjson(result.data);
-      return;
+    try {
+      resolved = resolveSystem(opts["system"] as string | undefined);
+      cleanup = await connectSystem(resolved);
+
+      const ctx = createCliContext(toolName);
+      const startTime = Date.now();
+      const result = await action(resolved, ctx);
+      const elapsedMs = Date.now() - startTime;
+
+      if (stream && format === "json") {
+        // NDJSON streaming: one JSON object per line, no envelope
+        renderNdjson(result.data);
+      } else {
+        renderOutput(result.data, format, {
+          rowCount: result.data.length,
+          elapsedMs,
+          system: resolved,
+          command: toolName,
+          ...result.meta,
+        });
+      }
+      if (result.exitCode) process.exitCode = result.exitCode;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const classified = classifyError(error);
+      renderError(error, format, resolved, classified.errorCode);
+      process.exitCode = classified.exitCode;
+    } finally {
+      if (cleanup) await cleanup();
     }
-
-    renderOutput(result.data, format, {
-      rowCount: result.data.length,
-      elapsedMs,
-      system: resolved,
-      command: toolName,
-      ...result.meta,
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    const classified = classifyError(error);
-    renderError(error, format, resolved, classified.errorCode);
-    process.exitCode = classified.exitCode;
-  } finally {
-    if (cleanup) await cleanup();
-    if (outputPath) finalizeOutput();
-  }
+  });
 }
 
 /**
@@ -183,17 +215,13 @@ function sanitizeArgsForDisplay(args: string[]): string {
 }
 
 /**
- * Run a command repeatedly at the specified interval.
- * Clears the screen between runs in table/markdown/csv mode (not JSON/NDJSON,
- * which are intended for piping). Shows a timestamp header on stderr.
- * Ctrl+C exits cleanly.
+ * Run `runOnce` repeatedly at the specified interval.
+ * Shows a timestamp header on stderr before each run. A failed run is
+ * reported like any other and the watch continues. Ctrl+C exits cleanly.
  */
 async function runWithWatch(
-  cmd: Command,
-  toolName: string,
-  action: (resolved: ResolvedSystem, ctx: RequestContext) => Promise<CommandResult>,
-  format: OutputFormat,
-  stream: boolean,
+  runOnce: () => Promise<void>,
+  clearScreen: boolean,
   intervalSeconds: number,
 ): Promise<void> {
   let running = true;
@@ -206,8 +234,7 @@ async function runWithWatch(
 
   try {
     while (running) {
-      // Clear screen for human-readable formats; leave JSON/NDJSON clean for piping
-      if (format !== "json") {
+      if (clearScreen) {
         process.stdout.write("\x1b[2J\x1b[H");
       }
 
@@ -216,35 +243,9 @@ async function runWithWatch(
       const args = sanitizeArgsForDisplay(process.argv.slice(2));
       process.stderr.write(`Every ${intervalSeconds}s: ibmi ${args}  ${now}\n\n`);
 
-      // Run one connect-execute-render cycle
-      let cleanup: (() => Promise<void>) | undefined;
-      try {
-        const opts = cmd.optsWithGlobals();
-        const resolved = resolveSystem(opts["system"] as string | undefined);
-        cleanup = await connectSystem(resolved);
-        const ctx = createCliContext(toolName);
-        const startTime = Date.now();
-        const result = await action(resolved, ctx);
-        const elapsedMs = Date.now() - startTime;
-
-        if (stream && format === "json") {
-          renderNdjson(result.data);
-        } else {
-          renderOutput(result.data, format, {
-            rowCount: result.data.length,
-            elapsedMs,
-            system: resolved,
-            command: toolName,
-            ...result.meta,
-          });
-        }
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        const classified = classifyError(error);
-        renderError(error, format, undefined, classified.errorCode);
-      } finally {
-        if (cleanup) await cleanup();
-      }
+      await runOnce();
+      // A failed run does not fail the watch
+      process.exitCode = undefined;
 
       // Wait for the interval, but allow SIGINT to break out immediately
       if (running) {

@@ -13,9 +13,19 @@ export type OpenTelemetrySdk = {
 
 export let sdk: OpenTelemetrySdk | null = null;
 
+/**
+ * Why OpenTelemetry could not start although `OTEL_ENABLED=true`. The entry
+ * point fails startup on it; this module never exits the process.
+ */
+export let openTelemetryStartupError: unknown;
+
 if (config.openTelemetry.enabled) {
-  const { startedSdk } = await import("./instrumentation.setup.js");
-  sdk = startedSdk;
+  try {
+    const { startedSdk } = await import("./instrumentation.setup.js");
+    sdk = startedSdk;
+  } catch (error) {
+    openTelemetryStartupError = error;
+  }
 }
 
 /**

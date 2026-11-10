@@ -130,7 +130,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -138,7 +138,7 @@ describe("Default Tools - list_schemas", () => {
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
     expect(result.data).toHaveLength(2);
-    expect(result.data![0].SCHEMA_NAME).toBe("MYLIB");
+    expect(result.data![0]?.SCHEMA_NAME).toBe("MYLIB");
     expect(result.hasMore).toBe(false);
   });
 
@@ -158,7 +158,7 @@ describe("Default Tools - list_schemas", () => {
     );
 
     const result = await listSchemasTool.logic(
-      { filter: "MY%", limit: 50, offset: 0 },
+      { filter: "MY%", include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -180,7 +180,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -220,7 +220,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -239,7 +239,7 @@ describe("Default Tools - list_schemas", () => {
     );
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -256,7 +256,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -295,7 +295,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listSchemasTool.logic(
-      { limit: 2, offset: 0 },
+      { include_system: false, limit: 2, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -323,7 +323,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listSchemasTool.logic(
-      { limit: 5, offset: 0 },
+      { include_system: false, limit: 5, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -342,7 +342,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     await listSchemasTool.logic(
-      { limit: 10, offset: 20 },
+      { include_system: false, limit: 10, offset: 20 },
       context,
       mockSdkContext,
     );
@@ -368,7 +368,7 @@ describe("Default Tools - list_schemas", () => {
     );
 
     const result = await listSchemasTool.logic(
-      { limit: 150, offset: 0 },
+      { include_system: false, limit: 150, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -425,14 +425,14 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listTablesInSchemaTool.logic(
-      { schema_name: "QIWS", limit: 50, offset: 0 },
+      { schema_name: "QIWS", table_filter: "*ALL", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
-    expect(result.data![0].TABLE_NAME).toBe("QCUSTCDT");
+    expect(result.data![0]?.TABLE_NAME).toBe("QCUSTCDT");
     expect(result.hasMore).toBe(false);
   });
 
@@ -486,7 +486,7 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockRejectedValue(new Error("Schema not found"));
 
     const result = await listTablesInSchemaTool.logic(
-      { schema_name: "BADLIB", limit: 50, offset: 0 },
+      { schema_name: "BADLIB", table_filter: "*ALL", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -687,8 +687,8 @@ describe("Default Tools - get_table_columns", () => {
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
-    expect(result.data![0].COLUMN_NAME).toBe("CUSNUM");
-    expect(result.data![1].DATA_TYPE).toBe("CHAR");
+    expect(result.data![0]?.COLUMN_NAME).toBe("CUSNUM");
+    expect(result.data![1]?.DATA_TYPE).toBe("CHAR");
   });
 
   it("should pass schema and table as bind parameters", async () => {
@@ -798,7 +798,7 @@ describe("Default Tools - validate_query", () => {
       mockSdkContext,
     );
 
-    const callArgs = mockExecuteQuery.mock.calls[0];
+    const callArgs = mockExecuteQuery.mock.calls[0]!;
     expect(callArgs[0]).toContain("PARSE_STATEMENT");
     expect(callArgs[0]).toContain("SQL_STATEMENT =>");
     expect(callArgs[0]).toContain("NAMING => '*SQL'");
@@ -1625,8 +1625,8 @@ describe("Default Tools - get_related_objects", () => {
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
-    expect(result.data![0].SQL_OBJECT_TYPE).toBe("INDEX");
-    expect(result.data![1].SQL_OBJECT_TYPE).toBe("VIEW");
+    expect(result.data![0]?.SQL_OBJECT_TYPE).toBe("INDEX");
+    expect(result.data![1]?.SQL_OBJECT_TYPE).toBe("VIEW");
   });
 
   it("should pass library and file as bind parameters", async () => {
@@ -1761,7 +1761,7 @@ describe("Default Tools - get_related_objects", () => {
     expect(result.success).toBe(true);
     expect(result.data![0]).not.toHaveProperty("LONG_COMMENT");
     expect(result.data![0]).not.toHaveProperty("OBJECT_TEXT");
-    expect(result.data![0].SQL_OBJECT_TYPE).toBe("INDEX");
+    expect(result.data![0]?.SQL_OBJECT_TYPE).toBe("INDEX");
   });
 
   it("should handle database errors gracefully", async () => {

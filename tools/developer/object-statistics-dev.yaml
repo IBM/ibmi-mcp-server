@@ -30,12 +30,6 @@ tools:
         type: string
         description: "Library name. Examples: 'MYLIB', '*LIBL', '*USRLIBL', '*ALLUSR'"
         required: true
-      - name: sql_object_type
-        type: string
-        description: "SQL object type to find."
-        required: false
-        default: "INDEX"
-        enum: [ALIAS, FUNCTION, INDEX, PACKAGE, PROCEDURE, ROUTINE, SEQUENCE, TABLE, TRIGGER, TYPE, VARIABLE, VIEW, XSR]
       - name: months_unused
         type: integer
         description: "Look back this many months. Examples: 1 (past month), 3 (past 3 months), 6 (past 6 months)"
@@ -61,12 +55,6 @@ tools:
         type: string
         description: "Library name. Examples: 'MYLIB', '*LIBL', '*USRLIBL', '*ALLUSR'"
         required: true
-      - name: sql_object_type
-        type: string
-        description: "SQL object type to find. Examples: 'INDEX', 'TABLE', 'VIEW'"
-        required: false
-        default: "INDEX"
-        enum: [ALIAS, FUNCTION, INDEX, PACKAGE, PROCEDURE, ROUTINE, SEQUENCE, TABLE, TRIGGER, TYPE, VARIABLE, VIEW, XSR]
       - name: months_unused
         type: integer
         description: "Find objects not used in this many months. Examples: 1 (1 month), 6 (6 months), 12 (1 year)"

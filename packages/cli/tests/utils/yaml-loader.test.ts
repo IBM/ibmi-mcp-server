@@ -6,7 +6,7 @@ import {
   loadYamlFile,
   loadYamlTools,
   buildToolsetMap,
-} from "../../src/utils/yaml-loader";
+} from "../../src/utils/yaml-loader.js";
 
 const TEST_DIR = join(tmpdir(), "ibmi-cli-yaml-test-" + Date.now());
 

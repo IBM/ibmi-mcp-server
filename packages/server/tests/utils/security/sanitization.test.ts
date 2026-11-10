@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitization } from "../../../src/utils/security/sanitization";
+import { sanitization } from "../../../src/utils/security/sanitization.js";
 
 describe("Sanitization Utility", () => {
   describe("sanitizeForLogging", () => {
@@ -31,8 +31,8 @@ describe("Sanitization Utility", () => {
       const sanitized = sanitization.sanitizeForLogging(
         sensitiveObject,
       ) as Record<string, Record<string, unknown>>;
-      expect(sanitized.credentials.password).toBe("[REDACTED]");
-      expect(sanitized.credentials.session_token).toBe("[REDACTED]");
+      expect(sanitized.credentials?.password).toBe("[REDACTED]");
+      expect(sanitized.credentials?.session_token).toBe("[REDACTED]");
       expect(sanitized.nonSensitive).toBe("data");
     });
 
@@ -50,9 +50,9 @@ describe("Sanitization Utility", () => {
       const sanitized = sanitization.sanitizeForLogging(
         sensitiveArray,
       ) as Record<string, unknown>[];
-      expect(sanitized[0].password).toBe("[REDACTED]");
-      expect(sanitized[1].apiKey).toBe("[REDACTED]");
-      expect(sanitized[0].user).toBe("a");
+      expect(sanitized[0]?.password).toBe("[REDACTED]");
+      expect(sanitized[1]?.apiKey).toBe("[REDACTED]");
+      expect(sanitized[0]?.user).toBe("a");
     });
   });
 });

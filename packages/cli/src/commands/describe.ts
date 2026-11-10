@@ -8,7 +8,7 @@
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
 import { OBJECT_TYPES, type SdkContext } from "@ibm/ibmi-mcp-server/tools";
-import { ExitCode } from "../utils/exit-codes.js";
+import { ExitCode, UsageError } from "../utils/exit-codes.js";
 
 /**
  * Parse a qualified object reference into library and name.
@@ -18,7 +18,7 @@ import { ExitCode } from "../utils/exit-codes.js";
 function parseObjectRef(ref: string): { library?: string; name: string } {
   const parts = ref.trim().split(".");
   if (parts.length > 2) {
-    throw new Error(
+    throw new UsageError(
       `Invalid object reference "${ref}". Expected LIBRARY.OBJECT or OBJECT.`,
     );
   }
@@ -68,6 +68,7 @@ export function registerDescribeCommand(program: Command): void {
           const logicFn = generateSqlTool.logic;
 
           const data: Record<string, unknown>[] = [];
+          let failed = 0;
 
           for (const ref of refs) {
             const parsed = parseObjectRef(ref);
@@ -92,6 +93,7 @@ export function registerDescribeCommand(program: Command): void {
                 DDL: result.sql,
               });
             } else {
+              failed++;
               data.push({
                 OBJECT: qualifiedName,
                 TYPE: objectType,
@@ -103,6 +105,9 @@ export function registerDescribeCommand(program: Command): void {
           return {
             data,
             meta: { rowCount: data.length },
+            // Per-object errors are reported as rows; when nothing could be
+            // described the command as a whole has failed
+            exitCode: failed === refs.length ? ExitCode.QUERY : undefined,
           };
         },
       );

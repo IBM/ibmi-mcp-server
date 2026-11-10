@@ -5,6 +5,7 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
+import { ToolError } from "../utils/exit-codes.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 export function registerRelatedCommand(program: Command): void {
@@ -32,7 +33,7 @@ export function registerRelatedCommand(program: Command): void {
         );
 
         if (!result.success) {
-          throw new Error(result.error?.message ?? "Failed to get related objects");
+          throw new ToolError(result.error, "Failed to get related objects");
         }
 
         return {

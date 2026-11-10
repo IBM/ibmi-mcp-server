@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/program";
+import { createProgram } from "../../src/program.js";
 
 vi.mock("../../src/utils/yaml-loader.js", () => ({
   loadYamlTools: vi.fn(),
@@ -402,6 +402,8 @@ describe("ibmi tool command — security validation", () => {
 
     const output = stdoutOutput + stderrOutput;
     expect(output).toMatch(/write operation/i);
+    // Security violation, from the validator's error code rather than its wording
+    expect(process.exitCode).toBe(4);
   });
 
   it("should block INSERT when tool has no security config (defaults to readOnly)", async () => {
@@ -593,6 +595,69 @@ describe("ibmi tool command — parameter handling", () => {
 
       expect(stdoutOutput).toBe("");
       expect(readFileSync(outputFile, "utf-8")).toBe("OK\n1\n");
+    } finally {
+      if (existsSync(outputFile)) unlinkSync(outputFile);
+    }
+  });
+
+  it("should write --dry-run output to the --output file instead of stdout", async () => {
+    const { existsSync, readFileSync, unlinkSync } = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const outputFile = path.join(os.tmpdir(), `ibmi-test-${Date.now()}-dry.txt`);
+    let stdoutOutput = "";
+    process.stdout.write = ((chunk: string) => {
+      stdoutOutput += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "--format", "table", "--output", outputFile,
+        "tool", "optional_only", "--tools", "/fake.yaml", "--dry-run",
+      ]);
+
+      expect(stdoutOutput).toBe("");
+      const written = readFileSync(outputFile, "utf-8");
+      expect(written).toContain("Would execute:");
+      expect(written).toContain(
+        "SELECT * FROM SAMPLE.T WHERE NAME LIKE :name_filter",
+      );
+    } finally {
+      if (existsSync(outputFile)) unlinkSync(outputFile);
+    }
+  });
+
+  it("should re-run with --watch and overwrite the --output file on every run", async () => {
+    const { existsSync, readFileSync, unlinkSync } = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+    const outputFile = path.join(os.tmpdir(), `ibmi-test-${Date.now()}-watch.csv`);
+
+    let fileBeforeSecondRun = "";
+    vi.mocked(IBMiConnectionPool.executeQuery)
+      .mockResolvedValueOnce({ data: [{ RUN: 1 }] } as never)
+      .mockImplementationOnce((async () => {
+        fileBeforeSecondRun = readFileSync(outputFile, "utf-8");
+        process.emit("SIGINT"); // Ctrl+C: this run is the last
+        return { data: [{ RUN: 2 }] };
+      }) as never);
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "--format", "csv", "--watch", "1",
+        "--output", outputFile, "tool", "optional_only", "--tools", "/fake.yaml",
+      ]);
+
+      expect(IBMiConnectionPool.executeQuery).toHaveBeenCalledTimes(2);
+      // Written after the first run, then replaced (not appended to) by the second
+      expect(fileBeforeSecondRun).toBe("RUN\n1\n");
+      expect(readFileSync(outputFile, "utf-8")).toBe("RUN\n2\n");
     } finally {
       if (existsSync(outputFile)) unlinkSync(outputFile);
     }

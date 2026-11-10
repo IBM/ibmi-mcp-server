@@ -13,9 +13,6 @@ coverage/
 .env.production
 .env.test
 
-# Release artifacts
-release/
-
 # Temporary files
 tmp/
 temp/

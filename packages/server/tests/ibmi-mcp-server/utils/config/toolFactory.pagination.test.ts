@@ -101,7 +101,7 @@ describe("SQLToolFactory fetch-control composition", () => {
     );
 
     expect(executeQuery).toHaveBeenCalledTimes(1);
-    const args = executeQuery.mock.calls[0];
+    const args = executeQuery.mock.calls[0]!;
     expect(args[args.length - 1]).toBe(500);
     expect(executeQueryWithPagination).not.toHaveBeenCalled();
     expect(warningSpy).not.toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe("SQLToolFactory fetch-control composition", () => {
     expect(executeQueryWithPagination).toHaveBeenCalledTimes(1);
     // Signature: (sourceName, query, params, context, fetchSize, securityConfig)
     // fetchSize is the 5th positional argument (index 4).
-    const args = executeQueryWithPagination.mock.calls[0];
+    const args = executeQueryWithPagination.mock.calls[0]!;
     expect(args[4]).toBeUndefined();
     expect(executeQuery).not.toHaveBeenCalled();
     expect(warningSpy).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe("SQLToolFactory fetch-control composition", () => {
     );
 
     expect(executeQueryWithPagination).toHaveBeenCalledTimes(1);
-    const args = executeQueryWithPagination.mock.calls[0];
+    const args = executeQueryWithPagination.mock.calls[0]!;
     expect(args[4]).toBe(500);
     expect(executeQuery).not.toHaveBeenCalled();
     // No warning — the two fields compose, there's no collision anymore.
@@ -176,7 +176,7 @@ describe("SQLToolFactory fetch-control composition", () => {
     );
 
     expect(executeQuery).toHaveBeenCalledTimes(1);
-    const args = executeQuery.mock.calls[0];
+    const args = executeQuery.mock.calls[0]!;
     // The last argument in the no-rowsToFetch branch is the context, not a
     // number — assert we did not pass a numeric cap.
     expect(typeof args[args.length - 1]).not.toBe("number");

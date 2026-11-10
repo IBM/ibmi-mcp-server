@@ -19,11 +19,15 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
       fetchMore: vi.fn(),
       close: vi.fn(),
     };
+    const query = vi.fn(() => mockQueryInstance);
     const mockPoolInstance = {
       init: vi.fn(),
       execute: vi.fn(),
       end: vi.fn(),
-      query: vi.fn(() => mockQueryInstance),
+      query,
+      // The pool picks one of these connections for each statement: one
+      // ready job, which starts every statement through `query`.
+      jobs: [{ getStatus: () => "ready", query }],
     };
     return {
       mockPoolInstance,
@@ -51,7 +55,11 @@ vi.mock("@ibm/mapepire-js", () => ({
 // ---------------------------------------------------------------------------
 import { BaseConnectionPool } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
-import { config, MAX_PAGINATION_ROWS } from "../../../src/config/index.js";
+import {
+  config,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGINATION_ROWS,
+} from "../../../src/config/index.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -92,10 +100,6 @@ class TestConnectionPool extends BaseConnectionPool<string> {
 
   testStartIdleTimer() {
     this.startIdleTimer();
-  }
-
-  testClearAllPools() {
-    this.clearAllPools();
   }
 
   getPoolsMap() {
@@ -206,12 +210,12 @@ describe("BaseConnectionPool – Query Timeout", () => {
     await vi.advanceTimersByTimeAsync(1_001);
     await assertion;
 
-    // After timeout, closePool runs fire-and-forget (mock end() resolves
-    // synchronously), so the pool is already fully closed by this point:
-    // healthStatus reverts to "unknown" and pool is nulled out.
+    // The timeout closes the pool: it is nulled out and reads unhealthy
+    // until the next request re-initializes it.
     const state = pool.getPoolsMap().get("test")!;
     expect(state.pool).toBeNull();
     expect(state.isInitialized).toBe(false);
+    expect(state.healthStatus).toBe("unhealthy");
 
     // pool.end() should have been called to close the timed-out pool
     expect(mockPoolInstance.end).toHaveBeenCalled();
@@ -264,9 +268,10 @@ describe("BaseConnectionPool – Query Timeout", () => {
     const secondResult = await pool.testExecuteQuery("test", "SELECT 1");
     expect(secondResult.success).toBe(true);
 
-    // Pool constructor should have been called twice (init + re-init)
+    // Pool constructor should have been called twice (init + re-init), each
+    // time opening a probe connection and then the remaining ones
     expect(MockPool).toHaveBeenCalledTimes(2);
-    expect(mockPoolInstance.init).toHaveBeenCalledTimes(2);
+    expect(mockPoolInstance.init).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -456,7 +461,7 @@ describe("BaseConnectionPool – Static Instance Registry", () => {
         throw new Error("shutdown kaboom");
       }
     }
-    const _badPool = new FailingPool();
+    new FailingPool(); // registers itself with BaseConnectionPool
 
     // shutdownAll should not throw, and goodPool's shutdown should still run
     await expect(BaseConnectionPool.shutdownAll()).resolves.toBeUndefined();
@@ -569,8 +574,8 @@ describe("SourceManager – getHealthSummary", () => {
     pools.get("bad")!.healthStatus = "unhealthy";
 
     const summary = sm.getHealthSummary();
-    expect(summary["good"].healthStatus).toBe("healthy");
-    expect(summary["bad"].healthStatus).toBe("unhealthy");
+    expect(summary["good"]?.healthStatus).toBe("healthy");
+    expect(summary["bad"]?.healthStatus).toBe("unhealthy");
 
     const hasUnhealthy = Object.values(summary).some(
       (s) => s.healthStatus === "unhealthy",
@@ -842,6 +847,18 @@ describe("BaseConnectionPool – paginated query row cap", () => {
     ).rejects.toThrow(/fetch failed/);
 
     expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("7.6 – fetches the first page with the configured fetch size", async () => {
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      is_done: true,
+    });
+
+    await pool.testExecuteQueryWithPagination("test", "SELECT 1");
+
+    // Not mapepire's 100-row default, which would cost an extra round trip
+    expect(mockQueryInstance.execute).toHaveBeenCalledWith(DEFAULT_PAGE_SIZE);
   });
 });
 

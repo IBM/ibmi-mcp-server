@@ -132,7 +132,7 @@ describe("initializeAndStartServer refuses to start", () => {
   it("when a server instance cannot be built: a YAML tool with the name of a built-in tool", async () => {
     writeFileSync(yamlPath, yaml(["list_schemas"]));
     await expect(initializeAndStartServer()).rejects.toThrow(
-      /list_schemas is already registered/,
+      /YAML tool 'list_schemas' has the same name as the built-in tool 'list_schemas'/,
     );
   });
 });

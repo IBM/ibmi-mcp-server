@@ -87,6 +87,27 @@ export class ToolsetManager {
           "Initializing toolset manager",
         );
 
+        // Validate that all tools referenced in toolsets exist, before
+        // anything is replaced: a rejected configuration leaves the previous
+        // toolsets in place.
+        const allToolNames = [
+          ...Object.keys(config.tools || {}), // Regular YAML tools
+          ...GLOBAL_TOOLS, // Global tools (TypeScript-based)
+        ];
+        for (const [toolsetName, toolset] of Object.entries(
+          config.toolsets || {},
+        )) {
+          for (const toolName of toolset.tools) {
+            if (!allToolNames.includes(toolName)) {
+              throw new McpError(
+                JsonRpcErrorCode.ValidationError,
+                `Toolset '${toolsetName}' references unknown tool '${toolName}'. Available tools: ${allToolNames.join(", ")}`,
+                { toolsetName, toolName, availableTools: allToolNames },
+              );
+            }
+          }
+        }
+
         // Clear existing data
         this.toolsetConfig = {};
         this.toolToToolsets.clear();
@@ -119,25 +140,6 @@ export class ToolsetManager {
                 this.toolToToolsets.set(toolName, []);
               }
               this.toolToToolsets.get(toolName)!.push(toolsetName);
-            }
-          }
-        }
-
-        // Validate that all tools referenced in toolsets exist
-        const allToolNames = [
-          ...Object.keys(config.tools || {}), // Regular YAML tools
-          ...GLOBAL_TOOLS, // Global tools (TypeScript-based)
-        ];
-        for (const [toolsetName, toolset] of Object.entries(
-          this.toolsetConfig,
-        )) {
-          for (const toolName of toolset.tools) {
-            if (!allToolNames.includes(toolName)) {
-              throw new McpError(
-                JsonRpcErrorCode.ValidationError,
-                `Toolset '${toolsetName}' references unknown tool '${toolName}'. Available tools: ${allToolNames.join(", ")}`,
-                { toolsetName, toolName, availableTools: allToolNames },
-              );
             }
           }
         }

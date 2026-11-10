@@ -81,22 +81,17 @@ export const onSQLToolsReloaded = (listener: ReloadListener): (() => void) => {
   return () => reloadListeners.delete(listener);
 };
 
-async function reloadSQLTools(
-  filePath: string,
-  eventType: string,
-  changeContext?: RequestContext,
-): Promise<void> {
-  const context =
-    changeContext ||
-    requestContextService.createRequestContext({
-      operation: "AutoReloadOnFileChange",
-      filePath,
-      eventType,
-    });
-  logger.info(
-    context,
-    `YAML file changed (${eventType}): ${filePath} - rebuilding tools`,
-  );
+/**
+ * Rebuilds the tool cache after the YAML files changed. A configuration that
+ * fails to load is logged and the previous one stays in place.
+ */
+async function reloadSQLTools(): Promise<void> {
+  // A context of its own, so each reload can be told apart in the log.
+  const context = requestContextService.createRequestContext({
+    operation: "AutoReloadOnFileChange",
+    yamlPath: config.toolsYamlPath,
+  });
+  logger.info(context, "YAML tool files changed - rebuilding tools");
 
   try {
     const resourcesBefore = JSON.stringify(describeToolsetResources());

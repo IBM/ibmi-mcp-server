@@ -2,8 +2,8 @@
 /**
  * Validate IBM i MCP Server YAML tool files against the SQL tools JSON schema,
  * plus the checks the schema can't express (source/toolset references and
- * :param bindings). Mirrors how the server loads YAML: ${VAR} interpolation
- * from the environment happens before parsing.
+ * :param bindings). Mirrors how the server loads YAML: ${VAR} is replaced from
+ * the environment inside string values, after parsing.
  *
  * Usage:
  *   node validate-tools.mjs <file-or-dir> [more...] [--schema <path>]
@@ -61,14 +61,25 @@ function collectYamlFiles(target) {
     .filter((p) => [".yaml", ".yml"].includes(extname(p)) && statSync(p).isFile());
 }
 
-// Same substitution the server performs (configParser.interpolateEnvironmentVariables):
-// unset variables keep their ${VAR} placeholder.
-function interpolate(content, unsetVars) {
-  return content.replace(/\$\{([^}]+)\}/g, (match, name) => {
-    if (process.env[name] !== undefined) return process.env[name];
-    unsetVars.add(name);
-    return match;
-  });
+// Same substitution the server performs (configParser.interpolateEnvironmentVariables),
+// in string values of the parsed document. The server refuses to load a file
+// that references an unset variable; here it keeps its ${VAR} placeholder and
+// is reported at the end, so a file can be checked without credentials.
+function interpolate(value, unsetVars) {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([^}]+)\}/g, (match, name) => {
+      if (process.env[name] !== undefined) return process.env[name];
+      unsetVars.add(name);
+      return match;
+    });
+  }
+  if (Array.isArray(value)) return value.map((v) => interpolate(v, unsetVars));
+  if (value?.constructor === Object) {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, interpolate(v, unsetVars)]),
+    );
+  }
+  return value;
 }
 
 function formatAjvError(err) {
@@ -95,11 +106,6 @@ function checkStatement(toolName, tool, report) {
   const { statement } = tool;
   const params = tool.parameters ?? [];
   const at = `tools.${toolName}`;
-
-  if (!statement?.trim()) {
-    report.error(`${at}: must have a non-empty "statement"`);
-    return;
-  }
 
   // The server looks for markers with /:(\w+)/g (parameterProcessor.ts) after
   // masking literals and comments, so we do too. With no parameters it sends
@@ -135,15 +141,13 @@ function checkStatement(toolName, tool, report) {
       report.warn(`${at}: parameter "${name}" is declared but never used in the statement`);
       continue;
     }
-    // ParameterProcessor binds an omitted optional parameter as "" for every type, never NULL.
-    if (p.required === false && p.default === undefined) {
+    // An omitted optional parameter without a default is bound as SQL NULL.
+    if (
+      p.default !== undefined &&
+      new RegExp(`:${name}\\s+IS\\s+(NOT\\s+)?NULL`, "i").test(code)
+    ) {
       report.warn(
-        `${at}: optional parameter "${name}" has no default; if the caller omits it, it binds as '' (not NULL). Give it a default such as '*ALL'`,
-      );
-    }
-    if (new RegExp(`:${name}\\s+IS\\s+(NOT\\s+)?NULL`, "i").test(code)) {
-      report.warn(
-        `${at}: ":${name} IS NULL" never matches; parameters are never bound as NULL. Use a sentinel default, e.g. (:${name} = '*ALL' OR col = :${name})`,
+        `${at}: ":${name} IS [NOT] NULL" is constant; "${name}" has a default, so it is never bound as NULL`,
       );
     }
     if (p.type === "array") {
@@ -158,7 +162,13 @@ function checkStatement(toolName, tool, report) {
   }
 
   if (/\?/.test(code)) {
-    report.warn(`${at}: positional "?" placeholders found; prefer named :params`);
+    if (placeholders.length > 0) {
+      report.error(
+        `${at}: statement mixes named (:name) and positional (?) parameter markers; the server refuses to load it`,
+      );
+    } else {
+      report.warn(`${at}: positional "?" placeholders found; prefer named :params`);
+    }
   }
 
   const firstWord = statement.trim().split(/\s+/)[0].toUpperCase();
@@ -183,7 +193,7 @@ for (const file of files) {
 
   let config;
   try {
-    config = yaml.load(interpolate(readFileSync(file, "utf8"), unsetVars));
+    config = interpolate(yaml.load(readFileSync(file, "utf8")), unsetVars);
   } catch (e) {
     errors.push(`YAML parse error: ${e.message}`);
   }
@@ -193,8 +203,8 @@ for (const file of files) {
       errors.push("file is empty or not a YAML mapping");
     } else if (!validateSchema(config)) {
       errors.push(...validateSchema.errors.map(formatAjvError));
-    } else if (!config.sources && !config.tools && !config.toolsets && !config.typescript_tools) {
-      errors.push("must contain at least one of: sources, tools, toolsets, typescript_tools");
+    } else if (!config.sources && !config.tools && !config.toolsets) {
+      errors.push("must contain at least one of: sources, tools, toolsets");
     } else {
       for (const [name, tool] of Object.entries(config.tools ?? {})) {
         checkStatement(name, tool, report);
@@ -235,7 +245,7 @@ if (crossErrors.length) {
 
 if (unsetVars.size > 0) {
   console.log(
-    `\nnote: unset environment variables left as \${...}: ${[...unsetVars].join(", ")} (the server needs them at startup; try node --env-file=.env ...)`,
+    `\nnote: unset environment variables left as \${...}: ${[...unsetVars].join(", ")} (the server refuses to start without them; try node --env-file=.env ...)`,
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ResolvedSystem } from "../../src/config/types";
+import type { ResolvedSystem } from "../../src/config/types.js";
 
 // Mock SourceManager before importing the module under test
 const mockRegisterSource = vi.fn().mockResolvedValue(undefined);
@@ -20,7 +20,7 @@ vi.mock("../../src/config/credentials.js", () => ({
   resolvePassword: vi.fn().mockResolvedValue("mock-password"),
 }));
 
-import { executeMultiSystem } from "../../src/utils/multi-connection";
+import { executeMultiSystem } from "../../src/utils/multi-connection.js";
 
 function makeSystem(name: string, host: string): ResolvedSystem {
   return {

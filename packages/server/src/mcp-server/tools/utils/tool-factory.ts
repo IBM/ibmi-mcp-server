@@ -122,9 +122,15 @@ export function createHandler<TInput, TOutput>(
         input,
       );
 
+      // The built-in tools report a failure in their result
+      // ({ success: false, error }) instead of throwing.
+      const failed =
+        (result as { success?: unknown } | null)?.success === false;
+
       return {
         structuredContent: result as Record<string, unknown>,
         content: responseFormatter(result),
+        ...(failed && { isError: true }),
       };
     } catch (error: unknown) {
       const mcpError = ErrorHandler.handleError(error, {

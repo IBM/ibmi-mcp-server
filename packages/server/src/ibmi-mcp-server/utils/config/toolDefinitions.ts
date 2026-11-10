@@ -31,7 +31,6 @@ import {
 import {
   markdown,
   tableFormatter,
-  buildColumnAlignmentMap,
   formatColumnHeader,
   type TableStyle,
 } from "@/utils/formatting/index.js";
@@ -247,9 +246,6 @@ export function sqlResponseFormatter(
     formatColumnHeader(col.label || col.name, col.type),
   );
 
-  // Build column alignment map based on types
-  const alignment = buildColumnAlignmentMap(allColumns);
-
   // Convert data rows to string arrays
   const rows = displayRows.map((row) =>
     allColumns.map((col) => {
@@ -262,7 +258,6 @@ export function sqlResponseFormatter(
   // Format table with metadata tracking
   const tableResult = tableFormatter.formatRawWithMetadata(headers, rows, {
     style: tableFormat,
-    alignment,
     nullReplacement: "-",
     maxWidth: 50,
     truncate: true,

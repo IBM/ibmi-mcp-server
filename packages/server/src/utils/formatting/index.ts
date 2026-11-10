@@ -14,8 +14,4 @@ export {
   type Alignment,
   type TableFormattingResult,
 } from "./tableFormatter.js";
-export {
-  getColumnAlignment,
-  formatColumnHeader,
-  buildColumnAlignmentMap,
-} from "./sqlFormattingUtils.js";
+export { formatColumnHeader } from "./sqlFormattingUtils.js";

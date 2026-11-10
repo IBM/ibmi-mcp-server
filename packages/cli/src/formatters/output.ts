@@ -163,7 +163,8 @@ function renderCsv(data: Record<string, unknown>[]): void {
   for (const row of data) {
     const values = headers.map((h) => {
       const val = row[h];
-      return val === null || val === undefined ? "" : String(val);
+      if (val === null || val === undefined) return "";
+      return typeof val === "object" ? JSON.stringify(val) : String(val);
     });
     writeOutput(values.map(escapeCsvField).join(",") + "\n");
   }
@@ -189,7 +190,12 @@ function renderTable(
     return;
   }
 
-  const table = tableFormatter.format(data, { style, headerStyle: "uppercase" });
+  // No column width cap: the formatter's default would cut cells at 50 chars
+  const table = tableFormatter.format(data, {
+    style,
+    headerStyle: "uppercase",
+    maxWidth: Infinity,
+  });
   writeOutput(table + "\n");
 
   // Footer with metadata
@@ -317,6 +323,7 @@ function renderMultiSystemJson(
       host: r.host,
       rows: r.rowCount,
       elapsed_ms: r.elapsedMs,
+      ...(r.hasMore ? { hasMore: true } : {}),
       ...(r.error ? { error: r.error } : {}),
     })),
     meta: {
@@ -336,7 +343,7 @@ function renderMultiSystemFooter(results: MultiSystemResult[]): void {
     if (r.error) {
       parts.push(`[${r.system}] ERROR`);
     } else {
-      parts.push(`[${r.system}] ${r.rowCount} row${r.rowCount !== 1 ? "s" : ""} · ${(r.elapsedMs / 1000).toFixed(2)}s`);
+      parts.push(`[${r.system}] ${r.rowCount} row${r.rowCount !== 1 ? "s" : ""}${r.hasMore ? " (truncated)" : ""} · ${(r.elapsedMs / 1000).toFixed(2)}s`);
     }
   }
   writeOutput(parts.join("  ") + "\n");

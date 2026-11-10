@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { connectSystem } from "../../src/utils/connection";
-import type { ResolvedSystem } from "../../src/config/types";
+import { connectSystem } from "../../src/utils/connection.js";
+import type { ResolvedSystem } from "../../src/config/types.js";
 
 describe("connectSystem", () => {
   const originalEnv = { ...process.env };

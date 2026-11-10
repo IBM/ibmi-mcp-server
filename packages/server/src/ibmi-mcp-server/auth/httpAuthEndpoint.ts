@@ -11,6 +11,10 @@ import { Context } from "hono";
 import { config } from "@/config/index.js";
 import { logger, requestContextService } from "@/utils/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import {
+  clientAddress,
+  clientUsedTls,
+} from "@/mcp-server/transports/http/clientAddress.js";
 import { TokenManager } from "./tokenManager.js";
 import { AuthenticatedPoolManager } from "../services/authenticatedPoolManager.js";
 import {
@@ -65,21 +69,6 @@ function validateAuthRequest(body: unknown): AuthRequest {
     validated.duration = request.duration;
   }
 
-  // Validate poolstart
-  if (request.poolstart !== undefined) {
-    if (
-      typeof request.poolstart !== "number" ||
-      request.poolstart < 1 ||
-      request.poolstart > 50
-    ) {
-      throw new McpError(
-        JsonRpcErrorCode.InvalidRequest,
-        "poolstart must be a number between 1 and 50",
-      );
-    }
-    validated.poolstart = request.poolstart;
-  }
-
   // Validate poolmax
   if (request.poolmax !== undefined) {
     if (
@@ -93,18 +82,6 @@ function validateAuthRequest(body: unknown): AuthRequest {
       );
     }
     validated.poolmax = request.poolmax;
-  }
-
-  // Validate poolstart <= poolmax
-  if (
-    validated.poolstart &&
-    validated.poolmax &&
-    validated.poolstart > validated.poolmax
-  ) {
-    throw new McpError(
-      JsonRpcErrorCode.InvalidRequest,
-      "poolstart cannot be greater than poolmax",
-    );
   }
 
   return validated as AuthRequest;
@@ -166,9 +143,7 @@ function validateCredentials(credentials: AuthCredentials): AuthCredentials {
  * In development environment, TLS can be bypassed with IBMI_AUTH_ALLOW_HTTP=true
  */
 export const enforceTLS = async (c: Context, next: () => Promise<void>) => {
-  const protocol =
-    c.req.header("x-forwarded-proto") ||
-    (c.req.url.startsWith("https:") ? "https" : "http");
+  const protocol = clientUsedTls(c) ? "https" : "http";
 
   // Allow HTTP in development if explicitly configured
   const allowHttp =
@@ -184,10 +159,7 @@ export const enforceTLS = async (c: Context, next: () => Promise<void>) => {
     logger.warning(
       {
         ...context,
-        clientIp:
-          c.req.header("x-forwarded-for") ||
-          c.req.header("x-real-ip") ||
-          "unknown",
+        clientIp: clientAddress(c),
         allowHttp,
         environment: config.environment,
       },
@@ -259,6 +231,21 @@ export const handleAuthRequest = async (c: Context) => {
       "Processing authentication request",
     );
 
+    // The server signs on only to the hosts its operator listed: without
+    // this, any caller could have it open connections to a host they name.
+    if (
+      !config.ibmiHttpAuth.allowedHosts.includes(requestBody.host.toLowerCase())
+    ) {
+      logger.warning(
+        { ...context, user: credentials.username, host: requestBody.host },
+        "Sign-on refused: host is not in IBMI_AUTH_ALLOWED_HOSTS",
+      );
+      throw new McpError(
+        JsonRpcErrorCode.Forbidden,
+        "Sign-on to this host is not allowed",
+      );
+    }
+
     // Check concurrent session limits
     const tokenManager = TokenManager.getInstance();
     if (!tokenManager.canCreateNewSession()) {
@@ -288,14 +275,15 @@ export const handleAuthRequest = async (c: Context) => {
       context,
     );
 
-    // Create authenticated pool
+    // Create authenticated pool. The sign-on opens one connection; the pool
+    // grows to maxSize as the user's requests need it.
     const poolManager = AuthenticatedPoolManager.getInstance();
     try {
       await poolManager.createPool(
         token,
         ibmiCredentials,
         {
-          startingSize: requestBody.poolstart || 2,
+          startingSize: 1,
           maxSize: requestBody.poolmax || 10,
         },
         context,
@@ -305,7 +293,21 @@ export const handleAuthRequest = async (c: Context) => {
       // against the concurrent-session limit) or its credentials behind.
       tokenManager.revokeToken(token, context);
       await poolManager.removePool(token, context);
-      throw error;
+      // The reason (wrong password, unreachable host, ...) stays in the log:
+      // the caller only learns that the sign-on failed.
+      logger.warning(
+        {
+          ...context,
+          user: credentials.username,
+          host: requestBody.host,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "IBM i sign-on failed",
+      );
+      throw new McpError(
+        JsonRpcErrorCode.Unauthorized,
+        "Authentication failed",
+      );
     }
 
     // Calculate expiration
@@ -325,7 +327,6 @@ export const handleAuthRequest = async (c: Context) => {
         ...context,
         user: credentials.username,
         expiresAt: expiresAt.toISOString(),
-        poolStartingSize: requestBody.poolstart || 2,
         poolMaxSize: requestBody.poolmax || 10,
       },
       "Authentication successful, token generated",
@@ -350,7 +351,9 @@ export const handleAuthRequest = async (c: Context) => {
             ? 404
             : error.code === JsonRpcErrorCode.Unauthorized
               ? 401
-              : 500;
+              : error.code === JsonRpcErrorCode.Forbidden
+                ? 403
+                : 500;
 
       return c.json(
         {

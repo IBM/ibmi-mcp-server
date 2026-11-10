@@ -9,7 +9,7 @@
  * @deprecated IBM i HTTP token authentication is deprecated and will be
  * removed in a future major release. Use `MCP_AUTH_MODE=oauth`.
  *
- * Usage: node get-access-token.js [--user <username>] [--password <password>] [--host <ibmi-host>] [--verbose] [--https]
+ * Usage: node get-access-token.js [--user <username>] [--password <password>] [--host <ibmi-host>] [--verbose] [--https] [--insecure]
  */
 
 import https from "https";
@@ -36,8 +36,13 @@ const options = {
   },
   host: {
     type: "string",
-    short: "h",
     description: "IBM i host address (defaults to DB2i_HOST from .env)",
+  },
+  help: {
+    type: "boolean",
+    short: "h",
+    description: "Show this help",
+    default: false,
   },
   verbose: {
     type: "boolean",
@@ -48,6 +53,12 @@ const options = {
   https: {
     type: "boolean",
     description: "Use HTTPS instead of HTTP",
+    default: false,
+  },
+  insecure: {
+    type: "boolean",
+    description:
+      "Do not verify the server's TLS certificate (self-signed setups only)",
     default: false,
   },
   quiet: {
@@ -71,11 +82,6 @@ const options = {
     description: "Token duration in seconds",
     default: "7200",
   },
-  "pool-start": {
-    type: "string",
-    description: "Initial pool size",
-    default: "2",
-  },
   "pool-max": {
     type: "string",
     description: "Maximum pool size",
@@ -91,21 +97,32 @@ const options = {
   },
 };
 
+const USAGE =
+  "Usage: node get-access-token.js [--user <username>] [--password <password>] [--host <ibmi-host>] [--verbose] [--https] [--insecure]";
+
+function printUsage(print) {
+  print(USAGE);
+  print("\nOptions:");
+  Object.entries(options).forEach(([key, opt]) => {
+    const shortFlag = opt.short ? `-${opt.short}, ` : "";
+    print(`  ${shortFlag}--${key}\t${opt.description}`);
+  });
+}
+
 let args;
 try {
   const parsed = parseArgs({ options, allowPositionals: false });
   args = parsed.values;
 } catch (error) {
   console.error("❌ Error parsing arguments:", error.message);
-  console.error(
-    "\nUsage: node get-access-token.js --user <username> --password <password> --host <ibmi-host> [--verbose] [--https]",
-  );
-  console.error("\nOptions:");
-  Object.entries(options).forEach(([key, opt]) => {
-    const shortFlag = opt.short ? `-${opt.short}, ` : "";
-    console.error(`  ${shortFlag}--${key}\t${opt.description}`);
-  });
+  console.error();
+  printUsage(console.error);
   process.exit(1);
+}
+
+if (args.help) {
+  printUsage(console.log);
+  process.exit(0);
 }
 
 // Load credentials from environment variables with CLI fallback
@@ -158,9 +175,7 @@ if (!credentials.user || !credentials.password || !credentials.host) {
   console.error(
     "   2. Use CLI args: --user <user> --password <pass> --host <host>",
   );
-  console.error(
-    "\nUsage: node get-access-token.js [--user <username>] [--password <password>] [--host <ibmi-host>] [--verbose] [--https]",
-  );
+  console.error(`\n${USAGE}`);
   process.exit(1);
 }
 
@@ -200,6 +215,22 @@ if (TEST_CONFIG.verbose) {
 
 const httpModule = TEST_CONFIG.useHttps ? https : http;
 
+/** Node's error codes for a certificate it cannot verify. */
+const CERTIFICATE_ERRORS = [
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+];
+
+function printCertificateHint(error) {
+  if (CERTIFICATE_ERRORS.includes(error.code)) {
+    console.error(
+      "💡 The server's TLS certificate could not be verified. If it is self-signed, rerun with --insecure.",
+    );
+  }
+}
+
 function toBase64(buffer) {
   return Buffer.from(buffer).toString("base64");
 }
@@ -223,7 +254,7 @@ async function fetchPublicKeyFromServer() {
         path: "/api/v1/auth/public-key",
         method: "GET",
         headers: { Accept: "application/json" },
-        rejectUnauthorized: false,
+        rejectUnauthorized: !args.insecure,
       },
       (res) => {
         let body = "";
@@ -273,6 +304,7 @@ async function resolvePublicKey() {
     return await fetchPublicKeyFromServer();
   } catch (error) {
     console.error("Failed to fetch public key:", error.message);
+    printCertificateHint(error);
     process.exit(1);
   }
 }
@@ -289,7 +321,6 @@ function encryptPayload(publicKeyMetadata) {
     request: {
       host: ibmiHost,
       duration: parseInt(args.duration, 10),
-      poolstart: parseInt(args["pool-start"], 10),
       poolmax: parseInt(args["pool-max"], 10),
     },
   };
@@ -342,7 +373,7 @@ async function main() {
       "Content-Type": "application/json",
       "Content-Length": Buffer.byteLength(requestData),
     },
-    rejectUnauthorized: false,
+    rejectUnauthorized: !args.insecure,
   };
 
   if (TEST_CONFIG.verbose) {
@@ -462,20 +493,12 @@ async function main() {
         console.log("💡 Make sure the server is running with:");
         console.log("   IBMI_HTTP_AUTH_ENABLED=true npm start");
       }
-
-      if (
-        error.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" &&
-        TEST_CONFIG.useHttps
-      ) {
-        console.log(
-          "💡 For HTTPS testing, add --https flag for insecure connections",
-        );
-      }
     } else {
       console.error(
         JSON.stringify({ error: error.message, code: error.code }, null, 2),
       );
     }
+    printCertificateHint(error);
     process.exit(1);
   });
 

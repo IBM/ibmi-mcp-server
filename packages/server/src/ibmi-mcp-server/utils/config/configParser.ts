@@ -8,7 +8,6 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { load as yamlLoad } from "js-yaml";
-import { ParsingResult, SqlToolsConfig } from "../../schemas/index.js";
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
   requestContextService,
@@ -17,11 +16,26 @@ import {
 
 // Import schemas from centralized location
 import {
+  SqlToolsConfig,
   SqlToolsConfigSchema,
   SqlToolSecurityConfig,
 } from "@/ibmi-mcp-server/schemas/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlSecurityValidator } from "../security/sqlSecurityValidator.js";
+import { ParameterProcessor } from "../sql/parameterProcessor.js";
+
+/** A YAML tools file that parsed and validated. */
+export interface ParsedYamlFile {
+  config: SqlToolsConfig;
+  stats: {
+    sourceCount: number;
+    toolCount: number;
+    enabledToolCount: number;
+    disabledToolCount: number;
+    toolsetCount: number;
+    totalParameterCount: number;
+  };
+}
 
 /**
  * YAML configuration parser with validation and environment variable interpolation
@@ -31,12 +45,17 @@ export class ConfigParser {
    * Parse and validate a YAML tools configuration file
    * @param filePath - Path to the YAML configuration file
    * @param context - Request context for logging
-   * @returns Parsing result with validation information
+   * @param allowUnsetVariables - Leave a `${VAR}` whose variable is not set as
+   *   written instead of failing. For callers that never connect.
+   * @returns The validated configuration and its statistics
+   * @throws {McpError} naming the file and the problems found in it, when the
+   *   file cannot be read, parsed or validated
    */
   static async parseYamlFile(
     filePath: string,
     context?: RequestContext,
-  ): Promise<ParsingResult> {
+    allowUnsetVariables = false,
+  ): Promise<ParsedYamlFile> {
     const operationContext =
       context ||
       requestContextService.createRequestContext({
@@ -63,6 +82,14 @@ export class ConfigParser {
           );
         }
 
+        const fail = (errors: string[]): never => {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            `Invalid tool configuration in ${resolvedPath}: ${errors.join("; ")}`,
+            { filePath: resolvedPath, errors },
+          );
+        };
+
         // Read file content
         const fileContent = readFileSync(resolvedPath, "utf8");
         logger.debug(
@@ -73,97 +100,55 @@ export class ConfigParser {
           "YAML file content loaded",
         );
 
-        // Interpolate environment variables at startup
+        let parsedYaml: unknown;
+        try {
+          parsedYaml = yamlLoad(fileContent);
+        } catch (error) {
+          fail([error instanceof Error ? error.message : String(error)]);
+        }
+
+        // Interpolate after parsing, so that a value can change neither the
+        // structure of the document nor its own type.
         // TODO: In the future, this should use client-provided environment variables
         // instead of server-side environment variables
-        const interpolatedContent = this.interpolateEnvironmentVariables(
-          fileContent,
-          operationContext,
+        const substituted = new Set<string>();
+        const unset = new Set<string>();
+        const interpolated = this.interpolateEnvironmentVariables(
+          parsedYaml,
+          substituted,
+          unset,
+        );
+        if (unset.size > 0 && !allowUnsetVariables) {
+          fail([`environment variable(s) not set: ${[...unset].join(", ")}`]);
+        }
+        // Names only, never values: they are credentials.
+        logger.debug(
+          { ...operationContext, variables: [...substituted] },
+          "Environment variables substituted",
         );
 
-        // Parse YAML
-        const parsedYaml = yamlLoad(interpolatedContent);
-
         // Validate against schema
-        const validationResult = SqlToolsConfigSchema.safeParse(parsedYaml);
-
+        const validationResult = SqlToolsConfigSchema.safeParse(interpolated);
         if (!validationResult.success) {
-          const errors = validationResult.error.issues.map(
-            (err) => `${err.path.join(".")}: ${err.message}`,
+          fail(
+            validationResult.error.issues.map(
+              (err) => `${err.path.join(".")}: ${err.message}`,
+            ),
           );
-
-          logger.error(
-            {
-              ...operationContext,
-              errors,
-            },
-            "YAML validation failed",
-          );
-
-          return {
-            success: false,
-            errors,
-          };
         }
 
         const config = validationResult.data as SqlToolsConfig;
 
-        // Additional validation - check tool source references
-        const sourceValidationErrors =
-          this.validateToolSourceReferences(config);
-        if (sourceValidationErrors.length > 0) {
-          logger.error(
-            {
-              ...operationContext,
-              errors: sourceValidationErrors,
-            },
-            "Source reference validation failed",
-          );
-
-          return {
-            success: false,
-            errors: sourceValidationErrors,
-          };
-        }
-
         // Note: Toolset validation is intentionally deferred to post-merge validation
         // in YamlConfigBuilder to support cross-file tool references with YAML_MERGE_ARRAYS
 
-        // Additional validation - check tool-specific requirements
-        const toolValidationErrors = this.validateToolRequirements(config);
-        if (toolValidationErrors.length > 0) {
-          logger.error(
-            {
-              ...operationContext,
-              errors: toolValidationErrors,
-            },
-            "Tool requirements validation failed",
-          );
-
-          return {
-            success: false,
-            errors: toolValidationErrors,
-          };
-        }
-
-        // Validate SQL security at load time (fail-fast)
-        const securityValidationErrors = this.validateSqlSecurity(
-          config,
-          operationContext,
-        );
-        if (securityValidationErrors.length > 0) {
-          logger.error(
-            {
-              ...operationContext,
-              errors: securityValidationErrors,
-            },
-            "SQL security validation failed at load time",
-          );
-
-          return {
-            success: false,
-            errors: securityValidationErrors,
-          };
+        const errors = [
+          ...this.validateToolSourceReferences(config),
+          ...this.validateParameterMarkers(config),
+          ...this.validateSqlSecurity(config, operationContext),
+        ];
+        if (errors.length > 0) {
+          fail(errors);
         }
 
         // Count disabled tools
@@ -199,11 +184,7 @@ export class ConfigParser {
           "YAML configuration parsed successfully",
         );
 
-        return {
-          success: true,
-          config,
-          stats,
-        };
+        return { config, stats };
       },
       {
         operation: "ParseYamlFile",
@@ -214,38 +195,44 @@ export class ConfigParser {
   }
 
   /**
-   * Interpolate environment variables in YAML content
-   * Supports ${VAR_NAME} syntax
-   * @param content - YAML content string
-   * @param context - Request context for logging
-   * @returns Content with environment variables interpolated
+   * Replace `${VAR_NAME}` in every string value of a parsed YAML document.
+   * Keys and non-string values are left alone.
+   * @param value - Parsed YAML value
+   * @param substituted - Receives the names of the variables substituted
+   * @param unset - Receives the names of referenced variables that are not set
+   * @returns The value with environment variables interpolated
    * @private
    */
   private static interpolateEnvironmentVariables(
-    content: string,
-    context: RequestContext,
-  ): string {
-    return content.replace(/\$\{([^}]+)\}/g, (match, varName) => {
-      const envValue = process.env[varName];
-      if (envValue === undefined) {
-        logger.debug(
-          {
-            ...context,
-            varName,
-          },
-          `Environment variable ${varName} not found, keeping placeholder`,
-        );
-        return match;
-      }
-      logger.debug(
-        {
-          ...context,
-          varName,
-        },
-        `Environment variable ${varName} found and substituted`,
+    value: unknown,
+    substituted: Set<string>,
+    unset: Set<string>,
+  ): unknown {
+    if (typeof value === "string") {
+      return value.replace(/\$\{([^}]+)\}/g, (match, varName: string) => {
+        const envValue = process.env[varName];
+        if (envValue === undefined) {
+          unset.add(varName);
+          return match;
+        }
+        substituted.add(varName);
+        return envValue;
+      });
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) =>
+        this.interpolateEnvironmentVariables(item, substituted, unset),
       );
-      return envValue;
-    });
+    }
+    if (typeof value === "object" && value?.constructor === Object) {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [
+          key,
+          this.interpolateEnvironmentVariables(item, substituted, unset),
+        ]),
+      );
+    }
+    return value;
   }
 
   /**
@@ -278,32 +265,24 @@ export class ConfigParser {
   }
 
   /**
-   * Validate tool-specific requirements
+   * A statement binds by name (:name) or by position (?), never both
    * @param config - Parsed YAML configuration
    * @returns Array of validation errors
    * @private
    */
-  private static validateToolRequirements(config: SqlToolsConfig): string[] {
-    const errors: string[] = [];
-
-    // Skip validation if tools section is missing
-    if (!config.tools) {
-      return errors;
-    }
-
-    Object.entries(config.tools).forEach(([toolName, tool]) => {
-      // All tools must have a statement
-      if (!tool.statement || tool.statement.trim().length === 0) {
-        errors.push(`Tool '${toolName}' must have a non-empty statement field`);
-      }
-    });
-
-    return errors;
+  private static validateParameterMarkers(config: SqlToolsConfig): string[] {
+    return Object.entries(config.tools ?? {})
+      .filter(([, tool]) =>
+        ParameterProcessor.mixesMarkerStyles(tool.statement),
+      )
+      .map(
+        ([toolName]) =>
+          `Tool '${toolName}': ${ParameterProcessor.MIXED_MARKERS_MESSAGE}`,
+      );
   }
 
   /**
    * Validate SQL statements for security at load time
-   * Fails server startup if security violations found
    * @param config - Parsed YAML configuration
    * @param context - Request context for logging
    * @returns Array of validation errors
@@ -323,11 +302,6 @@ export class ConfigParser {
     Object.entries(config.tools).forEach(([toolName, tool]) => {
       // Skip disabled tools
       if (tool.enabled === false) {
-        return;
-      }
-
-      // Skip tools without statements
-      if (!tool.statement?.trim()) {
         return;
       }
 

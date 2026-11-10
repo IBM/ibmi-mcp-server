@@ -105,6 +105,7 @@ export function registerSystemCommand(program: Command): void {
           USER: sys.user,
           PORT: sys.port,
           READ_ONLY: sys.readOnly ? "yes" : "no",
+          VERIFY_TLS: sys.ignoreUnauthorized ? "no" : "yes",
           DEFAULT: name === config.default ? "✓" : "",
         }));
 
@@ -140,6 +141,7 @@ export function registerSystemCommand(program: Command): void {
           { PROPERTY: "confirm", VALUE: String(sys.confirm) },
           { PROPERTY: "timeout", VALUE: `${sys.timeout}s` },
           { PROPERTY: "maxRows", VALUE: String(sys.maxRows) },
+          { PROPERTY: "verifyTls", VALUE: String(!sys.ignoreUnauthorized) },
           { PROPERTY: "description", VALUE: sys.description ?? "(none)" },
           {
             PROPERTY: "default",
@@ -165,6 +167,8 @@ export function registerSystemCommand(program: Command): void {
     .option("--description <desc>", "Description")
     .option("--read-only", "Block mutation queries", false)
     .option("--default-schema <schema>", "Default schema/library")
+    .option("--verify-tls", "Verify the server's TLS certificate", false)
+    .option("--no-verify-tls", "Accept any TLS certificate (default)")
     .action(async (name: string, opts, cmd: Command) => {
       const format = getFormat(cmd);
       try {
@@ -214,7 +218,7 @@ export function registerSystemCommand(program: Command): void {
           confirm: false,
           timeout: 60,
           maxRows: 5000,
-          ignoreUnauthorized: true,
+          ignoreUnauthorized: !(opts["verifyTls"] as boolean),
         };
 
         upsertSystem(name, system);

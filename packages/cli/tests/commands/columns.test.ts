@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/program";
+import { createProgram } from "../../src/program.js";
 
 describe("ibmi columns command", () => {
   it("should register the columns command with correct description", () => {

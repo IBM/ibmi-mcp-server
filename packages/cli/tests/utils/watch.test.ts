@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createProgram } from "../../src/program";
+import { createProgram } from "../../src/program.js";
 
 describe("--watch global option", () => {
   afterEach(() => {

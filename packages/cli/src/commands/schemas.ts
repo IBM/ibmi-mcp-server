@@ -5,7 +5,7 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
-import { ExitCode } from "../utils/exit-codes.js";
+import { ExitCode, ToolError } from "../utils/exit-codes.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 export function registerSchemasCommand(program: Command): void {
@@ -45,7 +45,7 @@ export function registerSchemasCommand(program: Command): void {
         );
 
         if (!result.success) {
-          throw new Error(result.error?.message ?? "Failed to list schemas");
+          throw new ToolError(result.error, "Failed to list schemas");
         }
 
         return {

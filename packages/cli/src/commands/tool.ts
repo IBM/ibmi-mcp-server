@@ -24,17 +24,13 @@ import {
 } from "../utils/yaml-to-commander.js";
 import {
   getFormat,
-  isStreaming,
-  createCliContext,
+  withConnection,
+  withOutput,
 } from "../utils/command-helpers.js";
-import { resolveSystem } from "../config/resolver.js";
-import { connectSystem } from "../utils/connection.js";
 import {
   renderOutput,
-  renderNdjson,
   renderError,
-  setOutputFile,
-  finalizeOutput,
+  renderMessage,
 } from "../formatters/output.js";
 import { ExitCode, classifyError, ErrorCode } from "../utils/exit-codes.js";
 
@@ -186,44 +182,47 @@ async function handleDryRun(
     process.exitCode = ExitCode.USAGE;
     return;
   }
+  const statement = tool.statement.trim();
 
-  if (format === "json") {
-    renderOutput(
-      [
-        {
-          tool: name,
-          dry_run: true,
-          sql: tool.statement.trim(),
-          parameters: params,
-        },
-      ],
-      format,
-      { rowCount: 1, command: `tool:${name}` },
-    );
-    return;
-  }
+  await withOutput(cmd, async () => {
+    if (format === "json") {
+      renderOutput(
+        [
+          {
+            tool: name,
+            dry_run: true,
+            sql: statement,
+            parameters: params,
+          },
+        ],
+        format,
+        { rowCount: 1, command: `tool:${name}` },
+      );
+      return;
+    }
 
-  // Human-readable dry-run output
-  const globalOpts = cmd.optsWithGlobals();
-  const systemName = globalOpts["system"] as string | undefined;
-  const lines: string[] = [];
+    // Human-readable dry-run output
+    const globalOpts = cmd.optsWithGlobals();
+    const systemName = globalOpts["system"] as string | undefined;
+    const lines: string[] = [];
 
-  if (systemName) {
-    lines.push(`Would execute on [${systemName}]:`);
-  } else {
-    lines.push("Would execute:");
-  }
+    if (systemName) {
+      lines.push(`Would execute on [${systemName}]:`);
+    } else {
+      lines.push("Would execute:");
+    }
 
-  lines.push("────────────────────────────────────────");
-  lines.push(tool.statement.trim());
+    lines.push("────────────────────────────────────────");
+    lines.push(statement);
 
-  if (Object.keys(params).length > 0) {
-    lines.push("");
-    lines.push(`Parameters: ${JSON.stringify(params)}`);
-  }
+    if (Object.keys(params).length > 0) {
+      lines.push("");
+      lines.push(`Parameters: ${JSON.stringify(params)}`);
+    }
 
-  lines.push("────────────────────────────────────────");
-  process.stdout.write(lines.join("\n") + "\n");
+    lines.push("────────────────────────────────────────");
+    renderMessage(lines.join("\n"), format);
+  });
 }
 
 /**
@@ -235,39 +234,30 @@ async function executeTool(
   params: Record<string, unknown>,
   cmd: Command,
 ): Promise<void> {
-  const format = getFormat(cmd);
-  const stream = isStreaming(cmd);
-  const globalOpts = cmd.optsWithGlobals();
-
   if (!tool.statement) {
     renderError(
       new Error(`Tool '${name}' has no SQL statement defined.`),
-      format,
+      getFormat(cmd),
       undefined,
       ErrorCode.USAGE_ERROR,
     );
     process.exitCode = ExitCode.USAGE;
     return;
   }
+  const statement = tool.statement;
 
-  // Resolve system and confirm if required
-  const resolved = resolveSystem(globalOpts["system"] as string | undefined);
-
-  if (resolved.config.confirm && process.stdin.isTTY) {
-    const { promptLine } = await import("../config/credentials.js");
-    const answer = await promptLine(
-      `Execute tool '${name}' on [${resolved.name}]? (y/N) `,
-    );
-    if (answer.toLowerCase() !== "y") {
-      throw new Error("Execution cancelled by user");
+  // withConnection applies --output, --watch and --stream like every other command
+  await withConnection(cmd, `tool:${name}`, async (resolved, ctx) => {
+    // Confirm execution if system requires it
+    if (resolved.config.confirm && process.stdin.isTTY) {
+      const { promptLine } = await import("../config/credentials.js");
+      const answer = await promptLine(
+        `Execute tool '${name}' on [${resolved.name}]? (y/N) `,
+      );
+      if (answer.toLowerCase() !== "y") {
+        throw new Error("Execution cancelled by user");
+      }
     }
-  }
-
-  const cleanup = await connectSystem(resolved);
-
-  try {
-    const ctx = createCliContext(name);
-    const startTime = Date.now();
 
     // Dynamic import to avoid loading server infrastructure until execution time
     const { ParameterProcessor, IBMiConnectionPool } = await import(
@@ -282,7 +272,7 @@ async function executeTool(
     // an optional parameter that was not passed is still bound.
     if (tool.parameters.length > 0) {
       const result = await ParameterProcessor.process(
-        tool.statement,
+        statement,
         params,
         tool.parameters,
         { context: ctx },
@@ -290,7 +280,7 @@ async function executeTool(
       processedSql = result.sql;
       bindingParams = result.parameters;
     } else {
-      processedSql = tool.statement;
+      processedSql = statement;
     }
 
     // Enforce read-only: tool security config + system readOnly override
@@ -330,36 +320,19 @@ async function executeTool(
           tool.rowsToFetch,
         );
 
-    const elapsedMs = Date.now() - startTime;
-    const data = (result.data ?? []) as Record<string, unknown>[];
-
     // The paginated path returns a `truncated` flag when the server hit
     // MAX_PAGINATION_ROWS. Surface it in the output footer so users know
     // the result set was clipped and how to get more.
     const truncated = "truncated" in result && result.truncated === true;
 
-    // Honor the global --output option
-    const outputPath = globalOpts["output"] as string | undefined;
-    if (outputPath) setOutputFile(outputPath);
-
-    if (stream && format === "json") {
-      // NDJSON streaming: one JSON object per line
-      renderNdjson(data);
-    } else {
-      renderOutput(data, format, {
-        rowCount: data.length,
-        elapsedMs,
-        system: resolved,
-        command: `tool:${name}`,
+    return {
+      data: (result.data ?? []) as Record<string, unknown>[],
+      meta: {
         hasMore: truncated,
         truncationHint: truncated
           ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
           : undefined,
-      });
-    }
-
-    if (outputPath) finalizeOutput();
-  } finally {
-    await cleanup();
-  }
+      },
+    };
+  });
 }

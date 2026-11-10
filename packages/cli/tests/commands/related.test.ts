@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createProgram } from "../../src/program";
+import { createProgram } from "../../src/program.js";
 
 vi.mock("../../src/utils/command-helpers.js", async (importOriginal) => {
   const actual =

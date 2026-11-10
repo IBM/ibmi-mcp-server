@@ -49,8 +49,9 @@ export interface ErrorHandlerOptions {
   rethrow?: boolean;
 
   /**
-   * A specific `JsonRpcErrorCode` to assign to the error, overriding any
-   * automatically determined error code.
+   * The `JsonRpcErrorCode` to assign to an unclassified error, instead of the
+   * automatically determined one. An error that is already an `McpError`
+   * keeps its own code.
    */
   errorCode?: JsonRpcErrorCode;
 
@@ -246,13 +247,13 @@ export class ErrorHandler {
       return options.errorMapper(error);
     }
 
-    const determinedCode = options.errorCode || this.determineErrorCode(error);
-    const originalMessage = getErrorMessage(error);
-
+    // An McpError is already classified and keeps its code.
     if (error instanceof McpError) {
-      error.code = determinedCode; // Allow override
       return error;
     }
+
+    const determinedCode = options.errorCode || this.determineErrorCode(error);
+    const originalMessage = getErrorMessage(error);
 
     return new McpError(
       determinedCode,

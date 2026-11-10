@@ -8,8 +8,6 @@ import { config } from "@/config/index.js";
 import { type DiagLogger, DiagLogLevel, diag } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
-import { PinoInstrumentation } from "@opentelemetry/instrumentation-pino";
 import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
@@ -124,12 +122,10 @@ if (config.openTelemetry.enabled) {
       // meta-package pulls in ~40 instrumentations and, transitively,
       // `systeminformation`, whose `os` allowlist excludes IBM i (os400)
       // and makes `npm install` fail there (GitHub discussion #175).
+      // Only instrumentations that work without a module loader hook belong
+      // here: this ESM build registers none, so those that patch modules
+      // (http, pino) have no effect. Undici subscribes to diagnostics channels.
       instrumentations: [
-        new HttpInstrumentation({
-          ignoreIncomingRequestHook: (req) => req.url === "/healthz",
-        }),
-        // Injects trace_id/span_id into pino log records.
-        new PinoInstrumentation(),
         // Spans for native `fetch`.
         new UndiciInstrumentation(),
       ],
@@ -141,6 +137,7 @@ if (config.openTelemetry.enabled) {
     );
   } catch (error) {
     diag.error("Error initializing OpenTelemetry", error);
-    process.exit(1);
+    // The facade hands this to the entry point, which owns process exit.
+    throw error;
   }
 }

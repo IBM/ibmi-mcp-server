@@ -50,13 +50,9 @@
     "start:http": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=http node dist/index.js",
     "list-toolsets": "node dist/index.js --list-toolsets --tools ../../tools",
     "rebuild": "tsx scripts/clean.ts && npm run build",
-    "depcheck": "npx depcheck",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:tests",
     "format": "prettier --write --ignore-path ../../.prettierignore \"**/*.{ts,js,json,html,css}\"",
-    "inspector": "npx @modelcontextprotocol/inspector --config mcp.json --server default-server",
-    "mcpjam": "npx @mcpjam/cli",
-    "pack:full": "rm -rf release && npm ci && npm run build && mkdir -p release/app && cp -R dist package.json package-lock.json node_modules release/app && tar -C release -czf release/ibmi-mcp-server-${npm_package_version}-full.tgz app",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -64,9 +60,7 @@
     "audit": "npm audit --production",
     "audit:fix": "npm audit fix --production",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "deploy:debug": "./scripts/debug-deploy.sh",
-    "deploy:debug:fast": "./scripts/debug-deploy.sh --skip-validation --skip-build",
-    "deploy:debug:safe": "./scripts/debug-deploy.sh --skip-modules"
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
@@ -75,8 +69,6 @@
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
-    "@opentelemetry/instrumentation-http": "^0.221.0",
-    "@opentelemetry/instrumentation-pino": "^0.67.0",
     "@opentelemetry/instrumentation-undici": "^0.31.0",
     "@opentelemetry/resources": "^2.0.1",
     "@opentelemetry/sdk-metrics": "^2.0.1",
@@ -84,7 +76,6 @@
     "@opentelemetry/sdk-trace-node": "^2.0.1",
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "dotenv": "^16.6.1",
-    "glob": "^10.5.0",
     "hono": "^4.8.9",
     "jose": "^6.0.13",
     "js-yaml": "^4.1.0",
@@ -110,26 +101,18 @@
     "vitest": "^4.1.12"
   },
   "keywords": [
-    "typescript",
+    "ibm-i",
+    "db2-for-i",
     "mcp",
     "model-context-protocol",
-    "llm",
-    "ai-integration",
     "mcp-server",
-    "hono",
-    "stdio",
-    "http",
-    "authentication",
-    "oauth",
-    "zod",
-    "opentelemetry",
-    "observability",
-    "tracing",
-    "metrics"
+    "sql",
+    "mapepire",
+    "oauth"
   ],
   "author": "ajshedivy <adam.shedivy@ibm.com> (https://github.com/ajshedivy/ibmi-mcp-server#readme)",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.17"
   }
 }

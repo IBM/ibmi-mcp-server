@@ -89,6 +89,40 @@ describe("OpenTelemetry Instrumentation", () => {
         }),
       );
     });
+
+    it("should register only the undici instrumentation, which needs no module loader hook", () => {
+      const { instrumentations } = vi.mocked(NodeSDK).mock.lastCall![0] as {
+        instrumentations: object[];
+      };
+
+      expect(instrumentations.map((i) => i.constructor.name)).toEqual([
+        "UndiciInstrumentation",
+      ]);
+    });
+
+    it("should report a startup failure to the entry point instead of exiting", async () => {
+      const failure = new Error("exporter misconfigured");
+      vi.mocked(NodeSDK).mockImplementationOnce(function () {
+        throw failure;
+      });
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(() => undefined as never);
+      const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        vi.resetModules();
+        const failed =
+          await import("../../../src/utils/telemetry/instrumentation.js");
+
+        expect(exitSpy).not.toHaveBeenCalled();
+        expect(failed.openTelemetryStartupError).toBe(failure);
+        expect(failed.sdk).toBeNull();
+      } finally {
+        exitSpy.mockRestore();
+        stderrSpy.mockRestore();
+      }
+    });
   });
 
   describe("Diagnostic logging", () => {
@@ -143,6 +177,7 @@ describe("OpenTelemetry Instrumentation (disabled)", () => {
       await import("../../../src/utils/telemetry/instrumentation.js");
 
     expect(disabled.sdk).toBeNull();
+    expect(disabled.openTelemetryStartupError).toBeUndefined();
     await expect(disabled.shutdownOpenTelemetry()).resolves.toBeUndefined();
   });
 });

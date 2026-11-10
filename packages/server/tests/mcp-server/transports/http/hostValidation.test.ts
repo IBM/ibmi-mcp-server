@@ -20,6 +20,7 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
+  mcpTrustProxy: config.mcpTrustProxy,
   rateLimitEnabled: config.rateLimit.enabled,
   ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
 };
@@ -46,16 +47,26 @@ function buildApp() {
 
 type TestApp = ReturnType<typeof buildApp>["app"];
 
-function mcpPost(app: TestApp, headers: Record<string, string>) {
-  return app.request("/mcp", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      ...headers,
+function mcpPost(
+  app: TestApp,
+  headers: Record<string, string>,
+  socketAddress?: string,
+) {
+  return app.request(
+    "/mcp",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...headers,
+      },
+      body: MCP_BODY,
     },
-    body: MCP_BODY,
-  });
+    socketAddress
+      ? { incoming: { socket: { remoteAddress: socketAddress } } }
+      : undefined,
+  );
 }
 
 beforeEach(() => {
@@ -63,6 +74,7 @@ beforeEach(() => {
   config.mcpAllowedOrigins = undefined;
   config.mcpHttpHost = "127.0.0.1";
   config.mcpAuthMode = "none";
+  config.mcpTrustProxy = false;
   config.rateLimit.enabled = false;
   config.ibmiHttpAuth.enabled = false;
 });
@@ -72,6 +84,7 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
+  config.mcpTrustProxy = savedConfig.mcpTrustProxy;
   config.rateLimit.enabled = savedConfig.rateLimitEnabled;
   config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
 });
@@ -93,7 +106,7 @@ describe("Host header validation", () => {
     expect(handleRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("allows 127.0.0.1 on any port (EADDRINUSE retry walks the port)", async () => {
+  it("allows 127.0.0.1 on any port", async () => {
     const { app, handleRequest } = buildApp();
     const res = await mcpPost(app, { host: "127.0.0.1:9999" });
     expect(res.status).toBe(200);
@@ -316,20 +329,39 @@ describe("rejection log attribution", () => {
     const warn = vi.spyOn(logger, "warning").mockImplementation(() => {});
     const { app } = buildApp();
 
-    const res = await mcpPost(app, {
-      host: "attacker.example:8088",
-      "x-forwarded-for": "203.0.113.9",
-      "x-real-ip": "198.51.100.7",
-    });
+    const res = await mcpPost(
+      app,
+      {
+        host: "attacker.example:8088",
+        "x-forwarded-for": "203.0.113.9",
+        "x-real-ip": "198.51.100.7",
+      },
+      "10.9.9.9",
+    );
     expect(res.status).toBe(403);
 
     const ctx = warn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    // The claimed values are still recorded, clearly labelled as claims...
-    expect(ctx.forwardedFor).toBe("203.0.113.9");
-    expect(ctx.realIp).toBe("198.51.100.7");
-    // ...but must not be promoted into the field meaning "source".
-    expect(ctx.clientIp).not.toBe("203.0.113.9");
-    expect(ctx.clientIp).not.toBe("198.51.100.7");
+    expect(ctx.clientIp).toBe("10.9.9.9");
+    // Without MCP_TRUST_PROXY the claimed addresses are not recorded at all.
+    expect(JSON.stringify(ctx)).not.toContain("203.0.113.9");
+    expect(JSON.stringify(ctx)).not.toContain("198.51.100.7");
+
+    warn.mockRestore();
+  });
+
+  it("logs the address a trusted proxy reports when MCP_TRUST_PROXY=true", async () => {
+    config.mcpTrustProxy = true;
+    const warn = vi.spyOn(logger, "warning").mockImplementation(() => {});
+    const { app } = buildApp();
+
+    await mcpPost(
+      app,
+      { host: "attacker.example:8088", "x-forwarded-for": "203.0.113.9" },
+      "10.9.9.9",
+    );
+
+    const ctx = warn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(ctx.clientIp).toBe("203.0.113.9");
 
     warn.mockRestore();
   });

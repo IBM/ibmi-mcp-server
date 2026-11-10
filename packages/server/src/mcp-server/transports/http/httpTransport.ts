@@ -19,13 +19,14 @@ import { Context, Hono, Next } from "hono";
 import { cors } from "hono/cors";
 import { logger as honoLogger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
-import http from "http";
 import { config } from "@/config/index.js";
 import { handleAuthRequest, enforceTLS } from "@/ibmi-mcp-server/auth/index.js";
 import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
 import { SourceManager } from "@/ibmi-mcp-server/services/sourceManager.js";
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import {
   logger,
+  RateLimiter,
   rateLimiter,
   RequestContext,
   requestContextService,
@@ -37,6 +38,7 @@ import {
   createHttpAuth,
   type HttpAuth,
 } from "../auth/index.js";
+import { clientAddress } from "./clientAddress.js";
 import { httpErrorHandler } from "./httpErrorHandler.js";
 import { HonoNodeBindings } from "./httpTypes.js";
 import {
@@ -50,144 +52,41 @@ const HEALTH_ENDPOINT_PATH = "/healthz";
 const CLOSE_GRACE_MS = 5000;
 
 /**
- * Extracts the client IP address from the request, prioritizing common proxy headers.
- * @param c - The Hono context object.
- * @returns The client's IP address or a default string if not found.
+ * Binds the HTTP server. A port that is already in use is a startup error:
+ * clients, proxies and health checks are configured with this port, so the
+ * server never moves to another one.
  */
-function getClientIp(c: Context<{ Bindings: HonoNodeBindings }>): string {
-  const forwardedFor = c.req.header("x-forwarded-for");
-  return (
-    (forwardedFor?.split(",")[0] ?? "").trim() ||
-    c.req.header("x-real-ip") ||
-    c.env.incoming.socket?.remoteAddress ||
-    "unknown_ip"
-  );
-}
-
-async function isPortInUse(
+function listen(
+  app: Hono<HonoAppEnv>,
   port: number,
   host: string,
-  parentContext: RequestContext,
-): Promise<boolean> {
-  const context = { ...parentContext, operation: "isPortInUse", port, host };
-  logger.debug(context, `Checking if port ${port} is in use...`);
-  return new Promise((resolve) => {
-    const tempServer = http.createServer();
-    tempServer
-      .once("error", (err: NodeJS.ErrnoException) => {
-        const inUse = err.code === "EADDRINUSE";
-        logger.debug(
-          context,
-          `Port check resulted in error: ${err.code}. Port in use: ${inUse}`,
-        );
-        resolve(inUse);
-      })
-      .once("listening", () => {
-        logger.debug(
-          context,
-          `Successfully bound to port ${port} temporarily. Port is not in use.`,
-        );
-        tempServer.close(() => resolve(false));
-      })
-      .listen(port, host);
-  });
-}
-
-function startHttpServerWithRetry(
-  app: Hono<HonoAppEnv>,
-  initialPort: number,
-  host: string,
-  maxRetries: number,
-  parentContext: RequestContext,
+  context: RequestContext,
 ): Promise<ServerType> {
-  const startContext = {
-    ...parentContext,
-    operation: "startHttpServerWithRetry",
-  };
-  logger.info(
-    startContext,
-    `Attempting to start HTTP server on port ${initialPort} with ${maxRetries} retries.`,
-  );
-
   return new Promise((resolve, reject) => {
-    const tryBind = (port: number, attempt: number) => {
-      const attemptContext = { ...startContext, port, attempt };
-      if (attempt > maxRetries + 1) {
-        const error = new Error(
-          `Failed to bind to any port after ${maxRetries} retries.`,
+    const server = serve(
+      { fetch: app.fetch, port, hostname: host },
+      (info: { address: string; port: number }) => {
+        const serverAddress = `http://${info.address}:${info.port}${MCP_ENDPOINT_PATH}`;
+        logger.info(
+          { ...context, address: serverAddress },
+          `HTTP transport listening at ${serverAddress}`,
         );
-        logger.fatal(attemptContext, error.message);
-        return reject(error);
-      }
-
-      isPortInUse(port, host, attemptContext)
-        .then((inUse) => {
-          if (inUse) {
-            logger.warning(
-              attemptContext,
-              `Port ${port} is in use, retrying on port ${port + 1}...`,
-            );
-            setTimeout(
-              () => tryBind(port + 1, attempt + 1),
-              config.mcpHttpPortRetryDelayMs,
-            );
-            return;
-          }
-
-          try {
-            const serverInstance = serve(
-              { fetch: app.fetch, port, hostname: host },
-              (info: { address: string; port: number }) => {
-                const serverAddress = `http://${info.address}:${info.port}${MCP_ENDPOINT_PATH}`;
-                logger.info(
-                  { ...attemptContext, address: serverAddress },
-                  `HTTP transport listening at ${serverAddress}`,
-                );
-                if (process.stdout.isTTY) {
-                  console.log(`\n🚀 MCP Server running at: ${serverAddress}\n`);
-                }
-              },
-            );
-            resolve(serverInstance);
-          } catch (err: unknown) {
-            if (
-              err &&
-              typeof err === "object" &&
-              "code" in err &&
-              (err as { code: string }).code !== "EADDRINUSE"
-            ) {
-              const errorToLog =
-                err instanceof Error ? err : new Error(String(err));
-              logger.error(
-                { error: errorToLog, ...attemptContext },
-                "An unexpected error occurred while starting the server.",
-              );
-              return reject(err);
-            }
-            logger.warning(
-              attemptContext,
-              `Encountered EADDRINUSE race condition on port ${port}, retrying...`,
-            );
-            setTimeout(
-              () => tryBind(port + 1, attempt + 1),
-              config.mcpHttpPortRetryDelayMs,
-            );
-          }
-        })
-        .catch((err) => {
-          const error = err instanceof Error ? err : new Error(String(err));
-          logger.fatal(
-            {
-              error,
-              ...attemptContext,
-            },
-            "Failed to check if port is in use.",
-          );
-          reject(err);
-        });
-    };
-
-    tryBind(initialPort, 1);
+        if (process.stdout.isTTY) {
+          console.log(`\n🚀 MCP Server running at: ${serverAddress}\n`);
+        }
+        resolve(server);
+      },
+    );
+    server.once("error", (error: NodeJS.ErrnoException) =>
+      reject(
+        error.code === "EADDRINUSE"
+          ? new McpError(
+              JsonRpcErrorCode.ConfigurationError,
+              `Port ${port} on ${host} is already in use. Stop the process using it, or set MCP_HTTP_PORT to a free port.`,
+            )
+          : error,
+      ),
+    );
   });
 }
 
@@ -261,38 +160,25 @@ export function createHttpApp(
     }),
   );
 
-  // 5. Authentication and Advanced Rate Limiting (Order Matters)
-
-  // Define the rate limiting logic as a reusable middleware
-  const rateLimitHandler = async (
-    c: Context<{ Bindings: HonoNodeBindings }>,
-    next: Next,
-  ) => {
-    const clientIp = getClientIp(c);
-    // The authenticated caller when the auth middleware ran first, otherwise
-    // the caller's IP. The subject comes before the client id: under OAuth
-    // one client application (one client id) serves many users. The prefixes
-    // keep the key spaces apart, so an address a caller claims can never
-    // name the bucket of an identity.
-    const authInfo = authContext.getStore()?.authInfo;
-    const clientId = authInfo?.clientId;
-    const subject = authInfo?.extra?.subject;
-    const key =
-      typeof subject === "string" && subject
-        ? `sub:${subject}`
-        : clientId
-          ? `client:${clientId}`
-          : `ip:${clientIp}`;
-
+  // 5. Authentication and rate limiting (order matters). A request that
+  //    authentication refuses counts against its client address, and is
+  //    answered 429 instead once that budget is used up. An authenticated
+  //    request counts against the caller's identity only, so users behind one
+  //    address do not share a budget and refused requests from that address
+  //    cannot lock them out. The prefixes keep the key spaces apart: an
+  //    address can never name the bucket of an identity.
+  const rateLimited = config.rateLimit.enabled;
+  const addressKey = (c: Context) => `ip:${clientAddress(c)}`;
+  const limit = (key: string, limiter = rateLimiter): void => {
+    if (!rateLimited) {
+      return;
+    }
     const context = requestContextService.createRequestContext({
       operation: "httpRateLimitCheck",
       rateLimitKey: key,
-      ipAddress: clientIp,
-      clientId: clientId,
     });
-
     try {
-      rateLimiter.check(key, context);
+      limiter.check(key, context);
       logger.debug(context, "Rate limit check passed.");
     } catch (error) {
       logger.warning(
@@ -301,32 +187,47 @@ export function createHttpApp(
       );
       throw error;
     }
-    await next();
   };
+  /** Counts every request against its client address. */
+  const limitAddress =
+    (limiter = rateLimiter) =>
+    async (c: Context, next: Next) => {
+      limit(addressKey(c), limiter);
+      await next();
+    };
 
-  // Auth Middleware first
   if (auth) {
-    app.use(MCP_ENDPOINT_PATH, createAuthMiddleware(auth));
+    app.use(
+      MCP_ENDPOINT_PATH,
+      createAuthMiddleware(auth, (c) => limit(addressKey(c))),
+    );
+    app.use(MCP_ENDPOINT_PATH, async (_c, next) => {
+      // The subject comes before the client id: under OAuth one client
+      // application (one client id) serves many users.
+      const authInfo = authContext.getStore()?.authInfo;
+      const subject = authInfo?.extra?.subject;
+      limit(
+        typeof subject === "string" && subject
+          ? `sub:${subject}`
+          : `client:${authInfo?.clientId}`,
+      );
+      await next();
+    });
+  } else {
+    app.use(MCP_ENDPOINT_PATH, limitAddress());
   }
 
   // The OAuth Protected Resource Metadata is how an unauthenticated client
   // finds the authorization server, so it is not behind the auth middleware.
   const metadata = auth?.protectedResourceMetadata;
+  metadata?.paths.forEach((path) => app.use(path, limitAddress()));
 
-  // Rate Limiting second (can now leverage auth context if available)
-  if (config.rateLimit.enabled) {
-    app.use(MCP_ENDPOINT_PATH, rateLimitHandler);
-    metadata?.paths.forEach((path) => app.use(path, rateLimitHandler));
-    logger.info(
-      transportContext,
-      `Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms window.`,
-    );
-  } else {
-    logger.info(
-      transportContext,
-      "Rate limiting disabled via MCP_RATE_LIMIT_ENABLED=false.",
-    );
-  }
+  logger.info(
+    transportContext,
+    rateLimited
+      ? `Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms window.`
+      : "Rate limiting disabled via MCP_RATE_LIMIT_ENABLED=false.",
+  );
 
   app.onError(httpErrorHandler);
 
@@ -352,7 +253,19 @@ export function createHttpApp(
       c.header("Deprecation", "true");
       await next();
     });
-    app.post("/api/v1/auth", enforceTLS, handleAuthRequest);
+    // Every sign-on is a password attempt against an IBM i profile, so the
+    // endpoint has its own, much smaller budget per client address.
+    const signOnLimiter = new RateLimiter({
+      windowMs: 60_000,
+      maxRequests: 10,
+      skipInDevelopment: config.rateLimit.skipInDevelopment,
+    });
+    app.post(
+      "/api/v1/auth",
+      limitAddress(signOnLimiter),
+      enforceTLS,
+      handleAuthRequest,
+    );
     app.get("/api/v1/auth/public-key", (c) => {
       const { keyId, publicKey } = getPublicKeyMetadata();
       return c.json({ keyId, publicKey });
@@ -415,11 +328,10 @@ export async function startHttpTransport(
     await createHttpAuth(transportContext),
   );
 
-  const server = await startHttpServerWithRetry(
+  const server = await listen(
     app,
     config.mcpHttpPort,
     config.mcpHttpHost,
-    config.mcpHttpMaxPortRetries,
     transportContext,
   );
 

@@ -3,9 +3,6 @@
  */
 
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { chmodSync, mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
 
 describe("config environment validation", () => {
   const originalEnv = { ...process.env };
@@ -56,21 +53,40 @@ describe("config environment validation", () => {
     expect(config.mcpAuthMode).toBe("jwt");
   });
 
-  // root can write anywhere, so the directory would not be read-only.
-  it.skipIf(process.getuid?.() === 0)(
-    "does not log to a LOGS_DIR it cannot write to",
-    async () => {
-      vi.resetModules();
-      const readOnlyDir = mkdtempSync(join(tmpdir(), "ibmi-mcp-ro-logs-"));
-      chmodSync(readOnlyDir, 0o555);
-      process.env.LOGS_DIR = readOnlyDir;
+  it("rejects an MCP_LOG_LEVEL that is not one of the accepted names", async () => {
+    vi.resetModules();
+    process.env.MCP_LOG_LEVEL = "verbose";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const { config } = await import("../../src/config/index.js");
+    const { environmentIsValid } = await import("../../src/config/index.js");
 
-      expect(config.logsPath).toBeNull();
-      rmSync(readOnlyDir, { recursive: true, force: true });
-    },
-  );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid environment variables"),
+      expect.objectContaining({ MCP_LOG_LEVEL: expect.any(Array) }),
+    );
+    expect(environmentIsValid).toBe(false);
+  });
+
+  it.each([
+    "debug",
+    "info",
+    "notice",
+    "warning",
+    "warn",
+    "error",
+    "crit",
+    "alert",
+    "emerg",
+  ])("accepts MCP_LOG_LEVEL=%s", async (level) => {
+    vi.resetModules();
+    process.env.MCP_LOG_LEVEL = level;
+
+    const { config, environmentIsValid } =
+      await import("../../src/config/index.js");
+
+    expect(environmentIsValid).toBe(true);
+    expect(config.logLevel).toBe(level);
+  });
 
   it("warns on stderr when MCP_SERVER_CONFIG points at a missing file, even without a TTY", async () => {
     vi.resetModules();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/program";
+import { createProgram } from "../../src/program.js";
 
 describe("ibmi validate command", () => {
   it("should register the validate command with correct description", () => {

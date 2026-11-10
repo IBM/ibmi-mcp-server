@@ -9,8 +9,6 @@
 
 import { createProgram } from "./program.js";
 
-export { createProgram };
-
 /**
  * Main entry point.
  */

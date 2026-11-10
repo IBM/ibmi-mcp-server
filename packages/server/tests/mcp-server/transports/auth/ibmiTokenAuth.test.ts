@@ -11,6 +11,7 @@
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -19,7 +20,10 @@ import {
 } from "vitest";
 // Must load first: TokenManager imports logger from this barrel, which is
 // circular with utils/internal.
-import { requestContextService } from "../../../../src/utils/index.js";
+import {
+  rateLimiter,
+  requestContextService,
+} from "../../../../src/utils/index.js";
 import { config } from "../../../../src/config/index.js";
 import { TokenManager } from "../../../../src/ibmi-mcp-server/auth/tokenManager.js";
 import {
@@ -28,6 +32,10 @@ import {
 } from "../../../../src/mcp-server/transports/auth/index.js";
 import { createHttpApp } from "../../../../src/mcp-server/transports/http/httpTransport.js";
 import { JsonRpcErrorCode } from "../../../../src/types-global/errors.js";
+import {
+  createTestKeyPair,
+  type TestKeyPair,
+} from "../../../ibmi-mcp-server/auth/testKeyPair.js";
 
 const HOST = "localhost:3010";
 
@@ -36,9 +44,13 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
+  mcpTrustProxy: config.mcpTrustProxy,
   rateLimitEnabled: config.rateLimit.enabled,
-  ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
+  rateLimitSkipInDevelopment: config.rateLimit.skipInDevelopment,
+  ibmiHttpAuth: { ...config.ibmiHttpAuth },
 };
+const savedLimiterConfig = rateLimiter.getConfig();
+let keyPair: TestKeyPair;
 
 async function buildApp() {
   const context = requestContextService.createRequestContext({
@@ -76,13 +88,23 @@ function mcpPost(
   });
 }
 
+beforeAll(() => {
+  keyPair = createTestKeyPair();
+});
+
 beforeEach(() => {
   config.mcpAllowedHosts = undefined;
   config.mcpAllowedOrigins = undefined;
   config.mcpHttpHost = "127.0.0.1";
   config.mcpAuthMode = "ibmi";
+  config.mcpTrustProxy = false;
   config.rateLimit.enabled = false;
-  config.ibmiHttpAuth.enabled = true;
+  config.rateLimit.skipInDevelopment = false;
+  Object.assign(config.ibmiHttpAuth, {
+    enabled: true,
+    ...keyPair.settings,
+    allowedHosts: ["ibmi.example.com"],
+  });
 });
 
 afterEach(() => {
@@ -90,12 +112,17 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
+  config.mcpTrustProxy = savedConfig.mcpTrustProxy;
   config.rateLimit.enabled = savedConfig.rateLimitEnabled;
-  config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
+  config.rateLimit.skipInDevelopment = savedConfig.rateLimitSkipInDevelopment;
+  Object.assign(config.ibmiHttpAuth, savedConfig.ibmiHttpAuth);
+  rateLimiter.reset();
+  rateLimiter.configure(savedLimiterConfig);
 });
 
 afterAll(() => {
   TokenManager.getInstance().shutdown();
+  keyPair.remove();
 });
 
 describe("MCP_AUTH_MODE=ibmi (deprecated)", () => {
@@ -139,7 +166,31 @@ describe("MCP_AUTH_MODE=ibmi (deprecated)", () => {
     },
   );
 
+  it("counts refused requests against the client address without locking out a valid token from it", async () => {
+    config.rateLimit.enabled = true;
+    rateLimiter.configure({
+      windowMs: 60_000,
+      maxRequests: 1,
+      skipInDevelopment: false,
+    });
+    const token = TokenManager.getInstance().generateToken({
+      host: "ibmi.example.com",
+      user: "TESTUSER",
+      password: "secret",
+    });
+    const { app } = await buildApp();
+
+    const refused = () => mcpPost(app, "not-a-token-this-server-issued");
+
+    expect((await refused()).status).toBe(401);
+    // The address has used up its budget: further refused requests get 429.
+    expect((await refused()).status).toBe(429);
+    // A valid token from the same address is still served.
+    expect((await mcpPost(app, token)).status).toBe(200);
+  });
+
   it("marks every /api/v1/auth response with a Deprecation header", async () => {
+    config.mcpTrustProxy = true;
     const { app } = await buildApp();
 
     // Refused before the handler: plain HTTP is not allowed.
@@ -171,5 +222,87 @@ describe("MCP_AUTH_MODE=ibmi (deprecated)", () => {
 
     const health = await app.request("/healthz", { headers: { host: HOST } });
     expect(health.headers.get("deprecation")).toBeNull();
+  });
+});
+
+describe("POST /api/v1/auth in front of the sign-on", () => {
+  /** An incomplete envelope: what answers it shows how far the request got. */
+  function signOn(
+    app: Awaited<ReturnType<typeof buildApp>>["app"],
+    headers: Record<string, string> = {},
+    socketAddress = "10.9.9.9",
+  ) {
+    return app.request(
+      "/api/v1/auth",
+      {
+        method: "POST",
+        headers: { host: HOST, "content-type": "application/json", ...headers },
+        body: "{}",
+      },
+      { incoming: { socket: { remoteAddress: socketAddress } } },
+    );
+  }
+  const message = async (res: Response) =>
+    ((await res.json()) as { error: { message: string } }).error.message;
+
+  it("does not take a caller's word that the request arrived over HTTPS", async () => {
+    const { app } = await buildApp();
+
+    const res = await signOn(app, { "x-forwarded-proto": "https" });
+
+    expect(res.status).toBe(400);
+    expect(await message(res)).toBe(
+      "HTTPS/TLS is required for authentication endpoints",
+    );
+  });
+
+  it("does not take the scheme of an absolute-form request target for it either", async () => {
+    const { app } = await buildApp();
+
+    // What `POST https://host/api/v1/auth HTTP/1.1` on a plain socket becomes
+    const res = await app.request(
+      `https://${HOST}/api/v1/auth`,
+      {
+        method: "POST",
+        headers: { host: HOST, "content-type": "application/json" },
+        body: "{}",
+      },
+      { incoming: { socket: { remoteAddress: "10.9.9.9" } } },
+    );
+
+    expect(res.status).toBe(400);
+    expect(await message(res)).toBe(
+      "HTTPS/TLS is required for authentication endpoints",
+    );
+  });
+
+  it("takes a trusted proxy's word for it when MCP_TRUST_PROXY=true", async () => {
+    config.mcpTrustProxy = true;
+    const { app } = await buildApp();
+
+    const res = await signOn(app, { "x-forwarded-proto": "https" });
+
+    // Past the TLS check: refused by the handler for the incomplete envelope.
+    expect(await message(res)).toBe(
+      "Encrypted payload is missing required field: keyId",
+    );
+  });
+
+  it("allows 10 sign-on attempts per minute from one address", async () => {
+    config.rateLimit.enabled = true;
+    const { app } = await buildApp();
+
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      expect((await signOn(app)).status).toBe(400);
+    }
+    const limited = await signOn(app);
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("deprecation")).toBe("true");
+    // A forwarded address does not buy a new budget...
+    expect((await signOn(app, { "x-forwarded-for": "10.7.7.7" })).status).toBe(
+      429,
+    );
+    // ...and other addresses have their own.
+    expect((await signOn(app, {}, "10.8.8.8")).status).toBe(400);
   });
 });

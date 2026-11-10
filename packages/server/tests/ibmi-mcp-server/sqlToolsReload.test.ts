@@ -25,7 +25,9 @@ import {
   loadSQLTools,
   onSQLToolsReloaded,
 } from "../../src/ibmi-mcp-server/index.js";
+import { SourceManager } from "../../src/ibmi-mcp-server/services/sourceManager.js";
 import { SQLToolFactory } from "../../src/ibmi-mcp-server/utils/config/toolFactory.js";
+import { ToolsetManager } from "../../src/ibmi-mcp-server/utils/config/toolsetManager.js";
 import { ToolProcessor } from "../../src/ibmi-mcp-server/utils/config/toolProcessor.js";
 import { createMcpServerInstance } from "../../src/mcp-server/server.js";
 import { logger } from "../../src/utils/internal/logger.js";
@@ -82,14 +84,14 @@ describe("YAML tools load and reload", () => {
   let tmpRoot: string;
   let yamlPath: string;
   /** The callback loadSQLTools hands to the file watcher. */
-  let onFileChanged: (filePath: string, eventType: string) => unknown;
+  let onFilesChanged: () => unknown;
   const reloaded = vi.fn();
   let stopListening: () => void;
 
   /** Saves the YAML file and runs the reload a file change triggers. */
   async function saveAndReload(content: string): Promise<void> {
     writeFileSync(yamlPath, content);
-    await onFileChanged(yamlPath, "change");
+    await onFilesChanged();
   }
 
   beforeAll(async () => {
@@ -106,7 +108,7 @@ describe("YAML tools load and reload", () => {
     const register = vi
       .spyOn(ToolProcessor, "registerChangeCallback")
       .mockImplementation((callback) => {
-        onFileChanged = callback;
+        onFilesChanged = callback;
         return "captured";
       });
     await loadSQLTools();
@@ -228,6 +230,19 @@ describe("YAML tools load and reload", () => {
     });
   });
 
+  it("logs every reload under a request context of its own", async () => {
+    const info = vi.spyOn(logger, "info");
+
+    await saveAndReload(yaml(["tool_a", "tool_b"], { alpha: ["tool_a"] }));
+    await saveAndReload(BASELINE);
+
+    const requestIds = info.mock.calls
+      .filter(([, message]) => String(message).includes("rebuilding tools"))
+      .map(([context]) => (context as { requestId: string }).requestId);
+    expect(requestIds).toHaveLength(2);
+    expect(new Set(requestIds).size).toBe(2);
+  });
+
   it("keeps the previous tools when the reloaded file is invalid", async () => {
     const error = vi.spyOn(logger, "error");
 
@@ -242,4 +257,51 @@ describe("YAML tools load and reload", () => {
     expect(await toolNames(client)).toEqual(["describe_sql_object", "tool_a"]);
     await client.close();
   });
+
+  // Problems that only show after the file has parsed: the cached tools must
+  // not end up running against the rejected file's sources and toolsets.
+  it.each([
+    [
+      "a toolset names a tool that does not exist",
+      (movedHost: string) =>
+        movedHost.replace("tools: [tool_a]", "tools: [tool_typo]"),
+    ],
+    [
+      "a parameter pattern is not a regular expression",
+      (movedHost: string) =>
+        movedHost.replace(
+          'statement: "SELECT 1 FROM SYSIBM.SYSDUMMY1"',
+          `statement: "SELECT 1 FROM SYSIBM.SYSDUMMY1 WHERE 'A' = :name"
+    parameters:
+      - name: name
+        type: string
+        pattern: "("`,
+        ),
+    ],
+  ])(
+    "leaves sources and toolsets as they were when %s",
+    async (_problem, breakIt) => {
+      const error = vi.spyOn(logger, "error");
+      const registerSource = vi.spyOn(
+        SourceManager.prototype,
+        "registerSource",
+      );
+      const movedHost = BASELINE.replace(
+        "host: localhost",
+        "host: other.example.test",
+      ).replace("alpha:", "beta:");
+
+      await saveAndReload(breakIt(movedHost));
+
+      expect(error).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining("Error during auto-reload"),
+      );
+      expect(registerSource).not.toHaveBeenCalled();
+      expect(ToolsetManager.getInstance().getAllToolsetNames()).toEqual([
+        "alpha",
+      ]);
+      expect(reloaded).not.toHaveBeenCalled();
+    },
+  );
 });

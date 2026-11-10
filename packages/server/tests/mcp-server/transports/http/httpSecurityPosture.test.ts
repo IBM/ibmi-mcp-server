@@ -10,7 +10,15 @@
  * @module tests/mcp-server/transports/http/httpSecurityPosture.test
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { config } from "../../../../src/config/index.js";
 import { assertHttpSecurityPosture } from "../../../../src/mcp-server/transports/http/hostValidation.js";
 import {
@@ -36,7 +44,7 @@ let savedEnv: Record<string, string | undefined>;
  * legible when pino is emitting JSON. Silence it here to keep test output
  * clean, and keep the spy so one test can assert the block is actually written.
  */
-let stderrSpy: ReturnType<typeof vi.spyOn>;
+let stderrSpy: MockInstance<typeof process.stderr.write>;
 
 const ctx = () =>
   requestContextService.createRequestContext({
