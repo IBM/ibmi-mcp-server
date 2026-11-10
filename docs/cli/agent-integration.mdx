@@ -33,6 +33,14 @@ The CLI uses semantic exit codes for programmatic error handling:
 | `4` | SECURITY | Read-only violation or forbidden operation |
 | `5` | AUTH | Authentication failure |
 
+How the code is chosen, in order: a usage error is always `2`; a network or TLS failure (`ECONNREFUSED`, a certificate error, ...) is `1` `CONNECTION_ERROR`; then the SQLSTATE the database reports decides (class `08` is a connection error, class `28` is `5`, any other is `3`); then the server's error code (read-only and forbidden-statement violations are `4`). The message text is only a fallback. A SQL error that merely mentions a word such as `AUTHORS` or `PASSWORD_HASH` is `3`, not `5`.
+
+Commands that report instead of failing still set an exit code:
+
+- `ibmi validate` exits `3` when a check is `FAIL`. The report is still printed, with `"ok": true` in JSON.
+- `ibmi describe` exits `3` when DDL generation failed for every object. A partial failure exits `0`.
+- `ibmi sql --system a,b` exits `1` when any system failed.
+
 ### Exit Code Routing
 
 Agents can branch logic based on exit codes:
@@ -117,7 +125,7 @@ Repeatedly execute a command at a fixed interval. Useful for monitoring dashboar
 ibmi sql "SELECT JOB_NAME, CPU_TIME FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS='RUN'" \
   --watch 10
 
-# Write monitoring data to a file
+# Write monitoring data to a file (rewritten after every run)
 ibmi sql "SELECT * FROM TABLE(QSYS2.SYSTEM_STATUS())" \
   --format csv --output /tmp/status.csv --watch 30
 ```
@@ -156,9 +164,9 @@ tables=$(ibmi tables SAMPLE --raw | jq -r '.data[].TABLE_NAME')
 # Step 3: Get column metadata for query planning
 columns=$(ibmi columns SAMPLE EMPLOYEE --raw)
 
-# Step 4: Validate the generated query (no execution)
-ibmi validate "SELECT EMPNO, SALARY FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000"
-if [ $? -ne 0 ]; then
+# Step 4: Validate the generated query (no execution).
+# validate exits 3 when a check fails.
+if ! ibmi validate "SELECT EMPNO, SALARY FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000"; then
   echo "Query validation failed"
   exit 1
 fi

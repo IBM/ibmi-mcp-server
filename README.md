@@ -64,7 +64,7 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 
 **Prerequisites:**
 - [Mapepire](#setup-mapepire) running on IBM i (port 8076)
-- Node.js 20+ installed
+- Node.js 22.17+ installed
 
 **Get Started:**
 

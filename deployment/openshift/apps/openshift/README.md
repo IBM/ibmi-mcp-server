@@ -52,6 +52,7 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    # Deprecated alternative: IBM i token authentication
    # MCP_AUTH_MODE=ibmi
    # IBMI_HTTP_AUTH_ENABLED=true
+   # MCP_TRUST_PROXY=true   # required for /api/v1/auth behind the Route's TLS termination
    # ...or accept the risk explicitly on a trusted cluster network:
    # MCP_ALLOW_UNAUTHENTICATED_HTTP=true
    ```

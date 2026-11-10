@@ -63,10 +63,10 @@ systems:
 | `description` | string | — | Human-readable label |
 | `defaultSchema` | string | — | Default schema for unqualified table names |
 | `readOnly` | boolean | `false` | Restrict to SELECT statements |
-| `confirm` | boolean | `false` | Prompt for confirmation before executing (interactive terminals only) |
+| `confirm` | boolean | `false` | Prompt for confirmation before `ibmi sql` and `ibmi tool` execute. `ibmi sql --yes` skips the prompt. Without a terminal, a single-system command runs without asking; a multi-system `ibmi sql` requires `--yes` |
 | `timeout` | number | `60` | Query timeout in seconds |
 | `maxRows` | number | `5000` | Default row limit for queries |
-| `ignoreUnauthorized` | boolean | `true` | Accept self-signed TLS certificates |
+| `ignoreUnauthorized` | boolean | `true` | Accept any TLS certificate without verifying it. Set to `false` (or add the system with `--verify-tls`) to verify |
 | `tools` | string[] | — | Default YAML tool path(s) for this system |
 
 ---
@@ -149,6 +149,9 @@ Use `ibmi system` subcommands to manage connections:
 ```bash
 # Add a new system (interactive password prompt)
 ibmi system add staging --host staging400.example.com --user STGUSER
+
+# Add a system that verifies the server's TLS certificate
+ibmi system add prod --host prod400.example.com --user PRODUSER --verify-tls
 
 # List all configured systems
 ibmi system list

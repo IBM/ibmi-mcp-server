@@ -676,6 +676,8 @@ WHERE (:min_salary IS NULL OR salary >= :min_salary)
 WHERE (:department_id = '*ALL' OR department = :department_id)
 ```
 
+An omitted optional parameter binds SQL `NULL` only when it has no `default`; with a default it binds the default, so test for that value instead (as `'*ALL'` above). Array parameters cannot be tested with `IS NULL` and must contain at least one value.
+
 ---
 
 ## Security: Parameter Binding

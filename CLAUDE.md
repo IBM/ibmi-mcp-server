@@ -71,14 +71,18 @@ packages/
 │   │   │   ├── services.ts         # IBMiConnectionPool, SourceManager, etc.
 │   │   │   ├── context.ts          # requestContextService
 │   │   │   └── formatting.ts       # tableFormatter
-│   │   ├── mcp-server/             # McpServer init, transports
+│   │   ├── mcp-server/
+│   │   │   ├── server.ts           # createMcpServerInstance factory, initializeAndStartServer
+│   │   │   ├── tools/utils/        # defineTool (tool-factory.ts)
+│   │   │   └── transports/         # stdio/ (SDK serveStdio), http/ (SDK createMcpHandler in a Hono app), auth/ (oauth, ibmi)
 │   │   ├── ibmi-mcp-server/        # Tools, services, security
 │   │   ├── utils/                  # telemetry, logger, formatting
 │   │   └── types-global/           # McpError, JsonRpcErrorCode
 │   └── tests/
 └── cli/                            # @ibm/ibmi-cli
     ├── src/
-    │   ├── index.ts                # CLI entry (ibmi bin)
+    │   ├── index.ts                # CLI entry (ibmi bin): parses argv
+    │   ├── program.ts              # createProgram(): global options, command registration
     │   ├── commands/               # 13 commands
     │   ├── config/                 # ~/.ibmi/config.yaml loader
     │   ├── formatters/
@@ -181,7 +185,9 @@ Key variables (set in `.env` or environment):
 | `DB2i_PASS` | Database password |
 | `MCP_TRANSPORT_TYPE` | `stdio` or `http` |
 | `MCP_LOG_LEVEL` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
-| `IBMI_HTTP_AUTH_ENABLED` | Enable bearer token auth |
+| `MCP_AUTH_MODE` | HTTP authentication: `none` (default), `oauth`, `ibmi` (deprecated) |
+| `MCP_RESOURCE_URL` | Public URL of the MCP endpoint; required with `MCP_AUTH_MODE=oauth` |
+| `OAUTH_ISSUER_URL` | Authorization server issuer; required with `MCP_AUTH_MODE=oauth` |
 
 ## Code Style
 

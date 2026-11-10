@@ -38,6 +38,7 @@ The server does **not** issue tokens, register clients, or host a login page. Th
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_HOST=0.0.0.0
 MCP_ALLOWED_HOSTS=mcp.example.com
+MCP_TRUST_PROXY=true   # behind the TLS-terminating proxy; see the note below
 
 MCP_AUTH_MODE=oauth
 MCP_RESOURCE_URL=https://mcp.example.com/mcp
@@ -54,6 +55,8 @@ The server validates these settings when the HTTP transport starts. A missing or
 
 <Note>
 The server listens on plain HTTP. Put it behind a reverse proxy or ingress that terminates TLS, and add the public hostname to `MCP_ALLOWED_HOSTS`, or requests are refused with `403` by [Host validation](/configuration#server-transport).
+
+Set `MCP_TRUST_PROXY=true` behind that proxy and have it set `X-Forwarded-For` itself (overwrite or append). Otherwise every client shares the proxy's address for the per-address rate limit. See [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy).
 </Note>
 
 ### JWKS Discovery
@@ -217,7 +220,8 @@ curl -s -X POST https://mcp.example.com/mcp \
 
 ## Rate Limiting and Logging
 
-- Authenticated requests are rate-limited per token subject (`sub`), then per client id, then per IP address. See [Rate Limiting](/configuration#rate-limiting-http-only).
+- Authenticated requests are rate-limited per token subject (`sub`), or per client id when the token has no subject.
+- Requests refused with `401` or `403`, and fetches of the Protected Resource Metadata, count against the client address. Once an address has used up `MCP_RATE_LIMIT_MAX_REQUESTS` in the window, every request from it gets `429` before the token is checked, valid tokens included. See [Rate Limiting](/configuration#rate-limiting-http-only).
 - Each authenticated request logs the client id, subject and scopes at `info` level.
 
 ## Limits

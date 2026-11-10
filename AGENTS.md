@@ -23,11 +23,11 @@ Declare SQL tools in YAML under `tools/` (`performance/performance.yaml`, `sys-a
 
 ## Testing & Quality
 
-Vitest drives validation. Run `npm run test` at repo root (delegates to both workspaces via `--workspaces --if-present`) for fast feedback, `npm run test:coverage` before merging, and `npm run lint`/`npm run format` to uphold Prettier + ESLint defaults (two-space indentation, camelCase identifiers, PascalCase classes, SCREAMING_SNAKE constants). Server suites live under `packages/server/tests/mcp-server/` or service directories; CLI suites under `packages/cli/tests/`. Ensure integration specs cover tool logic plus SQL security checks.
+Vitest drives validation. Run `npm run test` at repo root (delegates to both workspaces via `--workspaces --if-present`) for fast feedback, `npm run test:coverage` before merging, and `npm run lint`/`npm run format` to uphold Prettier + ESLint defaults (two-space indentation, camelCase identifiers, PascalCase classes, SCREAMING_SNAKE constants). `npm run format` formats both packages; `npm run format:check` checks without writing (not yet enforced in CI). CI (`.github/workflows/ci.yml`) runs build, typecheck, lint and test on Node 22 and 24 for every pull request and push to `main`; Node 22 is the minimum supported version. Server suites live under `packages/server/tests/mcp-server/` or service directories; CLI suites under `packages/cli/tests/`. Ensure integration specs cover tool logic plus SQL security checks.
 
 ## Agents & Toolsets
 
-Example agents live in `client/` with a uv-based Python harness (`agent.py`) plus scripts for tool annotations and resource discovery (the older copies in `packages/server/tests/agents/` are deprecated). Keep these examples aligned with shipped YAML toolsets, document workflows in `client/README.md`, and provide prompts when introducing new capabilities.
+Example agents live in `client/` with a uv-based Python harness (`agent.py`) plus scripts for tool annotations and resource discovery. Keep these examples aligned with shipped YAML toolsets, document workflows in `client/README.md`, and provide prompts when introducing new capabilities.
 
 ## Contribution Flow
 

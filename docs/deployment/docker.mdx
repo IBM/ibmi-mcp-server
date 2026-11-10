@@ -237,7 +237,7 @@ services:
     restart: unless-stopped
 ```
 
-The `.env` file is the one from [Using an Environment File](#using-an-environment-file). The image contains no `curl`, so the healthcheck uses Node's built-in `fetch`. It addresses the server as `127.0.0.1` and passes the Host check. Other services in the same Compose file reach the server as `http://ibmi-mcp-server:3010/mcp`; that name must be listed in `MCP_ALLOWED_HOSTS`.
+The `.env` file is the one from [Using an Environment File](#using-an-environment-file). The image contains no `curl`, so the healthcheck uses Node's built-in `fetch`. It addresses the server as `127.0.0.1` and passes the Host check. The image ships the same check as a built-in `HEALTHCHECK` (see [Health Checks](#health-checks)), so the `healthcheck:` block is optional; keep it to change the timing. Other services in the same Compose file reach the server as `http://ibmi-mcp-server:3010/mcp`; that name must be listed in `MCP_ALLOWED_HOSTS`.
 
 Start the service:
 
@@ -350,6 +350,12 @@ docker exec ibmi-mcp-server node -e "fetch('http://127.0.0.1:3010/healthz').then
 
 The health endpoint is subject to the Host check. Both commands above address the server by a loopback name and pass. A probe that addresses the server by IP address, such as a Kubernetes probe using the pod IP, receives `403`. Set a `Host: localhost` header on such probes; the repository's OpenShift deployment manifest does this.
 
+The image has a built-in `HEALTHCHECK`: every 30 seconds it requests `http://127.0.0.1:$MCP_HTTP_PORT/healthz` (port 3010 by default) with a 5-second timeout, a 15-second start period and 3 retries. `docker ps` shows the result as `healthy` or `unhealthy`. A container run with `MCP_TRANSPORT_TYPE=stdio` has no HTTP endpoint and reports `unhealthy` unless it is started with `--no-healthcheck`. Kubernetes and OpenShift ignore the image's `HEALTHCHECK`; use probes there.
+
+### Logs
+
+Logs go to the container's output (`docker logs`). The server also writes rotating log files to `/home/appuser/.ibmi-mcp-server/logs` unless `LOGS_DIR` points elsewhere. With a read-only root file system (`--read-only`) that directory cannot be created: the server prints one warning and logs to stderr only. Mount a volume or tmpfs at `LOGS_DIR` to keep log files.
+
 ---
 
 ## Building from Source
@@ -372,7 +378,7 @@ The Dockerfile has three stages:
 `.dockerignore` keeps `node_modules/`, `dist/`, `.git/`, `.github/`, `.claude/`, `agents/`, and `.env` files out of the build context.
 
 <Note>
-The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed by default.
+The image is built on `node:22-bookworm-slim` and runs as a non-root user (`appuser`) that owns its home directory, `/home/appuser`. Port 3010 is exposed by default.
 </Note>
 
 ---
@@ -415,7 +421,7 @@ The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed
   </Accordion>
 
   <Accordion title="Port conflicts">
-    If port 3010 is already in use, map to a different host port:
+    If port 3010 is already in use on the host, map to a different host port. (If the port is taken inside the container, the server exits with `Port 3010 on 0.0.0.0 is already in use`; it does not move to another port.)
     ```bash
     docker run -d -p 127.0.0.1:3011:3010 --env-file .env ghcr.io/ibm/ibmi-mcp-server:latest
     ```

@@ -3,7 +3,7 @@ title: "Command Reference"
 description: "Complete reference for all IBM i CLI commands, options, and usage examples."
 ---
 
-All commands follow the pattern `ibmi <command> [arguments] [options]`. [Global options](/cli/configuration#output-format-priority) (`--system`, `--format`, `--raw`, `--stream`, `--watch`, `--output`, `--tools`, `--no-color`) apply to every command.
+All commands follow the pattern `ibmi <command> [arguments] [options]`. [Global options](/cli/configuration#output-format-priority) (`--system`, `--format`, `--raw`, `--stream`, `--tools`, `--no-color`) apply to every command. `--watch` and `--output` apply to the commands that query a system: `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe` and `validate`.
 
 ---
 
@@ -28,8 +28,11 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 | `--limit <n>` | Maximum rows returned | system `maxRows` (5000) |
 | `--read-only` / `--no-read-only` | Enforce or disable read-only mode | `--read-only` |
 | `--dry-run` | Print resolved SQL without executing | — |
+| `--yes` | Skip the prompt for systems with `confirm: true` | — |
 
 **SQL source priority:** positional argument > `--file` > piped stdin.
+
+**Row limit:** the limit is `--limit`, otherwise the system's `maxRows`. For a `SELECT`, `WITH` or `VALUES` statement the CLI appends `FETCH FIRST n ROWS ONLY`, unless the statement contains a comment, already has `FETCH FIRST`, `LIMIT` or `OFFSET`, or ends in a clause such as `FOR READ ONLY` or `WITH UR`. In every case the returned rows are cut to the limit, including result sets of `CALL`. When rows were dropped, `meta.hasMore` is `true` and the table footer says `(limited to N rows — raise --limit for more)`.
 
 <Note>
 Read-only mode is enabled by default. To execute INSERT, UPDATE, DELETE, or DDL statements, pass `--no-read-only` explicitly. A system configured with `readOnly: true` stays read-only even with `--no-read-only`.
@@ -71,7 +74,7 @@ Each row in the output includes a `SYSTEM` column identifying which system retur
     { "SYSTEM": "prod", "ERROR": "connect ECONNREFUSED ..." }
   ],
   "systems": [
-    { "system": "dev", "host": "dev.example.com", "rows": 5, "elapsed_ms": 413 },
+    { "system": "dev", "host": "dev.example.com", "rows": 5, "elapsed_ms": 413, "hasMore": true },
     { "system": "prod", "host": "prod.example.com", "rows": 0, "error": "connect ECONNREFUSED ..." }
   ],
   "meta": {
@@ -83,10 +86,16 @@ Each row in the output includes a `SYSTEM` column identifying which system retur
 }
 ```
 
+A `systems` entry has `"hasMore": true` when that system's result was cut at the row limit (or at `IBMI_PAGINATION_MAX_ROWS`); the key is absent otherwise. In table output the footer for that system reads `[dev] 5 rows (truncated) · 0.41s`.
+
+### Confirmation
+
+If any target system has `confirm: true`, the CLI asks once for all of them: `Execute on [dev, prod]? (y/N)`. When stdin is not a terminal it does not run unconfirmed: pass `--yes`, or the command fails with exit code `2` and `System(s) [dev, prod] require confirmation. Pass --yes to run without a prompt.`
+
 ### Limitations
 
 - `--watch` is not supported with multiple systems.
-- If one system is unreachable, its results appear as an error row without affecting the other systems.
+- If one system is unreachable, its results appear as an error row without affecting the other systems. The command exits with code `1` when any system failed.
 - All systems share the same `--limit` value. When no `--limit` is specified, the smallest `maxRows` across all target systems is used.
 
 ---
@@ -176,7 +185,7 @@ ibmi describe "SAMPLE.EMPLOYEE,SAMPLE.DEPARTMENT" --format json
 
 **Valid `--type` values:** `ALIAS`, `CONSTRAINT`, `FUNCTION`, `INDEX`, `MASK`, `PERMISSION`, `PROCEDURE`, `SCHEMA`, `SEQUENCE`, `TABLE`, `TRIGGER`, `TYPE`, `VARIABLE`, `VIEW`, `XSR`
 
-Objects are specified as `LIBRARY.OBJECT` or just `OBJECT` (defaults to `QSYS2`). When describing multiple objects, each is queried independently — a failure on one object produces an `ERROR:` row without affecting the others.
+Objects are specified as `LIBRARY.OBJECT` or just `OBJECT` (defaults to `QSYS2`). When describing multiple objects, each is queried independently — a failure on one object produces an `ERROR:` row without affecting the others. The command exits with code `3` only when every object failed; a reference with more than one dot is a usage error (exit code `2`).
 
 ---
 
@@ -189,6 +198,8 @@ ibmi validate "SELECT * FROM SAMPLE.EMPLOYEE WHERE SALARY > 50000"
 ```
 
 Uses `QSYS2.PARSE_STATEMENT` and cross-references tables, columns, and routines against the system catalog.
+
+The command prints a report with one row per check. It exits with code `3` when a check is `FAIL`; the JSON envelope still has `"ok": true`, so test the exit code or the `STATUS` values.
 
 ---
 
@@ -217,6 +228,8 @@ parameters:
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Show resolved SQL and parameters without executing |
+
+`--watch` repeats the tool, and `--output` writes its result (or the `--dry-run` preview) to a file.
 
 ### `ibmi tools`
 
@@ -257,6 +270,7 @@ Manage named system connections in `.ibmi/config.yaml`.
 ibmi system list                          # list all configured systems
 ibmi system show dev                      # show system details
 ibmi system add dev --host h --user u     # add (prompts for missing fields)
+ibmi system add prod --host h --user u --verify-tls   # verify the TLS certificate
 ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity
@@ -273,6 +287,8 @@ ibmi system config-path                   # show config file locations
 | `default <name>` | Set the default system |
 | `test [name]` | Test connectivity (`--all` for all systems) |
 | `config-path` | Show config file locations |
+
+`system add` options: `--host`, `--port` (default `8076`), `--user`, `--password`, `--description`, `--read-only`, `--default-schema`, and `--verify-tls` / `--no-verify-tls`. By default the server's TLS certificate is **not** verified (`ignoreUnauthorized: true`); `--verify-tls` stores `ignoreUnauthorized: false`. `system show` reports the setting as `verifyTls`, and `system list` in the `VERIFY_TLS` column.
 
 ### `ibmi config show`
 

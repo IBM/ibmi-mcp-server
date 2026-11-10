@@ -212,7 +212,7 @@ This creates three tools:
 
 ### 3. Set Configuration Path
 
-Point the server to your configuration file using the `MCP_SERVER_CONFIG` environment variable:
+The server loads one `.env` file: the file named by the `MCP_SERVER_CONFIG` environment variable, otherwise `.env` in the directory you start it from. Parent directories are not searched.
 
 ```bash
 # Set configuration file path
@@ -318,6 +318,8 @@ npx -y @ibm/ibmi-mcp-server@latest [options]
 | `--execute-sql` | Enable the `execute_sql` tool for ad-hoc queries |
 | `--help` | Show help message |
 
+Options are checked strictly. An unknown option, an option without its value, a positional argument or an invalid `--transport` value prints `Invalid arguments: <message>` on stderr and exits with code 1. Both `--tools ./tools` and `--tools=./tools` are accepted. Quote glob patterns: `--tools 'tools/**/*.yaml'`.
+
 <details>
 <summary><strong>Common Examples</strong></summary>
 
@@ -338,7 +340,7 @@ npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
 
 **Load specific toolsets only:**
 ```bash
-npx -y @ibm/ibmi-mcp-server@latest --toolsets performance,security --tools ./tools
+npx -y @ibm/ibmi-mcp-server@latest --toolsets performance --tools ./tools
 ```
 
 **List available toolsets:**
@@ -424,6 +426,8 @@ IBM i HTTP token authentication is deprecated and will be removed in a future ma
 
 In production environments, it is strongly recommended to deploy the MCP server behind a reverse proxy server such as Nginx, HAProxy, or Caddy. The reverse proxy server can provide TLS/SSL termination for the MCP server to handle HTTPS connections and SSL/TLS certificate management. Below is an example of an Nginx configuration. You may need to adjust it according to your specific networking configuration and security requirements.
 
+Set `MCP_TRUST_PROXY=true` on the MCP server when it runs behind such a proxy. Without it the server ignores `X-Forwarded-For` and `X-Forwarded-Proto`: all clients then share the proxy's address for rate limiting, and the deprecated `/api/v1/auth` endpoint refuses every request with `HTTPS/TLS is required for authentication endpoints`. The proxy must set `X-Forwarded-For` itself (overwrite it or append to it), because the server uses the last entry: a header that is passed through unchanged is the client's own.
+
 ```
 pid /run/nginx.pid;
 events {}
@@ -436,8 +440,11 @@ http {
         ssl_ciphers HIGH:!aNULL:!MD5;
         ssl_session_cache shared:SSL:50m;
         ssl_prefer_server_ciphers on;
-        # This is needed for getting access token when IBM i HTTP authentication enabled with HTTPS only
+        # Read by the MCP server only when MCP_TRUST_PROXY=true.
+        # X-Forwarded-Proto is needed for getting access token when IBM i HTTP authentication enabled with HTTPS only
         proxy_set_header X-Forwarded-Proto https;
+        # Set here, not passed through: the server uses the last entry as the client address
+        proxy_set_header X-Forwarded-For $remote_addr;
         location / {
             proxy_pass http://mcp_server;
         }
@@ -1273,6 +1280,15 @@ toolsets:
       - active_job_info
 ```
 
+What the loader enforces:
+
+- `${VAR}` is replaced inside string values after the YAML is parsed. A referenced variable that is not set fails the load.
+- Unknown keys are errors (a misspelled `prot:` is not silently ignored). `statement` is required and must not be blank.
+- Use named parameter markers (`:name`). A statement that mixes `:name` and `?` is rejected.
+- An omitted optional parameter without a default binds SQL `NULL`. An empty array is an error.
+- A YAML tool must not have the name of an enabled built-in tool.
+- One invalid file stops the whole load: `Invalid tool configuration in <file>: <problems>`.
+
 > [!TIP]
 > **Advanced Tool Configuration:** For detailed documentation on creating custom SQL tools, parameter validation, advanced queries, and more, see [tools/README.md](../../tools/README.md).
 
@@ -1317,9 +1333,12 @@ Core server configuration including server identity, transport mode, and logging
 | `MCP_SERVER_NAME` | Server name identifier for MCP protocol | Package name from `package.json` | No |
 | `MCP_SERVER_VERSION` | Server version for MCP protocol | Version from `package.json` | No |
 | `MCP_TRANSPORT_TYPE` | Transport protocol: `stdio` (local) or `http` (remote) | `stdio` | No |
-| `MCP_LOG_LEVEL` | Logging verbosity: `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` | `debug` | No |
-| `LOGS_DIR` | Directory for log files (absolute, `~/...`, or relative to the working directory) | `~/.ibmi-mcp-server/logs` | No |
+| `MCP_LOG_LEVEL` | Logging verbosity: `debug`, `info`, `notice`, `warning` (or `warn`), `error`, `crit`, `alert`, `emerg`. Lowercase only; any other value stops the server at startup | `debug` | No |
+| `LOGS_DIR` | Directory for log files (absolute, `~/...`, or relative to the working directory). Created when the first log record is written | `~/.ibmi-mcp-server/logs` | No |
 | `NODE_ENV` | Node environment: `development`, `production`, `test` | `development` | No |
+| `MCP_SERVER_CONFIG` | Path of the `.env` file to load instead of `.env` in the working directory | None | No |
+
+**Log files:** `combined.log.N` (everything at `MCP_LOG_LEVEL` and above) and `error.log.N` (errors), rotated daily or at 10 MB. If `LOGS_DIR` cannot be created or written to, the server does not stop: it prints one warning on stderr and logs to stderr instead (with the stdio transport, at `warn` level and above).
 
 **Examples:**
 ```bash
@@ -1345,14 +1364,13 @@ Configuration for HTTP transport mode, including network settings and CORS. The 
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `MCP_HTTP_PORT` | HTTP server port | `3010` | No |
+| `MCP_HTTP_PORT` | HTTP server port. If it is already in use the server exits with an error; it does not try another port | `3010` | No |
 | `MCP_HTTP_HOST` | HTTP server bind address | `127.0.0.1` | No |
 | `MCP_HTTP_ENDPOINT_PATH` | MCP endpoint path | `/mcp` | No |
-| `MCP_HTTP_MAX_PORT_RETRIES` | Max attempts to find available port if default is in use | `15` | No |
-| `MCP_HTTP_PORT_RETRY_DELAY_MS` | Delay between port retry attempts (milliseconds) | `50` | No |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | None (all origins blocked) | No |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` header allowlist (extends the always-allowed loopback set); `*` disables Host checking only, not Origin checking | None (loopback only) | No |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present | `false` | No |
+| `MCP_TRUST_PROXY` | Take the client address and scheme from `X-Forwarded-For` (last entry) and `X-Forwarded-Proto`. Set to `true` only behind a reverse proxy you control; otherwise those headers are ignored | `false` | No |
 
 **Examples:**
 ```bash
@@ -1366,6 +1384,7 @@ MCP_HTTP_PORT=443
 MCP_HTTP_HOST=0.0.0.0                       # non-loopback bind requires MCP_AUTH_MODE != none
 MCP_ALLOWED_HOSTS=mcp.example.com           # public hostname(s) this server is reached at
 MCP_ALLOWED_ORIGINS=https://app.example.com,https://dashboard.example.com
+MCP_TRUST_PROXY=true                        # only behind a reverse proxy you control
 ```
 
 </details>
@@ -1397,7 +1416,13 @@ MCP_RATE_LIMIT_WINDOW_MS=60000
 MCP_RATE_LIMIT_ENABLED=false
 ```
 
-> **Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these are absent (e.g., behind Docker without proxy header forwarding), it falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting. Authenticated requests are limited per token subject, falling back to the client id and then the IP address.
+**What is counted:**
+
+- Without authentication, every request counts against the client address.
+- With authentication, an authenticated request counts against the token's subject (the client id when the token has no subject). A request that authentication refuses counts against the client address, as do fetches of the OAuth metadata. Once an address has used up its budget, further requests from it that authentication refuses get `429` until the window ends. Requests with a valid token are still served: they never count against the address.
+- `POST /api/v1/auth` (deprecated IBM i authentication) has its own fixed budget of 10 requests per minute per client address.
+
+> **Docker / Reverse Proxy**: The client address is the TCP peer address. Behind a reverse proxy that is the proxy, so all clients share one budget. Set `MCP_TRUST_PROXY=true` to use the address the proxy reports in `X-Forwarded-For` (last entry), and have the proxy set that header itself.
 
 </details>
 
@@ -1408,8 +1433,8 @@ Controls automatic cleanup of idle Mapepire connection pools and query execution
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `MCP_POOL_IDLE_TIMEOUT_MS` | Idle timeout for connection pools (ms). Pools closed after inactivity. Fresh connections established automatically on next request. Set to `0` to disable. | `300000` (5 min) | No |
-| `MCP_POOL_QUERY_TIMEOUT_MS` | Query execution timeout (ms). Queries aborted after this period. Pool re-initialized on next request after timeout. Set to `0` to disable. | `30000` (30s) | No |
+| `MCP_POOL_IDLE_TIMEOUT_MS` | Idle timeout for connection pools (ms). Pools closed after inactivity; a pool with a statement in flight is never closed as idle. Fresh connections established automatically on next request. Set to `0` to disable. | `300000` (5 min) | No |
+| `MCP_POOL_QUERY_TIMEOUT_MS` | Query execution timeout (ms). Applies to the execute call and to every page of a paginated fetch. Pool re-initialized on next request after timeout. Set to `0` to disable. | `30000` (30s) | No |
 
 **Examples:**
 ```bash
@@ -1426,7 +1451,11 @@ MCP_POOL_IDLE_TIMEOUT_MS=0
 MCP_POOL_QUERY_TIMEOUT_MS=0
 ```
 
-> **How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed — the next query triggers transparent re-initialization via the existing lazy-init path. The query timeout wraps `pool.execute()` with `Promise.race()`, so dead connections fail fast instead of hanging. On timeout, the pool is marked unhealthy and closed for re-initialization.
+> **How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed — the next query triggers transparent re-initialization via the existing lazy-init path. On a query timeout, the pool is marked unhealthy (`/healthz` reports `degraded`) and closed for re-initialization; other statements running on it fail at once with `Request cancelled: connection pool '<id>' was closed while the statement was running`. Such a statement had already been sent to IBM i and may or may not have completed, so check before running it again.
+>
+> **Lost connections:** when a pool has no usable connection left (IBM i IPL, Mapepire restart, network reset), it is re-initialized once and the statement runs.
+>
+> **Rejected sign-on:** after IBM i rejects the user or password, no new sign-on with those credentials is attempted for 60 seconds, so that repeated tool calls do not disable the user profile. Other initialization failures are retried after 5 seconds.
 
 </details>
 
@@ -1477,7 +1506,8 @@ Full guide: [docs/server-config/oauth.mdx](../../docs/server-config/oauth.mdx).
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `IBMI_HTTP_AUTH_ENABLED` | Enable IBM i authentication endpoints | `false` | ✅ Yes (for IBM i mode) |
-| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP (non-HTTPS) authentication requests | `false` | No |
+| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP (non-HTTPS) authentication requests. Only honoured when `NODE_ENV=development` | `false` | No |
+| `IBMI_AUTH_ALLOWED_HOSTS` | Comma-separated IBM i host names users may sign on to through `/api/v1/auth` (case-insensitive) | `DB2i_HOST` | ✅ Yes when `DB2i_HOST` is not set |
 | `IBMI_AUTH_TOKEN_EXPIRY_SECONDS` | Token lifetime in seconds | `3600` (1 hour) | No |
 | `IBMI_AUTH_CLEANUP_INTERVAL_SECONDS` | How often to clean up expired tokens (seconds) | `300` (5 minutes) | No |
 | `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` | Maximum concurrent authenticated sessions | `100` | No |
@@ -1575,8 +1605,8 @@ Settings for loading and managing SQL tools defined in YAML configuration files.
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `TOOLS_YAML_PATH` | Path to YAML tool configurations (file, directory, or glob) | None | No |
-| `SELECTED_TOOLSETS` | Comma-separated list of toolsets to load (filters available tools) | None (load all) | No |
-| `YAML_AUTO_RELOAD` | Automatically reload tools when YAML files change | `true` | No |
+| `SELECTED_TOOLSETS` | Comma-separated list of toolsets to load (filters available tools). A name that no file defines stops startup | None (load all) | No |
+| `YAML_AUTO_RELOAD` | Automatically reload tools when YAML files change, are added or are removed | `true` | No |
 
 ### Configuration Merging
 
@@ -1586,14 +1616,16 @@ When loading multiple YAML files, these settings control merge behavior:
 |----------|-------------|---------|----------|
 | `YAML_MERGE_ARRAYS` | Merge arrays from multiple files (`true`) or replace them (`false`) | `true` | No |
 | `YAML_ALLOW_DUPLICATE_TOOLS` | Allow duplicate tool names across files | `false` | No |
-| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names across files (must be `true` to load the repository's whole `tools/` directory, whose files each define `ibmi-system`) | `false` | No |
+| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow a source name to be defined **differently** in several files (the last file wins). Identical definitions always merge, so the repository's `tools/` directory loads without it | `false` | No |
 | `YAML_VALIDATE_MERGED` | Validate merged configuration before loading tools | `true` | No |
 
 **Path Resolution:**
 - **File**: `TOOLS_YAML_PATH=tools/performance/performance.yaml`
-- **Directory**: `TOOLS_YAML_PATH=tools/` (loads all .yaml/.yml files)
-- **Glob pattern**: `TOOLS_YAML_PATH=tools/**/*.yaml`
-- **Multiple sources**: Use CLI `--tools` to override at runtime
+- **Directory**: `TOOLS_YAML_PATH=tools/` (loads all .yaml/.yml files, subdirectories included)
+- **Glob pattern**: `TOOLS_YAML_PATH=tools/**/*.yaml` (a path that does not exist and contains `*`, `?`, `[`, `]`, `{` or `}`)
+- **Override at runtime**: CLI `--tools` takes precedence over `TOOLS_YAML_PATH`
+
+Files are merged in sorted path order. Loading is all-or-nothing: one file that fails to parse or validate stops startup with `Invalid tool configuration in <file>: <problems>`; on auto-reload the error is logged and the previous tools stay in place.
 
 **Examples:**
 ```bash
@@ -1800,7 +1832,8 @@ Configuration for distributed tracing and metrics using OpenTelemetry.
 OTEL_ENABLED=true
 OTEL_SERVICE_NAME=ibmi-mcp-dev
 OTEL_LOG_LEVEL=DEBUG
-# Traces written to logs/traces/ directory
+# Without a traces endpoint, each span is written to the server log
+# (combined.log) as a "Trace Span End" record at info level
 
 # Production: export to Jaeger
 OTEL_ENABLED=true
@@ -1819,11 +1852,10 @@ OTEL_TRACES_SAMPLER_ARG=1.0  # Sample all traces
 ```
 
 **Instrumentation Coverage:**
-- All MCP tool executions
-- HTTP requests and responses
-- Database queries (SQL tools)
-- Authentication flows
-- Custom spans for critical operations
+- One span per tool execution (`tool_execution:<tool name>`)
+- One span per outgoing `fetch` call (the OAuth issuer metadata and JWKS requests)
+
+Incoming HTTP requests are not traced, and log records do not carry trace or span ids.
 
 </details>
 
@@ -1931,6 +1963,66 @@ Breaking changes when upgrading from 0.6.x:
 
 The server now runs on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`) and serves MCP protocol revision 2026-07-28 and earlier clients from the same endpoint, over HTTP and stdio.
 
+**Runtime and startup**
+
+| Removed or changed | What to do |
+|--------------------|------------|
+| Node.js 20 | Node.js 22.17 or later is required (`engines.node` is `>=22.17`). The container image is built on `node:22-bookworm-slim`. |
+| Server command line | Checked strictly. An unknown option, an option without its value or a positional argument prints `Invalid arguments: <message>` and exits with code 1; unknown options used to be a warning. `--flag=value` is accepted. |
+| `MCP_LOG_LEVEL` | Only `debug`, `info`, `notice`, `warning`, `warn`, `error`, `crit`, `alert`, `emerg` (lowercase). Any other value (`fatal`, `trace`, `INFO`, ...) stops the server at startup; it used to be read as `info`. |
+| `.env` lookup | Only the file named by `MCP_SERVER_CONFIG`, otherwise `.env` in the working directory. `../.env` is no longer read. |
+| `MCP_HTTP_MAX_PORT_RETRIES`, `MCP_HTTP_PORT_RETRY_DELAY_MS` | Removed and ignored. A port that is in use is a startup error: `Port <port> on <host> is already in use. Stop the process using it, or set MCP_HTTP_PORT to a free port.` (exit code 1). The server no longer moves to the next port. |
+| Unknown `--toolsets` / `SELECTED_TOOLSETS` names | Stop startup: `Unknown toolsets requested: <names>. Available toolsets: <names>`. They used to be a logged warning. |
+| Log files | Only `combined.log.N` and `error.log.N` are written. `info.log.N`, `warn.log.N` and `debug.log.N` are gone (existing files are left in place). `combined.log` now follows `MCP_LOG_LEVEL` instead of being fixed at `info`. The log directory is created on the first log record, not at startup. |
+| Unwritable `LOGS_DIR` | No longer stops the server (it used to with the stdio transport or `NODE_ENV=production`). The server prints `Warning: cannot write logs to LOGS_DIR '<path>' (<reason>). File logging is disabled; ...` once and logs to stderr. |
+| OpenTelemetry | The HTTP and pino instrumentations are removed; they never took effect in this build. Tool execution spans and spans for outgoing `fetch` calls remain. |
+
+**HTTP transport and authentication**
+
+| Removed or changed | What to do |
+|--------------------|------------|
+| `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` | `X-Forwarded-For` (last entry) and `X-Forwarded-Proto` are ignored unless the new `MCP_TRUST_PROXY=true` is set; `X-Real-IP` is no longer read. Set `MCP_TRUST_PROXY=true` behind a reverse proxy; otherwise all clients share the proxy's address for rate limiting and `/api/v1/auth` refuses requests with `HTTPS/TLS is required for authentication endpoints`. |
+| Rate limiting with authentication enabled | Requests that authentication refuses now count against the client address; once an address has used up `MCP_RATE_LIMIT_MAX_REQUESTS`, further refused requests from it get `429`. Authenticated requests are still counted per token subject and are not affected. |
+| `/api/v1/auth` target host | The new `IBMI_AUTH_ALLOWED_HOSTS` (default: `DB2i_HOST`) lists the IBM i hosts users may sign on to; any other host gets `403` `Sign-on to this host is not allowed`. With IBM i authentication enabled and neither variable set, the server does not start. |
+| `/api/v1/auth` responses | A failed sign-on is `401` `Authentication failed` (was `500` with the driver's error text; the reason is in the server log). The endpoint is limited to 10 requests per minute per client address (`429`). |
+| `/api/v1/auth` request field `poolstart` | Ignored. The sign-on opens one connection and the pool grows to `poolmax` on demand. |
+| IBM i authentication key pair | Read at startup. An unreadable key file stops the server instead of failing the first request. |
+| `get-access-token.js` | With `--https` the server certificate is verified; pass `--insecure` for a self-signed certificate. `-h` now prints help (it used to be short for `--host`). `--pool-start` is removed. |
+
+**YAML tools**
+
+| Removed or changed | What to do |
+|--------------------|------------|
+| Invalid tool files | Loading is all-or-nothing. One file that fails to parse or validate stops startup and `--list-toolsets` with `Invalid tool configuration in <file>: <problems>`; other files used to load anyway. An empty `.yaml` file in the tools directory is such a failure. |
+| Unknown keys | Errors at load, for the root, sources, tools, parameters, `security` and toolsets (for example `sources.x: Unrecognized key: "prot"`). `jdbc-options`, `annotations` and `metadata` stay open. |
+| `statement` | Required and must not be blank. The unused `typescript_tools` section is removed from the schema; a file that contains it is rejected. |
+| `${VAR}` interpolation | Done after the YAML is parsed and only inside string values, so a password with `#` or `:` needs no quoting. A referenced variable that is not set fails the load (`environment variable(s) not set: ...`); it used to stay in the text as `${VAR}`. `--list-toolsets` still lists without them. `ignore-unauthorized: ${VAR}` no longer works because the key needs a boolean; write `true` or `false`. |
+| Duplicate sources | Identical definitions of a source in several files now merge, so `YAML_ALLOW_DUPLICATE_SOURCES=true` is no longer needed for the repository's `tools/` directory. Only different definitions are an error. |
+| YAML tool with a built-in tool's name | Startup error when that built-in tool is enabled: `YAML tool '<name>' has the same name as the built-in tool '<name>'. Rename the YAML tool or leave the built-in tool off.` |
+| Omitted optional parameters | Bind SQL `NULL` when the parameter has no default (they used to bind `''`), so `(:p IS NULL OR col = :p)` works. Statements that tested for `''` to mean "not given" must change. |
+| Parameter errors | An empty array is rejected (`Array parameter '<name>' must contain at least one value`). A `:name` marker without a value is rejected. A statement that mixes `?` and `:name` is rejected when the file is loaded. |
+| `tools/developer/text2sql.yaml` | No longer defines `list_tables_in_schema` and `validate_query`; start the server with `--builtin-tools` for them. |
+| `tools/developer/object-statistics-dev.yaml`, `tools/sys-admin/ptf_tools.yaml` | The unused `sql_object_type` parameter of `find_least_recently_used_objects` and `find_stale_objects` is removed. `ptf_group_name` of `get_ptf_group_details` is marked required. |
+
+**Tool results and errors**
+
+| Removed or changed | What to do |
+|--------------------|------------|
+| Error codes | An error keeps its specific JSON-RPC code through wrapping layers: for example, a query timeout is `-32004` and a lost or cancelled connection `-32000` (both were `-32010`), and YAML tool parameter or SQL validation failures are `-32007` (was `-32603`). |
+| Sign-on failure text | `IBM i sign-on failed: the system rejected the user or password. No new sign-on is attempted for N s, ...`, without the user name or driver text. During those 60 seconds the server does not contact IBM i with the same credentials. |
+| Built-in tool failures | A result with `success: false` is now returned with `isError: true`. Content and `structuredContent` are unchanged. |
+| `MCP_POOL_QUERY_TIMEOUT_MS` | Now also applies to every page of a paginated fetch. When one statement times out, the other statements on that pool fail at once and can be retried. |
+| `@ibm/ibmi-mcp-server/services` | The `SourceHealth` type and the methods `IBMiConnectionPool.healthCheck()`, `IBMiConnectionPool.getStatus()`, `SourceManager.checkSourceHealth()`, `getAllSourcesHealth()`, `closeSource()` and `clearAllSources()` are removed. |
+
+**Container image**
+
+| Removed or changed | What to do |
+|--------------------|------------|
+| Health check | The image has a built-in `HEALTHCHECK` that requests `/healthz` on `127.0.0.1:$MCP_HTTP_PORT`. A container run with the stdio transport reports unhealthy unless started with `--no-healthcheck`. |
+| Log files | `appuser` owns its home directory, so the container writes log files to `/home/appuser/.ibmi-mcp-server/logs` unless `LOGS_DIR` is set. With a read-only root file system logs go to stderr only. |
+
+The `ibmi` CLI changed too (exit codes, row limits, table output); see the [CLI README](../cli/README.md#upgrading).
+
 ## 🔐 IBM i HTTP Authentication (Deprecated)
 
 > **Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, `IBMI_AUTH_*`, `/api/v1/auth`, per-user pools) will be removed in a future major release. It works as described below; the server logs one deprecation warning at startup and `/api/v1/auth` responses carry a `Deprecation: true` header. Use [OAuth](#oauth-authentication) for multi-user remote deployments.
@@ -1980,7 +2072,14 @@ IBMI_AUTH_CLEANUP_INTERVAL_SECONDS=300
 DB2i_HOST=your-ibmi-host
 DB2i_USER=your-username
 DB2i_PASS=your-password
+
+# IBM i hosts users may sign on to (default: DB2i_HOST)
+# IBMI_AUTH_ALLOWED_HOSTS=your-ibmi-host,other-ibmi-host
 ```
+
+The server signs on only to the hosts in `IBMI_AUTH_ALLOWED_HOSTS` (default: `DB2i_HOST`). With neither set, or with a key file that cannot be read, the server does not start.
+
+Behind a reverse proxy that terminates TLS, also set `MCP_TRUST_PROXY=true`: the server listens on plain HTTP and believes the proxy's `X-Forwarded-Proto: https` only with that setting.
 
 
 ### Getting Access Tokens
@@ -1999,6 +2098,9 @@ node get-access-token.js --user myuser --password mypass --host my-ibmi-host
 # Quiet mode for shell evaluation
 eval $(node get-access-token.js --quiet)
 echo $IBMI_MCP_ACCESS_TOKEN
+
+# Server behind HTTPS (the certificate is verified; add --insecure for a self-signed one)
+node get-access-token.js --https --server mcp.example.com --port 443
 ```
 
 The script automatically:
@@ -2097,9 +2199,20 @@ if __name__ == "__main__":
 
 When enabled (`IBMI_HTTP_AUTH_ENABLED=true`), the server provides these endpoints:
 
-| Endpoint       | Method | Description                                                  |
-| -------------- | ------ | ------------------------------------------------------------ |
-| `/api/v1/auth` | POST   | Authenticate with IBM i credentials and receive Bearer token |
+| Endpoint                  | Method | Description                                                  |
+| ------------------------- | ------ | ------------------------------------------------------------ |
+| `/api/v1/auth/public-key` | GET    | The server's public key and key id, used to encrypt the request |
+| `/api/v1/auth`            | POST   | Authenticate with IBM i credentials and receive Bearer token |
+
+`POST /api/v1/auth` responses:
+
+| Status | Meaning |
+| ------ | ------- |
+| `201`  | Token issued |
+| `400`  | Malformed request, or the request did not arrive over HTTPS |
+| `401`  | `Authentication failed`: the IBM i sign-on did not succeed. The reason is in the server log only |
+| `403`  | `Sign-on to this host is not allowed`: the host is not in `IBMI_AUTH_ALLOWED_HOSTS` |
+| `429`  | More than 10 requests in a minute from one client address |
 
 
 
@@ -2177,7 +2290,7 @@ npm run start:http
 npm run start:http -- --tools ./my-configs
 
 # HTTP with specific toolsets
-npm run start:http -- --toolsets performance,monitoring
+npm run start:http -- --toolsets performance,security_audit
 ```
 
 #### Stdio Transport (for CLI tools and MCP Inspector)
@@ -2205,7 +2318,7 @@ Both transport modes support these command-line options:
 | Option               | Short | Description                                                                   | Example                           |
 | -------------------- | ----- | ----------------------------------------------------------------------------- | --------------------------------- |
 | `--tools <path>`     |       | Override YAML tools configuration path (overrides `TOOLS_YAML_PATH`)          | `--tools ./custom-configs`        |
-| `--toolsets <list>`  | `-ts` | Load only specific toolsets (comma-separated) (overrides `SELECTED_TOOLSETS`) | `--toolsets performance,security` |
+| `--toolsets <list>`  | `-ts` | Load only specific toolsets (comma-separated) (overrides `SELECTED_TOOLSETS`). An unknown name stops startup | `--toolsets performance,security_audit` |
 | `--transport <type>` | `-t`  | Force transport type (`http` or `stdio`) (overrides `MCP_TRANSPORT_TYPE`)     | `--transport http`                |
 | `--help`             | `-h`  | Show help information                                                         | `--help`                          |
 | `--list-toolsets`    |       | List available toolsets from YAML configuration                               | `--list-toolsets`                 |
@@ -2233,8 +2346,8 @@ npm run start:http -- --tools ./my-tools
 **3. Specific Toolsets Only**
 
 ```bash
-npm run start:http -- --toolsets performance,monitoring
-# Only loads tools from 'performance' and 'monitoring' toolsets
+npm run start:http -- --toolsets performance,security_audit
+# Only loads tools from 'performance' and 'security_audit' toolsets
 ```
 
 ### Development Tips
@@ -2247,6 +2360,8 @@ npm run start:http -- --toolsets performance,monitoring
 ### Troubleshooting
 
 **Port Already in Use**
+
+The server exits with `Port <port> on <host> is already in use. Stop the process using it, or set MCP_HTTP_PORT to a free port.` It does not move to another port.
 
 ```bash
 # Configure port in .env file

@@ -77,6 +77,8 @@ The manifests deploy the IBM i MCP Server alongside the optional MCP Context For
     Edit the `.env` file with your actual IBM i credentials before deploying. The file should contain `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and other required variables.
 
     The pod must bind all interfaces, so also set `MCP_HTTP_HOST=0.0.0.0`, set `MCP_ALLOWED_HOSTS` to the Route hostname, and enable authentication: `MCP_AUTH_MODE=oauth` with `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL` (see [OAuth Authentication](/server-config/oauth)). Without authentication the server refuses to start unless `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` is set.
+
+    The Route terminates TLS in front of the pod, so the server sees the router's address unless `MCP_TRUST_PROXY=true` is set. The server then uses the last `X-Forwarded-For` entry, which the router writes under its default `append` policy and under `replace`. Do not set the Route annotation `haproxy.router.openshift.io/set-forwarded-headers` to `never` or `if-none`: both pass a client's own header through. See [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy).
     </Warning>
   </Step>
 

@@ -439,6 +439,8 @@ npx -y @ibm/ibmi-mcp-server@latest --tools tools/
 npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring,security_audit
 ```
 
+A name passed to `--toolsets` (or `SELECTED_TOOLSETS`) that no loaded file defines stops the server at startup: `Unknown toolsets requested: <names>. Available toolsets: <names>`. Run `--list-toolsets` to see the names.
+
 ---
 
 ## Complete Examples

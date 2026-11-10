@@ -13,7 +13,7 @@ Always use a `.env` file for local development and secure environment variable m
 
 ## Loading Your Configuration
 
-Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to point to your configuration file:
+The server loads one `.env` file at startup: the file named by the `MCP_SERVER_CONFIG` environment variable, otherwise `.env` in the directory the server is started from. Parent directories are not searched.
 
 <Tabs>
   <Tab title="NPM Package">
@@ -25,7 +25,7 @@ Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to 
     npx -y @ibm/ibmi-mcp-server@latest --transport http
     ```
 
-    The server loads the file specified by `MCP_SERVER_CONFIG` on startup.
+    A relative `MCP_SERVER_CONFIG` resolves from the working directory. If the file does not exist, the server prints a warning and falls back to `.env` in the working directory.
   </Tab>
 
   <Tab title="Build from Source">
@@ -39,7 +39,7 @@ Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to 
 </Tabs>
 
 <Note>
-**How it works:** The `MCP_SERVER_CONFIG` environment variable tells the server where to find your configuration file. Without it, you'd need to pass each variable individually as environment variables. CLI arguments (like `--transport http`) override values in the config file.
+**Precedence:** variables already set in the process environment win over the file. CLI arguments (like `--transport http`) override both.
 </Note>
 
 ---
@@ -74,7 +74,7 @@ MCP_LOG_LEVEL=info
 | `DB2i_PORT` | Mapepire daemon port (singleton pool, CLI; YAML uses source `port`) | Only if you changed Mapepire's default |
 | `TOOLS_YAML_PATH` | Location of SQL tool definitions | Change if using custom tools |
 | `MCP_TRANSPORT_TYPE` | How clients connect (http or stdio) | Use `http` for most cases |
-| `MCP_HTTP_PORT` | Port for HTTP server | Change if 3010 is in use |
+| `MCP_HTTP_PORT` | Port for HTTP server | Change if 3010 is in use (the server exits when the port is taken) |
 | `MCP_LOG_LEVEL` | Logging detail | Use `debug` for troubleshooting |
 
 </Accordion>
@@ -114,11 +114,12 @@ Below is the reference for core server configuration options. Each section inclu
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `MCP_TRANSPORT_TYPE` | Server transport mode | `stdio` | `http` |
-| `MCP_HTTP_PORT` | HTTP server port | `3010` | `3010` |
+| `MCP_HTTP_PORT` | HTTP server port. A port that is already in use is a startup error (exit code 1); the server never moves to another port | `3010` | `3010` |
 | `MCP_HTTP_HOST` | HTTP server host | `127.0.0.1` | `0.0.0.0` |
 | `MCP_ALLOWED_ORIGINS` | CORS + browser `Origin` allowlist (comma-separated). Governs browsers only — it does not restrict non-browser clients | (none) | `http://localhost:3000,https://myapp.com` |
 | `MCP_ALLOWED_HOSTS` | `Host` header allowlist for DNS rebinding protection; extends the always-allowed loopback set. `*` disables Host checking only — Origin is still enforced | (loopback only) | `mcp.example.com` |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present (server refuses to start otherwise). | `false` | `true` |
+| `MCP_TRUST_PROXY` | Believe `X-Forwarded-For` and `X-Forwarded-Proto`. Set to `true` only behind a reverse proxy you control; see [Behind a Reverse Proxy](#behind-a-reverse-proxy) | `false` | `true` |
 
 <Tabs>
   <Tab title="HTTP Transport (Recommended)">
@@ -140,6 +141,21 @@ Below is the reference for core server configuration options. Each section inclu
     **Use for**: CLI tools, MCP Inspector, direct process communication
   </Tab>
 </Tabs>
+
+### Behind a Reverse Proxy
+
+The server listens on plain HTTP and, by default, ignores `X-Forwarded-For` and `X-Forwarded-Proto`: any caller can write those headers. The client address is the TCP peer.
+
+Behind a reverse proxy or ingress that terminates TLS, set `MCP_TRUST_PROXY=true`. The server then takes:
+
+- the client address from the last entry of `X-Forwarded-For`, which is the one the proxy in front of the server wrote. It is used for rate limiting and in logs. `X-Real-IP` is not read.
+- the scheme from `X-Forwarded-Proto`. It is used by the HTTPS check on `/api/v1/auth` (deprecated IBM i authentication).
+
+Without it, every client behind the proxy shares the proxy's address and with it one per-address rate-limit budget, and `/api/v1/auth` refuses every request with `HTTPS/TLS is required for authentication endpoints`.
+
+<Warning>
+Configure the proxy to **set** `X-Forwarded-For` itself: overwrite it with the client address, or append the client address to it. The server uses the last entry, so a proxy that passes the header through unchanged lets a client choose its own address. With more than one proxy in front of the server the last entry is the previous proxy, and all clients share that address. Do not set `MCP_TRUST_PROXY=true` on a server that clients can reach directly.
+</Warning>
 
 ### Protocol Versions and Sessions
 
@@ -186,10 +202,16 @@ The server is stateless. One endpoint serves MCP protocol revision `2026-07-28` 
   </Tab>
 </Tabs>
 
-<Info>
-**Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these headers are absent (e.g., behind Docker without proxy header forwarding), the server falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting.
+**What is counted:**
 
-**Authenticated requests** are limited per token subject, falling back to the client id and then the IP address.
+- **No authentication**: every request counts against the client address.
+- **With authentication** (`oauth` or `ibmi`): an authenticated request counts against the token's subject (the client id when the token has no subject), so users behind one address do not share a budget. A request that authentication refuses (`401`/`403`) counts against the client address, as do fetches of the OAuth metadata. Once an address has used up its budget, further requests from it that authentication refuses get `429` until the window ends. Requests with a valid token are still served: they never count against the address.
+- **`POST /api/v1/auth`** (deprecated IBM i authentication) has its own fixed budget of 10 requests per minute per client address. It follows `MCP_RATE_LIMIT_ENABLED` and `MCP_RATE_LIMIT_SKIP_DEV`.
+
+The limiter tracks at most 10,000 keys; the oldest window is dropped first.
+
+<Info>
+**Client address**: the TCP peer address. Behind a reverse proxy that is the proxy, so all clients share one budget; set `MCP_TRUST_PROXY=true` to use the address the proxy reports. See [Behind a Reverse Proxy](#behind-a-reverse-proxy).
 </Info>
 
 ### Connection Pool Timeouts
@@ -198,8 +220,8 @@ The server is stateless. One endpoint serves MCP protocol revision `2026-07-28` 
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `MCP_POOL_IDLE_TIMEOUT_MS` | Idle timeout for connection pools (ms). Pools are closed after this period of inactivity. | `300000` (5 min) | `60000` |
-| `MCP_POOL_QUERY_TIMEOUT_MS` | Query execution timeout (ms). Queries are aborted if they exceed this duration. | `30000` (30s) | `60000` |
+| `MCP_POOL_IDLE_TIMEOUT_MS` | Idle timeout for connection pools (ms). A pool is closed after this long without a query starting or ending; a pool with a statement in flight is never closed as idle. | `300000` (5 min) | `60000` |
+| `MCP_POOL_QUERY_TIMEOUT_MS` | Query execution timeout (ms). Applies to the execute call and to every page of a paginated fetch. | `30000` (30s) | `60000` |
 
 <Tabs>
   <Tab title="Default">
@@ -231,8 +253,14 @@ The server is stateless. One endpoint serves MCP protocol revision `2026-07-28` 
 </Tabs>
 
 <Info>
-**How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed automatically. The next query triggers a transparent re-initialization through the existing lazy-init path — no manual intervention needed. The query timeout uses `Promise.race()` to abort queries on stale connections, marking the pool unhealthy so it is re-created on the next request.
+**How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed automatically. The next query triggers a transparent re-initialization through the existing lazy-init path — no manual intervention needed. When a statement times out, the pool is marked unhealthy (`/healthz` reports `degraded`) and closed, and it is re-created on the next request. Other statements running on that pool fail at once with `Request cancelled: connection pool '<id>' was closed while the statement was running`. Such a statement had already been sent to IBM i and may or may not have completed, so check before running it again.
 </Info>
+
+**Connection failures:**
+
+- **Lost connections.** When a pool has no usable connection left (IBM i IPL, Mapepire restart, network reset), the server re-initializes it once and runs the statement. If that fails the error is `Connection to IBM i was lost and could not be re-established on pool '<id>'.`
+- **Rejected sign-on.** After IBM i rejects the user or password, the server does not attempt another sign-on with those credentials for 60 seconds, so that repeated tool calls do not disable the user profile. Calls in that time fail with `IBM i sign-on failed: the system rejected the user or password. ...`. Other initialization failures (host unreachable, for example) are retried after 5 seconds. Both intervals are fixed. Pools that use the same host, user and password sign on one at a time, so several of them starting together make one attempt, and a connection that a pool adds later under load is held back by the same intervals.
+- **Pool start-up.** A pool opens one connection first and the remaining starting connections only after it succeeds.
 
 <Warning>
 **Setting `MCP_POOL_QUERY_TIMEOUT_MS=0` disables query timeouts entirely.** This means queries on dead connections will hang until the client's own timeout fires. Only disable this in trusted, stable network environments.
@@ -348,7 +376,8 @@ Used when `MCP_AUTH_MODE=oauth`.
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `IBMI_HTTP_AUTH_ENABLED` | Enable IBM i HTTP auth endpoints | `false` | `true` |
-| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP for auth (dev only) | `false` | `true` |
+| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP for auth. Only honoured when `NODE_ENV=development` | `false` | `true` |
+| `IBMI_AUTH_ALLOWED_HOSTS` | Comma-separated IBM i host names users may sign on to through `/api/v1/auth` (case-insensitive). Required when `DB2i_HOST` is not set | `DB2i_HOST` | `ibmi.example.com` |
 | `IBMI_AUTH_TOKEN_EXPIRY_SECONDS` | Token lifetime in seconds | `3600` | `7200` |
 | `IBMI_AUTH_CLEANUP_INTERVAL_SECONDS` | Token cleanup interval | `300` | `600` |
 | `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` | Max concurrent sessions | `100` | `50` |
@@ -658,12 +687,12 @@ For detailed information on creating SQL tools, see the [SQL Tools Overview](/sq
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `TOOLS_YAML_PATH` | Path to YAML tool definitions | (none) | `tools` |
-| `SELECTED_TOOLSETS` | Comma-separated toolset names | (none) | `performance,monitoring` |
-| `YAML_AUTO_RELOAD` | Auto-reload tools when files change | `true` | `false` |
+| `TOOLS_YAML_PATH` | Path to YAML tool definitions: a file, a directory (searched recursively for `.yaml`/`.yml`), or a glob pattern | (none) | `tools` |
+| `SELECTED_TOOLSETS` | Comma-separated toolset names. A name that no file defines stops startup | (none) | `performance,monitoring` |
+| `YAML_AUTO_RELOAD` | Auto-reload tools when files change, are added or are removed | `true` | `false` |
 | `YAML_MERGE_ARRAYS` | Merge arrays when combining files | `true` | `true` |
 | `YAML_ALLOW_DUPLICATE_TOOLS` | Allow duplicate tool names | `false` | `true` |
-| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names (must be `true` to load the repository's whole `tools/` directory, whose files each define `ibmi-system`) | `false` | `true` |
+| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow a source name to be defined **differently** in several files (the last file wins). Identical definitions always merge | `false` | `true` |
 | `YAML_VALIDATE_MERGED` | Validate merged configuration | `true` | `false` |
 
 <Accordion title="YAML Configuration Examples">
@@ -690,6 +719,15 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 ```
 
 </Accordion>
+
+**Loading rules:**
+
+- Files are merged in sorted path order. With `YAML_ALLOW_DUPLICATE_TOOLS=true` or `YAML_ALLOW_DUPLICATE_SOURCES=true`, the last file wins.
+- Loading is all-or-nothing. A file that fails to parse or validate stops startup with `Invalid tool configuration in <file>: <problems>`. On auto-reload the error is logged and the previous tools stay in place.
+- A path that does not exist is treated as a glob pattern when it contains `*`, `?`, `[`, `]`, `{` or `}`. Quote patterns on the command line: `--tools 'tools/**/*.yaml'`.
+- A YAML tool that has the name of an enabled built-in tool stops startup. Rename the YAML tool or leave the built-in tool off.
+
+See [Sources](/sql-tools/sources) and [Tools](/sql-tools/tools) for what a tool file may contain.
 
 ## Built-in Tools
 
@@ -825,14 +863,14 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 
 ### Logging Configuration
 
-**Control log output, verbosity, and file storage.** The server uses Pino for structured logging with automatic log rotation, level-specific log files, and support for both console and file outputs. Logs help you debug issues, track server behavior, and comply with audit requirements.
+**Control log output, verbosity, and file storage.** The server uses Pino for structured logging with automatic log rotation and support for both console and file outputs. Logs help you debug issues, track server behavior, and comply with audit requirements.
 
 #### Log Settings
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
-| `MCP_LOG_LEVEL` | Logging verbosity level | `debug` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
-| `LOGS_DIR` | Directory for log files | `~/.ibmi-mcp-server/logs` | Any absolute, relative, or `~/` path |
+| `MCP_LOG_LEVEL` | Logging verbosity level. Lowercase only; any other value stops the server at startup | `debug` | `debug`, `info`, `notice`, `warning` (or `warn`), `error`, `crit`, `alert`, `emerg` |
+| `LOGS_DIR` | Directory for log files. Created when the first log record is written | `~/.ibmi-mcp-server/logs` | Any absolute, relative, or `~/` path |
 | `NO_COLOR` | Disable colored console output | (none) | `1` to disable colors |
 | `FORCE_COLOR` | Force disable colored output | (none) | `0` to disable colors |
 
@@ -922,22 +960,23 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 - When using `npx`, relative paths resolve from where you run the command
 </Warning>
 
+<Note>
+**An unusable `LOGS_DIR` does not stop the server.** If the directory cannot be created or written to (a read-only container file system, for example), the server prints one line on stderr, `Warning: cannot write logs to LOGS_DIR '<path>' (<reason>). File logging is disabled; ...`, and logs to stderr instead: at the configured level with the HTTP transport, at `warn` and above with the stdio transport.
+</Note>
+
 #### Log Files Created
 
-The server creates **5 log files** with automatic rotation:
+The server writes **two log files** with automatic rotation:
 
 | File | Content | Rotation |
 |------|---------|----------|
-| `combined.log.N` | All info+ level logs | Daily or 10MB |
-| `error.log.N` | Error+ level logs only | Daily or 10MB |
-| `warn.log.N` | Warning+ level logs only | Daily or 10MB |
-| `info.log.N` | Info+ level logs only | Daily or 10MB |
-| `debug.log.N` | Debug+ level logs only | Daily or 10MB |
+| `combined.log.N` | Everything at `MCP_LOG_LEVEL` and above | Daily or 10MB |
+| `error.log.N` | Error level and above | Daily or 10MB |
 
 **Rotation behavior:**
 - Logs rotate when they reach **10MB** OR at **midnight daily** (whichever comes first)
 - Files are numbered sequentially: `combined.log.1`, `combined.log.2`, etc. The highest number is the file currently being written (there is no un-numbered file)
-- **Current file + 5 previous files** are kept (6 total files per log level)
+- **Current file + 5 previous files** are kept (6 total files per log file)
 - When the 7th file would be created, the oldest file is automatically deleted
 - Daily rotation re-uses the existing file if still within the same day
 
@@ -949,10 +988,7 @@ The server creates **5 log files** with automatic rotation:
 ├── combined.log.1     # Oldest kept
 ├── combined.log.2     # Previous rotation
 ├── combined.log.3     # Current log (highest number, being written to)
-├── error.log.1        # Current error log
-├── warn.log.1         # Current warning log
-├── info.log.1         # Current info log
-└── debug.log.1        # Current debug log
+└── error.log.1        # Current error log
 ```
 
 **Sample log entry (JSON format):**
@@ -996,7 +1032,7 @@ The server creates **5 log files** with automatic rotation:
     MCP_TRANSPORT_TYPE=stdio
     ```
 
-    **Output**: Log files in `LOGS_DIR` only
+    **Output**: Log files in `LOGS_DIR` only. If `LOGS_DIR` cannot be written to, records at `warn` and above go to `stderr` as JSON.
 
     **Why**: MCP protocol requires clean JSON-RPC on `stdout` with no ANSI codes
   </Accordion>
@@ -1016,13 +1052,10 @@ The server creates **5 log files** with automatic rotation:
 **NO_COLOR Support**: The server respects the [NO_COLOR](https://no-color.org/) environment variable standard. Set `NO_COLOR=1` to disable all colored output, useful for CI/CD pipelines and log aggregation systems.
 </Note>
 
-#### Log Correlation with OpenTelemetry
+#### Filtering Logs
 
-**How to correlate logs across server restarts:**
+Logs append across server restarts (rather than creating timestamped files), so use the **structured fields** of each record to filter. Records written while a request is handled carry its `requestId`:
 
-Logs append across server restarts (rather than creating timestamped files), so use **structured logging fields** to filter:
-
-<CodeGroup>
 ```json Example: Filter by Request ID
 {
   "requestId": "req_abc123",
@@ -1031,31 +1064,11 @@ Logs append across server restarts (rather than creating timestamped files), so 
 }
 ```
 
-```json Example: Filter by Trace ID (OpenTelemetry)
-{
-  "traceId": "d4e5f6a7b8c9d0e1",
-  "spanId": "a1b2c3d4e5f6",
-  "msg": "Processing MCP tool request"
-}
-```
-</CodeGroup>
-
-**Best practice**: Enable OpenTelemetry for distributed tracing across restarts:
-
-```bash
-OTEL_ENABLED=true
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
-```
-
-This adds `traceId` and `spanId` to every log entry, making it easy to:
-- Filter logs by a specific request or trace
-- Correlate requests across services
-- Track performance over time
-- Debug issues with full request context
+Log records do not carry OpenTelemetry trace or span ids.
 
 ### OpenTelemetry
 
-**Enable distributed tracing and metrics collection.** OpenTelemetry (OTel) provides enterprise-grade observability by tracking every request through the system, measuring performance, and exporting telemetry data to monitoring platforms like Jaeger, Zipkin, or cloud providers. Essential for production monitoring and performance optimization.
+**Enable tracing.** With `OTEL_ENABLED=true` the server records one span per tool execution (`tool_execution:<tool name>`) and one span per outgoing `fetch` call (the OAuth issuer metadata and JWKS requests), and exports them to an OTLP endpoint such as Jaeger or a collector. Incoming HTTP requests are not traced. Without `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, each finished span is written to the server log as a `Trace Span End` record at `info` level.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -1129,6 +1142,7 @@ MCP_HTTP_PORT=3010
 MCP_HTTP_HOST=0.0.0.0
 MCP_ALLOWED_HOSTS=mcp.company.com
 MCP_ALLOWED_ORIGINS=https://myapp.company.com
+MCP_TRUST_PROXY=true   # behind a TLS-terminating reverse proxy you control
 
 # Authentication
 MCP_AUTH_MODE=oauth

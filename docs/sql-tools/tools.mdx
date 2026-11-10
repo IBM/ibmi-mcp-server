@@ -40,6 +40,10 @@ All SQL tools must include these fields:
 
 ---
 
+A tool accepts only the fields documented on this page. An unknown or misspelled key fails the load (for example `tools.my_tool: Unrecognized key: "statment"`), and so does a missing or blank `statement`. `annotations` and `metadata` may carry extra keys.
+
+A YAML tool must not have the name of a built-in tool that is enabled: `describe_sql_object` always, `execute_sql` with `--execute-sql`, and `list_schemas`, `list_tables_in_schema`, `get_table_columns`, `get_related_objects`, `validate_query` with `--builtin-tools`. The server refuses to start: `YAML tool '<name>' has the same name as the built-in tool '<name>'. Rename the YAML tool or leave the built-in tool off.`
+
 ### Field Details
 
 <Tabs>
@@ -326,6 +330,8 @@ parameters:
 ```sql
 WHERE (:user_filter IS NULL OR user_name = :user_filter)
 ```
+
+An optional parameter that the caller omits binds SQL `NULL` when it has no `default`, and its `default` otherwise. A parameter with a default is therefore never `NULL`.
 
 ---
 

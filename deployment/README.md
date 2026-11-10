@@ -104,8 +104,11 @@ IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
 # Enable IBM i HTTP authentication endpoints (requires MCP_AUTH_MODE=ibmi)
 IBMI_HTTP_AUTH_ENABLED=true
 
-# Allow HTTP requests for authentication (development only, use HTTPS in production)
+# Allow HTTP requests for authentication (honoured only with NODE_ENV=development; use HTTPS in production)
 IBMI_AUTH_ALLOW_HTTP=true
+
+# IBM i hosts users may sign on to through /api/v1/auth (default: DB2i_HOST)
+# IBMI_AUTH_ALLOWED_HOSTS=your_host
 
 # Let the gateway reach the server by its compose service name
 # (a non-loopback Host header that is not listed here is rejected with 403)
@@ -349,6 +352,7 @@ curl http://localhost:3010/healthz
 ```
 
 **Port conflicts:**
+- The server exits when its port is already in use (`Port <port> on <host> is already in use`); it does not move to another port
 - Change `MCP_HTTP_PORT` in `.env`
 - Update port mappings in `deployment/mcpgateway/docker-compose.yml`
 
@@ -373,7 +377,7 @@ See the [OpenShift README](openshift/apps/openshift/README.md#troubleshooting) f
 
 ### Security
 
-- **Use HTTPS:** Configure reverse proxy (Nginx, Caddy) for TLS termination
+- **Use HTTPS:** Configure reverse proxy (Nginx, Caddy) for TLS termination, and set `MCP_TRUST_PROXY=true` on the MCP server so that it uses the client address and scheme the proxy reports (`X-Forwarded-For`, `X-Forwarded-Proto`). Have the proxy set `X-Forwarded-For` itself (overwrite or append); the server uses the last entry. Leave it unset when clients reach the server directly
 - **Use secrets management:** Kubernetes secrets, Vault, or cloud provider solutions
 - **Enable authentication:** Set `MCP_AUTH_MODE=oauth` (IBM i token authentication, `MCP_AUTH_MODE=ibmi`, is deprecated; if you still use it, set `IBMI_AUTH_ALLOW_HTTP=false`)
 - **Restrict CORS:** Set `MCP_ALLOWED_ORIGINS` to specific domains

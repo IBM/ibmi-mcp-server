@@ -129,7 +129,7 @@ The IBM i user profile must have:
 
 ### Optional Fields
 
-These fields have sensible defaults and can be omitted for most configurations:
+These fields have sensible defaults and can be omitted for most configurations. A source accepts no other keys: a misspelled or unknown key (for example `prot: 8076`) fails the load with `sources.<name>: Unrecognized key: "prot"`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -172,7 +172,7 @@ These fields have sensible defaults and can be omitted for most configurations:
     ```
 
     <Note>
-    Interpolation supports `${VAR_NAME}` only — there is no `${VAR:default}` syntax. If `DB2i_PORT` is unset at YAML load time, the placeholder stays literal and validation fails; omit `port` instead to use Mapepire's default **8076**, or set `DB2i_PORT` in `.env` before starting the server.
+    Interpolation supports `${VAR_NAME}` only — there is no `${VAR:default}` syntax. If `DB2i_PORT` is unset at YAML load time, the file fails to load (`environment variable(s) not set: DB2i_PORT`); omit `port` instead to use Mapepire's default **8076**, or set `DB2i_PORT` in `.env` before starting the server.
     </Note>
   </Tab>
 
@@ -199,16 +199,7 @@ These fields have sensible defaults and can be omitted for most configurations:
         ignore-unauthorized: true  # Allow self-signed
     ```
 
-    **Environment-specific:**
-    ```yaml
-    sources:
-      ibmi-system:
-        host: ${DB2i_HOST}
-        user: ${DB2i_USER}
-        password: ${DB2i_PASS}
-        port: 8076
-        ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}
-    ```
+    `ignore-unauthorized` must be a YAML boolean (`true` or `false`). It cannot come from `${VAR}`: an interpolated value is always a string, and the load fails.
 
     <Warning>
     **Production Security**: Only use `ignore-unauthorized: true` in development. Production must use valid SSL certificates with `ignore-unauthorized: false`.
@@ -365,29 +356,24 @@ DB2i_USER=MCPUSER
 DB2i_PASS=SecurePassword123
 ```
 
-### Default Values
+### Interpolation Rules
 
-Provide fallback values for optional settings:
-
-```yaml
-sources:
-  ibmi-system:
-    host: ${DB2i_HOST}
-    user: ${DB2i_USER}
-    password: ${DB2i_PASS}
-    port: ${DB2i_PORT:8076}                           # Defaults to 8076
-    ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}  # Defaults to false
-```
-
-<Note>
-**Syntax**: `${VARIABLE_NAME:default_value}` - Use `:` to specify default values that apply when the environment variable is not set.
-</Note>
+- **Syntax**: `${VARIABLE_NAME}` only. There is no default-value syntax such as `${VAR:default}`.
+- **Where**: inside any string value of the file (sources, statements, descriptions). Keys and comments are left alone.
+- **When**: after the YAML is parsed. A value cannot change the structure of the file, so a password that contains `#`, `:` or `*` needs no quoting.
+- **Type**: the result is always a string. `port: ${DB2i_PORT}` works because the port accepts a numeric string; `ignore-unauthorized: ${VAR}` does not, because that key needs a boolean.
+- **Unset variables**: a referenced variable that is not set fails the load: `Invalid tool configuration in <file>: environment variable(s) not set: DB2i_HOST, ...`. `--list-toolsets` is the exception: it connects to nothing, so it lists the toolsets without them.
+- Values are read from the server's environment when the file is loaded. Restart the server after changing `.env`.
 
 ---
 
 ## Multiple Sources
 
 Define multiple sources for different environments, systems, or use cases:
+
+<Note>
+**The same source in several files.** When the server loads a directory or glob, each file may define the sources it uses. Definitions of one source name that are identical merge. Definitions that differ are an error naming both files: `Source '<name>' is defined differently in <fileA> and <fileB>.` Make them identical, or set `YAML_ALLOW_DUPLICATE_SOURCES=true` to use the definition from the last file in sorted path order.
+</Note>
 
 ### Multi-Environment Setup
 
@@ -609,7 +595,9 @@ sources:
   </Accordion>
 
   <Accordion title="Authentication Failures" icon="user-xmark">
-    **Symptom:** "Invalid credentials" or "User not authorized" errors
+    **Symptom:** `IBM i sign-on failed: the system rejected the user or password. No new sign-on is attempted for N s, ...`
+
+    After IBM i rejects a sign-on, the server does not try the same credentials again for 60 seconds, so that repeated tool calls do not disable the user profile. Correct the credentials, then retry after that time (or restart the server).
 
     **Solutions:**
     1. Verify environment variables are set:
