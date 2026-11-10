@@ -263,13 +263,16 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
    * Wrap a promise with a configurable timeout.
    * On timeout: marks pool unhealthy, closes it async so next request re-inits.
    * If queryTimeoutMs <= 0, passes through without timeout (disabled).
+   * A per-tool queryTimeoutMs takes precedence over the global
+   * MCP_POOL_QUERY_TIMEOUT_MS when set.
    */
   private async executeWithTimeout<T>(
     poolId: TId,
     promise: Promise<T>,
     context: RequestContext,
+    queryTimeoutMs?: number,
   ): Promise<T> {
-    const timeoutMs = config.poolTimeouts.queryTimeoutMs;
+    const timeoutMs = queryTimeoutMs ?? config.poolTimeouts.queryTimeoutMs;
     if (timeoutMs <= 0) {
       return promise;
     }
@@ -401,6 +404,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
    * @param query - SQL query string
    * @param params - Query parameters
    * @param context - Request context for logging
+   * @param queryTimeoutMs - Optional per-tool query timeout; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables
    */
   protected async executeQuery<T = unknown>(
     poolId: TId,
@@ -409,6 +413,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
     rowsToFetch?: number,
+    queryTimeoutMs?: number,
   ): Promise<QueryResult<T>> {
     const operationContext =
       context ||
@@ -528,6 +533,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             poolId,
             executionPromise,
             operationContext,
+            queryTimeoutMs,
           );
         } finally {
           await queryObj.close().catch((closeErr: unknown) => {
@@ -577,6 +583,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
    * @param params - Query parameters
    * @param context - Request context for logging
    * @param fetchSize - Number of records per fetch
+   * @param queryTimeoutMs - Optional per-tool timeout for the initial execute; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables
    */
   protected async executeQueryWithPagination(
     poolId: TId,
@@ -585,6 +592,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     context?: RequestContext,
     fetchSize: number = DEFAULT_PAGE_SIZE,
     securityConfig?: SqlToolSecurityConfig,
+    queryTimeoutMs?: number,
   ): Promise<{
     data: unknown[];
     success: boolean;
@@ -649,6 +657,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           poolId,
           queryObj.execute(),
           operationContext,
+          queryTimeoutMs,
         );
         // Capture metadata from the first result — subsequent fetchMore calls
         // don't re-send column descriptors, so SQL tools need this snapshot.

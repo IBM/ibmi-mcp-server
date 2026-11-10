@@ -223,6 +223,14 @@ export const SqlToolConfigSchema = z
       .describe(
         "When true, fetches all rows using paginated fetches (bounded by internal safety cap ~30k). Ignored if rowsToFetch is also set — rowsToFetch is the safer default when both are present. Use sparingly — large result sets bloat LLM context.",
       ),
+    queryTimeoutMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Query timeout for this tool in milliseconds. Overrides MCP_POOL_QUERY_TIMEOUT_MS (default 30000). Set to 0 to disable the timeout for this tool.",
+      ),
 
     // Legacy deprecated fields (for backward compatibility)
     readOnlyHint: z

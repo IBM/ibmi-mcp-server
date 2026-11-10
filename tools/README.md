@@ -754,6 +754,32 @@ tools:
       WHERE TABLE_SCHEMA = 'SAMPLE'
 ```
 
+### Query Timeout
+
+Every query is bound by the global `MCP_POOL_QUERY_TIMEOUT_MS` (default 30000). Set `queryTimeoutMs` on a tool that is expected to take longer, or that should give up sooner.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `queryTimeoutMs` | integer (≥ 0) | `MCP_POOL_QUERY_TIMEOUT_MS` | Query timeout for this tool in milliseconds. `0` disables the timeout for this tool. |
+
+```yaml
+tools:
+  object_sizes:
+    source: ibmi
+    description: "Size of every object in a library"
+    queryTimeoutMs: 300000  # 5 minutes for this tool
+    statement: |
+      SELECT OBJNAME, OBJTYPE, OBJSIZE
+      FROM TABLE(QSYS2.OBJECT_STATISTICS(:library, '*ALL'))
+      ORDER BY OBJSIZE DESC
+    parameters:
+      - name: library
+        type: string
+        default: "MYLIB"
+```
+
+When a query times out, the server closes that source's connection pool, which ends the query on IBM i, and the next request opens a new pool. Use `0` only for tools you trust to finish. With `fetchAllRows: true`, the timeout applies to the initial execute, not to each `fetchMore` call.
+
 ---
 
 ### Table Format Styles

@@ -176,6 +176,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
    * @param query - SQL query to execute
    * @param params - Query parameters
    * @param context - Request context for logging
+   * @param queryTimeoutMs - Optional per-tool query timeout; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables
    * @returns Promise resolving to query result
    */
   async executeQuery<T = unknown>(
@@ -185,6 +186,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
     rowsToFetch?: number,
+    queryTimeoutMs?: number,
   ): Promise<QueryResult<T>> {
     const operationContext =
       context ||
@@ -224,6 +226,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
           operationContext,
           securityConfig,
           rowsToFetch,
+          queryTimeoutMs,
         );
 
         logger.debug(
@@ -255,6 +258,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
    * @param params - Query parameters
    * @param context - Request context for logging
    * @param securityConfig - Optional security configuration
+   * @param queryTimeoutMs - Optional per-tool query timeout; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables
    */
   async executeQueryWithPagination(
     token: string,
@@ -263,6 +267,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
     context?: RequestContext,
     fetchSize?: number,
     securityConfig?: SqlToolSecurityConfig,
+    queryTimeoutMs?: number,
   ) {
     const operationContext =
       context ||
@@ -291,6 +296,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
           operationContext,
           fetchSize,
           securityConfig,
+          queryTimeoutMs,
         );
       },
       {

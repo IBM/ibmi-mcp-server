@@ -141,6 +141,7 @@ export class SourceManager extends BaseConnectionPool<string> {
    * @param query - SQL query string
    * @param params - Query parameters
    * @param context - Request context for logging
+   * @param queryTimeoutMs - Optional per-tool query timeout; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables
    */
   async executeQuery<T = unknown>(
     sourceName: string,
@@ -149,6 +150,7 @@ export class SourceManager extends BaseConnectionPool<string> {
     context?: RequestContext,
     securityConfig?: SqlToolSecurityConfig,
     rowsToFetch?: number,
+    queryTimeoutMs?: number,
   ): Promise<QueryResult<T>> {
     return super.executeQuery<T>(
       sourceName,
@@ -157,6 +159,7 @@ export class SourceManager extends BaseConnectionPool<string> {
       context,
       securityConfig,
       rowsToFetch,
+      queryTimeoutMs,
     );
   }
 
@@ -169,6 +172,7 @@ export class SourceManager extends BaseConnectionPool<string> {
    * @param params - Query parameters
    * @param context - Request context for logging
    * @param securityConfig - Optional security configuration
+   * @param queryTimeoutMs - Optional per-tool query timeout; overrides MCP_POOL_QUERY_TIMEOUT_MS, 0 disables
    */
   async executeQueryWithPagination(
     sourceName: string,
@@ -177,6 +181,7 @@ export class SourceManager extends BaseConnectionPool<string> {
     context?: RequestContext,
     fetchSize?: number,
     securityConfig?: SqlToolSecurityConfig,
+    queryTimeoutMs?: number,
   ) {
     return super.executeQueryWithPagination(
       sourceName,
@@ -185,6 +190,7 @@ export class SourceManager extends BaseConnectionPool<string> {
       context,
       fetchSize,
       securityConfig,
+      queryTimeoutMs,
     );
   }
 
