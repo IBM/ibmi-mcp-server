@@ -127,8 +127,16 @@ Bob will generate the YAML, validate it, and can test it against your connected 
 ├── README.md                    # This file - setup instructions
 ├── mcp.json.example             # Template configuration (committed)
 ├── mcp.json                     # Your actual configuration (not committed)
+├── skills/
+│   └── ibmi-mcp-tool-builder    # Symlink to ../../skills/ibmi-mcp-tool-builder
 └── tools/                       # Your custom tool definitions (not committed)
     └── services-tools.yaml      # Example: Service-related tools (referenced in mcp.json)
+```
+
+The `ibmi-mcp-tool-builder` skill lives in the repo's top-level `skills/` directory. To install it in another project:
+
+```bash
+npx skills add IBM/ibmi-mcp-server --skill ibmi-mcp-tool-builder
 ```
 
 **Note**: The `TOOLS_YAML_PATH` in `mcp.json` points to `.bob/tools/services-tools.yaml` which comes predefined with tools for helping Bob create more tools.
