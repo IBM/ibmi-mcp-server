@@ -73,7 +73,6 @@ tools:
     # ... other configuration
     security:
       readOnly: false  # Explicitly mark as non-read-only
-      audit: true      # Enable audit logging
     annotations:
       readOnlyHint: false
       destructiveHint: true  # Clearly mark as destructive

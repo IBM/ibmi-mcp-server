@@ -939,7 +939,7 @@ tools:
 
 ### Security Configuration
 
-Mark sensitive operations for audit logging and access control:
+Mark sensitive operations with `readOnly`:
 
 ```yaml
 tools:
@@ -947,8 +947,6 @@ tools:
     source: ibmi-system
     description: "User profile information (requires authority)"
     security:
-      audit: true
-      scopes: ["user:read"]
       readOnly: true
     parameters:
       - name: user_profile
@@ -960,17 +958,6 @@ tools:
              days_until_password_expires, user_class_name
       FROM qsys2.user_info
       WHERE user_profile_name = :user_profile
-
-  privileged_system_config:
-    source: ibmi-system
-    description: "System configuration requiring special authority"
-    security:
-      audit: true
-      requiredAuthority: "*ALLOBJ"
-      warning: "Requires *ALLOBJ special authority"
-    statement: |
-      SELECT * FROM qsys2.system_value_info
-      WHERE system_value_name LIKE 'Q%SEC%'
 ```
 
 ### Error Handling and Validation
