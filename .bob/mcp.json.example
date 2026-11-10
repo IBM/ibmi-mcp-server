@@ -3,7 +3,8 @@
     "ibmi-mcp-server": {
       "command": "npx",
       "args": [
-        "ibmi-mcp-server"
+        "-y",
+        "@ibm/ibmi-mcp-server@latest"
       ],
       "cwd": "${workspaceFolder}",
       "env": {

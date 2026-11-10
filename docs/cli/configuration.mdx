@@ -18,10 +18,6 @@ The CLI loads configuration from two locations. Project-level config overrides u
 
 The CLI walks up the directory tree from your current working directory to find the nearest `.ibmi/config.yaml` — similar to how `.gitignore` files work.
 
-<Note>
-The `.ibmi/` directory is automatically added to `.gitignore` when you create your first system with `ibmi system add`. This prevents credentials from being committed to version control.
-</Note>
-
 ---
 
 ## Config File Format
@@ -66,12 +62,12 @@ systems:
 | `password` | string | — | Password or `${ENV_VAR}` reference |
 | `description` | string | — | Human-readable label |
 | `defaultSchema` | string | — | Default schema for unqualified table names |
-| `readOnly` | boolean | `true` | Restrict to SELECT statements |
-| `confirm` | boolean | `false` | Prompt before executing write operations |
-| `timeout` | number | `30` | Query timeout in seconds |
+| `readOnly` | boolean | `false` | Restrict to SELECT statements |
+| `confirm` | boolean | `false` | Prompt for confirmation before executing (interactive terminals only) |
+| `timeout` | number | `60` | Query timeout in seconds |
 | `maxRows` | number | `5000` | Default row limit for queries |
-| `ignoreUnauthorized` | boolean | `false` | Accept self-signed TLS certificates |
-| `tools` | string | — | Default YAML tool path for this system |
+| `ignoreUnauthorized` | boolean | `true` | Accept self-signed TLS certificates |
+| `tools` | string[] | — | Default YAML tool path(s) for this system |
 
 ---
 

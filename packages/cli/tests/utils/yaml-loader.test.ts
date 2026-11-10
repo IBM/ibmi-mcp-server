@@ -134,6 +134,35 @@ tools:
       "YAML tool file not found",
     );
   });
+
+  it("should treat an empty or comment-only file as an empty config", () => {
+    const empty = loadYamlFile(writeYaml("empty.yaml", ""));
+    expect(empty.tools).toEqual({});
+    expect(empty.toolsets).toEqual({});
+
+    const commentOnly = loadYamlFile(writeYaml("comment.yaml", "# nothing here\n"));
+    expect(commentOnly.tools).toEqual({});
+  });
+
+  it("should throw a clear error when the top level is not a mapping", () => {
+    const path = writeYaml("list.yaml", "- a\n- b\n");
+    expect(() => loadYamlFile(path)).toThrow("Invalid YAML tool file");
+  });
+
+  it("should default a toolset without tools to an empty list", () => {
+    const path = writeYaml(
+      "toolset.yaml",
+      `
+toolsets:
+  empty_set:
+    title: "Empty"
+`,
+    );
+
+    const config = loadYamlFile(path);
+    expect(config.toolsets["empty_set"]?.tools).toEqual([]);
+    expect(buildToolsetMap(config.toolsets).size).toBe(0);
+  });
 });
 
 describe("loadYamlTools", () => {

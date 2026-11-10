@@ -12,7 +12,7 @@ import type { RequestContext } from "@ibm/ibmi-mcp-server/context";
 import { loadConfig } from "../config/loader.js";
 import { resolveSystem } from "../config/resolver.js";
 import { connectSystem } from "./connection.js";
-import { classifyError } from "./exit-codes.js";
+import { classifyError, ErrorCode, ExitCode } from "./exit-codes.js";
 import {
   detectFormat,
   renderOutput,
@@ -96,13 +96,30 @@ export async function withConnection(
   const stream = isStreaming(cmd);
   const opts = cmd.optsWithGlobals();
   const outputPath = opts["output"] as string | undefined;
-  const watchInterval = opts["watch"] ? parseInt(opts["watch"] as string, 10) : undefined;
+  const watchInterval =
+    opts["watch"] !== undefined
+      ? parseInt(opts["watch"] as string, 10)
+      : undefined;
+
+  // An unusable interval would otherwise silently run the command once
+  if (watchInterval !== undefined && !(watchInterval > 0)) {
+    renderError(
+      new Error(
+        `Invalid --watch value: "${opts["watch"]}". Must be a positive integer (seconds).`,
+      ),
+      format,
+      undefined,
+      ErrorCode.USAGE_ERROR,
+    );
+    process.exitCode = ExitCode.USAGE;
+    return;
+  }
 
   if (outputPath) {
     setOutputFile(outputPath);
   }
 
-  if (watchInterval && watchInterval > 0) {
+  if (watchInterval !== undefined) {
     try {
       await runWithWatch(cmd, toolName, action, format, stream, watchInterval);
     } finally {

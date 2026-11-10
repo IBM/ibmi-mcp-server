@@ -68,10 +68,16 @@ export const httpErrorHandler = async (
     context,
   });
 
+  // Only an error thrown as McpError carries a code and message chosen for
+  // the caller. Anything else is an unexpected failure whose text can hold
+  // internal detail (file paths, network errors): it is logged above and
+  // reported generically.
+  const isExpected = err instanceof McpError;
   const errorCode =
-    handledError instanceof McpError
+    isExpected && handledError instanceof McpError
       ? handledError.code
       : JsonRpcErrorCode.InternalError;
+  const message = isExpected ? handledError.message : "Internal server error";
   const status = toHttpCode(errorCode);
 
   logOperationStart(context, `Mapping error to HTTP status ${status}.`, {
@@ -97,7 +103,7 @@ export const httpErrorHandler = async (
     jsonrpc: "2.0",
     error: {
       code: errorCode,
-      message: handledError.message,
+      message,
     },
     id: requestId,
   };

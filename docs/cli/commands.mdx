@@ -32,7 +32,7 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 **SQL source priority:** positional argument > `--file` > piped stdin.
 
 <Note>
-Read-only mode is enabled by default. To execute INSERT, UPDATE, DELETE, or DDL statements, pass `--no-read-only` explicitly or set `readOnly: false` in your system config.
+Read-only mode is enabled by default. To execute INSERT, UPDATE, DELETE, or DDL statements, pass `--no-read-only` explicitly. A system configured with `readOnly: true` stays read-only even with `--no-read-only`.
 </Note>
 
 ---
@@ -224,7 +224,7 @@ List available tools from loaded YAML files.
 
 ```bash
 ibmi tools --tools ./tools/
-ibmi tools --toolset work_management --tools ./tools/
+ibmi tools --toolset performance --tools ./tools/
 ibmi tools show system_status --tools ./tools/
 ```
 
@@ -273,6 +273,14 @@ ibmi system config-path                   # show config file locations
 | `default <name>` | Set the default system |
 | `test [name]` | Test connectivity (`--all` for all systems) |
 | `config-path` | Show config file locations |
+
+### `ibmi config show`
+
+Show the active (merged) configuration and where each setting comes from: the user config file, a project config file, or an environment variable.
+
+```bash
+ibmi config show
+```
 
 ---
 

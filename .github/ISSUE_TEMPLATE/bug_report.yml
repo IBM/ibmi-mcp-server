@@ -140,7 +140,7 @@ body:
         **To get logs:**
         - Check Claude Desktop logs: `~/Library/Logs/Claude/mcp*.log` (macOS) or `%APPDATA%\Claude\logs\` (Windows)
         - Check server stderr output if running manually
-        - Enable debug logging by setting `LOG_LEVEL=debug` environment variable
+        - Enable debug logging by setting `MCP_LOG_LEVEL=debug` environment variable
 
         Please include the last 50-100 lines or the relevant error section.
       placeholder: |

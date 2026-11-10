@@ -4,7 +4,8 @@
  * `ibmi tool <name> [options]` — run any YAML-defined tool from the CLI.
  *
  * The command uses allowUnknownOption() to accept arbitrary tool-specific
- * options, then resolves them against the YAML parameter definitions.
+ * options, then resolves them against the YAML parameter definitions;
+ * options the tool does not define are rejected as usage errors.
  *
  * Supports --dry-run to show the resolved SQL and parameters without executing.
  *
@@ -32,6 +33,8 @@ import {
   renderOutput,
   renderNdjson,
   renderError,
+  setOutputFile,
+  finalizeOutput,
 } from "../formatters/output.js";
 import { ExitCode, classifyError, ErrorCode } from "../utils/exit-codes.js";
 
@@ -85,7 +88,21 @@ export function registerToolCommand(program: Command): void {
         }
 
         // Build a sub-command with tool-specific options and re-parse
-        const toolParams = resolveToolParams(cmd, tool);
+        let toolParams: Record<string, unknown>;
+        try {
+          toolParams = resolveToolParams(cmd, tool);
+        } catch (err) {
+          // Unknown flag, missing option value, or a value of the wrong type
+          const message = err instanceof Error ? err.message : String(err);
+          renderError(
+            new Error(message.replace(/^error: /, "")),
+            format,
+            undefined,
+            ErrorCode.USAGE_ERROR,
+          );
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
 
         // Validate required parameters
         const missing = validateRequiredParams(toolParams, tool.parameters);
@@ -121,22 +138,21 @@ export function registerToolCommand(program: Command): void {
 
 /**
  * Parse tool-specific options from the raw argv using a dynamic Commander sub-command.
+ * Throws when an option is not defined by the tool, is missing its value, or
+ * has a value of the wrong type.
  */
 function resolveToolParams(
   cmd: Command,
   tool: YamlToolConfig,
 ): Record<string, unknown> {
-  if (tool.parameters.length === 0) return {};
-
-  // Build a temporary command used only to absorb dynamic tool-specific options.
+  // Build a temporary command used only to parse dynamic tool-specific options.
   // allowExcessArguments: cmd.args still contains the bound <name> positional,
   //   which this throwaway parser doesn't declare. Without this, Commander
   //   emits "too many arguments. Expected 0 arguments but got 1." to stderr.
-  // configureOutput: suppress any diagnostic writes from this internal parser —
-  //   real user-facing errors surface through validateRequiredParams below.
+  // exitOverride + configureOutput: parse errors are thrown to the caller,
+  //   which renders them, instead of being printed by this internal parser.
   const tempCmd = new Command("temp");
   tempCmd.exitOverride();
-  tempCmd.allowUnknownOption();
   tempCmd.allowExcessArguments();
   tempCmd.configureOutput({
     writeErr: () => {},
@@ -144,13 +160,7 @@ function resolveToolParams(
   });
   registerToolOptions(tempCmd, tool.parameters);
 
-  const rawArgs = cmd.args ?? [];
-  try {
-    tempCmd.parse(rawArgs, { from: "user" });
-  } catch {
-    // Commander may throw for unrecognized options or type coercion failures;
-    // validateRequiredParams surfaces missing values with actionable flag names.
-  }
+  tempCmd.parse(cmd.args ?? [], { from: "user" });
 
   return optsToParams(tempCmd.opts(), tool.parameters);
 }
@@ -244,8 +254,8 @@ async function executeTool(
   const resolved = resolveSystem(globalOpts["system"] as string | undefined);
 
   if (resolved.config.confirm && process.stdin.isTTY) {
-    const { promptPassword } = await import("../config/credentials.js");
-    const answer = await promptPassword(
+    const { promptLine } = await import("../config/credentials.js");
+    const answer = await promptLine(
       `Execute tool '${name}' on [${resolved.name}]? (y/N) `,
     );
     if (answer.toLowerCase() !== "y") {
@@ -268,7 +278,9 @@ async function executeTool(
     let processedSql: string;
     let bindingParams: (string | number | (string | number)[])[] = [];
 
-    if (tool.parameters.length > 0 && Object.keys(params).length > 0) {
+    // Always process when the tool defines parameters (as the server does), so
+    // an optional parameter that was not passed is still bound.
+    if (tool.parameters.length > 0) {
       const result = await ParameterProcessor.process(
         tool.statement,
         params,
@@ -326,22 +338,27 @@ async function executeTool(
     // the result set was clipped and how to get more.
     const truncated = "truncated" in result && result.truncated === true;
 
-    // NDJSON streaming: one JSON object per line
+    // Honor the global --output option
+    const outputPath = globalOpts["output"] as string | undefined;
+    if (outputPath) setOutputFile(outputPath);
+
     if (stream && format === "json") {
+      // NDJSON streaming: one JSON object per line
       renderNdjson(data);
-      return;
+    } else {
+      renderOutput(data, format, {
+        rowCount: data.length,
+        elapsedMs,
+        system: resolved,
+        command: `tool:${name}`,
+        hasMore: truncated,
+        truncationHint: truncated
+          ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
+          : undefined,
+      });
     }
 
-    renderOutput(data, format, {
-      rowCount: data.length,
-      elapsedMs,
-      system: resolved,
-      command: `tool:${name}`,
-      hasMore: truncated,
-      truncationHint: truncated
-        ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
-        : undefined,
-    });
+    if (outputPath) finalizeOutput();
   } finally {
     await cleanup();
   }

@@ -335,4 +335,60 @@ describe("TableFormatter - NULL Handling", () => {
       expect(result.table).toContain("FIRST_NAME");
     });
   });
+
+  describe("Cell content that would break the table", () => {
+    const data = [{ CMD: "A | B", TXT: "line1\nline2\r\nline3" }];
+
+    it("should escape pipes and flatten line breaks in markdown cells", () => {
+      const lines = formatter.format(data, { style: "markdown" }).split("\n");
+
+      // header, separator, one data row
+      expect(lines).toHaveLength(3);
+      expect(lines[2]).toContain("A \\| B");
+      expect(lines[2]).toContain("line1 line2 line3");
+      // Every line has the same number of column delimiters
+      const delimiters = (line: string) =>
+        line.replace(/\\\|/g, "").split("|").length - 1;
+      expect(delimiters(lines[2]!)).toBe(delimiters(lines[0]!));
+    });
+
+    it("should keep a pipe escaped when the cell has a backslash before it", () => {
+      const lines = formatter
+        .format([{ RE: "a\\|b", N: "1" }], { style: "markdown" })
+        .split("\n");
+
+      // `\|` in the data becomes an escaped backslash plus an escaped pipe
+      expect(lines[2]).toBe("| a\\\\\\|b | 1   |");
+    });
+
+    it.each(["ascii", "grid", "compact"] as const)(
+      "should keep each row on one line in %s style",
+      (style) => {
+        const table = formatter.format(data, { style });
+        const expectedLines = { ascii: 5, grid: 5, compact: 2 }[style];
+
+        expect(table.split("\n")).toHaveLength(expectedLines);
+        expect(table).toContain("A | B");
+        expect(table).toContain("line1 line2 line3");
+      },
+    );
+
+    it("should not split a surrogate pair when truncating", () => {
+      const table = formatter.format([{ TXT: "aaaa\u{1F600}bbbbbbbb" }], {
+        maxWidth: 8,
+      });
+
+      expect(table).toContain("aaaa...");
+      // No high surrogate left without its low half
+      expect(table).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    });
+
+    it("should format row counts beyond the argument-spread limit", () => {
+      const rows = Array.from({ length: 200_000 }, () => ["x"]);
+
+      const table = formatter.formatRaw(["N"], rows);
+
+      expect(table.split("\n")).toHaveLength(200_002);
+    });
+  });
 });

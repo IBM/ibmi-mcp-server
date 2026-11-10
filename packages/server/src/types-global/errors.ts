@@ -1,12 +1,10 @@
 /**
- * @fileoverview Defines standardized error codes, a custom error class, and related schemas
+ * @fileoverview Defines standardized error codes and a custom error class
  * for handling errors within the Model Context Protocol (MCP) server and its components.
  * This module provides a structured way to represent and communicate errors, ensuring
  * consistency and clarity for both server-side operations and client-side error handling.
  * @module src/types-global/errors
  */
-
-import { z } from "zod";
 
 /**
  * Defines JSON-RPC 2.0 error codes, including standard and implementation-defined codes.
@@ -83,51 +81,3 @@ export class McpError extends Error {
     }
   }
 }
-
-/**
- * Zod schema for validating error objects. This schema can be used for:
- * - Validating error structures when parsing error responses from external services.
- * - Ensuring consistency when creating or handling error objects internally.
- * - Generating TypeScript types for error objects.
- *
- * The schema enforces the presence of a `code` (from {@link JsonRpcErrorCode}) and a `message`,
- * and allows for optional `details`.
- */
-export const ErrorSchema = z
-  .object({
-    /**
-     * The error code, corresponding to one of the {@link JsonRpcErrorCode} enum values.
-     * This field is required and helps in programmatically identifying the error type.
-     */
-    code: z
-      .nativeEnum(JsonRpcErrorCode)
-      .describe("Standardized error code from JsonRpcErrorCode enum"),
-    /**
-     * A human-readable, descriptive message explaining the error.
-     * This field is required and provides context to developers or users.
-     */
-    message: z
-      .string()
-      .min(1, "Error message cannot be empty.")
-      .describe("Detailed human-readable error message"),
-    /**
-     * Optional. A record containing additional structured details or context about the error.
-     * This can include things like invalid field names, specific values that caused issues, or other relevant data.
-     */
-    details: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe(
-        "Optional structured details providing more context about the error",
-      ),
-  })
-  .describe(
-    "Schema for validating structured error objects, ensuring consistency in error reporting.",
-  );
-
-/**
- * TypeScript type inferred from the {@link ErrorSchema}.
- * This type represents the structure of a validated error object, commonly used
- * for error responses or when passing error information within the application.
- */
-export type ErrorResponse = z.infer<typeof ErrorSchema>;

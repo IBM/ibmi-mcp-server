@@ -3,7 +3,7 @@
 ![alt text](docs/images/logo-2.png)
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-^5.8.3-blue?style=flat-square)](https://www.typescriptlang.org/)
-[![Model Context Protocol SDK](https://img.shields.io/badge/MCP%20SDK-^1.17.1-green?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
+[![Model Context Protocol SDK](https://img.shields.io/badge/MCP%20SDK-^1.25.2-green?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
 [![MCP Spec Version](https://img.shields.io/badge/MCP%20Spec-2025--06--18-lightgrey?style=flat-square)](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/changelog.mdx)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-green?style=flat-square)](https://github.com/IBM/ibmi-mcp-server.git)
@@ -64,7 +64,7 @@ The MCP Server enables AI agents to execute SQL queries on IBM i systems through
 
 **Prerequisites:**
 - [Mapepire](#setup-mapepire) running on IBM i (port 8076)
-- Node.js 18+ installed
+- Node.js 20+ installed
 
 **Get Started:**
 
@@ -150,7 +150,7 @@ npm i -g @ibm/ibmi-cli
 ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY"
 
 # Run a YAML-defined tool
-ibmi tool system_status --tools ./tools/work-management.yaml
+ibmi tool system_status --tools ./tools/performance/performance.yaml
 ```
 
 ### When to use the CLI vs. the MCP Server
@@ -187,7 +187,7 @@ Create a custom tool file `tools/my-tools.yaml`:
 
 ```yaml
 sources:
-  my-system:
+  ibmi-system:
     host: ${DB2i_HOST}
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
@@ -217,11 +217,11 @@ npx -y @ibm/ibmi-mcp-server@latest --tools ./tools/my-tools.yaml --transport htt
 
 The `tools/` directory includes ready-to-use configurations:
 
-- **Performance Monitoring** - System status, active jobs, CPU/memory metrics
-- **Security & Audit** - User profiles, authorities, security events
-- **Job Management** - Active jobs, job queues, subsystems
-- **Storage & IFS** - Disk usage, IFS objects, save files
-- **Database** - Tables, indexes, constraints, statistics
+- **Performance Monitoring** (`performance/`) - System status, active jobs, memory pools, HTTP server stats
+- **Security Analysis** (`security/`) - Library list security assessment, authority checks, vulnerability detection
+- **System Administration** (`sys-admin/`) - Service discovery, schema browsing, PTF management
+- **Developer Tools** (`developer/`) - Object statistics, stale object detection
+- **Sample Data** (`sample/`) - Demonstration tools using the IBM i SAMPLE schema
 
 > [!NOTE]
 > **[📖 Full Documentation: Tools Guide →](https://ibm-d95bab6e.mintlify.app/sql-tools/overview)**

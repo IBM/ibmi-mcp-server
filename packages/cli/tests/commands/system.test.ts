@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program";
 
 vi.mock("../../src/config/loader.js", () => ({
   loadConfig: vi.fn(),
@@ -18,6 +18,17 @@ vi.mock("../../src/config/credentials.js", () => ({
   resolvePassword: vi.fn(() => Promise.resolve("password")),
   expandEnvVars: vi.fn((s: string) => s),
 }));
+
+vi.mock("@ibm/ibmi-mcp-server/services", () => ({
+  IBMiConnectionPool: {
+    executeQuery: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  },
+}));
+
+vi.mock("readline", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("readline")>();
+  return { ...actual, createInterface: vi.fn(actual.createInterface) };
+});
 
 import {
   loadConfig,
@@ -505,6 +516,36 @@ describe("ibmi system add", () => {
     }
   });
 
+  it("should reject an empty answer at the interactive Host/User prompts", async () => {
+    const readline = await import("readline");
+    vi.mocked(readline.createInterface).mockReturnValueOnce({
+      question: (_question: string, cb: (answer: string) => void) => cb("  "),
+      close: vi.fn(),
+    } as unknown as ReturnType<typeof readline.createInterface>);
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    try {
+      const stderr = await captureStderr(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync([
+          "node", "ibmi", "system", "add", "mydev", "--format", "table",
+        ]);
+      });
+
+      expect(mockUpsertSystem).not.toHaveBeenCalled();
+      expect(stderr).toContain("Host and user are required.");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = undefined;
+      Object.defineProperty(process.stdin, "isTTY", {
+        value: originalIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
   it("should render JSON success message when --format json is used", async () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
@@ -789,6 +830,53 @@ describe("ibmi system test", () => {
       (r: Record<string, unknown>) => r.PROPERTY === "system",
     );
     expect(systemRow?.VALUE).toBe("prod");
+  });
+
+  it("should run a query against the system to verify the connection", async () => {
+    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+    const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+    mockExecuteQuery.mockClear();
+    mockLoadConfig.mockReturnValue(makeSampleConfig());
+
+    await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync(["node", "ibmi", "system", "test", "prod", "--format", "json"]);
+    });
+
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      "VALUES 1",
+      [],
+      expect.objectContaining({ toolName: "system_test" }),
+    );
+  });
+
+  it("should render error row when the test query fails", async () => {
+    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+    vi.mocked(IBMiConnectionPool.executeQuery).mockRejectedValueOnce(
+      new Error("connect ECONNREFUSED 10.0.0.1:8076"),
+    );
+    mockLoadConfig.mockReturnValue(makeSampleConfig());
+
+    const output = await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync(["node", "ibmi", "system", "test", "prod", "--format", "json"]);
+    });
+    const exitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    const parsed = JSON.parse(output);
+    const statusRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.PROPERTY === "status",
+    );
+    const errorRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.PROPERTY === "error",
+    );
+    expect(statusRow?.VALUE).toBe("error");
+    expect(errorRow?.VALUE).toContain("ECONNREFUSED");
+    expect(exitCode).toBe(1);
   });
 
   it("should render error row when connection fails", async () => {

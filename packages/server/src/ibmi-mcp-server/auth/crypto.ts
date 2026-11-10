@@ -110,10 +110,12 @@ function decryptPayload(
       );
     }
 
+    // Pin the tag length: without it Node accepts truncated GCM tags.
     const decipher = createDecipheriv(
       "aes-256-gcm",
       sessionKey,
       Buffer.from(iv, "base64"),
+      { authTagLength: 16 },
     );
     decipher.setAuthTag(Buffer.from(authTag, "base64"));
 

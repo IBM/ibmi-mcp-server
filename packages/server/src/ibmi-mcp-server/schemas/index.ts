@@ -13,33 +13,3 @@ export * from "./config.js";
 
 // Re-export all tool runtime schemas and types
 export * from "./tools.js";
-
-// Convenience re-exports for frequently used schemas
-export {
-  // Configuration schemas
-  SqlToolsConfigSchema,
-  SqlToolConfigSchema,
-  SqlToolParameterSchema,
-  SourceConfigSchema,
-
-  // Inferred types
-  type SqlToolsConfig,
-  type SqlToolConfig,
-  type SqlToolParameter,
-  type SourceConfig,
-  type SqlToolSecurityConfig,
-  type SqlToolsetConfig,
-  type TypeScriptToolConfig,
-} from "./config.js";
-
-export {
-  // Runtime schemas
-  StandardSqlToolOutputSchema,
-  SqlToolExecutionResultSchema,
-
-  // Inferred types
-  type StandardSqlToolOutput,
-  type SqlToolExecutionResult,
-  type ToolProcessingResult,
-  type ParsingResult,
-} from "./tools.js";

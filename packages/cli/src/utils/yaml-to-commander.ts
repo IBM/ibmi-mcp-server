@@ -4,7 +4,7 @@
  * @module cli/utils/yaml-to-commander
  */
 
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import type { YamlToolParameter } from "./yaml-loader.js";
 
 /**
@@ -108,11 +108,11 @@ export function registerToolOptions(
  * Commander parse function for integer options.
  */
 function parseIntOption(value: string): number {
-  const parsed = parseInt(value, 10);
-  if (isNaN(parsed)) {
-    throw new Error(`Expected an integer but got: ${value}`);
+  // parseInt alone would accept "12abc" (12) and "1.9" (1)
+  if (!/^[+-]?\d+$/.test(value.trim())) {
+    throw new InvalidArgumentError("Expected an integer.");
   }
-  return parsed;
+  return parseInt(value, 10);
 }
 
 /**
@@ -121,7 +121,7 @@ function parseIntOption(value: string): number {
 function parseFloatOption(value: string): number {
   const parsed = parseFloat(value);
   if (isNaN(parsed)) {
-    throw new Error(`Expected a number but got: ${value}`);
+    throw new InvalidArgumentError("Expected a number.");
   }
   return parsed;
 }

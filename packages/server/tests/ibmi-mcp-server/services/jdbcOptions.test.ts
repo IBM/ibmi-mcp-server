@@ -40,11 +40,6 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
-vi.mock("../../../src/utils/scheduling/index.js", () => ({
-  SchedulerService: { getInstance: vi.fn() },
-  schedulerService: {},
-}));
-
 vi.mock("@ibm/mapepire-js", () => ({
   default: {
     Pool: MockPool,

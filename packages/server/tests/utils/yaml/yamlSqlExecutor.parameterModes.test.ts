@@ -8,11 +8,6 @@ import { describe, it, expect, beforeEach, vi, Mock } from "vitest";
 // Mock the SourceManager BEFORE importing anything that depends on it
 vi.mock("../../../src/ibmi-mcp-server/services/sourceManager.js");
 
-// Mock the scheduling module to prevent scheduler instantiation
-vi.mock("../../../src/utils/scheduling/index.js", () => ({
-  schedulerService: vi.fn(),
-}));
-
 import { SQLToolFactory } from "../../../src/ibmi-mcp-server/utils/config/toolFactory.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
 import { SqlToolParameter } from "../../../src/ibmi-mcp-server/schemas/index.js";

@@ -26,7 +26,7 @@ import { ExitCode } from "../utils/exit-codes.js";
 
 /**
  * Resolve the --tools paths from command options.
- * Falls back to the default tools/ directory relative to the package root.
+ * Returns an empty list when --tools is not set (there is no default path).
  */
 function resolveToolsPaths(cmd: Command): string[] {
   const opts = cmd.optsWithGlobals();

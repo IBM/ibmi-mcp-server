@@ -3,8 +3,8 @@
  * Maps resolved system config into DB2i_* environment variables that
  * IBMiConnectionPool reads via the global config singleton.
  *
- * Must be called BEFORE dynamic-importing any tool modules, since
- * the server's config/index.ts evaluates env vars at import time.
+ * Must be called BEFORE the first query: the server's config reads the
+ * DB2i_* env vars lazily, when the connection pool initializes.
  *
  * @module cli/utils/connection
  */
@@ -16,8 +16,8 @@ import type { ResolvedSystem } from "../config/types.js";
  * Set DB2i_* environment variables from resolved system config and
  * return a cleanup function to close the connection pool.
  *
- * Call this before dynamically importing tool modules so the global
- * config singleton picks up the correct credentials.
+ * This does not open a connection — the pool connects on the first query,
+ * picking up these credentials from the global config singleton.
  */
 export async function connectSystem(
   resolved: ResolvedSystem,

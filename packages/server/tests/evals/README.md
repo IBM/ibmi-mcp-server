@@ -19,14 +19,10 @@ To set up, create a new folder directory for your test. In that directory, creat
 3. `tests.json`: This file contains the actual test cases to be executed.
 
 ```bash
-cp templates/enronment.template.json environment.json
+cp templates/environment.template.json environment.json
 cp templates/llms.template.json llms.json
 cp templates/tests.template.json tests.json
 ```
-
-## Server connection file (environment.json)
-
-This file is configured very similar to a mcp.json file. For servers with OAuth, you must provide your own Bearer API tokens. MCPJam CLI does not handle OAuth flows / DCR. For bearer tokens, make sure to wrap your header with requestInit.
 
 ### Server connection file (environment.json)
 

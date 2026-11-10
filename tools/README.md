@@ -82,9 +82,9 @@ This directory contains pre-built tool configurations organized by category:
 | [**performance/**](performance/) | Performance Monitoring | System performance metrics and resource utilization | System status, active jobs, memory pools, HTTP server stats |
 | [**developer/**](developer/) | Development Tools | Object statistics and dependency analysis for developers | Recently used objects, stale object detection, dependency tracking |
 
-> **💡 Quick Start:** Use `--list-toolsets` to see all available toolsets:
+> **💡 Quick Start:** Use `--list-toolsets` to see all available toolsets (the files in this directory share the `ibmi-system` source name, so loading the whole directory requires `YAML_ALLOW_DUPLICATE_SOURCES=true`):
 > ```bash
-> npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools
+> YAML_ALLOW_DUPLICATE_SOURCES=true npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools
 > ```
 
 Below is an overview of the structure and purpose of each section.

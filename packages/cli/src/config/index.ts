@@ -26,5 +26,4 @@ export type {
   SystemConfig,
   ResolvedSystem,
   OutputFormat,
-  GlobalOptions,
 } from "./types.js";

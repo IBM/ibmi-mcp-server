@@ -267,8 +267,11 @@ export const handleAuthRequest = async (c: Context) => {
     }
 
     // Create IBM i credentials as DaemonServer object using existing config defaults
-    // Default to ignore unauthorized SSL (like existing connectionPool.ts)
-    const ignoreUnauthorized = config.db2i?.ignoreUnauthorized ?? true;
+    // Default to ignore unauthorized SSL (like existing connectionPool.ts).
+    // Read DB2i_IGNORE_UNAUTHORIZED directly: `config.db2i` is undefined
+    // without DB2i_USER/DB2i_PASS, which per-user auth does not need.
+    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
+    const ignoreUnauthorized = ignoreRaw === "true" || ignoreRaw === "1";
     const ibmiCredentials = {
       host: requestBody.host,
       user: credentials.username,
@@ -285,15 +288,23 @@ export const handleAuthRequest = async (c: Context) => {
 
     // Create authenticated pool
     const poolManager = AuthenticatedPoolManager.getInstance();
-    await poolManager.createPool(
-      token,
-      ibmiCredentials,
-      {
-        startingSize: requestBody.poolstart || 2,
-        maxSize: requestBody.poolmax || 10,
-      },
-      context,
-    );
+    try {
+      await poolManager.createPool(
+        token,
+        ibmiCredentials,
+        {
+          startingSize: requestBody.poolstart || 2,
+          maxSize: requestBody.poolmax || 10,
+        },
+        context,
+      );
+    } catch (error) {
+      // A failed sign-on must not leave a token session (it would count
+      // against the concurrent-session limit) or its credentials behind.
+      tokenManager.revokeToken(token, context);
+      await poolManager.removePool(token, context);
+      throw error;
+    }
 
     // Calculate expiration
     const expirySeconds =

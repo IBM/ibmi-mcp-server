@@ -120,7 +120,7 @@ Options:
   -h, --help                Show this help message
 
 Examples:
-  npm run validate -- --tools tools/performance.yaml
+  npm run validate -- --tools tools/performance/performance.yaml
   npm run validate -- --tools-dir tools/
   npm run validate -- --tools-dir ../tools/ --verbose
 
@@ -687,11 +687,9 @@ async function main(): Promise<void> {
 }
 
 // Execute main function
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    console.error(
-      `❌ Unexpected error: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
-    process.exit(1);
-  });
-}
+main().catch((error) => {
+  console.error(
+    `❌ Unexpected error: ${error instanceof Error ? error.message : "Unknown error"}`
+  );
+  process.exit(1);
+});

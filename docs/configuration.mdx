@@ -30,11 +30,9 @@ Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to 
 
   <Tab title="Build from Source">
     ```bash
-    # Point to your .env file (from repository root)
-    export MCP_SERVER_CONFIG=.env
-
-    # Or use relative path from server directory
-    export MCP_SERVER_CONFIG=../.env
+    # Point to your .env file with an absolute path (run from the repository root).
+    # Relative paths are resolved from packages/server, where the server runs.
+    export MCP_SERVER_CONFIG="$(pwd)/.env"
 
     # Start the server
     cd packages/server
@@ -101,7 +99,7 @@ cp .env.example .env
 Then edit `.env` with your IBM i connection details using the minimal configuration above.
 
 <Tip>
-For a step-by-step walkthrough, see the [Quick Start Guide](/quickstart). For production deployment, refer to the [Production Deployment](/deployment/production) guide.
+For a step-by-step walkthrough, see the [Quick Start Guide](/quickstart). For production deployment, refer to the [Production Deployment](/deployment/overview) guide.
 </Tip>
 
 ---
@@ -491,7 +489,7 @@ Below is the reference for core server configuration options. Each section inclu
 7. **Server authenticates** against IBM i and issues an access token
 
 <Note>
-**Key Rotation**: To rotate keys, generate a new keypair with a different `IBMI_AUTH_KEY_ID`. The server can support multiple keypairs simultaneously, allowing gradual migration without service interruption.
+**Key Rotation**: To rotate keys, generate a new keypair, point the key paths at it, set a different `IBMI_AUTH_KEY_ID`, and restart the server. The server loads a single active keypair, so clients must fetch the new public key after rotation.
 </Note>
 
 **Security Best Practices:**
@@ -703,7 +701,7 @@ For detailed information on creating SQL tools, see the [SQL Tools Overview](/sq
 | `YAML_AUTO_RELOAD` | Auto-reload tools when files change | `true` | `false` |
 | `YAML_MERGE_ARRAYS` | Merge arrays when combining files | `true` | `true` |
 | `YAML_ALLOW_DUPLICATE_TOOLS` | Allow duplicate tool names | `false` | `true` |
-| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names | `false` | `true` |
+| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names (must be `true` to load the repository's whole `tools/` directory, whose files each define `ibmi-system`) | `false` | `true` |
 | `YAML_VALIDATE_MERGED` | Validate merged configuration | `true` | `false` |
 
 <Accordion title="YAML Configuration Examples">
@@ -860,7 +858,7 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `MCP_SERVER_NAME` | Server name identifier for MCP protocol | Package name | `ibmi-mcp-dev` |
-| `MCP_SERVER_VERSION` | Server version for MCP protocol | Package version | `1.9.1` |
+| `MCP_SERVER_VERSION` | Server version for MCP protocol | Package version | `0.6.2` |
 | `NODE_ENV` | Node environment | `development` | `production`, `test` |
 
 ### Logging Configuration
@@ -871,7 +869,7 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
-| `MCP_LOG_LEVEL` | Logging verbosity level | `info` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
+| `MCP_LOG_LEVEL` | Logging verbosity level | `debug` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
 | `LOGS_DIR` | Directory for log files | `~/.ibmi-mcp-server/logs` | Any absolute, relative, or `~/` path |
 | `NO_COLOR` | Disable colored console output | (none) | `1` to disable colors |
 | `FORCE_COLOR` | Force disable colored output | (none) | `0` to disable colors |
@@ -964,21 +962,20 @@ See [SQL Tools Overview](/sql-tools/overview) for creating YAML tools.
 
 #### Log Files Created
 
-The server creates **6 log files** with automatic rotation:
+The server creates **5 log files** with automatic rotation:
 
 | File | Content | Rotation |
 |------|---------|----------|
-| `combined.log` | All info+ level logs | Daily or 10MB |
-| `error.log` | Error+ level logs only | Daily or 10MB |
-| `warn.log` | Warning+ level logs only | Daily or 10MB |
-| `info.log` | Info+ level logs only | Daily or 10MB |
-| `debug.log` | Debug+ level logs only | Daily or 10MB |
-| `interactions.log` | MCP interaction tracking | Daily or 10MB |
+| `combined.log.N` | All info+ level logs | Daily or 10MB |
+| `error.log.N` | Error+ level logs only | Daily or 10MB |
+| `warn.log.N` | Warning+ level logs only | Daily or 10MB |
+| `info.log.N` | Info+ level logs only | Daily or 10MB |
+| `debug.log.N` | Debug+ level logs only | Daily or 10MB |
 
 **Rotation behavior:**
 - Logs rotate when they reach **10MB** OR at **midnight daily** (whichever comes first)
-- Rotated files are numbered sequentially: `combined.log.1`, `combined.log.2`, etc.
-- **Current file + 5 historical versions** are kept (6 total files per log level)
+- Files are numbered sequentially: `combined.log.1`, `combined.log.2`, etc. The highest number is the file currently being written (there is no un-numbered file)
+- **Current file + 5 previous files** are kept (6 total files per log level)
 - When the 7th file would be created, the oldest file is automatically deleted
 - Daily rotation re-uses the existing file if still within the same day
 
@@ -987,21 +984,14 @@ The server creates **6 log files** with automatic rotation:
 **Directory structure:**
 ```bash
 ~/.ibmi-mcp-server/logs/
-├── combined.log       # Current log (being written to)
-├── combined.log.1     # Most recent rotation (yesterday or 10MB ago)
-├── combined.log.2     # 2nd most recent
-├── combined.log.3     # 3rd most recent
-├── combined.log.4     # 4th most recent
-├── combined.log.5     # 5th most recent (oldest kept)
-├── error.log          # Current error log
-├── error.log.1        # Recent error rotation
-├── warn.log           # Current warning log
-├── info.log           # Current info log
-├── debug.log          # Current debug log
-└── interactions.log   # Current interaction log
+├── combined.log.1     # Oldest kept
+├── combined.log.2     # Previous rotation
+├── combined.log.3     # Current log (highest number, being written to)
+├── error.log.1        # Current error log
+├── warn.log.1         # Current warning log
+├── info.log.1         # Current info log
+└── debug.log.1        # Current debug log
 ```
-
-**Note**: Once `combined.log.6` would be created, `combined.log.5` is deleted and files shift: `.4` → `.5`, `.3` → `.4`, etc.
 
 **Sample log entry (JSON format):**
 ```json
@@ -1037,14 +1027,14 @@ The server creates **6 log files** with automatic rotation:
     **Disable colors**: Set `NO_COLOR=1` or `FORCE_COLOR=0`
   </Accordion>
 
-  <Accordion title="STDIO Transport (Plain)" icon="terminal">
-    With STDIO transport, console logs are **plain JSON** to stderr (MCP spec requirement):
+  <Accordion title="STDIO Transport (Files Only)" icon="terminal">
+    With STDIO transport, there is **no console log output**; logs go to the log files only:
 
     ```bash
     MCP_TRANSPORT_TYPE=stdio
     ```
 
-    **Output**: Structured JSON to `stderr` (no colors, no pretty-printing)
+    **Output**: Log files in `LOGS_DIR` only
 
     **Why**: MCP protocol requires clean JSON-RPC on `stdout` with no ANSI codes
   </Accordion>
@@ -1056,7 +1046,7 @@ The server creates **6 log files** with automatic rotation:
     NODE_ENV=production
     ```
 
-    **Output**: JSON to `stderr` and log files
+    **Output**: JSON to `stderr` (HTTP transport only) and log files
   </Accordion>
 </AccordionGroup>
 
@@ -1108,8 +1098,8 @@ This adds `traceId` and `spanId` to every log entry, making it easy to:
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `OTEL_ENABLED` | Enable OpenTelemetry | `false` | `true` |
-| `OTEL_SERVICE_NAME` | Service name for telemetry data | `ibmi-mcp-server` | `production-mcp` |
-| `OTEL_SERVICE_VERSION` | Service version for telemetry | Package version | `1.9.1` |
+| `OTEL_SERVICE_NAME` | Service name for telemetry data | `MCP_SERVER_NAME` or package name | `production-mcp` |
+| `OTEL_SERVICE_VERSION` | Service version for telemetry | `MCP_SERVER_VERSION` or package version | `0.6.2` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP endpoint for trace export | (none) | `http://localhost:4318/v1/traces` |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | OTLP endpoint for metrics export | (none) | `http://localhost:4318/v1/metrics` |
 | `OTEL_TRACES_SAMPLER_ARG` | Trace sampling ratio (0.0 to 1.0) | `1.0` | `0.1` |
@@ -1124,7 +1114,7 @@ This adds `traceId` and `spanId` to every log entry, making it easy to:
   <Tab title="Jaeger">
     ```bash
     OTEL_ENABLED=true
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:14268/api/traces
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
     OTEL_SERVICE_NAME=ibmi-mcp-server
     ```
   </Tab>
@@ -1164,7 +1154,6 @@ YAML_AUTO_RELOAD=true
 
 # Logging
 MCP_LOG_LEVEL=debug
-LOG_FORMAT=text
 
 # Observability (optional)
 OTEL_ENABLED=false
@@ -1208,7 +1197,6 @@ YAML_AUTO_RELOAD=false
 
 # Logging
 MCP_LOG_LEVEL=info
-LOG_FORMAT=json
 
 # Observability
 OTEL_ENABLED=true
@@ -1222,12 +1210,17 @@ OTEL_SERVICE_NAME=ibmi-mcp-production
 version: '3.8'
 services:
   ibmi-mcp-server:
-    build: .
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
     environment:
       MCP_TRANSPORT_TYPE: http
       MCP_HTTP_PORT: 3010
       MCP_AUTH_MODE: ibmi
       IBMI_HTTP_AUTH_ENABLED: "true"
+      IBMI_AUTH_KEY_ID: production
+      IBMI_AUTH_PRIVATE_KEY_PATH: /app/secrets/private.pem
+      IBMI_AUTH_PUBLIC_KEY_PATH: /app/secrets/public.pem
       DB2i_HOST: ${DB2i_HOST}
       DB2i_USER: ${DB2i_USER}
       DB2i_PASS: ${DB2i_PASS}
@@ -1245,5 +1238,5 @@ services:
 </Accordion>
 
 <Tip>
-For additional security considerations and IBM i authority requirements, see the [Authentication](/api/auth-endpoints) and [Production Deployment](/deployment/production) guides.
+For additional security considerations and IBM i authority requirements, see the [Authentication](/server-config/ibmi-auth) and [Production Deployment](/deployment/overview) guides.
 </Tip>

@@ -31,7 +31,7 @@ ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
 ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY"
 
 # Run a YAML-defined tool
-ibmi tool system_status --tools ../tools/work-management.yaml
+ibmi tool system_status --tools ../../tools/performance/performance.yaml
 ```
 
 ---
@@ -113,9 +113,9 @@ Objects are specified as `LIBRARY.OBJECT` or just `OBJECT` (defaults to `QSYS2`)
 ### `ibmi tool <name>` — Run a YAML Tool
 
 ```bash
-ibmi tool system_status --tools ../tools/work-management.yaml
-ibmi tool get_table_data --schema SAMPLE --table EMPLOYEE --tools ../tools/custom.yaml
-ibmi tool list_jobs --dry-run --tools ../tools/work-management.yaml
+ibmi tool system_status --tools ../../tools/performance/performance.yaml
+ibmi tool get_table_data --schema SAMPLE --table EMPLOYEE --tools ./custom.yaml
+ibmi tool active_job_info --dry-run --tools ../../tools/performance/performance.yaml
 ```
 
 Each YAML tool's parameters become CLI flags automatically (`snake_case` → `--kebab-case`).
@@ -129,15 +129,15 @@ Requires `--tools` to specify the YAML file(s).
 ### `ibmi tools` — List Available Tools
 
 ```bash
-ibmi tools --tools ../tools/                          # list all tools
-ibmi tools --toolset work_management --tools ../tools/ # filter by toolset
-ibmi tools show system_status --tools ../tools/        # show tool details
+ibmi tools --tools ../../tools/                          # list all tools
+ibmi tools --toolset performance --tools ../../tools/     # filter by toolset
+ibmi tools show system_status --tools ../../tools/        # show tool details
 ```
 
 ### `ibmi toolsets` — List Toolsets
 
 ```bash
-ibmi toolsets --tools ../tools/
+ibmi toolsets --tools ../../tools/
 ```
 
 ### `ibmi system` — Manage Connections
@@ -151,6 +151,12 @@ ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity (live)
 ibmi system test --all                    # test all systems
 ibmi system config-path                   # show config file locations
+```
+
+### `ibmi config show` — Inspect Configuration
+
+```bash
+ibmi config show                          # merged config with the origin of each setting
 ```
 
 ### `ibmi schemas` — List Schemas
@@ -392,6 +398,7 @@ packages/cli/src/
 │   ├── tool.ts                # ibmi tool — YAML tool execution
 │   ├── tools-list.ts          # ibmi tools / toolsets — tool discovery
 │   ├── system.ts              # ibmi system — connection management
+│   ├── config.ts              # ibmi config show — active configuration with origins
 │   ├── schemas.ts             # ibmi schemas
 │   ├── tables.ts              # ibmi tables
 │   ├── columns.ts             # ibmi columns

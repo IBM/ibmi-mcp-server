@@ -60,7 +60,7 @@ TOOLS_YAML_PATH=my-first-tools.yaml npm run start:http
 Use the MCP Inspector to test your tool:
 
 ```bash
-npm run mcp-inspector
+npm run inspector
 ```
 
 <Note>
@@ -113,8 +113,8 @@ Parameters make tools dynamic and reusable. Let's enhance our job listing tool w
           - name: max_rows
             type: integer
             default: 25
-            minimum: 1
-            maximum: 100
+            min: 1
+            max: 100
             description: "Maximum number of jobs to return"
         statement: |
           SELECT job_name, user_name, job_status, cpu_used
@@ -164,8 +164,8 @@ parameters:
 
   - name: row_limit
     type: integer
-    minimum: 1
-    maximum: 1000
+    min: 1
+    max: 1000
     default: 50
     description: "Number of rows to return (1-1000)"
 ```
@@ -1021,7 +1021,7 @@ Test your YAML configuration before deployment:
 
 ```bash
 # Validate YAML syntax and structure
-npm run validate -- --config my-tools.yaml
+npm run validate -- --tools my-tools.yaml
 
 # List available toolsets
 npm run start:http -- --list-toolsets --tools my-tools.yaml
@@ -1031,7 +1031,7 @@ npm run test -- --grep "yaml-sql"
 ```
 
 <Note>
-For complete testing strategies including MCP Inspector usage, see the [Quick Start Guide](/quickstart#step-4-test-with-mcp-inspector-5-minutes). For production testing, refer to the [Production Deployment](/deployment/production) guide.
+For complete testing strategies including MCP Inspector usage, see the [Quick Start Guide](/quickstart). For production testing, refer to the [Production Deployment](/deployment/overview) guide.
 </Note>
 
 ### Debug Mode
@@ -1197,16 +1197,10 @@ tools:
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Testing Guide" icon="flask" href="/sql-tools/testing">
-    Learn how to test and debug your SQL tools effectively
-  </Card>
-  <Card title="Examples & Patterns" icon="lightbulb" href="/sql-tools/examples">
-    Explore real-world examples and advanced patterns
-  </Card>
-  <Card title="Agent Integration" icon="robot" href="/agents/building-agents">
+  <Card title="Agent Integration" icon="robot" href="/agents/overview">
     Build AI agents that use your custom SQL tools
   </Card>
-  <Card title="Production Deployment" icon="server" href="/deployment/production">
+  <Card title="Production Deployment" icon="server" href="/deployment/overview">
     Deploy your tools to production with monitoring
   </Card>
 </CardGroup>

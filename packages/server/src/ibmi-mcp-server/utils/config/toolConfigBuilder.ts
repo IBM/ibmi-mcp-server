@@ -763,6 +763,7 @@ export class ToolConfigBuilder {
     context: RequestContext,
   ): Promise<SqlToolsConfig[]> {
     const configs: SqlToolsConfig[] = [];
+    const failures: string[] = [];
 
     for (const filePath of filePaths) {
       try {
@@ -776,6 +777,7 @@ export class ToolConfigBuilder {
             context,
             `Failed to load configuration from: ${filePath}`,
           );
+          failures.push(`${filePath}: ${(result.errors ?? []).join("; ")}`);
         }
       } catch (error) {
         logger.error(
@@ -784,6 +786,15 @@ export class ToolConfigBuilder {
         );
         throw error;
       }
+    }
+
+    // Surface the real validation errors instead of the generic
+    // "No valid configurations to merge" when nothing loaded.
+    if (configs.length === 0 && failures.length > 0) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        `No valid configurations to merge. ${failures.join(" | ")}`,
+      );
     }
 
     return configs;
@@ -984,19 +995,6 @@ export class ToolConfigBuilder {
       undefined,
       context,
     );
-  }
-
-  static async fromFiles(
-    filePaths: string[],
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    const builder = ToolConfigBuilder.getInstance();
-    const sources = filePaths.map((path) => ({
-      type: "file" as const,
-      path,
-      required: true,
-    }));
-    return builder.buildFromSources(sources, undefined, context);
   }
 
   static async fromDirectory(

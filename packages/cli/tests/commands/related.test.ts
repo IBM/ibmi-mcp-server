@@ -1,5 +1,36 @@
-import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/index";
+import { describe, it, expect, vi } from "vitest";
+import { createProgram } from "../../src/program";
+
+vi.mock("../../src/utils/command-helpers.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/utils/command-helpers.js")>();
+  return {
+    ...actual,
+    // Run the action directly — no system resolution, connection, or rendering
+    withConnection: vi.fn(
+      async (
+        _cmd: unknown,
+        _toolName: string,
+        action: (resolved: unknown, ctx: unknown) => Promise<unknown>,
+      ) => {
+        await action({}, {});
+      },
+    ),
+  };
+});
+
+vi.mock("@ibm/ibmi-mcp-server/tools", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@ibm/ibmi-mcp-server/tools")>();
+  return {
+    ...actual,
+    getRelatedObjectsLogic: vi.fn().mockResolvedValue({
+      success: true,
+      data: [],
+      rowCount: 0,
+    }),
+  };
+});
 
 describe("ibmi related command", () => {
   it("should register the related command with correct description", () => {
@@ -27,5 +58,21 @@ describe("ibmi related command", () => {
     const related = program.commands.find((c) => c.name() === "related");
     const typeOpt = related?.options.find((o) => o.long === "--type");
     expect(typeOpt).toBeDefined();
+  });
+
+  it("should upper-case --type before filtering", async () => {
+    const { getRelatedObjectsLogic } = await import("@ibm/ibmi-mcp-server/tools");
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "related", "APPLIB", "ORDERS", "--type", "index",
+    ]);
+
+    expect(vi.mocked(getRelatedObjectsLogic).mock.calls[0]?.[0]).toEqual({
+      library_name: "APPLIB",
+      file_name: "ORDERS",
+      object_type_filter: "INDEX",
+    });
   });
 });

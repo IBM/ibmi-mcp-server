@@ -509,11 +509,7 @@ Push with `git push --follow-tags origin main` as usual.
 The initial release (v0.1.0) uses a special command:
 
 ```bash
-# From root directory (recommended)
-npm run release:first
-
-# OR from server directory
-
+# From root directory
 npm run release:first
 ```
 
@@ -574,7 +570,7 @@ GitHub releases are created **manually** after npm publishing completes. This gi
 
 **Important:** Do **NOT** run `npm publish` manually. Publishing happens automatically via GitHub Actions when you push a release tag.
 
-The workflow (`npm run release` → `git push --follow-tags`) triggers GitHub Actions, which:
+The workflow (`npm run release:prepare` → `npm run release:finalize`, which pushes the release commit and tag) triggers GitHub Actions, which:
 1. Runs all validation (typecheck, lint, test)
 2. Builds the package
 3. **Publishes to npm automatically**

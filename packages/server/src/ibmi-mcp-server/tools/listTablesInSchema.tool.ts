@@ -123,6 +123,8 @@ export async function listTablesLogic(
   const fetchLimit = params.limit + 1;
 
   try {
+    // Pass fetchLimit as rowsToFetch: without it mapepire returns at most
+    // 100 rows per fetch, which silently truncates pages when limit >= 100.
     const result = await IBMiConnectionPool.executeQuery(
       sql,
       [
@@ -133,6 +135,7 @@ export async function listTablesLogic(
         fetchLimit,
       ],
       appContext,
+      fetchLimit,
     );
 
     const executionTime = Date.now() - startTime;

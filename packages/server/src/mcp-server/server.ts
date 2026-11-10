@@ -17,7 +17,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import http from "http";
 import { config } from "@/config/index.js";
-// import type { ResolvedConfig } from "@/config/resolver.js";
 import { ErrorHandler, requestContextService } from "@/utils/index.js";
 import {
   logFatal,
@@ -30,7 +29,6 @@ import { registerAllTools } from "@/mcp-server/tools/index.js";
 import { startHttpTransport } from "@/mcp-server/transports/http/index.js";
 import { startStdioTransport } from "@/mcp-server/transports/stdio/index.js";
 import { registerSQLTools } from "@/ibmi-mcp-server/index.js";
-import { registerLoggingSetLevelHandler } from "@/mcp-server/logging/setLevelHandler.js";
 import { advertiseJsonSchema202012 } from "@/mcp-server/schema/advertiseJsonSchema202012.js";
 
 /**
@@ -56,9 +54,6 @@ async function createMcpServerInstance(): Promise<McpServer> {
       },
     },
   );
-
-  // Register the logging/setLevel handler to fulfill the logging capability contract
-  registerLoggingSetLevelHandler(server);
 
   try {
     logOperationStart(context, "Registering resources and tools...");

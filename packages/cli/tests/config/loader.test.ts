@@ -10,6 +10,7 @@ vi.mock("fs", async () => {
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
+    chmodSync: vi.fn(),
   };
 });
 
@@ -24,13 +25,20 @@ vi.mock("os", async () => {
 
 const MOCK_HOME = "/home/testuser";
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+} from "fs";
 import { homedir } from "os";
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
+const mockChmodSync = vi.mocked(chmodSync);
 const mockHomedir = vi.mocked(homedir);
 
 // Import after mocking
@@ -376,9 +384,24 @@ systems:
 
       expect(mockMkdirSync).toHaveBeenCalledWith(
         path.join(MOCK_HOME, ".ibmi"),
-        { recursive: true },
+        { recursive: true, mode: 0o700 },
       );
       expect(mockWriteFileSync).toHaveBeenCalled();
+    });
+
+    it("should write the config file readable by the owner only", () => {
+      const userConfigPath = path.join(MOCK_HOME, ".ibmi", "config.yaml");
+      mockExistsSync.mockReturnValue(true);
+
+      saveUserConfig({ systems: {} });
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        userConfigPath,
+        expect.any(String),
+        { encoding: "utf-8", mode: 0o600 },
+      );
+      // Tightens a pre-existing file that was created with a wider mode
+      expect(mockChmodSync).toHaveBeenCalledWith(userConfigPath, 0o600);
     });
   });
 
@@ -432,6 +455,38 @@ systems:
       const writtenContent = mockWriteFileSync.mock.calls[0]?.[1] as string;
       expect(writtenContent).toContain("default: dev");
       expect(writtenContent).toContain("prod");
+    });
+
+    it("should refuse to overwrite an existing config that fails validation", () => {
+      process.cwd = () => "/tmp/empty";
+      const userConfigPath = path.join(MOCK_HOME, ".ibmi", "config.yaml");
+
+      mockExistsSync.mockImplementation((p) => p === userConfigPath);
+      mockReadFileSync.mockReturnValue(`
+default: dev
+systems:
+  dev:
+    host: dev.example.com
+    port: 8076
+    user: DEVUSER
+  broken:
+    host: ""
+    user: X
+`);
+
+      expect(() =>
+        upsertSystem("new", {
+          host: "new.example.com",
+          port: 8076,
+          user: "NEWUSER",
+          readOnly: false,
+          confirm: false,
+          timeout: 60,
+          maxRows: 5000,
+          ignoreUnauthorized: true,
+        }),
+      ).toThrow(/Invalid config/);
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
     });
   });
 

@@ -15,29 +15,10 @@ resources:
 - mcp-context-forge-service.yaml
 - mcp-context-forge-route.yaml
 
-replacements:
-- source:
-    kind: Deployment
-    name: mcp-context-forge
-    fieldPath: metadata.namespace
-  targets:
-  - select:
-      kind: Deployment
-      name: mcp-context-forge
-    fieldPaths:
-      - metadata.annotations.image\.openshift\.io/triggers
-    options:
-      delimiter: '"'
-      index: 13 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
-  - select:
-      kind: Deployment
-      name: mcp-context-forge
-    fieldPaths:
-      - spec.template.spec.containers.[name=gateway].image
-    options:
-      delimiter: /
-      index: 1 # Replace the NAMESPACE_PLACEHOLDER with actual namespace
-
-configMapGenerator:
-- name: mcp-context-forge-env
-  env: .env
+secretGenerator:
+  # .env carries the gateway's JWT secret, admin password and database URL,
+  # so it is generated as a Secret
+  - name: mcp-context-forge-env
+    envs:
+      - .env
+    type: Opaque

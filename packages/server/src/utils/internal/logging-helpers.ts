@@ -58,20 +58,6 @@ export function logOperationError(
 }
 
 /**
- * Logs a warning.
- * @param context - The request context.
- * @param message - The warning message.
- * @param payload - Additional structured data.
- */
-export function logWarning(
-  context: RequestContext,
-  message: string,
-  payload?: OperationPayload,
-): void {
-  logger.warning({ ...context, ...payload }, message);
-}
-
-/**
  * Logs a fatal error and terminates the process.
  * This should be used for unrecoverable errors during critical phases like startup.
  * @param context - The request context.

@@ -170,7 +170,7 @@ function renderCsv(data: Record<string, unknown>[]): void {
 }
 
 function escapeCsvField(field: string): string {
-  if (field.includes(",") || field.includes('"') || field.includes("\n")) {
+  if (/[",\r\n]/.test(field)) {
     return `"${field.replace(/"/g, '""')}"`;
   }
   return field;
@@ -264,20 +264,39 @@ export function renderMultiSystemOutput(
     }
   }
 
+  if (format === "json") {
+    renderMultiSystemJson(results, merged);
+    return;
+  }
+
+  // CSV and table renderers take their columns from the first row, so give
+  // every row the same columns: SYSTEM, the data columns, then ERROR.
+  const columns = new Set<string>();
+  let hasErrorColumn = false;
+  for (const row of merged) {
+    for (const key of Object.keys(row)) {
+      if (key === "ERROR") hasErrorColumn = true;
+      else columns.add(key);
+    }
+  }
+  if (hasErrorColumn) columns.add("ERROR");
+  const rows = merged.map((row) => {
+    const normalized: Record<string, unknown> = {};
+    for (const key of columns) normalized[key] = row[key] ?? null;
+    return normalized;
+  });
+
   switch (format) {
-    case "json":
-      renderMultiSystemJson(results, merged);
-      break;
     case "csv":
-      renderCsv(merged);
+      renderCsv(rows);
       break;
     case "markdown":
-      renderTable(merged, "markdown");
+      renderTable(rows, "markdown");
       break;
     case "table":
     default:
-      renderTable(merged, "grid", {
-        rowCount: merged.length,
+      renderTable(rows, "grid", {
+        rowCount: rows.length,
       });
       renderMultiSystemFooter(results);
       break;

@@ -43,13 +43,9 @@ describe("RateLimiter", () => {
 
     rateLimiter.check(key);
 
-    try {
-      rateLimiter.check(key);
-    } catch (error) {
-      if (error instanceof McpError) {
-        expect(error.message).toContain("Please try again in 5 seconds");
-      }
-    }
+    expect(() => rateLimiter.check(key)).toThrow(
+      "Please try again in 5 seconds",
+    );
   });
 
   it("should correctly reset all limits when reset() is called", () => {

@@ -82,7 +82,14 @@ function formatAjvError(err) {
   return `${where}: ${err.message}`;
 }
 
-const stripStringLiterals = (sql) => sql.replace(/'(?:[^']|'')*'/g, "''");
+// Same masking the server applies before it looks for parameter markers
+// (sqlTextMask.ts): string literals, delimited identifiers and comments become
+// spaces, so offsets in the result match offsets in the statement.
+const codeOnly = (sql) =>
+  sql.replace(
+    /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:[^']|'')*(?:'|$)|"(?:[^"]|"")*(?:"|$)/g,
+    (m) => m.replace(/[^\n\r]/g, " "),
+  );
 
 function checkStatement(toolName, tool, report) {
   const { statement } = tool;
@@ -94,18 +101,19 @@ function checkStatement(toolName, tool, report) {
     return;
   }
 
-  // With no parameters the server sends the SQL as-is, so only placeholders
-  // outside string literals matter. With parameters it scans the raw statement
-  // with /:(\w+)/g (parameterProcessor.ts), literals included, so we do too.
+  // The server looks for markers with /:(\w+)/g (parameterProcessor.ts) after
+  // masking literals and comments, so we do too. With no parameters it sends
+  // the SQL as-is.
+  const code = codeOnly(statement);
   if (params.length === 0) {
-    for (const m of stripStringLiterals(statement).matchAll(/:([A-Za-z_]\w*)/g)) {
+    for (const m of code.matchAll(/:([A-Za-z_]\w*)/g)) {
       report.error(
         `${at}: statement uses ":${m[1]}" but the tool declares no parameters (the SQL would be sent unbound)`,
       );
     }
   }
 
-  const placeholders = [...statement.matchAll(/:(\w+)/g)].map((m) => ({
+  const placeholders = [...code.matchAll(/:(\w+)/g)].map((m) => ({
     name: m[1],
     index: m.index,
   }));
@@ -115,7 +123,7 @@ function checkStatement(toolName, tool, report) {
   for (const name of params.length ? used : []) {
     if (/^\d/.test(name)) {
       report.error(
-        `${at}: ":${name}" is rejected by the server (named parameters must start with a letter); avoid ':' followed by a digit anywhere in the statement, including literals like '12:30'`,
+        `${at}: ":${name}" is rejected by the server (named parameters must start with a letter); avoid ':' followed by a digit outside string literals and comments`,
       );
     } else if (!declared.has(name)) {
       report.error(`${at}: ":${name}" is not declared in parameters`);
@@ -133,7 +141,7 @@ function checkStatement(toolName, tool, report) {
         `${at}: optional parameter "${name}" has no default; if the caller omits it, it binds as '' (not NULL). Give it a default such as '*ALL'`,
       );
     }
-    if (new RegExp(`:${name}\\s+IS\\s+(NOT\\s+)?NULL`, "i").test(statement)) {
+    if (new RegExp(`:${name}\\s+IS\\s+(NOT\\s+)?NULL`, "i").test(code)) {
       report.warn(
         `${at}: ":${name} IS NULL" never matches; parameters are never bound as NULL. Use a sentinel default, e.g. (:${name} = '*ALL' OR col = :${name})`,
       );
@@ -149,7 +157,7 @@ function checkStatement(toolName, tool, report) {
     }
   }
 
-  if (/\?/.test(stripStringLiterals(statement))) {
+  if (/\?/.test(code)) {
     report.warn(`${at}: positional "?" placeholders found; prefer named :params`);
   }
 

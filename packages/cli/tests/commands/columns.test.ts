@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program";
 
 describe("ibmi columns command", () => {
   it("should register the columns command with correct description", () => {
@@ -18,11 +18,5 @@ describe("ibmi columns command", () => {
     expect(args?.[0]?.required).toBe(true);
     expect(args?.[1]?.name()).toBe("table");
     expect(args?.[1]?.required).toBe(true);
-  });
-
-  it("should have command name 'columns'", () => {
-    const program = createProgram();
-    const columns = program.commands.find((c) => c.name() === "columns");
-    expect(columns?.name()).toBe("columns");
   });
 });

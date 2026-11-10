@@ -201,7 +201,7 @@ npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path/to/tools
     - Use full node path:
       ```bash
       claude mcp add ibmi-mcp \
-        -- node /absolute/path/to/ibmi-mcp-server/dist/index.js \
+        -- node /absolute/path/to/ibmi-mcp-server/packages/server/dist/index.js \
            --tools /absolute/path/to/tools
       ```
   </Accordion>
@@ -277,7 +277,7 @@ claude mcp add ibmi-all \
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="CLI Reference" icon="terminal" href="/quickstart#step-3-start-the-server">
+  <Card title="CLI Reference" icon="terminal" href="/quickstart#step-4-start-the-server">
     Learn all CLI options for the server
   </Card>
   <Card title="Configuration" icon="gear" href="/configuration">

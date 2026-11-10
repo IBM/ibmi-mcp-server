@@ -38,6 +38,6 @@ tools:
         user_class,
         status
       FROM qsys2.user_info
-      WHERE authorization_name LIKE UPPER('{{pattern}}')
+      WHERE authorization_name LIKE UPPER(:pattern)
       ORDER BY authorization_name
-      FETCH FIRST {{limit}} ROWS ONLY
+      FETCH FIRST :limit ROWS ONLY

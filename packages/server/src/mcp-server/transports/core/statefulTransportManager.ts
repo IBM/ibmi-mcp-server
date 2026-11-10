@@ -27,6 +27,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
 import { BaseTransportManager } from "./baseTransportManager.js";
+import { createCleanupTransformStream } from "./cleanupTransformStream.js";
 import { McpTransportRequest } from "./transportRequest.js";
 import {
   HttpStatusCode,
@@ -41,7 +42,6 @@ import {
  */
 export interface StatefulTransportOptions {
   staleSessionTimeoutMs: number;
-  mcpHttpEndpointPath: string;
 }
 
 /**
@@ -126,10 +126,6 @@ export class StatefulTransportManager
             activeRequests: 0,
           });
           logger.info(sessionContext, `MCP Session created: ${sessionId}`);
-        },
-        onsessionclosed: (sessionId: string) => {
-          const closeContext = { ...opContext, sessionId };
-          logger.info(closeContext, `Session closed via DELETE: ${sessionId}`);
         },
       });
 
@@ -262,6 +258,17 @@ export class StatefulTransportManager
         `Incremented activeRequests for session ${sessionId}. Count: ${session.activeRequests}`,
       );
 
+      // The request stays in flight until its response body has been fully
+      // delivered, not merely until the response headers are produced.
+      const releaseRequest = () => {
+        session.activeRequests -= 1;
+        session.lastAccessedAt = new Date();
+        logger.debug(
+          sessionContext,
+          `Decremented activeRequests for session ${sessionId}. Count: ${session.activeRequests}`,
+        );
+      };
+
       try {
         // Call Web Standards API
         const webResponse = await transport.handleRequest(webRequest, {
@@ -270,6 +277,7 @@ export class StatefulTransportManager
 
         // Handle response based on whether it has a body
         if (!webResponse.body) {
+          releaseRequest();
           return {
             type: "buffered",
             headers: webResponse.headers,
@@ -283,22 +291,18 @@ export class StatefulTransportManager
           type: "stream",
           headers: webResponse.headers,
           statusCode: webResponse.status as HttpStatusCode,
-          stream: webResponse.body as ReadableStream<Uint8Array>,
+          stream: createCleanupTransformStream(webResponse.body, async () =>
+            releaseRequest(),
+          ) as ReadableStream<Uint8Array>,
           sessionId: transport.sessionId,
         };
       } catch (error) {
+        releaseRequest();
         throw ErrorHandler.handleError(error, {
           operation: sessionContext.operation,
           context: sessionContext,
           rethrow: true,
         });
-      } finally {
-        session.activeRequests -= 1;
-        session.lastAccessedAt = new Date();
-        logger.debug(
-          sessionContext,
-          `Decremented activeRequests for session ${sessionId}. Count: ${session.activeRequests}`,
-        );
       }
     }
 
@@ -347,13 +351,6 @@ export class StatefulTransportManager
       statusCode: 200 as HttpStatusCode,
       body: { status: "session_closed", sessionId },
     };
-  }
-
-  /**
-   * Retrieves information about a specific session.
-   */
-  getSession(sessionId: string): TransportSession | undefined {
-    return this.sessions.get(sessionId);
   }
 
   /**

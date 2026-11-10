@@ -106,14 +106,6 @@ export function getExecuteSqlConfig(): ExecuteSqlToolConfig {
   return toolConfig;
 }
 
-/**
- * Check if the execute SQL tool is enabled
- * @returns True if the tool is enabled
- */
-export function isExecuteSqlEnabled(): boolean {
-  return toolConfig.enabled;
-}
-
 // =============================================================================
 // Schemas
 // =============================================================================

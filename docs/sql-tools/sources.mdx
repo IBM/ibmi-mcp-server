@@ -399,8 +399,6 @@ sources:
     password: ${PROD_DB2i_PASS}
     port: 8076
     ignore-unauthorized: false
-    connectionTimeout: 30000
-    requestTimeout: 120000
 
   development:
     host: ${DEV_DB2i_HOST}
@@ -408,8 +406,6 @@ sources:
     password: ${DEV_DB2i_PASS}
     port: 8076
     ignore-unauthorized: true  # Self-signed certs OK in dev
-    connectionTimeout: 10000
-    requestTimeout: 60000
 
   testing:
     host: ${TEST_DB2i_HOST}
@@ -417,8 +413,6 @@ sources:
     password: ${TEST_DB2i_PASS}
     port: 8076
     ignore-unauthorized: true
-    connectionTimeout: 15000
-    requestTimeout: 30000
 ```
 
 **Tool Usage:**
@@ -632,10 +626,9 @@ sources:
     **Symptom:** "Request timeout" or "Connection timeout" errors
 
     **Solutions:**
-    1. Increase `requestTimeout` for long-running queries
-    2. Increase `connectionTimeout` for slow networks
-    3. Optimize SQL queries to run faster
-    4. Check network latency between server and IBM i
+    1. Increase `MCP_POOL_QUERY_TIMEOUT_MS` (server environment variable, default 30000) for long-running queries
+    2. Optimize SQL queries to run faster
+    3. Check network latency between server and IBM i
   </Accordion>
 
   <Accordion title="SSL Certificate Errors" icon="certificate">

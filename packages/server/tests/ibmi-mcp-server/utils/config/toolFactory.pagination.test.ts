@@ -31,12 +31,6 @@ vi.mock("../../../../src/utils/internal/logger.js", () => ({
   },
 }));
 
-// Block the scheduler singleton (loaded transitively via the utils barrel).
-vi.mock("../../../../src/utils/scheduling/index.js", () => ({
-  SchedulerService: { getInstance: vi.fn() },
-  schedulerService: {},
-}));
-
 import { SQLToolFactory } from "../../../../src/ibmi-mcp-server/utils/config/toolFactory.js";
 import type { SourceManager } from "../../../../src/ibmi-mcp-server/services/sourceManager.js";
 

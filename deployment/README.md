@@ -106,6 +106,10 @@ IBMI_HTTP_AUTH_ENABLED=true
 
 # Allow HTTP requests for authentication (development only, use HTTPS in production)
 IBMI_AUTH_ALLOW_HTTP=true
+
+# Let the gateway reach the server by its compose service name
+# (a non-loopback Host header that is not listed here is rejected with 403)
+MCP_ALLOWED_HOSTS=ibmi-mcp-server
 ```
 
 > **Note:** You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](../README.md#-ibm-i-http-authentication-beta) section in the main README for instructions.
@@ -338,8 +342,8 @@ podman logs ibmi-mcp-server
 # Verify environment variables
 docker exec ibmi-mcp-server env | grep DB2i
 
-# Test connectivity
-docker exec ibmi-mcp-server curl http://localhost:3010/healthz
+# Test connectivity (from the host; the image does not ship curl)
+curl http://localhost:3010/healthz
 ```
 
 **Port conflicts:**
@@ -348,13 +352,14 @@ docker exec ibmi-mcp-server curl http://localhost:3010/healthz
 
 **Gateway can't connect to IBM i MCP Server:**
 - Verify both containers are on the same network: `docker network inspect mcpgateway_mcpnet`
-- Check IBM i MCP Server is healthy: `docker exec ibmi-mcp-server curl http://localhost:3010/healthz`
+- Check IBM i MCP Server is healthy: `docker inspect --format '{{.State.Health.Status}}' ibmi-mcp-server`
+- Verify `MCP_ALLOWED_HOSTS=ibmi-mcp-server` is set in `.env` (the gateway addresses the server by that name)
 - Review gateway logs: `docker logs gateway`
 
 **Database connection issues:**
 - Verify IBM i credentials in `.env`
 - Check Mapepire is running on IBM i: `sc status mapepire`
-- Test connection from container: `docker exec ibmi-mcp-server nc -zv $DB2i_HOST 8076`
+- Test connection from container: `docker exec ibmi-mcp-server node -e "require('net').connect(8076, process.env.DB2i_HOST).on('connect', () => { console.log('ok'); process.exit(0); }).on('error', (e) => { console.error(e.message); process.exit(1); })"`
 
 ### OpenShift Issues
 

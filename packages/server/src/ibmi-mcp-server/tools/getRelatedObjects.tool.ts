@@ -138,7 +138,9 @@ export async function getRelatedObjectsLogic(
   `.trim();
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // Paginate: a single fetch returns at most 100 rows (mapepire default),
+    // which would silently drop dependent objects.
+    const result = await IBMiConnectionPool.executeQueryWithPagination(
       sql,
       bindParams,
       appContext,

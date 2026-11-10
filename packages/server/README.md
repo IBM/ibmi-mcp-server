@@ -59,10 +59,6 @@
   - [🕵️‍♂️ MCP Inspector](#️️-mcp-inspector)
   - [Deployment](#deployment)
   - [🏗️ Built With MCP TypeScript Template](#️-built-with-mcp-typescript-template)
-    - [Template Features Used](#template-features-used)
-    - [Why This Template?](#why-this-template)
-    - [Customizations for IBM i](#customizations-for-ibm-i)
-    - [Get Started with the Template](#get-started-with-the-template)
 
 </details>
 
@@ -212,7 +208,7 @@ This creates three tools:
 - **`active_job_info`** - Top CPU consumers (with customizable limit parameter)
 
 > [!NOTE] 
-> **📖 More Tools:** The repository includes many ready-to-use tools in the [`tools/`](../tools/) directory covering performance monitoring, security, job management, and more. See [SQL Tool Configuration](#-sql-tool-configuration) to create your own custom tools.
+> **📖 More Tools:** The repository includes many ready-to-use tools in the [`tools/`](../../tools/) directory covering performance monitoring, security, job management, and more. See [SQL Tool Configuration](#-sql-tool-configuration) to create your own custom tools.
 
 ### 3. Set Configuration Path
 
@@ -231,7 +227,7 @@ Start the server in HTTP mode with your new tools:
 
 ```bash
 # Start the server with HTTP transport
-npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quckstart.yaml
+npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quickstart.yaml
 ```
 
 The server will:
@@ -253,6 +249,7 @@ curl http://localhost:3010/healthz
 # List available tools (requires running server)
 curl -X POST http://localhost:3010/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}'
 ```
 
@@ -275,10 +272,10 @@ export OPENAI_API_KEY=your-api-key
 uv run agent.py -p "What is my system status?"
 ```
 
-> **📖 Client Documentation:** See [client/README.md](../client/README.md) for detailed setup instructions.
+> **📖 Client Documentation:** See [client/README.md](../../client/README.md) for detailed setup instructions.
 
 > [!TIP]
-> **Explore More SQL Tools:** The `tools/` directory contains many ready-to-use SQL tool configurations for common IBM i tasks. Browse the collection and customize them for your needs. See the [Tools Guide](../tools/README.md) for more details.
+> **Explore More SQL Tools:** The `tools/` directory contains many ready-to-use SQL tool configurations for common IBM i tasks. Browse the collection and customize them for your needs. See the [Tools Guide](../../tools/README.md) for more details.
 
 ---
 
@@ -291,7 +288,7 @@ Choose your path based on what you want to accomplish:
 | **MCP Client Integration** | [Installing in MCP Clients](#-installing-in-mcp-clients) | Connect to Claude Desktop, VSCode, Cursor, and other MCP clients |
 | **Custom SQL Tools** | [SQL Tool Configuration](#-sql-tool-configuration) | Create YAML-based SQL tools for your IBM i use cases |
 | **Server Configuration** | [Configuration Guide](#️-configuration) | Explore authentication, transport modes, and environment variables |
-| **Production Deployment** | [Deployment Options](../deployment/README.md) | Deploy with Docker, Podman, or OpenShift |
+| **Production Deployment** | [Deployment Options](../../deployment/README.md) | Deploy with Docker, Podman, or OpenShift |
 | **AI Agent Development** | [IBM i Agents](#-ibm-i-agents) | Build custom AI agents that interact with IBM i systems |
 | **Development & Contributing** | [Running the Server (Development)](#️-running-the-server-development) | Build from source, run tests, and contribute |
 
@@ -911,8 +908,7 @@ Add local MCP servers using "type": "local" within the MCP object. Multiple MCP 
         "DB2i_USER": "your-username",
         "DB2i_PASS": "your-password",
         "DB2i_PORT": "8076"
-      },
-      "enabled": true
+      }
     }
   }
 }
@@ -1184,7 +1180,7 @@ The example below shows how to add a remote IBM i MCP server in IBM watsonx Orch
     --llm groq/openai/gpt-oss-120b \
     --style default \
     --tools <toolkit_name> \
-    --output "agent_name.agent.yaml
+    --output "agent_name.agent.yaml"
     ```
 
 > **Network Configuration for On-Premises Deployments:** If the MCP server is deployed on an on-premises IBM i system behind an enterprise firewall, proper network configuration must be implemented to ensure accessibility from IBM watsonx Orchestrate. IBM Cloud Satellite Connector provides a secure solution for this scenario by establishing connectivity between on-premises resources and IBM Cloud services. For detailed information, refer to the [IBM Cloud Satellite Connector documentation](https://cloud.ibm.com/docs/satellite?topic=satellite-understand-connectors).
@@ -1250,7 +1246,7 @@ toolsets:
 ```
 
 > [!TIP]
-> **Advanced Tool Configuration:** For detailed documentation on creating custom SQL tools, parameter validation, advanced queries, and more, see [tools/README.md](../tools/README.md).
+> **Advanced Tool Configuration:** For detailed documentation on creating custom SQL tools, parameter validation, advanced queries, and more, see [tools/README.md](../../tools/README.md).
 
 ---
 
@@ -1265,7 +1261,7 @@ IBM i Agents are specialized components designed to interact with the IBM i syst
 
 ### Getting Started
 
-Navigate to the `agents` directory and follow the setup instructions in the [README](../agents/README.md). This includes details on configuration, running agents, and examples. Most agent examples require the MCP server to be running in HTTP mode. Read the docs for each agent example for details.
+Navigate to the `agents` directory and follow the setup instructions in the [README](../../agents/README.md). This includes details on configuration, running agents, and examples. Most agent examples require the MCP server to be running in HTTP mode. Read the docs for each agent example for details.
 
   
 
@@ -1293,8 +1289,8 @@ Core server configuration including server identity, transport mode, and logging
 | `MCP_SERVER_NAME` | Server name identifier for MCP protocol | Package name from `package.json` | No |
 | `MCP_SERVER_VERSION` | Server version for MCP protocol | Version from `package.json` | No |
 | `MCP_TRANSPORT_TYPE` | Transport protocol: `stdio` (local) or `http` (remote) | `stdio` | No |
-| `MCP_LOG_LEVEL` | Logging verbosity: `error`, `warn`, `info`, `debug` | `debug` | No |
-| `LOGS_DIR` | Directory for log files (relative to project root) | `logs` | No |
+| `MCP_LOG_LEVEL` | Logging verbosity: `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` | `debug` | No |
+| `LOGS_DIR` | Directory for log files (absolute, `~/...`, or relative to the working directory) | `~/.ibmi-mcp-server/logs` | No |
 | `NODE_ENV` | Node environment: `development`, `production`, `test` | `development` | No |
 
 **Examples:**
@@ -1308,7 +1304,7 @@ NODE_ENV=development
 # Production with minimal logging
 MCP_SERVER_NAME=ibmi-mcp-prod
 MCP_TRANSPORT_TYPE=stdio
-MCP_LOG_LEVEL=warn
+MCP_LOG_LEVEL=warning
 NODE_ENV=production
 ```
 
@@ -1548,7 +1544,7 @@ DB2i_IGNORE_UNAUTHORIZED=false
 <details>
 <summary><strong>🧩 SQL YAML Tool Configuration</strong></summary>
 
-Settings for loading and managing SQL tools defined in YAML configuration files. See [Tools Documentation](../tools/README.md) for YAML tool development.
+Settings for loading and managing SQL tools defined in YAML configuration files. See [Tools Documentation](../../tools/README.md) for YAML tool development.
 
 ### Tool Loading
 
@@ -1566,11 +1562,11 @@ When loading multiple YAML files, these settings control merge behavior:
 |----------|-------------|---------|----------|
 | `YAML_MERGE_ARRAYS` | Merge arrays from multiple files (`true`) or replace them (`false`) | `true` | No |
 | `YAML_ALLOW_DUPLICATE_TOOLS` | Allow duplicate tool names across files | `false` | No |
-| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names across files | `false` | No |
+| `YAML_ALLOW_DUPLICATE_SOURCES` | Allow duplicate source names across files (must be `true` to load the repository's whole `tools/` directory, whose files each define `ibmi-system`) | `false` | No |
 | `YAML_VALIDATE_MERGED` | Validate merged configuration before loading tools | `true` | No |
 
 **Path Resolution:**
-- **File**: `TOOLS_YAML_PATH=tools/performance.yaml`
+- **File**: `TOOLS_YAML_PATH=tools/performance/performance.yaml`
 - **Directory**: `TOOLS_YAML_PATH=tools/` (loads all .yaml/.yml files)
 - **Glob pattern**: `TOOLS_YAML_PATH=tools/**/*.yaml`
 - **Multiple sources**: Use CLI `--tools` to override at runtime
@@ -1753,7 +1749,7 @@ YAML tools allow you to:
 - Organize tools into logical toolsets
 - Provide explicit descriptions for each query
 
-See [Tools Documentation](../tools/README.md) for creating YAML SQL tools.
+See [Tools Documentation](../../tools/README.md) for creating YAML SQL tools.
 
 </details>
 
@@ -1785,7 +1781,7 @@ OTEL_LOG_LEVEL=DEBUG
 # Production: export to Jaeger
 OTEL_ENABLED=true
 OTEL_SERVICE_NAME=ibmi-mcp-prod
-OTEL_SERVICE_VERSION=1.9.1
+OTEL_SERVICE_VERSION=0.6.2
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318/v1/traces
 OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://jaeger:4318/v1/metrics
 OTEL_TRACES_SAMPLER_ARG=0.1  # Sample 10% of traces
@@ -1804,34 +1800,6 @@ OTEL_TRACES_SAMPLER_ARG=1.0  # Sample all traces
 - Database queries (SQL tools)
 - Authentication flows
 - Custom spans for critical operations
-
-</details>
-
-<details>
-<summary><strong>🔌 OAuth Proxy (Advanced)</strong></summary>
-
-Configuration for OAuth proxy endpoints (advanced use cases).
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `OAUTH_PROXY_AUTHORIZATION_URL` | OAuth authorization endpoint URL | None | No |
-| `OAUTH_PROXY_TOKEN_URL` | OAuth token endpoint URL | None | No |
-| `OAUTH_PROXY_REVOCATION_URL` | OAuth token revocation endpoint URL | None | No |
-| `OAUTH_PROXY_ISSUER_URL` | OAuth issuer URL for proxy | None | No |
-| `OAUTH_PROXY_SERVICE_DOCUMENTATION_URL` | Service documentation URL | None | No |
-| `OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS` | Comma-separated default redirect URIs | None | No |
-
-**Example:**
-```bash
-OAUTH_PROXY_AUTHORIZATION_URL=https://auth.example.com/oauth/authorize
-OAUTH_PROXY_TOKEN_URL=https://auth.example.com/oauth/token
-OAUTH_PROXY_REVOCATION_URL=https://auth.example.com/oauth/revoke
-OAUTH_PROXY_ISSUER_URL=https://auth.example.com
-OAUTH_PROXY_SERVICE_DOCUMENTATION_URL=https://docs.example.com/oauth
-OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS=http://localhost:3000/callback,https://app.example.com/callback
-```
-
-> **Note:** OAuth proxy features are for advanced integration scenarios. Most users should use standard OAuth authentication via `MCP_AUTH_MODE=oauth`.
 
 </details>
 
@@ -1865,7 +1833,7 @@ OTEL_ENABLED=true
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_SESSION_MODE=auto
-MCP_LOG_LEVEL=warn
+MCP_LOG_LEVEL=warning
 MCP_AUTH_MODE=ibmi  # Or jwt/oauth
 NODE_ENV=production
 
@@ -2130,6 +2098,9 @@ code .env
 **4. Run Development Server:**
 
 ```bash
+# npm runs the server from packages/server, so point it at the root .env
+export MCP_SERVER_CONFIG="$(pwd)/.env"
+
 # Start in HTTP mode
 npm run start:http
 
@@ -2209,6 +2180,8 @@ Both transport modes support these command-line options:
 | `--transport <type>` | `-t`  | Force transport type (`http` or `stdio`) (overrides `MCP_TRANSPORT_TYPE`)     | `--transport http`                |
 | `--help`             | `-h`  | Show help information                                                         | `--help`                          |
 | `--list-toolsets`    |       | List available toolsets from YAML configuration                               | `--list-toolsets`                 |
+| `--builtin-tools`    |       | Enable built-in schema discovery tools (overrides `IBMI_ENABLE_DEFAULT_TOOLS`) | `--builtin-tools`                 |
+| `--execute-sql`      |       | Enable the `execute_sql` tool (overrides `IBMI_ENABLE_EXECUTE_SQL`)           | `--execute-sql`                   |
 
 ### Common Development Scenarios
 
@@ -2290,7 +2263,7 @@ Here are the steps to run the MCP Inspector:
      "mcpServers": {
        "default-server": {
          "command": "node",
-         "args": ["dist/index.js", "--transport", "stdio", "--tools", "tools"],
+         "args": ["packages/server/dist/index.js", "--transport", "stdio", "--tools", "tools"],
          "env": {
            "NODE_OPTIONS": "--no-deprecation",
            "DB2i_HOST": "<DB2i_HOST>",
@@ -2305,7 +2278,7 @@ Here are the steps to run the MCP Inspector:
 
 3. Start the MCP Inspector
    ```bash
-   npm run mcp-inspector
+   npm run inspector
    ```
 4. Click on the URL displayed in the terminal to open the MCP Inspector in your web browser.
 
@@ -2321,7 +2294,7 @@ Here are the steps to run the MCP Inspector:
     🔍 MCP Inspector is up and running at http://127.0.0.1:6274 🚀
    ```
 
-![alt text](../docs/images/inspector.png)
+![alt text](../../docs/images/inspector.png)
 
 5. Use the MCP Inspector to explore and test your MCP server's capabilities
    - View available tools and their parameters
@@ -2332,52 +2305,10 @@ Here are the steps to run the MCP Inspector:
 
 ## Deployment
 
-For production deployments with Docker, Podman, or OpenShift, see the [Deployment Guide](../deployment/README.md).
+For production deployments with Docker, Podman, or OpenShift, see the [Deployment Guide](../../deployment/README.md).
 
 ---
 
 ## 🏗️ Built With MCP TypeScript Template
 
-This server was built using the [MCP TypeScript Template](https://github.com/cyanheads/mcp-ts-template), a production-ready foundation for building Model Context Protocol servers.
-
-### Template Features Used
-
-The template provided essential infrastructure that accelerated development:
-
-- **🔌 Transport Layer** - Pre-built stdio and HTTP (Hono) transports with session management
-- **🔭 Observability** - OpenTelemetry integration for distributed tracing and metrics
-- **🔒 Security** - Authentication middleware (JWT, OAuth, custom), input sanitization, rate limiting
-- **⚙️ Error Handling** - Structured error categorization with `BaseErrorCode` and centralized `ErrorHandler`
-- **📊 Type Safety** - TypeScript + Zod validation throughout the stack
-- **🧪 Testing Infrastructure** - Vitest integration with coverage reporting
-
-### Why This Template?
-
-The MCP TypeScript Template provided a solid architectural foundation that allowed us to focus on IBM i-specific functionality rather than building MCP infrastructure from scratch. Key benefits:
-
-1. **Production-Ready Patterns**: "Logic Throws, Handler Catches" pattern ensures consistent error handling
-2. **Modular Design**: Clear separation between core logic, handlers, and transports
-3. **Enterprise Features**: Built-in observability, security, and performance monitoring
-4. **Developer Experience**: Hot reloading, structured logging, and comprehensive tooling
-
-### Customizations for IBM i
-
-While the template provided the foundation, we added IBM i-specific capabilities:
-
-- **Mapepire Integration** - WebSocket-based Db2 for i connectivity
-- **SQL YAML Tool Configuration** - Declarative SQL tool definitions with merge capabilities
-- **IBM i HTTP Authentication** - RSA/AES encrypted credential flow with connection pooling
-- **SQL Tool Execution** - Parameterized query execution with result formatting
-- **Toolset Management** - Dynamic tool loading and filtering by toolset
-
-### Get Started with the Template
-
-If you're building your own MCP server, check out the template:
-
-```bash
-# Use the template to create your own MCP server
-npx degit cyanheads/mcp-ts-template my-mcp-server
-cd my-mcp-server
-npm install
-npm run build
-```
+This server was originally built from the [MCP TypeScript Template](https://github.com/cyanheads/mcp-ts-template).

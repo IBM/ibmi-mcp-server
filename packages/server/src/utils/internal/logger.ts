@@ -2,7 +2,6 @@
  * @fileoverview Provides a globally accessible, pre-configured Pino logger instance.
  * This module handles environment-aware logging, structured JSON output for production,
  * pretty-printing for development, and safe file-based logging for STDIO transports.
- * It integrates with the async context to automatically enrich logs with request details.
  * @module src/utils/internal/logger
  */
 import os from "os";
@@ -12,8 +11,6 @@ import pino, {
   type TransportTargetOptions,
 } from "pino";
 import { config } from "../../config/index.js";
-import { getRequestContext } from "./asyncContext.js";
-import { RequestContext } from "./requestContext.js";
 
 export type McpLogLevel =
   | "debug"
@@ -38,31 +35,16 @@ const mcpToPinoLevel: Record<McpLogLevel, pino.LevelWithSilent> = {
   emerg: "fatal",
 };
 
-export interface McpLogPayload {
-  message: string;
-  context?: RequestContext;
-  error?: {
-    message: string;
-    stack?: string;
-  };
-  [key: string]: unknown;
-}
-
-export type McpNotificationData = McpLogPayload | Record<string, unknown>;
-
-export type McpNotificationSender = (
-  level: McpLogLevel,
-  data: McpNotificationData,
-  loggerName?: string,
-) => void;
-
-let mcpNotificationSender: McpNotificationSender | undefined;
-
 function createPinoLogger(): PinoLogger {
   const isProd = config.environment === "production";
   const isStdioTransport = config.mcpTransportType === "stdio";
   const resolvedLogsDir = config.logsPath;
-  const logLevel = mcpToPinoLevel[config.logLevel as McpLogLevel] || "info";
+  // MCP_LOG_LEVEL takes the MCP level names above; `warn` (pino's spelling of
+  // `warning`) is also accepted because the README documented it through 0.6.x.
+  const logLevel =
+    config.logLevel === "warn"
+      ? "warn"
+      : mcpToPinoLevel[config.logLevel as McpLogLevel] || "info";
 
   // Build a transport target list so we can combine console + file outputs.
   const targets: TransportTargetOptions[] = [];
@@ -105,7 +87,7 @@ function createPinoLogger(): PinoLogger {
   if (isStdioTransport || isProd) {
     if (!resolvedLogsDir) {
       throw new Error(
-        "Configuration Error: LOGS_PATH must be defined for STDIO transport or production environments.",
+        "Configuration Error: LOGS_DIR must be defined for STDIO transport or production environments.",
       );
     }
   }
@@ -173,7 +155,7 @@ function createPinoLogger(): PinoLogger {
     );
   }
 
-  const pinoInstance = pino({
+  return pino({
     name: config.mcpServerName || "mcp-server",
     level: logLevel,
     timestamp: pino.stdTimeFunctions.isoTime,
@@ -193,64 +175,26 @@ function createPinoLogger(): PinoLogger {
       hostname: os.hostname(),
       env: config.environment,
     },
-    // Automatically add request context to every log message via async local storage.
-    // mixin() {
-    //   return getRequestContext() ?? {};
-    // },
     // Use Pino's standard error serializer for robust error logging.
     serializers: {
       err: pino.stdSerializers.err,
     },
     transport: targets.length > 0 ? { targets } : undefined,
   });
-
-  // Set up a global uncaught exception handler to ensure fatal errors are logged before exit.
-  process.on("uncaughtException", (err) => {
-    pinoInstance.fatal(
-      err,
-      "Uncaught exception detected. The application will now exit.",
-    );
-    process.exit(1);
-  });
-
-  return pinoInstance;
 }
 
 let mainLogger = createPinoLogger();
-let interactionLogger = createInteractionLogger();
 
-/**
- * Create the interaction logger based on current config
- */
-function createInteractionLogger(): PinoLogger {
-  if (config.logsPath) {
-    const interactionLogLevel =
-      mcpToPinoLevel[config.logLevel as McpLogLevel] || "info";
-
-    return pino({
-      name: `${config.mcpServerName || "mcp-server"}-interactions`,
-      level: interactionLogLevel,
-      timestamp: pino.stdTimeFunctions.isoTime,
-      transport: {
-        targets: [
-          {
-            target: "pino-roll",
-            options: {
-              file: path.join(config.logsPath, "interactions.log"),
-              frequency: "daily",
-              mkdir: true,
-              size: "10m",
-              limit: { count: 5 },
-            },
-            level: "info",
-          },
-        ],
-      },
-    });
-  } else {
-    return mainLogger.child({ name: "interaction-logger" });
-  }
-}
+// Set up a global uncaught exception handler to ensure fatal errors are logged before exit.
+// Registered once here rather than per instance, so reinitializeLogger() does not
+// stack listeners and the record goes to the current instance.
+process.on("uncaughtException", (err) => {
+  mainLogger.fatal(
+    err,
+    "Uncaught exception detected. The application will now exit.",
+  );
+  process.exit(1);
+});
 
 /**
  * Reinitialize the logger with updated configuration
@@ -258,10 +202,9 @@ function createInteractionLogger(): PinoLogger {
  */
 export function reinitializeLogger(): void {
   mainLogger = createPinoLogger();
-  interactionLogger = createInteractionLogger();
 }
 
-// Wrapper function to preserve the original MCP log levels and handle notifications.
+// Wrapper function to preserve the original MCP log levels.
 const logWrapper =
   (level: McpLogLevel) =>
   (obj: Error | Record<string, unknown> | string, msg?: string) => {
@@ -274,20 +217,6 @@ const logWrapper =
       mainLogger[pinoLevel]({ err: obj }, msg);
     } else {
       mainLogger[pinoLevel](obj, msg);
-    }
-
-    if (mcpNotificationSender) {
-      const payload: McpLogPayload = {
-        message:
-          typeof obj === "string"
-            ? obj
-            : msg || (obj as Error).message || "No message provided.",
-        context: getRequestContext(),
-      };
-      if (typeof obj === "object" && obj !== null) {
-        Object.assign(payload, obj);
-      }
-      mcpNotificationSender(level, payload, config.mcpServerName);
     }
   };
 
@@ -302,24 +231,9 @@ export const logger = {
   emerg: logWrapper("emerg"),
   fatal: logWrapper("emerg"), // Alias fatal to emerg for convenience
 
-  logInteraction: (interactionName: string, data: Record<string, unknown>) => {
-    interactionLogger.info({ interactionName, ...data });
-  },
-
-  setMcpNotificationSender: (sender: McpNotificationSender | undefined) => {
-    mcpNotificationSender = sender;
-  },
-
-  setLevel: (newLevel: McpLogLevel) => {
-    if (mcpToPinoLevel[newLevel]) {
-      mainLogger.level = mcpToPinoLevel[newLevel];
-    } else {
-      mainLogger.warn(
-        `Invalid MCP log level provided: ${newLevel}. Log level remains unchanged.`,
-      );
-    }
-  },
-
   // Expose the raw pino instance for advanced use cases, like passing to other libraries.
-  pino: mainLogger,
+  // A getter, so it follows the instance swap done by reinitializeLogger().
+  get pino(): PinoLogger {
+    return mainLogger;
+  },
 };

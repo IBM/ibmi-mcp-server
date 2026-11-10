@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program";
 import { applyRowLimit } from "../../src/commands/sql";
 import { writeFileSync, unlinkSync } from "fs";
 import path from "path";
@@ -180,6 +180,28 @@ describe("ibmi sql command", () => {
       process.stdout.write = originalStdout;
       process.stderr.write = originalStderr;
       try { unlinkSync(tmpFile); } catch { /* cleanup */ }
+    }
+  });
+
+  it("should reject an invalid --limit as a usage error (exit 2)", async () => {
+    const stderrWrites: string[] = [];
+    const originalStderr = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrWrites.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "--format", "table", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1", "--limit", "abc",
+      ]);
+
+      expect(stderrWrites.join("")).toContain('Invalid --limit value: "abc"');
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.stderr.write = originalStderr;
     }
   });
 

@@ -6,6 +6,7 @@
  * @module src/ibmi-mcp-server/services/authenticatedPoolManager
  */
 
+import { createHash } from "crypto";
 import { BindingValue, QueryResult } from "@ibm/mapepire-js";
 import {
   logger,
@@ -38,6 +39,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
   private static instance: AuthenticatedPoolManager;
   private tokenManager: TokenManager;
   private credentialsMap = new Map<string, IBMiCredentials>();
+  private expiredPoolTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
     super();
@@ -52,6 +54,14 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
       AuthenticatedPoolManager.instance = new AuthenticatedPoolManager();
     }
     return AuthenticatedPoolManager.instance;
+  }
+
+  /**
+   * Pool ids here are bearer tokens: log a short one-way fingerprint instead
+   * of the token itself.
+   */
+  protected describePool(token: string): string {
+    return `token:${createHash("sha256").update(token).digest("hex").substring(0, 12)}`;
   }
 
   /**
@@ -109,7 +119,17 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
         };
 
         // Initialize pool using base class method
-        await this.initializePool(token, poolConfig, operationContext);
+        try {
+          await this.initializePool(token, poolConfig, operationContext);
+        } catch (error) {
+          // Sign-on failed, so this token is never handed to a client: drop
+          // the stored credentials rather than keeping them until exit.
+          this.credentialsMap.delete(token);
+          this.pools.delete(token);
+          throw error;
+        }
+
+        this.startExpiredPoolSweep();
 
         logger.info(
           {
@@ -255,7 +275,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
   /**
    * Execute a query with automatic pagination using an authenticated pool.
    * Fetches all available rows via repeated fetchMore calls (bounded by the
-   * base pool's internal safety cap, ~30k rows).
+   * base pool's safety cap, IBMI_PAGINATION_MAX_ROWS).
    * @param token - Authentication token
    * @param query - SQL query to execute
    * @param params - Query parameters
@@ -334,7 +354,9 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
       // Use base class closePool method
       await this.closePool(token, operationContext);
 
-      // Clean up credentials mapping
+      // Drop the pool entry (it holds the connection config, including the
+      // password) and the credentials mapping
+      this.pools.delete(token);
       this.credentialsMap.delete(token);
 
       logger.info(
@@ -357,6 +379,26 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
       );
       return false;
     }
+  }
+
+  /**
+   * Start the periodic sweep that removes pools once their token is no longer
+   * valid, so connections and stored credentials do not outlive the token.
+   * Runs on the token cleanup interval. Idempotent.
+   */
+  private startExpiredPoolSweep(): void {
+    if (this.expiredPoolTimer) {
+      return;
+    }
+
+    this.expiredPoolTimer = setInterval(() => {
+      this.cleanupExpiredPools().catch(() => {
+        // best-effort
+      });
+    }, config.ibmiHttpAuth.cleanupIntervalSeconds * 1000);
+
+    // Don't let the timer prevent process exit
+    this.expiredPoolTimer.unref();
   }
 
   /**
@@ -402,30 +444,6 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
   }
 
   /**
-   * Get pool statistics
-   * @returns Statistics about authenticated pools
-   */
-  getPoolStats(): {
-    totalPools: number;
-    poolsByUser: Record<string, number>;
-  } {
-    const poolsByUser: Record<string, number> = {};
-
-    // Count pools by user from credentials map
-    for (const [token, credentials] of this.credentialsMap.entries()) {
-      if (this.pools.has(token)) {
-        const user = credentials.user;
-        poolsByUser[user] = (poolsByUser[user] || 0) + 1;
-      }
-    }
-
-    return {
-      totalPools: this.pools.size,
-      poolsByUser,
-    };
-  }
-
-  /**
    * Shutdown all pools and cleanup
    */
   async shutdown(context?: RequestContext): Promise<void> {
@@ -436,6 +454,11 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
       });
 
     const poolCount = this.pools.size;
+
+    if (this.expiredPoolTimer) {
+      clearInterval(this.expiredPoolTimer);
+      this.expiredPoolTimer = null;
+    }
 
     // Base class handles stopIdleTimer + closeAllPools
     await super.shutdown(operationContext);

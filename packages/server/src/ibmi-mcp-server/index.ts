@@ -8,28 +8,11 @@ import {
   RequestContext,
 } from "@/utils/internal/index.js";
 
-// Store server replacement callback for auto-reload
-let serverReplacementCallback: ((newServer: McpServer) => void) | null = null;
-
 // Global cache for YAML tool configurations
 let cachedToolConfigs: ToolConfigCache | null = null;
 
 // Global tool processor instance
 let toolProcessor: ToolProcessor | null = null;
-
-/**
- * Set the server replacement callback for auto-reload functionality
- * This should be called by transport managers that support server replacement
- */
-export const setServerReplacementCallback = (
-  callback: (newServer: McpServer) => void,
-): void => {
-  serverReplacementCallback = callback;
-  logger.debug(
-    {},
-    "Server replacement callback registered for YAML auto-reload",
-  );
-};
 
 export const registerSQLTools = async (server: McpServer): Promise<void> => {
   // Load YAML tools if configured
@@ -91,7 +74,7 @@ export const registerSQLTools = async (server: McpServer): Promise<void> => {
 
           // Setup auto-reload if enabled
           if (config.yamlAutoReload) {
-            await setupAutoReload(server, context);
+            await setupAutoReload(context);
           }
         } else {
           logger.error(
@@ -126,16 +109,10 @@ export const registerSQLTools = async (server: McpServer): Promise<void> => {
 
 /**
  * Setup auto-reload functionality for YAML configuration changes
- * @param server - MCP server instance
  * @param context - Request context
  * @private
  */
-async function setupAutoReload(
-  server: McpServer,
-  context: RequestContext,
-): Promise<void> {
-  const { ToolProcessor } = await import("./utils/config/toolProcessor.js");
-
+async function setupAutoReload(context: RequestContext): Promise<void> {
   ToolProcessor.registerChangeCallback(
     async (filePath, eventType, changeContext) => {
       const rebuildContext =
@@ -173,11 +150,6 @@ async function setupAutoReload(
 
             // Update global processor reference
             toolProcessor = newProcessor;
-
-            // Call server replacement callback if available
-            if (serverReplacementCallback) {
-              serverReplacementCallback(server);
-            }
           } else {
             logger.error(
               rebuildContext,

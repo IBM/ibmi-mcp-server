@@ -37,11 +37,9 @@ if (process.env.MCP_SERVER_CONFIG) {
       console.error(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
     }
   } else {
-    if (process.stdout.isTTY) {
-      console.error(
-        `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to default search.`,
-      );
-    }
+    console.error(
+      `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to default search.`,
+    );
   }
 }
 
@@ -196,42 +194,6 @@ const EnvSchema = z.object({
   OAUTH_AUDIENCE: z.string().optional(),
   DEV_MCP_CLIENT_ID: z.string().optional(),
   DEV_MCP_SCOPES: z.string().optional(),
-  OPENROUTER_APP_URL: z
-    .string()
-    .url("OPENROUTER_APP_URL must be a valid URL (e.g., http://localhost:3000)")
-    .optional(),
-  OPENROUTER_APP_NAME: z.string().optional(),
-  OPENROUTER_API_KEY: z.string().optional(),
-  LLM_DEFAULT_MODEL: z.string().default("google/gemini-2.5-flash"),
-  LLM_DEFAULT_TEMPERATURE: z.coerce.number().min(0).max(2).optional(),
-  LLM_DEFAULT_TOP_P: z.coerce.number().min(0).max(1).optional(),
-  LLM_DEFAULT_MAX_TOKENS: z.coerce.number().int().positive().optional(),
-  LLM_DEFAULT_TOP_K: z.coerce.number().int().nonnegative().optional(),
-  LLM_DEFAULT_MIN_P: z.coerce.number().min(0).max(1).optional(),
-  OAUTH_PROXY_AUTHORIZATION_URL: z
-    .string()
-    .url("OAUTH_PROXY_AUTHORIZATION_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_TOKEN_URL: z
-    .string()
-    .url("OAUTH_PROXY_TOKEN_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_REVOCATION_URL: z
-    .string()
-    .url("OAUTH_PROXY_REVOCATION_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_ISSUER_URL: z
-    .string()
-    .url("OAUTH_PROXY_ISSUER_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_SERVICE_DOCUMENTATION_URL: z
-    .string()
-    .url("OAUTH_PROXY_SERVICE_DOCUMENTATION_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS: z.string().optional(),
-  SUPABASE_URL: z.string().url("SUPABASE_URL must be a valid URL.").optional(),
-  SUPABASE_ANON_KEY: z.string().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
   // --- START: OpenTelemetry Configuration ---
   /** If 'true', OpenTelemetry will be initialized and enabled. Default: 'false'. */
@@ -438,12 +400,12 @@ const EnvSchema = z.object({
 const parsedEnv = EnvSchema.safeParse(process.env);
 
 if (!parsedEnv.success) {
-  if (process.stdout.isTTY) {
-    console.error(
-      "❌ Invalid environment variables found:",
-      parsedEnv.error.flatten().fieldErrors,
-    );
-  }
+  // Always report this (stderr is safe under the stdio transport): on failure
+  // every environment-derived setting below falls back to its default.
+  console.error(
+    "❌ Invalid environment variables found; ALL environment-derived settings fall back to their defaults:",
+    parsedEnv.error.flatten().fieldErrors,
+  );
 }
 
 const env = parsedEnv.success ? parsedEnv.data : EnvSchema.parse({});
@@ -621,42 +583,6 @@ export const config = {
   oauthAudience: env.OAUTH_AUDIENCE,
   devMcpClientId: env.DEV_MCP_CLIENT_ID,
   devMcpScopes: env.DEV_MCP_SCOPES?.split(",").map((s) => s.trim()),
-  openrouterAppUrl: env.OPENROUTER_APP_URL || "http://localhost:3000",
-  openrouterAppName: env.OPENROUTER_APP_NAME || pkg.name || "ibmi-mcp-server",
-  openrouterApiKey: env.OPENROUTER_API_KEY,
-  llmDefaultModel: env.LLM_DEFAULT_MODEL,
-  llmDefaultTemperature: env.LLM_DEFAULT_TEMPERATURE,
-  llmDefaultTopP: env.LLM_DEFAULT_TOP_P,
-  llmDefaultMaxTokens: env.LLM_DEFAULT_MAX_TOKENS,
-  llmDefaultTopK: env.LLM_DEFAULT_TOP_K,
-  llmDefaultMinP: env.LLM_DEFAULT_MIN_P,
-  oauthProxy:
-    env.OAUTH_PROXY_AUTHORIZATION_URL ||
-    env.OAUTH_PROXY_TOKEN_URL ||
-    env.OAUTH_PROXY_REVOCATION_URL ||
-    env.OAUTH_PROXY_ISSUER_URL ||
-    env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL ||
-    env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS
-      ? {
-          authorizationUrl: env.OAUTH_PROXY_AUTHORIZATION_URL,
-          tokenUrl: env.OAUTH_PROXY_TOKEN_URL,
-          revocationUrl: env.OAUTH_PROXY_REVOCATION_URL,
-          issuerUrl: env.OAUTH_PROXY_ISSUER_URL,
-          serviceDocumentationUrl: env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL,
-          defaultClientRedirectUris:
-            env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS?.split(",")
-              .map((uri) => uri.trim())
-              .filter(Boolean),
-        }
-      : undefined,
-  supabase:
-    env.SUPABASE_URL && env.SUPABASE_ANON_KEY
-      ? {
-          url: env.SUPABASE_URL,
-          anonKey: env.SUPABASE_ANON_KEY,
-          serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-        }
-      : undefined,
   openTelemetry: {
     enabled: env.OTEL_ENABLED,
     serviceName: env.OTEL_SERVICE_NAME || env.MCP_SERVER_NAME || pkg.name,
@@ -785,7 +711,6 @@ if (config.ibmiHttpAuth.enabled) {
   }
 }
 
-export const logLevel: string = config.logLevel;
 export const environment: string = config.environment;
 
 /**

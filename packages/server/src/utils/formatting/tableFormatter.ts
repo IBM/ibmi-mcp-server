@@ -6,11 +6,11 @@
  */
 
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { logger } from "@/utils/internal/logger.js";
 import {
   type RequestContext,
-  logger,
   requestContextService,
-} from "@/utils/index.js";
+} from "@/utils/internal/requestContext.js";
 
 /**
  * Table output style options.
@@ -284,20 +284,34 @@ export class TableFormatter {
       alignment: { ...this.defaultOptions.alignment, ...options?.alignment },
     };
 
+    // Keep every cell on one line and, for markdown, escape the column
+    // delimiter, so cell content cannot break the table structure. Backslashes
+    // directly before a pipe are doubled so they do not cancel the escape.
+    const cleanCell = (text: string): string => {
+      const singleLine = text.replace(/\r\n|\r|\n/g, " ");
+      return opts.style === "markdown"
+        ? singleLine.replace(/(\\*)\|/g, "$1$1\\|")
+        : singleLine;
+    };
+    const cleanRows = rows.map((row) => row.map(cleanCell));
+
     // Apply header styling
-    const styledHeaders = this.applyHeaderStyle(headers, opts.headerStyle);
+    const styledHeaders = this.applyHeaderStyle(
+      headers.map(cleanCell),
+      opts.headerStyle,
+    );
 
     // Calculate column widths and metadata
     const columns = this.calculateColumns(
       styledHeaders,
-      rows,
+      cleanRows,
       opts,
       logContext,
     );
 
     // Render table based on style
     try {
-      const result = this.renderTable(columns, styledHeaders, rows, opts);
+      const result = this.renderTable(columns, styledHeaders, cleanRows, opts);
 
       logger.debug(
         {
@@ -316,6 +330,7 @@ export class TableFormatter {
         {
           ...logContext,
           error: err.message,
+          stack: err.stack,
         },
         "Failed to render table",
       );
@@ -323,7 +338,7 @@ export class TableFormatter {
       throw new McpError(
         JsonRpcErrorCode.InternalError,
         `Failed to render table: ${err.message}`,
-        { ...logContext, originalError: err.stack },
+        logContext,
       );
     }
   }
@@ -554,9 +569,10 @@ export class TableFormatter {
 
       // Calculate max content width for this column
       const headerWidth = header.length;
-      const maxContentWidth = Math.max(
-        ...rows.map((row) => (row[index] || "").length),
-      );
+      let maxContentWidth = 0;
+      for (const row of rows) {
+        maxContentWidth = Math.max(maxContentWidth, (row[index] || "").length);
+      }
 
       // Determine final width (respecting min/max constraints)
       let width = Math.max(headerWidth, maxContentWidth);
@@ -779,7 +795,11 @@ export class TableFormatter {
 
     // Truncate if needed
     if (options.truncate && text.length > column.width) {
-      text = text.substring(0, column.width - 3) + "...";
+      let end = column.width - 3;
+      // Do not cut a surrogate pair in half
+      const lastUnit = text.charCodeAt(end - 1);
+      if (lastUnit >= 0xd800 && lastUnit <= 0xdbff) end--;
+      text = text.substring(0, end) + "...";
     }
 
     // Apply alignment padding

@@ -5,15 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const tsconfigRootDir = fileURLToPath(new URL(".", import.meta.url));
 
-const combinedGlobals = { ...globals.browser, ...globals.node };
-const trimmedGlobals = Object.fromEntries(
-  Object.entries(combinedGlobals).map(([key, value]) => [key.trim(), value]),
-);
-
 export default [
   {
     languageOptions: {
-      globals: trimmedGlobals,
+      globals: globals.node,
       parserOptions: { tsconfigRootDir },
     },
   },

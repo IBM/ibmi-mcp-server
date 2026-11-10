@@ -391,21 +391,4 @@ export class SQLToolFactory {
           );
     }
   }
-
-  /**
-   * Get initialized state
-   * @returns Whether the executor is initialized
-   */
-  static isInitialized(): boolean {
-    return !!this.sourceManager;
-  }
-
-  /**
-   * Get the source manager instance (for testing)
-   * @returns Source manager instance
-   * @internal
-   */
-  static getSourceManager(): SourceManager | undefined {
-    return this.sourceManager;
-  }
 }

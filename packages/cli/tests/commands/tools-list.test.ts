@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program";
 
 describe("ibmi tools command", () => {
   it("should register the tools command", () => {

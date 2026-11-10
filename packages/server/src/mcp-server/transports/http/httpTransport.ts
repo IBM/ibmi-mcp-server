@@ -33,7 +33,6 @@ import { AutoTransportManager } from "../core/autoTransportManager.js";
 import { StatelessTransportManager } from "../core/statelessTransportManager.js";
 import { TransportManager, TransportResponse } from "../core/transportTypes.js";
 import { StatefulTransportManager } from "./../core/statefulTransportManager.js";
-import { setServerReplacementCallback } from "@/ibmi-mcp-server/index.js";
 import { httpErrorHandler } from "./httpErrorHandler.js";
 import { HonoNodeBindings } from "./httpTypes.js";
 import {
@@ -62,14 +61,6 @@ function getClientIp(c: Context<{ Bindings: HonoNodeBindings }>): string {
     "unknown_ip"
   );
 }
-
-/**
- * Converts a Fetch API Headers object to Node.js IncomingHttpHeaders.
- * Hono uses Fetch API Headers, but the underlying transport managers expect
- * Node's native IncomingHttpHeaders.
- * @param headers - The Headers object to convert.
- * @returns An object compatible with IncomingHttpHeaders.
- */
 
 async function isPortInUse(
   port: number,
@@ -220,7 +211,6 @@ function createTransportManager(
 
   const statefulOptions = {
     staleSessionTimeoutMs: config.mcpStatefulSessionStaleTimeoutMs,
-    mcpHttpEndpointPath: config.mcpHttpEndpointPath,
   };
 
   switch (sessionMode) {
@@ -270,7 +260,6 @@ type HonoAppEnv = {
 
 export function createHttpApp(
   transportManager: TransportManager,
-  createServerInstanceFn: () => Promise<McpServer>,
   parentContext: RequestContext,
 ): Hono<HonoAppEnv> {
   const app = new Hono<HonoAppEnv>();
@@ -310,9 +299,11 @@ export function createHttpApp(
       allowHeaders: [
         "Content-Type",
         "Mcp-Session-Id",
+        "Mcp-Protocol-Version",
         "Last-Event-ID",
         "Authorization",
       ],
+      exposeHeaders: ["Mcp-Session-Id"],
       credentials: true,
     }),
   );
@@ -419,38 +410,40 @@ export function createHttpApp(
     );
   }
 
-  app.get(
-    MCP_ENDPOINT_PATH,
-    async (c: Context<{ Bindings: HonoNodeBindings }>) => {
-      const sessionId = c.req.header("mcp-session-id");
-      if (sessionId) {
-        return c.text(
-          "GET requests to existing sessions are not supported.",
-          405,
-        );
-      }
+  app.get(MCP_ENDPOINT_PATH, (c: Context<{ Bindings: HonoNodeBindings }>) => {
+    const sessionId = c.req.header("mcp-session-id");
+    if (sessionId) {
+      return c.text(
+        "GET requests to existing sessions are not supported.",
+        405,
+      );
+    }
 
-      // Since this is a stateless endpoint, we create a temporary instance
-      // to report on the server's configuration.
-      const serverInstance = await createServerInstanceFn();
-      await serverInstance.close(); // ensure cleanup
-      return c.json({
-        status: "ok",
-        server: {
-          name: config.mcpServerName,
-          version: config.mcpServerVersion,
-          description:
-            (config.pkg as { description?: string })?.description ||
-            "No description provided.",
-          nodeVersion: process.version,
-          environment: config.environment,
-        },
-        sessionMode: config.mcpSessionMode,
-        message:
-          "Server is running. POST to this endpoint to execute a tool call.",
-      });
-    },
-  );
+    // A GET that accepts text/event-stream is an MCP client opening the
+    // standalone SSE stream. This server does not offer one, and the spec
+    // requires 405 in that case; any 2xx makes clients treat the body as a
+    // stream and re-poll.
+    if (c.req.header("accept")?.includes("text/event-stream")) {
+      c.header("Allow", "POST, DELETE");
+      return c.text("SSE streams are not supported on this endpoint.", 405);
+    }
+
+    return c.json({
+      status: "ok",
+      server: {
+        name: config.mcpServerName,
+        version: config.mcpServerVersion,
+        description:
+          (config.pkg as { description?: string })?.description ||
+          "No description provided.",
+        nodeVersion: process.version,
+        environment: config.environment,
+      },
+      sessionMode: config.mcpSessionMode,
+      message:
+        "Server is running. POST to this endpoint to execute a tool call.",
+    });
+  });
 
   app.post(MCP_ENDPOINT_PATH, mcpTransportMiddleware(transportManager), (c) => {
     const response = c.get("mcpResponse");
@@ -483,9 +476,12 @@ export function createHttpApp(
       return stream(c, async (s) => {
         await s.pipe(response.stream);
       });
+    } else if (response.body === null || response.body === undefined) {
+      // e.g. 202 Accepted for notifications: the spec requires an empty body.
+      return c.body(null);
     } else {
       const body =
-        typeof response.body === "object" && response.body !== null
+        typeof response.body === "object"
           ? response.body
           : { body: response.body };
       return c.json(body);
@@ -595,68 +591,7 @@ export async function startHttpTransport(
     // Continue with startup even if pre-loading fails
   }
 
-  // Register server replacement callback for YAML auto-reload if the transport manager supports it
-  if (transportManager && "replaceAllServerInstances" in transportManager) {
-    const callbackContext = {
-      ...transportContext,
-      operation: "RegisterServerReplacementCallback",
-    };
-
-    logger.debug(
-      callbackContext,
-      "Registering server replacement callback for HTTP transport manager",
-    );
-
-    setServerReplacementCallback(async (_newServer) => {
-      const replacementContext = {
-        ...callbackContext,
-        operation: "ReplaceServerInstancesViaCallback",
-      };
-
-      logger.info(
-        replacementContext,
-        "YAML auto-reload triggered, replacing server instances in HTTP transport manager",
-      );
-
-      try {
-        // The transport manager will handle replacing its managed server instances
-        // We don't directly use the newServer parameter since the transport manager
-        // creates its own server instances via createServerInstanceFn
-        if (
-          "replaceAllServerInstances" in transportManager &&
-          typeof transportManager.replaceAllServerInstances === "function"
-        ) {
-          await transportManager.replaceAllServerInstances();
-        }
-
-        logger.info(
-          replacementContext,
-          "HTTP transport manager server instances replaced successfully",
-        );
-      } catch (error) {
-        logger.error(
-          replacementContext,
-          `Failed to replace server instances in HTTP transport manager: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    });
-
-    logger.info(
-      callbackContext,
-      `Server replacement callback registered for ${config.mcpSessionMode} transport mode`,
-    );
-  } else {
-    logger.debug(
-      transportContext,
-      `Transport manager (${config.mcpSessionMode}) does not support server replacement - auto-reload will only work for new connections`,
-    );
-  }
-
-  const app = createHttpApp(
-    transportManager,
-    createServerInstanceFn,
-    transportContext,
-  );
+  const app = createHttpApp(transportManager, transportContext);
 
   const server = await startHttpServerWithRetry(
     app,

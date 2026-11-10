@@ -207,14 +207,14 @@ parameters:
         type: integer
         description: "Maximum number of rows to return"
         required: false
-        minimum: 1
-        maximum: 1000
+        min: 1
+        max: 1000
         default: 50
     ```
 
     **Validation options:**
-    - `minimum` - Minimum value (inclusive)
-    - `maximum` - Maximum value (inclusive)
+    - `min` - Minimum value (inclusive)
+    - `max` - Maximum value (inclusive)
     - `default` - Default value if not provided
 
     **Usage in SQL:**
@@ -481,8 +481,8 @@ When the paginated result hits `IBMI_PAGINATION_MAX_ROWS`, the server truncates 
           - name: limit
             type: integer
             default: 500
-            minimum: 1
-            maximum: 500
+            min: 1
+            max: 500
     ```
 
     **Use when:**
@@ -702,13 +702,13 @@ tools:
         type: integer
         description: "Number of results per page"
         default: 10
-        minimum: 1
-        maximum: 100
+        min: 1
+        max: 100
       - name: page_number
         type: integer
         description: "Page number (starting from 1)"
         default: 1
-        minimum: 1
+        min: 1
 ```
 
 ### Tool with Security Configuration
@@ -797,7 +797,7 @@ tools:
     **Always validate:**
     - String patterns for IBM i names: `^[A-Z][A-Z0-9_]*$`
     - String lengths: `maxLength: 10` for library names
-    - Integer ranges: `minimum: 1, maximum: 1000`
+    - Integer ranges: `min: 1, max: 1000`
     - Required vs optional: Mark appropriately
 
     **Example:**

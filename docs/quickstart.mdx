@@ -13,11 +13,11 @@ Complete these prerequisites before starting the installation:
 
 <Steps>
   <Step title="Verify Node.js Installation">
-    Ensure Node.js 18 or higher is installed on your development machine:
+    Ensure Node.js 20 or higher is installed on your development machine:
 
     ```bash
     node --version
-    # Should show v18.0.0 or higher
+    # Should show v20.0.0 or higher
     ```
 
     **Don't have Node.js?** Download from [nodejs.org](https://nodejs.org/)
@@ -100,7 +100,8 @@ Choose your installation method based on your needs:
 
     <Note>
     **Repository Structure**: The IBM i MCP Server follows a modular architecture:
-    - `server/` - MCP server implementation (main package)
+    - `packages/server/` - MCP server implementation (`@ibm/ibmi-mcp-server`)
+    - `packages/cli/` - `ibmi` command-line interface (`@ibm/ibmi-cli`)
     - `tools/` - SQL tool YAML configurations
     - `agents/` - Agent implementations and examples
     - `deployment/` - Deployment configurations (Docker, Gateway, OpenShift)
@@ -127,10 +128,10 @@ Choose your installation method based on your needs:
     <Success>
     ✓ **Verify the build succeeded:**
     - No error messages in the output
-    - `dist/` directory was created
-    - `dist/index.js` exists
+    - `packages/server/dist/` directory was created
+    - `packages/server/dist/index.js` exists
 
-    **Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
+    **Build failed?** Check that Node.js 20+ is installed and all dependencies downloaded successfully.
     </Success>
 
     **Benefits:**
@@ -344,8 +345,10 @@ Start the server in HTTP mode with your new SQL tool:
 
   <Tab title="Build from Source">
     ```bash
-    # From server/ directory
-    npm run start:http -- --tools ../tools/quickstart.yaml
+    # From the repository root (the server runs with packages/server as its working directory,
+    # so point it at the root .env and give the tools path relative to packages/server)
+    export MCP_SERVER_CONFIG="$(pwd)/.env"
+    npm run start:http -- --tools ../../tools/quickstart.yaml
     ```
 
     **Session Modes**:
@@ -374,18 +377,12 @@ Start the server in HTTP mode with your new SQL tool:
 You should see output similar to:
 
 ```
-✓ Server ready!
-  Transport: http
-  Host: 127.0.0.1:3010
-  Endpoint: http://127.0.0.1:3010/mcp
-  Tools loaded: 1
+🚀 MCP Server running at: http://127.0.0.1:3010/mcp
 ```
 
 <Success>
 ✓ **Verify the server started successfully:**
-- See "Server ready!" message
-- HTTP endpoint is displayed (or "Stdio ready" for stdio mode)
-- Number of tools loaded shown (should be > 0)
+- See "MCP Server running at" message with the HTTP endpoint
 - No error messages about Mapepire connection
 - Server process remains running (doesn't exit immediately)
 
@@ -625,7 +622,7 @@ Your MCP server is now ready for:
   <Card title="Configuration" icon="gear" href="/configuration">
     Explore all configuration options and environment variables
   </Card>
-  <Card title="Agent Development" icon="robot" href="/agents/building-agents">
+  <Card title="Agent Development" icon="robot" href="/agents/overview">
     Build sophisticated AI agents that understand IBM i concepts
   </Card>
 </CardGroup>
@@ -654,7 +651,7 @@ Your MCP server is now ready for:
   </Accordion>
 
   <Accordion title="Tools Not Loading" icon="">
-    - Check that `prebuiltconfigs/` directory exists
+    - Check that the `--tools` path (or `TOOLS_YAML_PATH`) points to an existing file or directory
     - Verify your YAML tool configurations are valid
     - Use `--list-toolsets` to see available tools:
     ```bash

@@ -7,8 +7,15 @@
 import { readFileSync } from "fs";
 import { Command } from "commander";
 import { withConnection, getFormat, createCliContext } from "../utils/command-helpers.js";
-import { renderMessage, renderMultiSystemOutput, renderMultiSystemNdjson } from "../formatters/output.js";
-import { ExitCode } from "../utils/exit-codes.js";
+import {
+  renderError,
+  renderMessage,
+  renderMultiSystemOutput,
+  renderMultiSystemNdjson,
+  setOutputFile,
+  finalizeOutput,
+} from "../formatters/output.js";
+import { ExitCode, ErrorCode, classifyError } from "../utils/exit-codes.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 /**
@@ -98,6 +105,24 @@ export function registerSqlCommand(program: Command): void {
         return;
       }
 
+      // Validate --limit before connecting so a bad value is a usage error
+      let limit: number | undefined;
+      if (opts["limit"]) {
+        limit = parseInt(opts["limit"] as string, 10);
+        if (isNaN(limit) || limit <= 0) {
+          renderError(
+            new Error(
+              `Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`,
+            ),
+            getFormat(cmd),
+            undefined,
+            ErrorCode.USAGE_ERROR,
+          );
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+      }
+
       // Multi-system detection
       const systemFlag = cmd.optsWithGlobals()["system"] as string | undefined;
       if (systemFlag && systemFlag.includes(",")) {
@@ -110,7 +135,7 @@ export function registerSqlCommand(program: Command): void {
           return;
         }
 
-        await handleMultiSystemSql(sql, opts, cmd, systemFlag);
+        await handleMultiSystemSql(sql, opts, cmd, systemFlag, limit);
         return;
       }
 
@@ -122,10 +147,10 @@ export function registerSqlCommand(program: Command): void {
 
         // Confirm execution if system requires it
         if (resolved.config.confirm && process.stdin.isTTY) {
-          const { promptPassword } = await import(
+          const { promptLine } = await import(
             "../config/credentials.js"
           );
-          const answer = await promptPassword(
+          const answer = await promptLine(
             `Execute on [${resolved.name}]? (y/N) `,
           );
           if (answer.toLowerCase() !== "y") {
@@ -134,15 +159,7 @@ export function registerSqlCommand(program: Command): void {
         }
 
         // Apply maxRows limit
-        let execSql = sql;
-        let maxRows = resolved.config.maxRows;
-        if (opts["limit"]) {
-          maxRows = parseInt(opts["limit"] as string, 10);
-          if (isNaN(maxRows) || maxRows <= 0) {
-            throw new Error(`Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`);
-          }
-        }
-        execSql = applyRowLimit(execSql, maxRows);
+        const execSql = applyRowLimit(sql, limit ?? resolved.config.maxRows);
 
         // Configure execute_sql tool security before importing
         const { configureExecuteSqlTool, executeSqlTool } = await import(
@@ -192,9 +209,15 @@ async function handleMultiSystemSql(
   opts: Record<string, unknown>,
   cmd: Command,
   systemFlag: string,
+  limit: number | undefined,
 ): Promise<void> {
   const format = getFormat(cmd);
   const isStream = cmd.optsWithGlobals()["stream"] === true;
+  const outputPath = cmd.optsWithGlobals()["output"] as string | undefined;
+
+  if (outputPath) {
+    setOutputFile(outputPath);
+  }
 
   try {
     const { resolveSystems } = await import("../config/resolver.js");
@@ -220,17 +243,8 @@ async function handleMultiSystemSql(
     }
 
     // Respect the most restrictive system's row limit when none is explicit
-    let maxRows: number | undefined;
-    if (opts["limit"]) {
-      maxRows = parseInt(opts["limit"] as string, 10);
-      if (isNaN(maxRows) || maxRows <= 0) {
-        process.stderr.write(
-          `Error: Invalid --limit value: "${opts["limit"]}". Must be a positive integer.\n`,
-        );
-        process.exitCode = ExitCode.USAGE;
-        return;
-      }
-    } else {
+    let maxRows = limit;
+    if (maxRows === undefined) {
       maxRows = Math.min(
         ...systems.map((s) => s.config.maxRows ?? Infinity),
       );
@@ -242,7 +256,9 @@ async function handleMultiSystemSql(
     const results = await executeMultiSystem(
       systems,
       async (sourceName, mgr, ctx) => {
-        const result = await mgr.executeQuery(
+        // Paginate like the single-system path; a plain executeQuery stops
+        // at the driver's default page of 100 rows.
+        const result = await mgr.executeQueryWithPagination(
           sourceName,
           execSql,
           [],
@@ -259,9 +275,11 @@ async function handleMultiSystemSql(
       renderMultiSystemOutput(results, format);
     }
   } catch (err) {
-    const { renderError } = await import("../formatters/output.js");
     const error = err instanceof Error ? err : new Error(String(err));
-    renderError(error, format);
-    process.exitCode = ExitCode.GENERAL;
+    const classified = classifyError(error);
+    renderError(error, format, undefined, classified.errorCode);
+    process.exitCode = classified.exitCode;
+  } finally {
+    if (outputPath) finalizeOutput();
   }
 }

@@ -26,18 +26,6 @@ export const GLOBAL_TOOLS = [
 ] as const;
 
 /**
- * Toolset information for MCP tool metadata
- */
-export interface ToolsetInfo {
-  /** Tool name */
-  toolName: string;
-  /** Toolsets this tool belongs to */
-  toolsets: string[];
-  /** Toolset metadata for MCP */
-  toolsetMetadata: Record<string, SqlToolsetConfig>;
-}
-
-/**
  * Toolset statistics
  */
 export interface ToolsetStats {
@@ -172,39 +160,6 @@ export class ToolsetManager {
   }
 
   /**
-   * Get toolset information for a specific tool
-   * @param toolName - Name of the tool
-   * @returns Toolset information for the tool
-   */
-  getToolsetInfo(toolName: string): ToolsetInfo {
-    let toolsets = this.toolToToolsets.get(toolName) || [];
-
-    // If this is a global tool but not in the mapping, add it to all toolsets
-    if (
-      (GLOBAL_TOOLS as readonly string[]).includes(toolName) &&
-      toolsets.length === 0
-    ) {
-      toolsets = Object.keys(this.toolsetConfig);
-    }
-
-    const toolsetMetadata: Record<string, SqlToolsetConfig> = {};
-
-    // Build toolset metadata for the tool
-    for (const toolsetName of toolsets) {
-      const toolset = this.toolsetConfig[toolsetName];
-      if (toolset) {
-        toolsetMetadata[toolsetName] = toolset;
-      }
-    }
-
-    return {
-      toolName,
-      toolsets,
-      toolsetMetadata,
-    };
-  }
-
-  /**
    * Get all tools in a specific toolset
    * @param toolsetName - Name of the toolset
    * @returns Array of tool names in the toolset
@@ -255,88 +210,6 @@ export class ToolsetManager {
       totalTools: this.toolToToolsets.size,
       multiToolsetTools,
       toolsetCounts,
-    };
-  }
-
-  /**
-   * Check if a tool belongs to a specific toolset
-   * @param toolName - Name of the tool
-   * @param toolsetName - Name of the toolset
-   * @returns True if the tool belongs to the toolset
-   */
-  isToolInToolset(toolName: string, toolsetName: string): boolean {
-    const toolsets = this.toolToToolsets.get(toolName) || [];
-    return toolsets.includes(toolsetName);
-  }
-
-  /**
-   * Get all tools with their toolset memberships
-   * @returns Map of tool names to their toolset arrays
-   */
-  getAllToolToolsetMappings(): Map<string, string[]> {
-    return new Map(this.toolToToolsets);
-  }
-
-  /**
-   * Filter tools by toolset
-   * @param toolsetName - Name of the toolset to filter by
-   * @param allTools - Array of all tool names
-   * @returns Array of tool names that belong to the toolset
-   */
-  filterToolsByToolset(toolsetName: string, allTools: string[]): string[] {
-    const toolsInToolset = this.getToolsInToolset(toolsetName);
-    return allTools.filter((toolName) => toolsInToolset.includes(toolName));
-  }
-
-  /**
-   * Generate MCP tool metadata with toolset information
-   * @param toolName - Name of the tool
-   * @param additionalMetadata - Additional metadata to merge
-   * @returns Metadata object suitable for MCP tool registration
-   */
-  generateToolMetadata(
-    toolName: string,
-    additionalMetadata: Record<string, unknown> = {},
-  ): Record<string, unknown> {
-    const toolsetInfo = this.getToolsetInfo(toolName);
-
-    return {
-      ...additionalMetadata,
-      toolsets: toolsetInfo.toolsets,
-      toolsetMetadata: toolsetInfo.toolsetMetadata,
-      toolsetCount: toolsetInfo.toolsets.length,
-    };
-  }
-
-  /**
-   * Clear all toolset data (for testing)
-   */
-  clearAll(): void {
-    this.toolsetConfig = {};
-    this.toolToToolsets.clear();
-    this.toolsetToTools.clear();
-  }
-
-  /**
-   * Get a summary of the toolset manager state
-   * @returns Summary object with current state
-   */
-  getSummary(): {
-    toolsetCount: number;
-    toolCount: number;
-    totalMappings: number;
-    toolsWithMultipleToolsets: number;
-  } {
-    const stats = this.getToolsetStats();
-
-    return {
-      toolsetCount: stats.totalToolsets,
-      toolCount: stats.totalTools,
-      totalMappings: Array.from(this.toolToToolsets.values()).reduce(
-        (sum, toolsets) => sum + toolsets.length,
-        0,
-      ),
-      toolsWithMultipleToolsets: stats.multiToolsetTools.length,
     };
   }
 }

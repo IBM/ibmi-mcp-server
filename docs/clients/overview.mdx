@@ -343,7 +343,7 @@ For detailed setup instructions, click on any client card above or navigate usin
   </Accordion>
 
   <Accordion title="Tools Not Loading">
-    - Validate YAML configuration: `npm run validate -- --config tools`
+    - Validate YAML configuration: `npm run validate -- --tools-dir tools`
     - Check file permissions on tools directory
     - Use `--list-toolsets` to see available tools
     - Review server startup logs for parsing errors
@@ -355,7 +355,7 @@ For detailed setup instructions, click on any client card above or navigate usin
     {
       "command": "node",
       "args": [
-        "/absolute/path/to/ibmi-mcp-server/dist/index.js",
+        "/absolute/path/to/ibmi-mcp-server/packages/server/dist/index.js",
         "--tools",
         "/absolute/path/to/tools"
       ]

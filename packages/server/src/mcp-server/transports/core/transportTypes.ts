@@ -15,11 +15,15 @@ import { McpTransportRequest } from "./transportRequest.js";
 export type HttpStatusCode =
   | 200 // OK
   | 201 // Created
+  | 202 // Accepted
   | 400 // Bad Request
   | 401 // Unauthorized
   | 403 // Forbidden
   | 404 // Not Found
+  | 405 // Method Not Allowed
+  | 406 // Not Acceptable
   | 409 // Conflict
+  | 415 // Unsupported Media Type
   | 429 // Too Many Requests
   | 500 // Internal Server Error
   | 502 // Bad Gateway
@@ -132,11 +136,4 @@ export interface StatefulTransportManager extends TransportManager {
     sessionId: string,
     context: RequestContext,
   ): Promise<TransportResponse>;
-
-  /**
-   * Retrieves information about a specific session.
-   * @param sessionId The ID of the session to retrieve.
-   * @returns A TransportSession object if the session exists, otherwise undefined.
-   */
-  getSession(sessionId: string): TransportSession | undefined;
 }

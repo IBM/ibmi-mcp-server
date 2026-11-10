@@ -8,9 +8,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { load as yamlLoad } from "js-yaml";
-import { ProcessedSQLTool } from "./types.js";
 import { ParsingResult, SqlToolsConfig } from "../../schemas/index.js";
-import { SqlToolParameter } from "../../schemas/index.js";
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
   requestContextService,
@@ -20,7 +18,6 @@ import {
 // Import schemas from centralized location
 import {
   SqlToolsConfigSchema,
-  SqlToolParameterSchema,
   SqlToolSecurityConfig,
 } from "@/ibmi-mcp-server/schemas/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
@@ -169,9 +166,6 @@ export class ConfigParser {
           };
         }
 
-        // Process tools
-        const processedTools = this.processTools(config);
-
         // Count disabled tools
         const totalTools = config.tools ? Object.keys(config.tools).length : 0;
         const disabledTools = config.tools
@@ -208,7 +202,6 @@ export class ConfigParser {
         return {
           success: true,
           config,
-          processedTools,
           stats,
         };
       },
@@ -248,65 +241,8 @@ export class ConfigParser {
         {
           ...context,
           varName,
-          envValue: envValue.substring(0, 10) + "...", // Only show first 10 chars for security
         },
         `Environment variable ${varName} found and substituted`,
-      );
-      return envValue;
-    });
-  }
-
-  /**
-   * Interpolate environment variables using client-provided environment
-   * Supports ${VAR_NAME} syntax
-   *
-   * NOT USED CURRENTLY
-   * @param content - Content string with environment variable placeholders
-   * @param clientEnvironment - Environment variables provided by the client
-   * @param context - Request context for logging
-   * @returns Content with environment variables interpolated
-   */
-  static interpolateClientEnvironmentVariables(
-    content: string,
-    clientEnvironment: Record<string, string> = {},
-    context?: RequestContext,
-  ): string {
-    const operationContext =
-      context ||
-      requestContextService.createRequestContext({
-        operation: "InterpolateClientEnvironmentVariables",
-      });
-
-    logger.debug(
-      {
-        ...operationContext,
-        contentLength: content.length,
-        availableClientVars: Object.keys(clientEnvironment),
-      },
-      "Starting client environment variable interpolation",
-    );
-
-    return content.replace(/\$\{([^}]+)\}/g, (match, varName) => {
-      const envValue = clientEnvironment[varName];
-      if (envValue === undefined) {
-        logger.debug(
-          {
-            ...operationContext,
-            match,
-            varName,
-            availableClientVars: Object.keys(clientEnvironment),
-          },
-          `Client environment variable ${varName} not found, keeping placeholder`,
-        );
-        return match;
-      }
-      logger.debug(
-        {
-          ...operationContext,
-          varName,
-          envValue: envValue.substring(0, 10) + "...", // Only show first 10 chars for security
-        },
-        `Client environment variable ${varName} found and substituted`,
       );
       return envValue;
     });
@@ -428,94 +364,5 @@ export class ConfigParser {
     });
 
     return errors;
-  }
-
-  /**
-   * Process tools from YAML configuration into runtime format
-   * @param config - Validated YAML configuration
-   * @returns Array of processed tools
-   * @private
-   */
-  private static processTools(config: SqlToolsConfig): ProcessedSQLTool[] {
-    const processedTools: ProcessedSQLTool[] = [];
-
-    // Return empty array if tools section is missing
-    if (!config.tools) {
-      return processedTools;
-    }
-
-    // Build toolset membership map
-    const toolToToolsets: Record<string, string[]> = {};
-    if (config.toolsets) {
-      Object.entries(config.toolsets).forEach(([toolsetName, toolset]) => {
-        toolset.tools.forEach((toolName) => {
-          if (!toolToToolsets[toolName]) {
-            toolToToolsets[toolName] = [];
-          }
-          toolToToolsets[toolName].push(toolsetName);
-        });
-      });
-    }
-
-    // Process each tool
-    Object.entries(config.tools).forEach(([toolName, tool]) => {
-      // Skip disabled tools
-      if (tool.enabled === false) {
-        logger.debug(
-          {
-            toolName,
-            enabled: false,
-          },
-          `Skipping disabled tool: ${toolName}`,
-        );
-        return;
-      }
-
-      const source = config.sources?.[tool.source];
-      const toolsets = toolToToolsets[toolName] || [];
-
-      processedTools.push({
-        name: toolName,
-        config: tool,
-        source: source!,
-        toolsets,
-        metadata: {
-          name: toolName,
-          description: tool.description,
-          domain: tool.domain,
-          category: tool.category,
-          toolsets,
-        },
-      });
-    });
-
-    return processedTools;
-  }
-
-  /**
-   * Validate a single tool parameter definition
-   * @param parameter - Parameter definition to validate
-   * @returns Validation result
-   */
-  static validateParameter(parameter: SqlToolParameter): {
-    valid: boolean;
-    errors: string[];
-  } {
-    const result = SqlToolParameterSchema.safeParse(parameter);
-
-    if (result.success) {
-      return { valid: true, errors: [] };
-    }
-
-    const errors = result.error.issues.map((err) => err.message);
-    return { valid: false, errors };
-  }
-
-  /**
-   * Get available parameter types
-   * @returns Array of supported parameter types
-   */
-  static getAvailableParameterTypes(): string[] {
-    return ["string", "number", "boolean", "integer"];
   }
 }

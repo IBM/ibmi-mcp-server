@@ -133,10 +133,13 @@ export async function listSchemasLogic(
   bindParams.push(params.offset, fetchLimit);
 
   try {
+    // Pass fetchLimit as rowsToFetch: without it mapepire returns at most
+    // 100 rows per fetch, which silently truncates pages when limit >= 100.
     const result = await IBMiConnectionPool.executeQuery(
       sql,
       bindParams,
       appContext,
+      fetchLimit,
     );
 
     const executionTime = Date.now() - startTime;

@@ -4,8 +4,6 @@
  * @module src/utils/cli/argumentParser
  */
 
-import { existsSync, statSync } from "fs";
-import { resolve } from "path";
 
 type mcpTransportType = "stdio" | "http";
 
@@ -22,17 +20,11 @@ export interface CliArguments {
 }
 
 /**
+ * Parses process.argv into CliArguments.
  *
- * This function should:
- * 1. Parse process.argv.slice(2) to get command line arguments
- * 2. Look for --tools flag and capture the next argument as the path
- * 3. Look for --help or -h flags
- * 5. Return a CliArguments object with the parsed values
- *
- * Handle edge cases like:
- * - Missing value after --tools
- * - Unknown arguments (should warn but not fail)
- * - Multiple --tools arguments (use the last one)
+ * Unknown `--` arguments produce a warning and are otherwise ignored; a
+ * missing value after a flag that needs one produces an error. When a flag
+ * is repeated, the last occurrence wins.
  */
 export function parseCliArguments(): CliArguments {
   const args = process.argv.slice(2);
@@ -89,49 +81,10 @@ export function parseCliArguments(): CliArguments {
       parsed.executeSql = true;
     } else if (arg?.startsWith("--")) {
       parsed.warnings?.push(`Unknown argument detected: ${arg}`);
-      i++;
     }
   }
 
   return parsed;
-}
-
-/**
- * Validates that a tools path exists and is accessible
- */
-export function validateToolsPath(path: string): {
-  valid: boolean;
-  message?: string;
-} {
-  try {
-    const resolvedPath = resolve(path);
-
-    if (existsSync(resolvedPath)) {
-      const stats = statSync(resolvedPath);
-      if (stats.isFile()) {
-        return {
-          valid: true,
-          message: `Using tools file: ${resolvedPath}`,
-        };
-      } else if (stats.isDirectory()) {
-        return {
-          valid: true,
-          message: `Using tools directory: ${resolvedPath}`,
-        };
-      }
-    }
-
-    // For glob patterns or remote paths, let the YAML loader handle validation
-    return {
-      valid: true,
-      message: `Tools path "${path}" will be validated by YAML tools loader`,
-    };
-  } catch (error) {
-    return {
-      valid: false,
-      message: `Cannot access tools path "${path}": ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
 }
 
 /**
@@ -163,7 +116,7 @@ Options:
 Examples:
   npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql
   npx @ibm/ibmi-mcp-server --builtin-tools --transport http
-  npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance.yaml
+  npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance/performance.yaml
   npx @ibm/ibmi-mcp-server --tools tools
   npx @ibm/ibmi-mcp-server --toolsets performance,system
   npx @ibm/ibmi-mcp-server --list-toolsets --tools tools

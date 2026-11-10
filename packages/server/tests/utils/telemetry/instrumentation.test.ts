@@ -91,6 +91,30 @@ describe("OpenTelemetry Instrumentation", () => {
     });
   });
 
+  describe("Diagnostic logging", () => {
+    it("should write diagnostics to stderr and never to stdout", async () => {
+      const stdoutSpies = (["log", "info", "debug"] as const).map((method) =>
+        vi.spyOn(console, method).mockImplementation(() => {}),
+      );
+      const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        vi.resetModules();
+        await import("../../../src/utils/telemetry/instrumentation.js");
+
+        expect(stderrSpy).toHaveBeenCalledWith(
+          expect.stringContaining("OpenTelemetry initialized"),
+        );
+        for (const spy of stdoutSpies) {
+          expect(spy).not.toHaveBeenCalled();
+        }
+      } finally {
+        stdoutSpies.forEach((spy) => spy.mockRestore());
+        stderrSpy.mockRestore();
+      }
+    });
+  });
+
   describe("shutdownOpenTelemetry", () => {
     it("should call sdk.shutdown if sdk is initialized", async () => {
       expect(instrumentation.sdk).not.toBeNull();

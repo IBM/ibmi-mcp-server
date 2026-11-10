@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program";
 
 vi.mock("../../src/utils/yaml-loader.js", () => ({
   loadYamlTools: vi.fn(),
@@ -458,5 +458,143 @@ describe("ibmi tool command — security validation", () => {
 
     const output = stdoutOutput + stderrOutput;
     expect(output).toMatch(/write operation/i);
+  });
+});
+
+describe("ibmi tool command — parameter handling", () => {
+  let stderrOutput: string;
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+
+  beforeEach(async () => {
+    stderrOutput = "";
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrOutput += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    const yamlLoader = await import("../../src/utils/yaml-loader.js");
+    vi.mocked(yamlLoader.loadYamlTools).mockReturnValue({
+      tools: {
+        list_rows: {
+          source: "test",
+          description: "List rows",
+          statement:
+            "SELECT * FROM SAMPLE.T WHERE NAME LIKE :name_filter FETCH FIRST :limit ROWS ONLY",
+          parameters: [
+            { name: "limit", type: "integer", default: 50 },
+            { name: "name_filter", type: "string" },
+          ],
+        },
+        optional_only: {
+          source: "test",
+          description: "One optional parameter without a default",
+          statement: "SELECT * FROM SAMPLE.T WHERE NAME LIKE :name_filter",
+          parameters: [{ name: "name_filter", type: "string" }],
+        },
+      },
+      toolsets: {},
+      sources: {},
+    });
+
+    const resolver = await import("../../src/config/resolver.js");
+    vi.mocked(resolver.resolveSystem).mockReturnValue({
+      name: "dev",
+      config: {
+        host: "dev400.com",
+        port: 8076,
+        user: "DEV",
+        readOnly: false,
+        confirm: false,
+        timeout: 60,
+        maxRows: 5000,
+        ignoreUnauthorized: true,
+      },
+      source: "flag",
+    });
+  });
+
+  afterEach(() => {
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+  });
+
+  it("should reject a non-integer value for an integer parameter (exit 2)", async () => {
+    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "--format", "table", "tool", "list_rows",
+      "--tools", "/fake.yaml", "--limit", "abc",
+    ]);
+
+    expect(stderrOutput).toMatch(/--limit/);
+    expect(stderrOutput).toMatch(/Expected an integer/);
+    expect(process.exitCode).toBe(2);
+    expect(IBMiConnectionPool.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("should reject an option the tool does not define (exit 2)", async () => {
+    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "--format", "table", "tool", "list_rows",
+      "--tools", "/fake.yaml", "--limt", "5",
+    ]);
+
+    expect(stderrOutput).toMatch(/unknown option '--limt'/);
+    expect(process.exitCode).toBe(2);
+    expect(IBMiConnectionPool.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("should bind parameters even when no optional parameter is passed", async () => {
+    const { IBMiConnectionPool, ParameterProcessor } = await import(
+      "@ibm/ibmi-mcp-server/services"
+    );
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node", "ibmi", "--format", "json", "tool", "optional_only",
+      "--tools", "/fake.yaml",
+    ]);
+
+    expect(ParameterProcessor.process).toHaveBeenCalledTimes(1);
+    // The processed SQL (markers replaced) is what gets executed, not the raw statement
+    expect(vi.mocked(IBMiConnectionPool.executeQuery).mock.calls[0]?.[0]).toBe(
+      "SELECT 1",
+    );
+  });
+
+  it("should write results to the --output file instead of stdout", async () => {
+    const { existsSync, readFileSync, unlinkSync } = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const outputFile = path.join(os.tmpdir(), `ibmi-test-${Date.now()}-tool.csv`);
+    let stdoutOutput = "";
+    process.stdout.write = ((chunk: string) => {
+      stdoutOutput += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node", "ibmi", "--format", "csv", "--output", outputFile,
+        "tool", "optional_only", "--tools", "/fake.yaml",
+      ]);
+
+      expect(stdoutOutput).toBe("");
+      expect(readFileSync(outputFile, "utf-8")).toBe("OK\n1\n");
+    } finally {
+      if (existsSync(outputFile)) unlinkSync(outputFile);
+    }
   });
 });

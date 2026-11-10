@@ -178,10 +178,10 @@ This shows toolset names, descriptions, and tool counts to help you choose which
     npx @ibm/ibmi-mcp-server \
       --transport http \
       --tools ./tools \
-      --toolsets performance_monitoring
+      --toolsets performance
     ```
 
-    **Result**: Only tools tagged with `performance_monitoring` toolset are loaded, even though all YAML files are scanned.
+    **Result**: Only tools tagged with `performance` toolset are loaded, even though all YAML files are scanned.
   </Tab>
   <Tab title="Security Only">
     ```bash
@@ -209,19 +209,19 @@ export YAML_ALLOW_DUPLICATE_SOURCES=true
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets performance_monitoring,system_admin
+  --toolsets performance,sysadmin_discovery
 
 # Development workflow
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets developer_tools,sample_data
+  --toolsets developer_tools,employee_information
 
 # Security and compliance
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets security_audit,system_admin
+  --toolsets security_audit,sysadmin_discovery
 ```
 
 <Note>
@@ -260,7 +260,7 @@ export MCP_HTTP_HOST="127.0.0.1"   # loopback-only; see note below before using 
 export MCP_LOG_LEVEL=debug  # debug | info | warning | error
 
 # Pre-select toolsets at startup
-export SELECTED_TOOLSETS="performance_monitoring,security_audit"
+export SELECTED_TOOLSETS="performance,security_audit"
 
 # YAML configuration (important when loading all tools)
 export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required when loading tools/ directory
@@ -298,7 +298,7 @@ export YAML_ALLOW_DUPLICATE_SOURCES=true
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets performance_monitoring,developer_tools
+  --toolsets performance,developer_tools
 ```
 
 <Tip>
@@ -372,7 +372,7 @@ export YAML_ALLOW_DUPLICATE_SOURCES=true
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets security_audit,system_admin
+  --toolsets security_audit,sysadmin_discovery
 ```
 
 <Tabs>
@@ -383,7 +383,7 @@ npx @ibm/ibmi-mcp-server \
 
     # Open MCP Inspector
     npx @modelcontextprotocol/inspector \
-      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets security_audit,system_admin
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets security_audit,sysadmin_discovery
     ```
 
     **In Inspector**: Explore security tools like library list analysis and authority checks.
@@ -414,7 +414,7 @@ export YAML_ALLOW_DUPLICATE_SOURCES=true
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets developer_tools,sample_data
+  --toolsets developer_tools,employee_information
 ```
 
 <Tabs>
@@ -425,7 +425,7 @@ npx @ibm/ibmi-mcp-server \
 
     # Open MCP Inspector
     npx @modelcontextprotocol/inspector \
-      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets developer_tools,sample_data
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets developer_tools,employee_information
     ```
 
     **In Inspector**: Test developer tools for object statistics and dependency tracking.
@@ -459,7 +459,7 @@ export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required for directory loading
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets performance_monitoring
+  --toolsets performance
 ```
 
 <Tabs>
@@ -471,7 +471,7 @@ npx @ibm/ibmi-mcp-server \
 
     # Open MCP Inspector
     npx @modelcontextprotocol/inspector \
-      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets performance_monitoring
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets performance
     ```
 
     **In Inspector**: Monitor real-time system performance metrics.
@@ -497,7 +497,7 @@ npx @ibm/ibmi-mcp-server \
 | Option | Alias | Description | Example |
 |--------|-------|-------------|---------|
 | `--tools <path>` | - | Path to YAML tools (file, directory, or glob pattern) | `--tools tools/performance/performance.yaml` |
-| `--toolsets <list>` | `-ts` | Comma-separated list of toolsets to load | `--toolsets performance_monitoring,security_audit` |
+| `--toolsets <list>` | `-ts` | Comma-separated list of toolsets to load | `--toolsets performance,security_audit` |
 | `--transport <type>` | `-t` | Transport protocol: `stdio` or `http` | `--transport http` |
 | `--list-toolsets` | - | Show all available toolsets and exit | `--list-toolsets --tools tools` |
 | `--help` | `-h` | Display help message and exit | `--help` |
@@ -607,7 +607,7 @@ The `--tools` argument accepts multiple formats:
 
 2. **Check exact toolset names**:
    - Toolset names are case-sensitive
-   - Use underscores, not spaces: `performance_monitoring` not `performance monitoring`
+   - Use underscores, not spaces: `security_audit` not `security audit`
 
 3. **Verify toolset exists in YAML**:
    ```bash
@@ -629,7 +629,7 @@ The `--tools` argument accepts multiple formats:
 
     **Production:**
     - Use `--transport stdio` for MCP client integration
-    - Load specific toolsets: `--toolsets performance_monitoring`
+    - Load specific toolsets: `--toolsets performance`
     - Use info logging: `MCP_LOG_LEVEL=info`
     - Enforce SSL: `DB2i_IGNORE_UNAUTHORIZED=false`
     - Still need `YAML_ALLOW_DUPLICATE_SOURCES=true` if loading from directory
@@ -640,10 +640,10 @@ The `--tools` argument accepts multiple formats:
 
     ```bash
     # Developer access
-    --toolsets developer_tools,sample_data,system_admin
+    --toolsets developer_tools,employee_information,sysadmin_discovery
 
     # DBA access
-    --toolsets performance_monitoring,security_audit,system_admin
+    --toolsets performance,security_audit,sysadmin_discovery
 
     # Auditor access (read-only)
     --toolsets security_audit

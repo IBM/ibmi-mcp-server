@@ -116,8 +116,8 @@ tools:
       - name: limit
         type: integer
         default: 50
-        minimum: 1
-        maximum: 500
+        min: 1
+        max: 500
     statement: |
       SELECT EMPNO, FIRSTNME, LASTNAME, WORKDEPT
       FROM SAMPLE.EMPLOYEE

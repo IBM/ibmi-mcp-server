@@ -39,9 +39,6 @@ export interface YamlToolConfig {
   statement?: string;
   parameters: YamlToolParameter[];
   security?: YamlToolSecurity;
-  responseFormat?: string;
-  tableFormat?: string;
-  maxDisplayRows?: number;
   rowsToFetch?: number;
   fetchAllRows?: boolean;
   enabled?: boolean;
@@ -84,11 +81,20 @@ export function loadYamlFile(filePath: string): YamlToolsConfig {
 
   const content = readFileSync(resolved, "utf-8");
   const interpolated = interpolateEnvVars(content);
-  const parsed = yamlLoad(interpolated) as Record<string, unknown>;
+  // An empty or comment-only file parses to undefined/null
+  const loaded = yamlLoad(interpolated) ?? {};
+  if (typeof loaded !== "object" || Array.isArray(loaded)) {
+    throw new Error(
+      `Invalid YAML tool file (expected a mapping at the top level): ${resolved}`,
+    );
+  }
+  const parsed = loaded as Record<string, unknown>;
 
   return {
     tools: normalizeTools(parsed["tools"] as Record<string, unknown> | undefined),
-    toolsets: (parsed["toolsets"] ?? {}) as Record<string, YamlToolsetConfig>,
+    toolsets: normalizeToolsets(
+      parsed["toolsets"] as Record<string, unknown> | undefined,
+    ),
     sources: (parsed["sources"] ?? {}) as Record<string, Record<string, unknown>>,
     metadata: parsed["metadata"] as Record<string, unknown> | undefined,
   };
@@ -110,13 +116,29 @@ function normalizeTools(
       statement: tool["statement"] as string | undefined,
       parameters: Array.isArray(tool["parameters"]) ? tool["parameters"] as YamlToolParameter[] : [],
       security: tool["security"] as YamlToolSecurity | undefined,
-      responseFormat: tool["responseFormat"] as string | undefined,
-      tableFormat: tool["tableFormat"] as string | undefined,
-      maxDisplayRows: tool["maxDisplayRows"] as number | undefined,
       rowsToFetch: tool["rowsToFetch"] as number | undefined,
       fetchAllRows: tool["fetchAllRows"] as boolean | undefined,
       enabled: tool["enabled"] as boolean | undefined,
       annotations: tool["annotations"] as Record<string, unknown> | undefined,
+    };
+  }
+  return result;
+}
+
+/**
+ * Normalize raw toolset entries to ensure tools is always an array.
+ */
+function normalizeToolsets(
+  raw: Record<string, unknown> | undefined,
+): Record<string, YamlToolsetConfig> {
+  if (!raw) return {};
+  const result: Record<string, YamlToolsetConfig> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    const toolset = (value ?? {}) as Record<string, unknown>;
+    result[name] = {
+      title: toolset["title"] as string | undefined,
+      description: toolset["description"] as string | undefined,
+      tools: Array.isArray(toolset["tools"]) ? (toolset["tools"] as string[]) : [],
     };
   }
   return result;

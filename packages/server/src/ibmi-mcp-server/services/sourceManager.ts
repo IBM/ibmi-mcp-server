@@ -119,7 +119,7 @@ export class SourceManager extends BaseConnectionPool<string> {
         const yamlJdbc = sourceConfig["jdbc-options"] as
           | JDBCOptions
           | undefined;
-        const envJdbc = config.db2i?.jdbcOptions;
+        const envJdbc = config.db2iJdbcOptions;
         const mergedJdbc: JDBCOptions | undefined =
           yamlJdbc || envJdbc
             ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
@@ -213,7 +213,7 @@ export class SourceManager extends BaseConnectionPool<string> {
   /**
    * Execute a SQL query with automatic pagination on a specific source
    * Fetches all available rows via repeated fetchMore calls (bounded by
-   * the base pool's internal safety cap, ~30k rows).
+   * the base pool's safety cap, IBMI_PAGINATION_MAX_ROWS).
    * @param sourceName - Name of the source to query
    * @param query - SQL query string
    * @param params - Query parameters

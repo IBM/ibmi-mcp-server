@@ -67,6 +67,12 @@ jobs:
       - name: Extract tag name
         id: tag
         run: |
+          # workflow_dispatch can be started from a branch; refs/heads/<branch>
+          # is not a valid image tag, so fail before building anything.
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "::error::Run this workflow from a v* tag (got $GITHUB_REF)."
+            exit 1
+          fi
           TAG=${GITHUB_REF#refs/tags/}
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 

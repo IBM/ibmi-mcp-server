@@ -194,14 +194,32 @@ describe("renderOutput — CSV format", () => {
     renderOutput([{ DESC: "hello, world" }], "csv");
     expect(stdoutOutput).toContain('"hello, world"');
   });
+
+  it("should quote CSV fields containing a carriage return", () => {
+    renderOutput([{ DESC: "line1\rline2" }], "csv");
+    expect(stdoutOutput).toContain('"line1\rline2"');
+  });
 });
 
 describe("--stream flag registration", () => {
   it("should register --stream as a global option", async () => {
-    const { createProgram } = await import("../../src/index");
+    const { createProgram } = await import("../../src/program");
     const program = createProgram();
     const streamOpt = program.options.find((o) => o.long === "--stream");
     expect(streamOpt).toBeDefined();
+  });
+});
+
+describe("--format validation", () => {
+  it("should reject an unknown --format value", async () => {
+    const { createProgram } = await import("../../src/program");
+    const program = createProgram();
+    program.exitOverride();
+
+    await expect(
+      program.parseAsync(["node", "ibmi", "--format", "xml", "system", "config-path"]),
+    ).rejects.toMatchObject({ code: "commander.invalidArgument" });
+    expect(stderrOutput).toContain("Allowed choices are table, json, csv, markdown");
   });
 });
 
@@ -260,6 +278,34 @@ describe("renderMultiSystemOutput — CSV format", () => {
     expect(lines[1]).toBe("dev,100");
     expect(lines[2]).toBe("prod,200");
   });
+
+  it("should keep data columns when the first system fails", () => {
+    const results = [
+      { system: "dev", host: "dev400.com", data: [], rowCount: 0, elapsedMs: 0, error: "Connection refused" },
+      { system: "prod", host: "prod400.com", data: [{ EMPNO: "200", NAME: "SMITH" }], rowCount: 1, elapsedMs: 80 },
+    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+
+    renderMultiSystemOutput(results, "csv");
+    const lines = stdoutOutput.trim().split("\n");
+
+    expect(lines[0]).toBe("SYSTEM,EMPNO,NAME,ERROR");
+    expect(lines[1]).toBe("dev,,,Connection refused");
+    expect(lines[2]).toBe("prod,200,SMITH,");
+  });
+
+  it("should keep the ERROR column when a later system fails", () => {
+    const results = [
+      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }], rowCount: 1, elapsedMs: 50 },
+      { system: "prod", host: "prod400.com", data: [], rowCount: 0, elapsedMs: 0, error: "Connection refused" },
+    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+
+    renderMultiSystemOutput(results, "csv");
+    const lines = stdoutOutput.trim().split("\n");
+
+    expect(lines[0]).toBe("SYSTEM,EMPNO,ERROR");
+    expect(lines[1]).toBe("dev,100,");
+    expect(lines[2]).toBe("prod,,Connection refused");
+  });
 });
 
 describe("renderMultiSystemOutput — table format with error rows", () => {
@@ -276,6 +322,19 @@ describe("renderMultiSystemOutput — table format with error rows", () => {
     expect(stdoutOutput).toContain("prod");
     // Error system shows in the footer as "[prod] ERROR"
     expect(stdoutOutput).toContain("[prod] ERROR");
+  });
+
+  it("should keep data columns in the table when the first system fails", () => {
+    const results = [
+      { system: "dev", host: "dev400.com", data: [], rowCount: 0, elapsedMs: 0, error: "Connection refused" },
+      { system: "prod", host: "prod400.com", data: [{ EMPNO: "200" }], rowCount: 1, elapsedMs: 80 },
+    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+
+    renderMultiSystemOutput(results, "table");
+
+    expect(stdoutOutput).toContain("EMPNO");
+    expect(stdoutOutput).toContain("200");
+    expect(stdoutOutput).toContain("Connection refused");
   });
 });
 

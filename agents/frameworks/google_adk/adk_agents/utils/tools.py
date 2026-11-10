@@ -35,7 +35,7 @@ def build_toolset_kwargs(debug_filtering: bool = False) -> dict:
         }
         toolset_kwargs.update({
             "command": "npx",
-            "args":["ibmi-mcp-server"],
+            "args":["-y", "@ibm/ibmi-mcp-server@latest"],
             "env": env
         })
     elif transport == "http":

@@ -58,9 +58,6 @@ export class AutoTransportManager implements TransportManager {
 
     // Route to stateful manager if it's an initialize request or has a session ID
     if (isInitializeRequest(body) || sessionId) {
-      // The plan describes an intermediate state for StatefulTransportManager's handleRequest,
-      // but for consistency with the new TransportManager interface, we will pass the whole request object.
-      // This anticipates the final state of the refactoring.
       return this.statefulManager.handleRequest(request);
     }
 

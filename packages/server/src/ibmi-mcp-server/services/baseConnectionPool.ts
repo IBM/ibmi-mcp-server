@@ -90,6 +90,35 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   }
 
   /**
+   * Label for a pool id in log messages and errors. Subclasses whose pool ids
+   * are secrets (e.g. bearer tokens) must override this so the raw id is never
+   * written to logs or returned to clients.
+   * @param poolId - Pool identifier
+   */
+  protected describePool(poolId: TId): string {
+    return String(poolId);
+  }
+
+  /**
+   * mapepire-js keeps every Query it creates in a static list and only prunes
+   * it when Query.cleanup() is called, which the library never does itself.
+   * Call it after closing a query so a long-running server does not retain
+   * every statement (SQL text, parameters, job) it has ever executed.
+   * @param queryObj - A query that has just been closed
+   */
+  private pruneClosedQueries(queryObj: object): void {
+    // The Query class is not exported by mapepire-js; reach it via the instance.
+    const queryClass = queryObj.constructor as {
+      cleanup?: () => Promise<void>;
+    };
+    // Not awaited: cleanup also closes other finished queries, and that must
+    // not hold up this request.
+    queryClass.cleanup?.().catch(() => {
+      // best-effort
+    });
+  }
+
+  /**
    * Create a daemon server configuration from connection config
    * @param config - Connection configuration
    * @param context - Request context for logging
@@ -131,7 +160,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     if (existingPromise) {
       logger.debug(
         context,
-        `Waiting for existing initialization of pool: ${String(poolId)}`,
+        `Waiting for existing initialization of pool: ${this.describePool(poolId)}`,
       );
       return existingPromise;
     }
@@ -151,7 +180,10 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
     // Check if already initialized
     if (poolState.isInitialized && poolState.pool) {
-      logger.debug(context, `Pool '${String(poolId)}' already initialized`);
+      logger.debug(
+        context,
+        `Pool '${this.describePool(poolId)}' already initialized`,
+      );
       return;
     }
 
@@ -184,7 +216,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     if (poolState.isConnecting) {
       logger.debug(
         context,
-        `Pool '${String(poolId)}' is already connecting, waiting...`,
+        `Pool '${this.describePool(poolId)}' is already connecting, waiting...`,
       );
       // Wait a bit and check again
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -211,7 +243,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             ? { libraries: poolState.config.jdbcOptions.libraries }
             : {}),
         },
-        `Initializing connection pool: ${String(poolId).substring(0, 7)}***`,
+        `Initializing connection pool: ${this.describePool(poolId)}`,
       );
 
       // Create daemon server configuration
@@ -239,7 +271,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
       logger.info(
         context,
-        `Connection pool initialized successfully: ${String(poolId).substring(0, 7)}***`,
+        `Connection pool initialized successfully: ${this.describePool(poolId)}`,
       );
     } catch (error) {
       poolState.isInitialized = false;
@@ -280,8 +312,8 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         reject(
           new McpError(
             JsonRpcErrorCode.Timeout,
-            `Query timed out after ${timeoutMs}ms on pool '${String(poolId)}'. The connection may be stale. Pool will be re-initialized on the next request.`,
-            { poolId: String(poolId), timeoutMs },
+            `Query timed out after ${timeoutMs}ms on pool '${this.describePool(poolId)}'. The connection may be stale. Pool will be re-initialized on the next request.`,
+            { poolId: this.describePool(poolId), timeoutMs },
           ),
         );
       }, timeoutMs);
@@ -297,8 +329,8 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           poolState.healthStatus = "unhealthy";
         }
         logger.error(
-          { ...context, timeoutMs, poolId: String(poolId) },
-          `Query timed out on pool '${String(poolId)}'. Closing pool for re-initialization.`,
+          { ...context, timeoutMs, poolId: this.describePool(poolId) },
+          `Query timed out on pool '${this.describePool(poolId)}'. Closing pool for re-initialization.`,
         );
         // Close pool async — don't await, let it clean up in background
         this.closePool(poolId, context).catch(() => {
@@ -381,11 +413,11 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         logger.info(
           {
             ...context,
-            poolId: String(poolId),
+            poolId: this.describePool(poolId),
             idleDurationMs: idleDuration,
             idleTimeoutMs,
           },
-          `Closing idle pool '${String(poolId)}' (idle for ${Math.round(idleDuration / 1000)}s)`,
+          `Closing idle pool '${this.describePool(poolId)}' (idle for ${Math.round(idleDuration / 1000)}s)`,
         );
         // Close async — don't block the interval
         this.closePool(poolId, context).catch(() => {
@@ -414,7 +446,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       context ||
       requestContextService.createRequestContext({
         operation: "ExecuteQuery",
-        poolId: String(poolId),
+        poolId: this.describePool(poolId),
       });
 
     return ErrorHandler.tryCatch(
@@ -423,8 +455,8 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         if (!poolState) {
           throw new McpError(
             JsonRpcErrorCode.ConfigurationError,
-            `Pool '${String(poolId)}' not found. Please register the pool first.`,
-            { poolId: String(poolId) },
+            `Pool '${this.describePool(poolId)}' not found. Please register the pool first.`,
+            { poolId: this.describePool(poolId) },
           );
         }
 
@@ -434,8 +466,8 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         if (!poolState.pool) {
           throw new McpError(
             JsonRpcErrorCode.InternalError,
-            `Connection pool '${String(poolId)}' is not available`,
-            { poolId: String(poolId) },
+            `Connection pool '${this.describePool(poolId)}' is not available`,
+            { poolId: this.describePool(poolId) },
           );
         }
 
@@ -443,9 +475,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         if (!poolState.isInitialized) {
           throw new McpError(
             JsonRpcErrorCode.InternalError,
-            `Connection pool '${String(poolId)}' is not fully initialized`,
+            `Connection pool '${this.describePool(poolId)}' is not fully initialized`,
             {
-              poolId: String(poolId),
+              poolId: this.describePool(poolId),
               isInitialized: poolState.isInitialized,
               isConnecting: poolState.isConnecting,
             },
@@ -461,7 +493,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             paramCount: params?.length || 0,
             rowsToFetch,
           },
-          `Executing SQL query on pool: ${String(poolId)}`,
+          `Executing SQL query on pool: ${this.describePool(poolId)}`,
         );
 
         if (rowsToFetch !== undefined && rowsToFetch > 10_000) {
@@ -542,6 +574,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
               "Failed to close query object after execution",
             );
           });
+          this.pruneClosedQueries(queryObj);
         }
 
         logger.debug(
@@ -552,7 +585,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             sqlReturnCode: result.sql_rc,
             executionTime: result.execution_time,
           },
-          `Query executed successfully on pool: ${String(poolId)}`,
+          `Query executed successfully on pool: ${this.describePool(poolId)}`,
         );
 
         // Update health status and activity timestamp on successful query
@@ -597,7 +630,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       context ||
       requestContextService.createRequestContext({
         operation: "ExecuteQueryWithPagination",
-        poolId: String(poolId),
+        poolId: this.describePool(poolId),
       });
 
     return ErrorHandler.tryCatch(
@@ -606,8 +639,8 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         if (!poolState) {
           throw new McpError(
             JsonRpcErrorCode.ConfigurationError,
-            `Pool '${String(poolId)}' not found`,
-            { poolId: String(poolId) },
+            `Pool '${this.describePool(poolId)}' not found`,
+            { poolId: this.describePool(poolId) },
           );
         }
 
@@ -644,54 +677,72 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         // Create query object with parameters
         const queryObj = poolState.pool.query(query, { parameters: params });
 
-        // Execute initial query — wrap with timeout to catch stale connections
-        let result = await this.executeWithTimeout(
-          poolId,
-          queryObj.execute(),
-          operationContext,
-        );
-        // Capture metadata from the first result — subsequent fetchMore calls
-        // don't re-send column descriptors, so SQL tools need this snapshot.
-        const initialMetadata = result.metadata;
         const allData: unknown[] = [];
-
-        if (result.success && result.data) {
-          allData.push(...result.data);
-        }
-
-        // Fetch more results until done or safety cap reached. The cap is
-        // row-based so the effective ceiling is stable regardless of
-        // per-fetch page size — see MAX_PAGINATION_ROWS.
         let fetchCount = 1;
-        while (!result.is_done && allData.length < MAX_PAGINATION_ROWS) {
-          logger.debug(
-            {
-              ...operationContext,
-              fetchCount,
-              currentDataLength: allData.length,
-            },
-            "Fetching more results",
+        let result: QueryResult<unknown>;
+        let initialMetadata: QueryMetaData | undefined;
+        try {
+          // Execute initial query — wrap with timeout to catch stale connections
+          result = await this.executeWithTimeout(
+            poolId,
+            queryObj.execute(),
+            operationContext,
           );
-
-          result = await queryObj.fetchMore(fetchSize);
+          // Capture metadata from the first result — subsequent fetchMore calls
+          // don't re-send column descriptors, so SQL tools need this snapshot.
+          initialMetadata = result.metadata;
 
           if (result.success && result.data) {
             allData.push(...result.data);
           }
 
-          fetchCount++;
+          // Fetch more results until done or safety cap reached. The cap is
+          // row-based so the effective ceiling is stable regardless of
+          // per-fetch page size — see MAX_PAGINATION_ROWS.
+          while (!result.is_done && allData.length < MAX_PAGINATION_ROWS) {
+            logger.debug(
+              {
+                ...operationContext,
+                fetchCount,
+                currentDataLength: allData.length,
+              },
+              "Fetching more results",
+            );
+
+            result = await queryObj.fetchMore(fetchSize);
+
+            if (result.success && result.data) {
+              allData.push(...result.data);
+            }
+
+            fetchCount++;
+          }
+        } finally {
+          // Close the query even when a fetch fails, so its cursor is released
+          await queryObj.close().catch((closeErr: unknown) => {
+            logger.warning(
+              {
+                ...operationContext,
+                error:
+                  closeErr instanceof Error
+                    ? closeErr.message
+                    : String(closeErr),
+              },
+              "Failed to close query object after paginated execution",
+            );
+          });
+          this.pruneClosedQueries(queryObj);
         }
 
         // Truncate to MAX_PAGINATION_ROWS exactly when the final page
         // overshoots the cap. Callers should not see more rows than promised.
+        // A result that ends exactly at the cap (is_done) is complete, not
+        // truncated.
         const truncated =
-          !result.is_done || allData.length >= MAX_PAGINATION_ROWS;
+          !result.is_done || allData.length > MAX_PAGINATION_ROWS;
         if (allData.length > MAX_PAGINATION_ROWS) {
           allData.length = MAX_PAGINATION_ROWS;
         }
-
-        // Close the query
-        await queryObj.close();
 
         if (truncated) {
           logger.warning(
@@ -719,7 +770,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           "Paginated query completed",
         );
 
-        // Update activity timestamp on successful paginated query
+        // Update health status and activity timestamp on successful paginated query
+        poolState.healthStatus = "healthy";
+        poolState.lastHealthCheck = new Date();
         poolState.lastActivityAt = new Date();
 
         return {
@@ -752,7 +805,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       context ||
       requestContextService.createRequestContext({
         operation: "CheckPoolHealth",
-        poolId: String(poolId),
+        poolId: this.describePool(poolId),
       });
 
     const poolState = this.pools.get(poolId);
@@ -787,7 +840,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
       logger.debug(
         operationContext,
-        `Health check passed for pool: ${String(poolId)}`,
+        `Health check passed for pool: ${this.describePool(poolId)}`,
       );
 
       return {
@@ -807,7 +860,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           ...operationContext,
           error: errorMessage,
         },
-        `Health check failed for pool: ${String(poolId)}`,
+        `Health check failed for pool: ${this.describePool(poolId)}`,
       );
 
       return {
@@ -831,7 +884,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       context ||
       requestContextService.createRequestContext({
         operation: "ClosePool",
-        poolId: String(poolId),
+        poolId: this.describePool(poolId),
       });
 
     const poolState = this.pools.get(poolId);
@@ -842,7 +895,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
     try {
       logger.info(
         operationContext,
-        `Closing connection pool: ${String(poolId)}`,
+        `Closing connection pool: ${this.describePool(poolId)}`,
       );
 
       await poolState.pool.end();
@@ -852,7 +905,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
       logger.info(
         operationContext,
-        `Connection pool closed successfully: ${String(poolId)}`,
+        `Connection pool closed successfully: ${this.describePool(poolId)}`,
       );
     } catch (error) {
       logger.error(
@@ -860,7 +913,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           ...operationContext,
           error: error instanceof Error ? error.message : String(error),
         },
-        `Error closing connection pool: ${String(poolId)}`,
+        `Error closing connection pool: ${this.describePool(poolId)}`,
       );
     }
   }

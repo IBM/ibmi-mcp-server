@@ -7,9 +7,9 @@
  */
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
-import { requestContextService, sanitizeInputForLogging } from "../index.js";
+import { sanitizeInputForLogging } from "../security/sanitization.js";
 import { logOperationError } from "./logging-helpers.js";
-import { RequestContext } from "./requestContext.js";
+import { RequestContext, requestContextService } from "./requestContext.js";
 
 /**
  * Defines a generic structure for providing context with errors.
@@ -287,27 +287,6 @@ export class ErrorHandler {
 
     // The Pino error serializer will handle the stack trace automatically.
     return payload;
-  }
-
-  /**
-   * Formats an error into a consistent object structure for API responses.
-   * @param error - The error instance or value to format.
-   * @returns A structured representation of the error.
-   */
-  public static formatError(error: unknown): Record<string, unknown> {
-    if (error instanceof McpError) {
-      return {
-        code: error.code,
-        message: error.message,
-        details: error.details ?? {},
-      };
-    }
-
-    return {
-      code: this.determineErrorCode(error),
-      message: getErrorMessage(error),
-      details: { errorType: getErrorName(error) },
-    };
   }
 
   /**

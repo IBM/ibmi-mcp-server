@@ -6,9 +6,9 @@
  * @module src/mcp-server/transports/http/mcpTransportMiddleware
  */
 
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { MiddlewareHandler } from "hono";
 import { createMiddleware } from "hono/factory";
+import { JsonRpcErrorCode, McpError } from "../../../types-global/errors.js";
 import {
   requestContextService,
   withRequestContext,
@@ -59,8 +59,9 @@ export const mcpTransportMiddleware = (
           // Ensure requestId is set even if parsing fails
           c.set("requestId", null);
           throw new McpError(
-            ErrorCode.ParseError,
+            JsonRpcErrorCode.ParseError,
             "Failed to parse request body as JSON.",
+            context,
           );
         }
 

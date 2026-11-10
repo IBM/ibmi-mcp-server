@@ -10,7 +10,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { config } from "../../../../src/config/index.js";
 import { createHttpApp } from "../../../../src/mcp-server/transports/http/httpTransport.js";
 import type { TransportManager } from "../../../../src/mcp-server/transports/core/transportTypes.js";
@@ -43,10 +42,8 @@ function buildApp() {
     handleRequest,
     shutdown: vi.fn().mockResolvedValue(undefined),
   } as unknown as TransportManager;
-  const createServerInstanceFn = vi.fn() as unknown as () => Promise<McpServer>;
   const app = createHttpApp(
     manager,
-    createServerInstanceFn,
     requestContextService.createRequestContext({
       operation: "hostValidationTest",
     }),

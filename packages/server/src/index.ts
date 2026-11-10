@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Main entry point for the MCP TypeScript Template application.
+ * @fileoverview Main entry point for the IBM i MCP Server.
  * This script initializes the configuration, sets up the logger, starts the
  * MCP server (either via STDIO or HTTP transport), and handles graceful
  * shutdown on process signals or unhandled errors.
@@ -28,7 +28,6 @@ import { applyCliOverrides } from "./config/resolver.js";
 import {
   parseCliArguments,
   showHelp,
-  validateToolsPath,
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
 import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
 import { BaseConnectionPool } from "@/ibmi-mcp-server/services/baseConnectionPool.js";
@@ -37,9 +36,15 @@ import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
 /**
  * List all available toolsets from YAML configuration and exit
  * This command parses the YAML tools configuration and displays a formatted list of all toolsets
+ *
+ * Writes to stdout/stderr directly: the logger has no console target in stdio
+ * mode (the default), and this runs before any transport starts, so stdout is
+ * not yet the MCP protocol stream.
+ *
+ * @returns true if the toolsets were listed, false on failure
  */
-async function listToolsetsCommand(): Promise<void> {
-  logger.info("\n📦 Available Toolsets\n");
+async function listToolsetsCommand(): Promise<boolean> {
+  console.log("\n📦 Available Toolsets\n");
 
   try {
     // Apply CLI overrides to get the correct tools path
@@ -47,15 +52,15 @@ async function listToolsetsCommand(): Promise<void> {
     reinitializeLogger();
 
     if (!config.toolsYamlPath) {
-      logger.error("❌ No YAML tools configuration found.");
-      logger.error(
+      console.error("❌ No YAML tools configuration found.");
+      console.error(
         "   Use --tools <path> to specify YAML tools configuration or set TOOLS_YAML_PATH environment variable.\n",
       );
-      return;
+      return false;
     }
 
-    logger.info(`📁 Configuration: ${config.toolsYamlPath}`);
-    logger.info("");
+    console.log(`📁 Configuration: ${config.toolsYamlPath}`);
+    console.log("");
 
     // Create a context for this operation
     const context = requestContextService.createRequestContext({
@@ -66,12 +71,7 @@ async function listToolsetsCommand(): Promise<void> {
     // Parse YAML configuration to extract toolsets using ToolProcessor
     // Determine the appropriate method based on the path type
     let configResult;
-    if (Array.isArray(config.toolsYamlPath)) {
-      configResult = await ToolProcessor.fromFiles(
-        config.toolsYamlPath,
-        context,
-      );
-    } else if (existsSync(config.toolsYamlPath)) {
+    if (existsSync(config.toolsYamlPath)) {
       const stats = statSync(config.toolsYamlPath);
       if (stats.isDirectory()) {
         configResult = await ToolProcessor.fromDirectory(
@@ -85,35 +85,35 @@ async function listToolsetsCommand(): Promise<void> {
         );
       }
     } else {
-      logger.error(`❌ Path does not exist: ${config.toolsYamlPath}`);
-      return;
+      console.error(`❌ Path does not exist: ${config.toolsYamlPath}`);
+      return false;
     }
 
     if (!configResult.success || !configResult.config) {
-      logger.error("❌ Failed to parse YAML configuration:");
+      console.error("❌ Failed to parse YAML configuration:");
       if (configResult.errors) {
-        configResult.errors.forEach((error) => logger.error(`   ${error}`));
+        configResult.errors.forEach((error) => console.error(`   ${error}`));
       }
-      return;
+      return false;
     }
 
     const yamlConfig = configResult.config;
 
     // Display global tools section
-    logger.info("🌍 Global Tools (automatically added to all toolsets):");
-    logger.info(`   • ${GLOBAL_TOOLS}`);
-    logger.info("");
+    console.log("🌍 Global Tools (automatically added to all toolsets):");
+    console.log(`   • ${GLOBAL_TOOLS.join(", ")}`);
+    console.log("");
 
     if (!yamlConfig.toolsets || Object.keys(yamlConfig.toolsets).length === 0) {
-      logger.info("ℹ️  No toolsets found in YAML configuration.");
-      logger.info(
+      console.log("ℹ️  No toolsets found in YAML configuration.");
+      console.log(
         "   Individual tools may be available without being organized into toolsets.\n",
       );
-      return;
+      return true;
     }
 
     // Display toolsets information
-    logger.info(`Found ${Object.keys(yamlConfig.toolsets).length} toolsets:\n`);
+    console.log(`Found ${Object.keys(yamlConfig.toolsets).length} toolsets:\n`);
 
     for (const [toolsetName, toolsetConfig] of Object.entries(
       yamlConfig.toolsets,
@@ -122,42 +122,44 @@ async function listToolsetsCommand(): Promise<void> {
         ? toolsetConfig.tools.length
         : 0;
       const globalToolCount = GLOBAL_TOOLS.length;
-      const totalToolCount = toolsetToolCount;
+      const totalToolCount = toolsetToolCount + globalToolCount;
 
-      logger.info(`🔧 ${toolsetName}`);
+      console.log(`🔧 ${toolsetName}`);
 
       if (toolsetConfig.title && toolsetConfig.title !== toolsetName) {
-        logger.info(`   Title: ${toolsetConfig.title}`);
+        console.log(`   Title: ${toolsetConfig.title}`);
       }
 
       if (toolsetConfig.description) {
-        logger.info(`   Description: ${toolsetConfig.description}`);
+        console.log(`   Description: ${toolsetConfig.description}`);
       }
 
-      logger.info(
+      console.log(
         `   Tools: ${totalToolCount} tools (${toolsetToolCount} specific + ${globalToolCount} global)`,
       );
 
       if (toolsetToolCount > 0) {
-        logger.info(`   Specific tools: ${toolsetConfig.tools.join(", ")}`);
+        console.log(`   Specific tools: ${toolsetConfig.tools.join(", ")}`);
       }
 
-      logger.info("");
+      console.log("");
     }
 
-    logger.info("💡 Usage examples:");
-    logger.info(
+    console.log("💡 Usage examples:");
+    console.log(
       `   npx @ibm/ibmi-mcp-server --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets).slice(0, 2).join(",")}`,
     );
-    logger.info(
+    console.log(
       `   npm run start:http -- --tools ${config.toolsYamlPath} --toolsets ${Object.keys(yamlConfig.toolsets)[0]}`,
     );
-    logger.info("");
+    console.log("");
+    return true;
   } catch (error) {
-    logger.error("❌ Error listing toolsets:");
-    logger.error(
+    console.error("❌ Error listing toolsets:");
+    console.error(
       `   ${error instanceof Error ? error.message : String(error)}`,
     );
+    return false;
   }
 }
 
@@ -172,33 +174,24 @@ if (cliArgs.help) {
 
 // Handle list toolsets request immediately
 if (cliArgs.listToolsets) {
-  await listToolsetsCommand();
-  process.exit(0);
+  const listed = await listToolsetsCommand();
+  process.exit(listed ? 0 : 1);
 }
+
+// CLI argument problems go straight to stderr: the logger has no console
+// target in stdio mode (the default), so the user would otherwise see nothing.
 
 // Handle any parsing errors
 if (cliArgs.errors && cliArgs.errors.length > 0) {
-  logger.error("CLI Argument Errors:");
-  cliArgs.errors.forEach((error) => logger.error(`  ✘ ${error}`));
+  console.error("CLI Argument Errors:");
+  cliArgs.errors.forEach((error) => console.error(`  ✘ ${error}`));
   process.exit(1);
 }
 
 // Show warnings but continue execution
 if (cliArgs.warnings && cliArgs.warnings.length > 0) {
-  logger.warning("CLI Argument Warnings:");
-  cliArgs.warnings.forEach((warning) => logger.warning(`  ⚠ ${warning}`));
-}
-
-// Validate tools path if provided
-if (cliArgs.tools) {
-  const validation = validateToolsPath(cliArgs.tools);
-  if (!validation.valid) {
-    logger.error(`Tools path validation failed: ${validation.message}`);
-    process.exit(1);
-  }
-  if (validation.message) {
-    logger.info(`ℹ ${validation.message}`);
-  }
+  console.error("CLI Argument Warnings:");
+  cliArgs.warnings.forEach((warning) => console.error(`  ⚠ ${warning}`));
 }
 
 // Apply CLI overrides directly to global config so downstream modules see changes
@@ -206,6 +199,13 @@ applyCliOverrides(cliArgs);
 
 // Reinitialize logger with updated config (especially transport mode from CLI)
 reinitializeLogger();
+
+// In stdio mode stdout carries the JSON-RPC stream. Dependencies that print
+// with console.log (mapepire-js does on socket errors) would corrupt it, so
+// send console output to stderr instead.
+if (config.mcpTransportType === "stdio") {
+  console.log = console.info = console.debug = console.error;
+}
 
 // Log overrides if provided
 if (cliArgs.tools) {

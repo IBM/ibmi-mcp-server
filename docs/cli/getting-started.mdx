@@ -9,7 +9,7 @@ Get the `ibmi` CLI running and connected to your IBM i system.
 
 ## Prerequisites
 
-- **Node.js 18+** installed on your development machine
+- **Node.js 20+** installed on your development machine
 - **Mapepire** running on your IBM i system ([Setup Guide](/setup-mapepire))
 - IBM i hostname, username, and password
 
@@ -42,13 +42,13 @@ You have two options for connecting to your IBM i system:
 
 <Tabs>
   <Tab title="Option A: Named System (Recommended)">
-    Create a named system connection stored in `.ibmi/config.yaml`:
+    Create a named system connection stored in `~/.ibmi/config.yaml`:
 
     ```bash
     ibmi system add dev --host myhost.com --user MYUSER
     ```
 
-    You'll be prompted for a password interactively (hidden input). Or pass it via environment variable:
+    No password is stored; you'll be prompted for it interactively (hidden input) when the CLI connects. Or reference an environment variable:
 
     ```bash
     ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'

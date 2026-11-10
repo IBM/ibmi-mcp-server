@@ -130,8 +130,8 @@ tools:
       - name: limit
         type: integer
         default: 10
-        minimum: 1
-        maximum: 100
+        min: 1
+        max: 100
     statement: |
       SELECT CPU_TIME, JOB_NAME FROM
       TABLE(QSYS2.ACTIVE_JOB_INFO()) A
@@ -254,8 +254,8 @@ tools:
       - name: limit
         type: integer
         default: 10
-        minimum: 1
-        maximum: 100
+        min: 1
+        max: 100
     statement: |
       SELECT CPU_TIME, JOB_NAME, USER_NAME
       FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) A

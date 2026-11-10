@@ -22,7 +22,7 @@ import {
 } from "../formatters/output.js";
 import { ExitCode, classifyError } from "../utils/exit-codes.js";
 import { connectSystem } from "../utils/connection.js";
-import { getFormat } from "../utils/command-helpers.js";
+import { getFormat, createCliContext } from "../utils/command-helpers.js";
 
 /** Result of a connection test. */
 interface ConnectionTestResult {
@@ -36,7 +36,8 @@ interface ConnectionTestResult {
 }
 
 /**
- * Test connectivity to an IBM i system by establishing and closing a connection.
+ * Test connectivity to an IBM i system by opening a connection, running a
+ * trivial query, and closing the connection.
  */
 async function testSystemConnection(
   name: string,
@@ -52,6 +53,16 @@ async function testSystemConnection(
       source: "flag" as const,
     };
     cleanup = await connectSystem(resolved);
+
+    // connectSystem only stages credentials — the pool connects on first query
+    const { IBMiConnectionPool } = await import(
+      "@ibm/ibmi-mcp-server/services"
+    );
+    await IBMiConnectionPool.executeQuery(
+      "VALUES 1",
+      [],
+      createCliContext("system_test"),
+    );
 
     return { ...base, STATUS: "connected" };
   } catch (err) {
@@ -176,10 +187,15 @@ export function registerSystemCommand(program: Command): void {
           const ask = (question: string): Promise<string> =>
             new Promise((resolve) => rl.question(question, resolve));
 
-          if (!host) host = await ask("Host: ");
-          if (!user) user = await ask("User: ");
+          if (!host) host = (await ask("Host: ")).trim();
+          if (!user) user = (await ask("User: ")).trim();
 
           rl.close();
+
+          // An empty answer would save a config that fails validation on load
+          if (!host || !user) {
+            throw new Error("Host and user are required.");
+          }
         }
 
         const port = parseInt(opts["port"] as string, 10);

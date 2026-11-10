@@ -1,109 +1,60 @@
 /**
- * @fileoverview Simplified unit tests for YAML parsing functionality
- * Tests core YAML parsing and validation without complex dependencies
+ * @fileoverview Tests for YAML tool configuration parsing.
+ * Runs the fixtures and inline YAML through the product parser
+ * (ConfigParser.parseYamlFile) and the product parameter schema.
  */
 
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
-import { resolve } from "path";
-import { load as yamlLoad } from "js-yaml";
-import { z } from "zod";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 
-// Simple schemas for testing
-const YamlToolParameterSchema = z.object({
-  name: z.string().min(1),
-  type: z.enum(["string", "number", "boolean", "integer", "float", "array"]),
-  description: z.string().optional(),
-  default: z.any().optional(),
-  required: z.boolean().optional(),
-  itemType: z
-    .enum(["string", "number", "boolean", "integer", "float"])
-    .optional(),
-  min: z.number().optional(),
-  max: z.number().optional(),
-  minLength: z.number().optional(),
-  maxLength: z.number().optional(),
-  enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
-  pattern: z.string().optional(),
+import { ConfigParser } from "../../../src/ibmi-mcp-server/utils/config/configParser.js";
+import { ToolsetManager } from "../../../src/ibmi-mcp-server/utils/config/toolsetManager.js";
+import { SqlToolParameterSchema } from "../../../src/ibmi-mcp-server/schemas/config.js";
+import { logger } from "../../../src/utils/internal/logger.js";
+
+let tmpRoot: string;
+let inlineCount = 0;
+
+beforeAll(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "ibmi-mcp-yaml-parser-"));
 });
 
-const YamlSourceSchema = z.object({
-  host: z.string().min(1),
-  user: z.string().min(1),
-  password: z.string().min(1),
-  port: z.number().int().positive(),
-  "ignore-unauthorized": z.boolean().optional(),
+afterAll(() => {
+  rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-const YamlToolSchema = z.object({
-  source: z.string().min(1),
-  description: z.string().min(1),
-  statement: z.string().min(1),
-  parameters: z.array(YamlToolParameterSchema).optional(),
-  domain: z.string().optional(),
-  category: z.string().optional(),
-  metadata: z.record(z.string(), z.any()).optional(),
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
-const YamlToolsetSchema = z.object({
-  tools: z.array(z.string().min(1)),
-});
-
-const YamlToolsConfigSchema = z
-  .object({
-    sources: z.record(z.string().min(1), YamlSourceSchema).optional(),
-    tools: z.record(z.string().min(1), YamlToolSchema).optional(),
-    toolsets: z.record(z.string().min(1), YamlToolsetSchema).optional(),
-    metadata: z.record(z.string(), z.any()).optional(),
-  })
-  .refine(
-    (data) => {
-      return data.sources || data.tools || data.toolsets;
-    },
-    {
-      message:
-        "YAML file must contain at least one section: sources, tools, or toolsets",
-    },
+// Parse a fixture file with the product parser
+function parseFixture(relativePath: string) {
+  return ConfigParser.parseYamlFile(
+    resolve(process.cwd(), "tests/fixtures", relativePath),
   );
-
-// Helper function to load fixture
-function loadFixture(relativePath: string): string {
-  const fixturePath = resolve(process.cwd(), "tests/fixtures", relativePath);
-  return readFileSync(fixturePath, "utf-8");
 }
 
-// Helper function to parse YAML
+// Parse inline YAML with the product parser
 function parseYaml(yamlContent: string) {
-  try {
-    const parsed = yamlLoad(yamlContent);
-    const result = YamlToolsConfigSchema.safeParse(parsed);
-
-    if (!result.success) {
-      return {
-        success: false,
-        errors: result.error.issues.map(
-          (e) => `${e.path.join(".")}: ${e.message}`,
-        ),
-      };
-    }
-
-    return {
-      success: true,
-      config: result.data,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      errors: [error instanceof Error ? error.message : "Parse error"],
-    };
-  }
+  const filePath = join(tmpRoot, `inline-${inlineCount++}.yaml`);
+  writeFileSync(filePath, yamlContent);
+  return ConfigParser.parseYamlFile(filePath);
 }
 
 describe("YAML Parser Unit Tests", () => {
   describe("Optional Sections", () => {
-    it("should parse sources-only file successfully", () => {
-      const yamlContent = loadFixture("sources-only.yaml");
-      const result = parseYaml(yamlContent);
+    it("should parse sources-only file successfully", async () => {
+      const result = await parseFixture("sources-only.yaml");
 
       expect(result.success).toBe(true);
       expect(result.config?.sources).toBeDefined();
@@ -111,9 +62,8 @@ describe("YAML Parser Unit Tests", () => {
       expect(result.config?.toolsets).toBeUndefined();
     });
 
-    it("should parse tools-only file successfully", () => {
-      const yamlContent = loadFixture("tools-only.yaml");
-      const result = parseYaml(yamlContent);
+    it("should parse tools-only file successfully", async () => {
+      const result = await parseFixture("tools-only.yaml");
 
       expect(result.success).toBe(true);
       expect(result.config?.sources).toBeUndefined();
@@ -121,9 +71,8 @@ describe("YAML Parser Unit Tests", () => {
       expect(result.config?.toolsets).toBeUndefined();
     });
 
-    it("should parse toolsets-only file successfully", () => {
-      const yamlContent = loadFixture("toolsets-only.yaml");
-      const result = parseYaml(yamlContent);
+    it("should parse toolsets-only file successfully", async () => {
+      const result = await parseFixture("toolsets-only.yaml");
 
       expect(result.success).toBe(true);
       expect(result.config?.sources).toBeUndefined();
@@ -131,9 +80,8 @@ describe("YAML Parser Unit Tests", () => {
       expect(result.config?.toolsets).toBeDefined();
     });
 
-    it("should parse complete file successfully", () => {
-      const yamlContent = loadFixture("complete.yaml");
-      const result = parseYaml(yamlContent);
+    it("should parse complete file successfully", async () => {
+      const result = await parseFixture("complete.yaml");
 
       expect(result.success).toBe(true);
       expect(result.config?.sources).toBeDefined();
@@ -141,25 +89,19 @@ describe("YAML Parser Unit Tests", () => {
       expect(result.config?.toolsets).toBeDefined();
     });
 
-    it("should reject empty file", () => {
-      const yamlContent = loadFixture("invalid/empty.yaml");
-      const result = parseYaml(yamlContent);
+    it("should reject empty file", async () => {
+      const result = await parseFixture("invalid/empty.yaml");
 
       expect(result.success).toBe(false);
       expect(
-        result.errors?.some(
-          (error) =>
-            error.includes("YAML file must contain at least one section") ||
-            error.includes("expected object, received null"),
-        ),
+        result.errors?.some((error) => error.includes("expected object")),
       ).toBe(true);
     });
   });
 
   describe("Schema Validation", () => {
-    it("should validate required fields in sources", () => {
-      const yamlContent = loadFixture("invalid/missing-required-fields.yaml");
-      const result = parseYaml(yamlContent);
+    it("should validate required fields in sources", async () => {
+      const result = await parseFixture("invalid/missing-required-fields.yaml");
 
       expect(result.success).toBe(false);
       expect(result.errors).toBeDefined();
@@ -169,27 +111,27 @@ describe("YAML Parser Unit Tests", () => {
       );
     });
 
-    it("should validate parameter types", () => {
+    it("should validate parameter types", async () => {
       const invalidParamConfig = `
 tools:
   invalid-param-tool:
     source: test-source
     description: "Tool with invalid parameter"
-    statement: "SELECT 1"
+    statement: "SELECT 1 FROM SYSIBM.SYSDUMMY1"
     parameters:
       - name: invalid-param
         type: invalid-type
         description: "Invalid parameter type"
 `;
 
-      const result = parseYaml(invalidParamConfig);
+      const result = await parseYaml(invalidParamConfig);
       expect(result.success).toBe(false);
       expect(
         result.errors?.some((error) => error.includes("parameters.0.type")),
       ).toBe(true);
     });
 
-    it("should validate required tool fields", () => {
+    it("should validate required tool fields", async () => {
       const invalidToolConfig = `
 tools:
   incomplete-tool:
@@ -197,25 +139,69 @@ tools:
     # Missing description and statement
 `;
 
-      const result = parseYaml(invalidToolConfig);
+      const result = await parseYaml(invalidToolConfig);
       expect(result.success).toBe(false);
       expect(
         result.errors?.some((error) => error.includes("description")),
       ).toBe(true);
-      expect(result.errors?.some((error) => error.includes("statement"))).toBe(
-        true,
+    });
+
+    it("should require a statement on every tool", async () => {
+      const toolWithoutStatement = `
+tools:
+  no-statement-tool:
+    source: test-source
+    description: "Tool without a statement"
+`;
+
+      const result = await parseYaml(toolWithoutStatement);
+      expect(result.success).toBe(false);
+      expect(result.errors).toEqual([
+        "Tool 'no-statement-tool' must have a non-empty statement field",
+      ]);
+    });
+  });
+
+  describe("Cross-Reference Validation", () => {
+    it("should reject a tool that references an unknown source", async () => {
+      const result = await parseFixture(
+        "cross-reference-errors/tool-missing-source.yaml",
+      );
+
+      expect(result.success).toBe(false);
+      expect(
+        result.errors?.some((error) =>
+          error.includes(
+            "Tool 'invalid-tool' references unknown source 'non-existent-source'",
+          ),
+        ),
+      ).toBe(true);
+    });
+
+    it("should reject a toolset that references an unknown tool", async () => {
+      // Toolset references are checked after files are merged, by the
+      // ToolsetManager, so the per-file parse succeeds.
+      const result = await parseFixture(
+        "cross-reference-errors/toolset-missing-tool.yaml",
+      );
+      expect(result.success).toBe(true);
+
+      await expect(
+        ToolsetManager.getInstance().initialize(result.config!),
+      ).rejects.toThrow(
+        /Toolset 'invalid-toolset' references unknown tool 'non-existent-tool'/,
       );
     });
   });
 
   describe("Environment Variable Interpolation", () => {
-    it("should handle environment variables in YAML", () => {
-      // Set test environment variables
-      process.env.TEST_HOST = "test-host.example.com";
-      process.env.TEST_USER = "test-user";
-      process.env.TEST_PASS = "test-password";
+    afterEach(() => {
+      delete process.env.TEST_HOST;
+      delete process.env.TEST_USER;
+      delete process.env.TEST_PASS;
+    });
 
-      const yamlContent = `
+    const yamlContent = `
 sources:
   test-source:
     host: \${TEST_HOST}
@@ -224,15 +210,12 @@ sources:
     port: 8076
 `;
 
-      // Simple environment variable interpolation
-      const interpolatedContent = yamlContent.replace(
-        /\$\{([^}]+)\}/g,
-        (match, varName) => {
-          return process.env[varName] || match;
-        },
-      );
+    it("should handle environment variables in YAML", async () => {
+      process.env.TEST_HOST = "test-host.example.com";
+      process.env.TEST_USER = "test-user";
+      process.env.TEST_PASS = "test-password";
 
-      const result = parseYaml(interpolatedContent);
+      const result = await parseYaml(yamlContent);
       expect(result.success).toBe(true);
       expect(result.config?.sources?.["test-source"]?.host).toBe(
         "test-host.example.com",
@@ -241,24 +224,32 @@ sources:
       expect(result.config?.sources?.["test-source"]?.password).toBe(
         "test-password",
       );
+    });
 
-      // Clean up
-      delete process.env.TEST_HOST;
-      delete process.env.TEST_USER;
-      delete process.env.TEST_PASS;
+    it("should not write substituted values to the log", async () => {
+      process.env.TEST_HOST = "test-host.example.com";
+      process.env.TEST_USER = "test-user";
+      process.env.TEST_PASS = "S3cretPw";
+
+      const logged: unknown[][] = [];
+      for (const level of ["debug", "info", "warning", "error"] as const) {
+        vi.spyOn(logger, level).mockImplementation((...args: unknown[]) => {
+          logged.push(args);
+        });
+      }
+
+      const result = await parseYaml(yamlContent);
+      expect(result.success).toBe(true);
+
+      const output = JSON.stringify(logged);
+      expect(output).toContain("TEST_PASS");
+      expect(output).not.toContain("S3cr");
     });
   });
 
   describe("Parameter Validation", () => {
     it("should validate valid parameter types", () => {
-      const validTypes = [
-        "string",
-        "number",
-        "boolean",
-        "integer",
-        "float",
-        "array",
-      ];
+      const validTypes = ["string", "boolean", "integer", "float", "array"];
 
       validTypes.forEach((type) => {
         const param = {
@@ -267,20 +258,22 @@ sources:
           description: "Test parameter",
         };
 
-        const result = YamlToolParameterSchema.safeParse(param);
+        const result = SqlToolParameterSchema.safeParse(param);
         expect(result.success).toBe(true);
       });
     });
 
     it("should reject invalid parameter types", () => {
-      const invalidParam = {
-        name: "test-param",
-        type: "invalid-type",
-        description: "Test parameter",
-      };
+      ["invalid-type", "number"].forEach((type) => {
+        const invalidParam = {
+          name: "test-param",
+          type,
+          description: "Test parameter",
+        };
 
-      const result = YamlToolParameterSchema.safeParse(invalidParam);
-      expect(result.success).toBe(false);
+        const result = SqlToolParameterSchema.safeParse(invalidParam);
+        expect(result.success).toBe(false);
+      });
     });
 
     it("should require parameter name", () => {
@@ -289,7 +282,7 @@ sources:
         description: "Test parameter",
       };
 
-      const result = YamlToolParameterSchema.safeParse(paramWithoutName);
+      const result = SqlToolParameterSchema.safeParse(paramWithoutName);
       expect(result.success).toBe(false);
     });
 
@@ -303,7 +296,7 @@ sources:
         maxLength: 100,
       };
 
-      const result = YamlToolParameterSchema.safeParse(arrayParam);
+      const result = SqlToolParameterSchema.safeParse(arrayParam);
       expect(result.success).toBe(true);
     });
 
@@ -317,7 +310,7 @@ sources:
         required: true,
       };
 
-      const result = YamlToolParameterSchema.safeParse(constrainedParam);
+      const result = SqlToolParameterSchema.safeParse(constrainedParam);
       expect(result.success).toBe(true);
     });
 
@@ -330,7 +323,7 @@ sources:
         required: true,
       };
 
-      const result = YamlToolParameterSchema.safeParse(enumParam);
+      const result = SqlToolParameterSchema.safeParse(enumParam);
       expect(result.success).toBe(true);
     });
 
@@ -343,13 +336,13 @@ sources:
         required: true,
       };
 
-      const result = YamlToolParameterSchema.safeParse(patternParam);
+      const result = SqlToolParameterSchema.safeParse(patternParam);
       expect(result.success).toBe(true);
     });
   });
 
   describe("Tool Configuration Validation", () => {
-    it("should parse tools with regular parameters", () => {
+    it("should parse tools with regular parameters", async () => {
       const toolWithParams = `
 tools:
   user-query:
@@ -369,7 +362,7 @@ tools:
         default: 18
 `;
 
-      const result = parseYaml(toolWithParams);
+      const result = await parseYaml(toolWithParams);
       expect(result.success).toBe(true);
       expect(result.config?.tools?.["user-query"]?.parameters).toHaveLength(2);
       expect(result.config?.tools?.["user-query"]?.parameters?.[0].name).toBe(
@@ -386,7 +379,7 @@ tools:
       );
     });
 
-    it("should validate tools without any parameters", () => {
+    it("should validate tools without any parameters", async () => {
       const toolWithoutParams = `
 tools:
   simple-query:
@@ -395,7 +388,7 @@ tools:
     statement: "SELECT COUNT(*) as total_users FROM users"
 `;
 
-      const result = parseYaml(toolWithoutParams);
+      const result = await parseYaml(toolWithoutParams);
       expect(result.success).toBe(true);
       expect(
         result.config?.tools?.["simple-query"]?.parameters,
@@ -404,31 +397,25 @@ tools:
   });
 
   describe("Configuration Counts", () => {
-    it("should count sources correctly", () => {
-      const yamlContent = loadFixture("sources-only.yaml");
-      const result = parseYaml(yamlContent);
+    it("should count sources correctly", async () => {
+      const result = await parseFixture("sources-only.yaml");
 
       expect(result.success).toBe(true);
-      const sourceCount = Object.keys(result.config?.sources || {}).length;
-      expect(sourceCount).toBe(3);
+      expect(result.stats?.sourceCount).toBe(3);
     });
 
-    it("should count tools correctly", () => {
-      const yamlContent = loadFixture("tools-only.yaml");
-      const result = parseYaml(yamlContent);
+    it("should count tools correctly", async () => {
+      const result = await parseFixture("tools-only.yaml");
 
       expect(result.success).toBe(true);
-      const toolCount = Object.keys(result.config?.tools || {}).length;
-      expect(toolCount).toBe(3);
+      expect(result.stats?.toolCount).toBe(3);
     });
 
-    it("should count toolsets correctly", () => {
-      const yamlContent = loadFixture("toolsets-only.yaml");
-      const result = parseYaml(yamlContent);
+    it("should count toolsets correctly", async () => {
+      const result = await parseFixture("toolsets-only.yaml");
 
       expect(result.success).toBe(true);
-      const toolsetCount = Object.keys(result.config?.toolsets || {}).length;
-      expect(toolsetCount).toBe(3);
+      expect(result.stats?.toolsetCount).toBe(3);
     });
   });
 });

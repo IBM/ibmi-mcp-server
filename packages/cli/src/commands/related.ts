@@ -23,8 +23,9 @@ export function registerRelatedCommand(program: Command): void {
           {
             library_name: library,
             file_name: object,
+            // The server compares against upper-case type names (as `describe --type` does)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            object_type_filter: opts["type"] as any,
+            object_type_filter: (opts["type"] as string | undefined)?.toUpperCase() as any,
           },
           ctx,
           {} as SdkContext,

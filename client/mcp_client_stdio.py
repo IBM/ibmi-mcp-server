@@ -12,7 +12,7 @@ if not server_config.exists():
 
 server = StdioServerParameters(
     command="npx",
-    args=["ibmi-mcp-server", "--transport", "stdio"],
+    args=["-y", "@ibm/ibmi-mcp-server@latest", "--transport", "stdio"],
     env={
         "MCP_SERVER_CONFIG": str(server_config),
         "TOOLS_YAML_PATH": str(Path(__file__).parent.parent / "tools"),

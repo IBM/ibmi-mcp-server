@@ -416,12 +416,18 @@ services:
     environment:
       # Enable YAML auto-reload for development (file watching)
       - YAML_AUTO_RELOAD=true
-      - TOOLS_YAML_PATH=/usr/src/app/tools
+      - TOOLS_YAML_PATH=/app/tools
+      # A container must bind all interfaces to be reachable from the gateway and
+      # through the published port; .env.example sets MCP_HTTP_HOST=127.0.0.1
+      - MCP_HTTP_HOST=0.0.0.0
     volumes:
-      - ../../tools:/usr/src/app/tools:rw,Z  # Mount tools configurations with read-write for auto-reload
-      - ../../secrets:/usr/src/app/secrets:ro,Z  # Mount secrets directory as read-only
+      # The image's working directory is /app, so relative paths from .env such as
+      # IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem resolve to these mounts
+      - ../../tools:/app/tools:rw,Z  # Mount tools configurations with read-write for auto-reload
+      - ../../secrets:/app/secrets:ro,Z  # Mount secrets directory as read-only
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3010/healthz"]
+      # The image ships no curl/wget; probe with the bundled Node runtime
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5

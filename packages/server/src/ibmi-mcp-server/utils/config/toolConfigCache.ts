@@ -7,7 +7,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logger, RequestContext } from "@/utils/internal/index.js";
-import { CachedToolConfig } from "./types.js";
+import type { CachedToolConfig } from "./types.js";
 import { createHandlerFromDefinition } from "./toolDefinitions.js";
 
 /**
@@ -18,12 +18,6 @@ export interface ToolCacheStats {
   toolCount: number;
   /** Number of toolsets */
   toolsetCount: number;
-  /** Last cache build timestamp */
-  lastBuilt?: Date;
-  /** Cache build duration in milliseconds */
-  buildDurationMs?: number;
-  /** Whether cache is currently being rebuilt */
-  isRebuilding: boolean;
 }
 
 /**
@@ -36,7 +30,6 @@ export class ToolConfigCache {
   private stats: ToolCacheStats = {
     toolCount: 0,
     toolsetCount: 0,
-    isRebuilding: false,
   };
 
   /**
@@ -76,7 +69,6 @@ export class ToolConfigCache {
     );
 
     const cacheStart = Date.now();
-    this.stats.isRebuilding = true;
 
     try {
       // Clear existing cache
@@ -112,9 +104,6 @@ export class ToolConfigCache {
       this.stats = {
         toolCount: cachedToolCount,
         toolsetCount: toolsetNames.size,
-        lastBuilt: new Date(),
-        buildDurationMs: cacheDuration,
-        isRebuilding: false,
       };
 
       logger.info(
@@ -128,7 +117,6 @@ export class ToolConfigCache {
         toolsetCount: toolsetNames.size,
       };
     } catch (error) {
-      this.stats.isRebuilding = false;
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       logger.error(
@@ -213,29 +201,9 @@ export class ToolConfigCache {
   }
 
   /**
-   * Get all cached tool names
-   */
-  getCachedToolNames(): string[] {
-    return Array.from(this.cache.keys());
-  }
-
-  /**
    * Check if cache has any tools
    */
   isEmpty(): boolean {
     return this.cache.size === 0;
   }
-
-  /**
-   * Clear the cache (for testing)
-   */
-  clear(): void {
-    this.cache.clear();
-    this.stats = {
-      toolCount: 0,
-      toolsetCount: 0,
-      isRebuilding: false,
-    };
-  }
 }
-export { CachedToolConfig };

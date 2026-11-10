@@ -95,7 +95,7 @@ try {
 } catch (error) {
   console.error("❌ Error parsing arguments:", error.message);
   console.error(
-    "\nUsage: node test-auth.js --user <username> --password <password> --host <ibmi-host> [--verbose] [--https]",
+    "\nUsage: node get-access-token.js --user <username> --password <password> --host <ibmi-host> [--verbose] [--https]",
   );
   console.error("\nOptions:");
   Object.entries(options).forEach(([key, opt]) => {
@@ -378,6 +378,14 @@ async function main() {
           process.env.IBMI_MCP_ACCESS_TOKEN = token;
 
           if (args.quiet) {
+            // This line is meant for `eval`: never print a token that could
+            // carry shell syntax.
+            if (!/^[A-Za-z0-9._~+/=-]+$/.test(token)) {
+              console.error(
+                "❌ Server returned a malformed access token; not printing it.",
+              );
+              process.exit(1);
+            }
             console.log(`export IBMI_MCP_ACCESS_TOKEN="${token}"`);
             return;
           }
@@ -410,20 +418,21 @@ async function main() {
           return;
         }
 
-        // handle failure path
-        console.log();
-        console.log("❌ Authentication failed!");
+        // handle failure path (stderr: stdout may be fed to `eval` in --quiet mode)
+        console.error();
+        console.error("❌ Authentication failed!");
         if (parsedResponse.error) {
-          console.log(`   Error Code: ${parsedResponse.error.code}`);
-          console.log(`   Error Message: ${parsedResponse.error.message}`);
+          console.error(`   Error Code: ${parsedResponse.error.code}`);
+          console.error(`   Error Message: ${parsedResponse.error.message}`);
 
           if (parsedResponse.error.message?.includes("HTTPS/TLS is required")) {
-            console.log();
-            console.log(
+            console.error();
+            console.error(
               "💡 TLS enforcement is active. Allow HTTP in development (IBMI_AUTH_ALLOW_HTTP=true) or rerun with --https.",
             );
           }
         }
+        process.exit(1);
       } catch (parseError) {
         if (TEST_CONFIG.verbose) {
           console.log("Raw response:", responseBody);

@@ -5,7 +5,7 @@
  * @module src/utils/telemetry/instrumentation.setup
  */
 import { config } from "@/config/index.js";
-import { DiagConsoleLogger, DiagLogLevel, diag } from "@opentelemetry/api";
+import { type DiagLogger, DiagLogLevel, diag } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
@@ -30,7 +30,16 @@ export let startedSdk: NodeSDK | null = null;
 
 // --- Custom Diagnostic Logger for OpenTelemetry ---
 // This logger uses the standard console to avoid circular dependencies with the main application logger.
-class OtelDiagnosticLogger extends DiagConsoleLogger {}
+// Every level goes to stderr: DiagConsoleLogger sends info/debug to stdout,
+// which must carry only JSON-RPC when the stdio transport is in use.
+const toStderr = (...args: unknown[]): void => console.error(...args);
+const otelDiagnosticLogger: DiagLogger = {
+  error: toStderr,
+  warn: toStderr,
+  info: toStderr,
+  debug: toStderr,
+  verbose: toStderr,
+};
 
 /**
  * A custom SpanProcessor that writes ended spans to a log file using Pino.
@@ -73,7 +82,7 @@ if (config.openTelemetry.enabled) {
       DiagLogLevel[
         config.openTelemetry.logLevel as keyof typeof DiagLogLevel
       ] ?? DiagLogLevel.INFO;
-    diag.setLogger(new OtelDiagnosticLogger(), otelLogLevel);
+    diag.setLogger(otelDiagnosticLogger, otelLogLevel);
 
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: config.openTelemetry.serviceName,
@@ -121,7 +130,7 @@ if (config.openTelemetry.enabled) {
         }),
         // Injects trace_id/span_id into pino log records.
         new PinoInstrumentation(),
-        // Spans for native `fetch` (see utils/network/fetchWithTimeout.ts).
+        // Spans for native `fetch`.
         new UndiciInstrumentation(),
       ],
     });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program";
 
 describe("ibmi tables command", () => {
   it("should register the tables command with schema argument", () => {

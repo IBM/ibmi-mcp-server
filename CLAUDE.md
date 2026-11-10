@@ -29,20 +29,21 @@ npm run test:coverage      # With coverage report
 npm run lint               # ESLint
 npm run typecheck          # TypeScript type checking
 npm run format             # Prettier formatting
-npm run validate           # Validate YAML tool configurations
+npm run validate -- --tools-dir tools   # Validate YAML tool configurations
 
 # Run
 npm run start:http         # HTTP transport (port 3010, recommended for dev)
 npm run start:stdio        # Stdio transport (for MCP Inspector)
-npm run inspector          # Launch MCP Inspector UI
+npm run inspector          # Launch MCP Inspector UI (needs an mcp.json at the repo root; see packages/server/README.md "MCP Inspector")
 
 # YAML Tools
-npm run list-toolsets                       # List available toolsets
-npm run validate                            # Validate tool YAML files
+npm run list-toolsets                       # List available toolsets (needs YAML_ALLOW_DUPLICATE_SOURCES=true)
+npm run validate -- --tools <file.yaml>     # Validate a single tool YAML file
 
-# Release
-npm run release:patch      # Patch version bump
-npm run release:minor      # Minor version bump
+# Release (see RELEASING.md)
+npm run release:prepare:patch   # Patch version bump (no commit)
+npm run release:prepare:minor   # Minor version bump (no commit)
+npm run release:finalize        # Commit, tag, and push
 ```
 
 ### Run the server with npx
@@ -55,10 +56,10 @@ npx -y @ibm/ibmi-mcp-server@latest --transport http --tools /path/to/tools.yaml
 
 ### Core Pattern: "Logic Throws, Handler Catches"
 
-Every tool follows strict two-file separation:
+Built-in tools are single `*.tool.ts` files in `packages/server/src/ibmi-mcp-server/tools/`, each created with `defineTool` from `packages/server/src/mcp-server/tools/utils/tool-factory.ts`:
 
-- **`logic.ts`** - Pure business logic. Throws `McpError` on failure. No try/catch for response formatting.
-- **`registration.ts`** - Handler layer. Wraps logic in try/catch, formats responses via `ErrorHandler`.
+- **`logic` function** - Pure business logic. Throws `McpError` on failure. No try/catch for response formatting.
+- **Tool factory (`createHandler`)** - Handler layer. Wraps logic in try/catch, formats responses via `ErrorHandler`.
 
 ```
 packages/
@@ -90,7 +91,7 @@ CLI imports server internals via the `exports` subpath surface:
 
 ### YAML-Driven SQL Tools
 
-SQL tools are defined declaratively in `tools/*.yaml`:
+SQL tools are defined declaratively in `tools/**/*.yaml`:
 
 ```yaml
 sources:
@@ -119,13 +120,15 @@ toolsets:
     tools: [tool_name]
 ```
 
-Load tools via `--tools ./tools/file.yaml` and select toolsets via `--toolsets toolset_name`.
+Load tools via `--tools ./tools/<dir>/<file>.yaml` and select toolsets via `--toolsets toolset_name`.
 
 ### Key Services
 
-- **SourceManager** (`services/SourceManager.ts`) - Mapepire connection pooling
-- **SqlSecurityValidator** (`services/SqlSecurityValidator.ts`) - Enforces read-only queries by default
-- **ToolProcessor** (`utils/ToolProcessor.ts`) - YAML tool hydration and registration
+Paths are relative to `packages/server/src/ibmi-mcp-server/`:
+
+- **SourceManager** (`services/sourceManager.ts`) - Mapepire connection pooling
+- **SqlSecurityValidator** (`utils/security/sqlSecurityValidator.ts`) - Enforces read-only queries by default
+- **ToolProcessor** (`utils/config/toolProcessor.ts`) - YAML tool hydration and registration
 
 ### Request Context & Logging
 
@@ -142,19 +145,19 @@ logger.info("Executing query", context);
 
 ### TypeScript Tools
 
-Follow the echoTool pattern in `src/mcp-server/tools/echoTool/`:
+Follow the existing tools in `packages/server/src/ibmi-mcp-server/tools/` (e.g. `listSchemas.tool.ts`):
 
-1. **logic.ts**: Define Zod schemas, export logic function that throws on error
-2. **registration.ts**: Register with server, wrap logic in try/catch
-3. **index.ts**: Barrel export of registration function
+1. Create `myTool.tool.ts`: define Zod input/output schemas and a logic function that throws on error, then export the result of `defineTool({ name, description, inputSchema, outputSchema, logic, ... })`
+2. Import it in `packages/server/src/ibmi-mcp-server/tools/index.ts`
+3. Add it to the array returned by `getAllToolDefinitions()`
 
 ### YAML SQL Tools
 
-1. Add tool definition to appropriate `tools/*.yaml` file
+1. Add tool definition to appropriate `tools/**/*.yaml` file
 2. Use parameter binding (`:param_name`) - never string interpolation
 3. Include `FETCH FIRST N ROWS ONLY` for result limiting
 4. Set `readOnlyHint: true` for SELECT queries
-5. Run `npm run validate` to check syntax
+5. Run `npm run validate -- --tools <file.yaml>` to check syntax
 
 ## Testing
 
@@ -177,7 +180,7 @@ Key variables (set in `.env` or environment):
 | `DB2i_USER` | Database user |
 | `DB2i_PASS` | Database password |
 | `MCP_TRANSPORT_TYPE` | `stdio` or `http` |
-| `MCP_LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
+| `MCP_LOG_LEVEL` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
 | `IBMI_HTTP_AUTH_ENABLED` | Enable bearer token auth |
 
 ## Code Style

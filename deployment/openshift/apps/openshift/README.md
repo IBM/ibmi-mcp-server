@@ -21,9 +21,6 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    Run the commands below to copy required files into specific directory. First make sure you are in directory `deployment/openshift/apps/openshift` relate to the project root.
 
    ```bash
-   # Copy dockerfile into server package directory
-   wget -O ../../../../packages/server/Dockerfile https://raw.githubusercontent.com/IBM/ibmi-mcp-server/refs/heads/main/Dockerfile
-
    # Get env file from mcp context forge repo
    wget -O ./mcpgateway/.env https://raw.githubusercontent.com/IBM/mcp-context-forge/refs/heads/main/.env.example
 
@@ -55,6 +52,8 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    ```
 
    The liveness and readiness probes in `ibmi-mcp-server-deployment.yaml` already override their `Host` header to `localhost`, since kubelet otherwise sends the (dynamic) pod IP and the probes would 403.
+
+   The tools ConfigMap is mounted at `/app/tools` and the key Secret at `/app/secrets` (the image's working directory is `/app`). Set `TOOLS_YAML_PATH=/app/tools` to load the mounted tools; the `.env.example` defaults `IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem` and `IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem` already resolve to the mounted keys.
 
 3. **Set your namespace**
 

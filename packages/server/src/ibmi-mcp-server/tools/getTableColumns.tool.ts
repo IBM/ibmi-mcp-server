@@ -103,7 +103,9 @@ export async function getTableColumnsLogic(
   `.trim();
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // Paginate: a single fetch returns at most 100 rows (mapepire default),
+    // which would silently drop columns of wide tables.
+    const result = await IBMiConnectionPool.executeQueryWithPagination(
       sql,
       [params.schema_name, params.table_name],
       appContext,

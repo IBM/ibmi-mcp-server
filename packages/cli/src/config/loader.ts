@@ -5,7 +5,13 @@
  * @module cli/config/loader
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+} from "fs";
 import { homedir } from "os";
 import path from "path";
 import yaml from "js-yaml";
@@ -196,11 +202,12 @@ export function loadConfigLayers(): ConfigLayer[] {
 
 /**
  * Save a config to the user-level config file.
+ * The file can hold plaintext passwords, so it is kept readable by the owner only.
  */
 export function saveUserConfig(config: CliConfig): void {
   const configDir = USER_CONFIG_DIR;
   if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
 
   const yamlStr = yaml.dump(config, {
@@ -209,22 +216,24 @@ export function saveUserConfig(config: CliConfig): void {
     noRefs: true,
   });
 
-  writeFileSync(getUserConfigPath(), yamlStr, "utf-8");
+  const configPath = getUserConfigPath();
+  writeFileSync(configPath, yamlStr, { encoding: "utf-8", mode: 0o600 });
+  // `mode` only applies when the file is created — tighten an existing file too
+  chmodSync(configPath, 0o600);
 }
 
 /**
  * Add or update a system in the user config.
+ * Throws if the existing user config cannot be parsed or fails validation,
+ * rather than replacing it.
  */
 export function upsertSystem(
   name: string,
   system: SystemConfig,
 ): void {
-  let config: CliConfig;
-  try {
-    config = loadConfigFile(getUserConfigPath()) ?? { systems: {} };
-  } catch {
-    config = { systems: {} };
-  }
+  const config: CliConfig = loadConfigFile(getUserConfigPath()) ?? {
+    systems: {},
+  };
 
   config.systems[name] = system;
 
