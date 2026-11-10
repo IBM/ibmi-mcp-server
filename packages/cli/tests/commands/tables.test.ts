@@ -19,8 +19,6 @@ describe("ibmi tables command", () => {
   it("should have --filter option", () => {
     const program = createProgram();
     const tables = program.commands.find((c) => c.name() === "tables");
-    expect(
-      tables?.options.find((o) => o.long === "--filter"),
-    ).toBeDefined();
+    expect(tables?.options.find((o) => o.long === "--filter")).toBeDefined();
   });
 });

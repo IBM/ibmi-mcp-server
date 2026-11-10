@@ -21,10 +21,7 @@ vi.mock("../../src/config/credentials.js", () => ({
   expandEnvVars: vi.fn((s: string) => s),
 }));
 
-import {
-  loadConfig,
-  loadConfigLayers,
-} from "../../src/config/loader.js";
+import { loadConfig, loadConfigLayers } from "../../src/config/loader.js";
 
 const mockLoadConfig = vi.mocked(loadConfig);
 const mockLoadConfigLayers = vi.mocked(loadConfigLayers);

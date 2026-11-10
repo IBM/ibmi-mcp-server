@@ -14,7 +14,8 @@ export function registerValidateCommand(program: Command): void {
     .description("Validate SQL syntax and verify referenced objects exist")
     .action(async (sql: string, _opts, cmd: Command) => {
       await withConnection(cmd, "validate_query", async (_resolved, ctx) => {
-        const { validateQueryLogic } = await import("@ibm/ibmi-mcp-server/tools");
+        const { validateQueryLogic } =
+          await import("@ibm/ibmi-mcp-server/tools");
 
         const result = await validateQueryLogic(
           { sql_statement: sql },
@@ -41,9 +42,10 @@ export function registerValidateCommand(program: Command): void {
           summary.push({
             CHECK: "Syntax",
             STATUS: "PASS",
-            DETAILS: stmtTypes.length > 0
-              ? `Statement type: ${stmtTypes.join(", ")}`
-              : "Parsed successfully",
+            DETAILS:
+              stmtTypes.length > 0
+                ? `Statement type: ${stmtTypes.join(", ")}`
+                : "Parsed successfully",
           });
         } else {
           summary.push({

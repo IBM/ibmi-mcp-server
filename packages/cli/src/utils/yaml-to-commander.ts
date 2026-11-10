@@ -176,7 +176,11 @@ export function validateRequiredParams(
 ): string[] {
   const missing: string[] = [];
   for (const param of params) {
-    if (param.required && param.default === undefined && values[param.name] === undefined) {
+    if (
+      param.required &&
+      param.default === undefined &&
+      values[param.name] === undefined
+    ) {
       missing.push(param.name);
     }
   }

@@ -241,7 +241,9 @@ async function runWithWatch(
       // Show timestamp header so the user knows when the last refresh happened
       const now = new Date().toLocaleString();
       const args = sanitizeArgsForDisplay(process.argv.slice(2));
-      process.stderr.write(`Every ${intervalSeconds}s: ibmi ${args}  ${now}\n\n`);
+      process.stderr.write(
+        `Every ${intervalSeconds}s: ibmi ${args}  ${now}\n\n`,
+      );
 
       await runOnce();
       // A failed run does not fail the watch
@@ -258,9 +260,12 @@ async function runWithWatch(
           };
           process.once("SIGINT", sigHandler);
           // Remove the per-iteration handler once the timer fires naturally
-          setTimeout(() => {
-            process.removeListener("SIGINT", sigHandler);
-          }, intervalSeconds * 1000 + 10);
+          setTimeout(
+            () => {
+              process.removeListener("SIGINT", sigHandler);
+            },
+            intervalSeconds * 1000 + 10,
+          );
         });
       }
     }

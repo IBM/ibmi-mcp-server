@@ -6,7 +6,8 @@ vi.mock("../../src/utils/yaml-loader.js", () => ({
 }));
 
 vi.mock("../../src/config/resolver.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/config/resolver.js")>();
+  const actual =
+    await importOriginal<typeof import("../../src/config/resolver.js")>();
   return {
     ...actual,
     resolveSystem: vi.fn(),
@@ -64,9 +65,7 @@ describe("ibmi tool command", () => {
   it("should have --dry-run option", () => {
     const program = createProgram();
     const tool = program.commands.find((c) => c.name() === "tool");
-    expect(
-      tool?.options.find((o) => o.long === "--dry-run"),
-    ).toBeDefined();
+    expect(tool?.options.find((o) => o.long === "--dry-run")).toBeDefined();
   });
 
   it("should allow unknown options (for dynamic tool params)", () => {
@@ -190,7 +189,8 @@ describe("ibmi tool command — error paths", () => {
         list_categories_for_schema: {
           source: "ibmi-system",
           description: "Show which categories exist within a given schema.",
-          statement: "SELECT * FROM qsys2.services_info WHERE service_schema_name = :schema_name",
+          statement:
+            "SELECT * FROM qsys2.services_info WHERE service_schema_name = :schema_name",
           parameters: [
             {
               name: "schema_name",
@@ -392,12 +392,19 @@ describe("ibmi tool command — security validation", () => {
   }
 
   it("should block DELETE when tool has security.readOnly: true", async () => {
-    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE EMPNO = '999'", { readOnly: true });
+    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE EMPNO = '999'", {
+      readOnly: true,
+    });
 
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+      "node",
+      "ibmi",
+      "tool",
+      "test_tool",
+      "--tools",
+      "/fake.yaml",
     ]);
 
     const output = stdoutOutput + stderrOutput;
@@ -412,7 +419,12 @@ describe("ibmi tool command — security validation", () => {
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+      "node",
+      "ibmi",
+      "tool",
+      "test_tool",
+      "--tools",
+      "/fake.yaml",
     ]);
 
     const output = stdoutOutput + stderrOutput;
@@ -425,7 +437,12 @@ describe("ibmi tool command — security validation", () => {
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+      "node",
+      "ibmi",
+      "tool",
+      "test_tool",
+      "--tools",
+      "/fake.yaml",
     ]);
 
     const output = stdoutOutput + stderrOutput;
@@ -433,12 +450,19 @@ describe("ibmi tool command — security validation", () => {
   });
 
   it("should allow DELETE when tool has security.readOnly: false", async () => {
-    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0", { readOnly: false });
+    mockToolWithStatement("DELETE FROM SAMPLE.EMPLOYEE WHERE 1=0", {
+      readOnly: false,
+    });
 
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+      "node",
+      "ibmi",
+      "tool",
+      "test_tool",
+      "--tools",
+      "/fake.yaml",
     ]);
 
     const output = stdoutOutput + stderrOutput;
@@ -455,7 +479,12 @@ describe("ibmi tool command — security validation", () => {
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "tool", "test_tool", "--tools", "/fake.yaml",
+      "node",
+      "ibmi",
+      "tool",
+      "test_tool",
+      "--tools",
+      "/fake.yaml",
     ]);
 
     const output = stdoutOutput + stderrOutput;
@@ -525,13 +554,22 @@ describe("ibmi tool command — parameter handling", () => {
   });
 
   it("should reject a non-integer value for an integer parameter (exit 2)", async () => {
-    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
 
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "--format", "table", "tool", "list_rows",
-      "--tools", "/fake.yaml", "--limit", "abc",
+      "node",
+      "ibmi",
+      "--format",
+      "table",
+      "tool",
+      "list_rows",
+      "--tools",
+      "/fake.yaml",
+      "--limit",
+      "abc",
     ]);
 
     expect(stderrOutput).toMatch(/--limit/);
@@ -541,13 +579,22 @@ describe("ibmi tool command — parameter handling", () => {
   });
 
   it("should reject an option the tool does not define (exit 2)", async () => {
-    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
 
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "--format", "table", "tool", "list_rows",
-      "--tools", "/fake.yaml", "--limt", "5",
+      "node",
+      "ibmi",
+      "--format",
+      "table",
+      "tool",
+      "list_rows",
+      "--tools",
+      "/fake.yaml",
+      "--limt",
+      "5",
     ]);
 
     expect(stderrOutput).toMatch(/unknown option '--limt'/);
@@ -556,15 +603,20 @@ describe("ibmi tool command — parameter handling", () => {
   });
 
   it("should bind parameters even when no optional parameter is passed", async () => {
-    const { IBMiConnectionPool, ParameterProcessor } = await import(
-      "@ibm/ibmi-mcp-server/services"
-    );
+    const { IBMiConnectionPool, ParameterProcessor } =
+      await import("@ibm/ibmi-mcp-server/services");
 
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "--format", "json", "tool", "optional_only",
-      "--tools", "/fake.yaml",
+      "node",
+      "ibmi",
+      "--format",
+      "json",
+      "tool",
+      "optional_only",
+      "--tools",
+      "/fake.yaml",
     ]);
 
     expect(ParameterProcessor.process).toHaveBeenCalledTimes(1);
@@ -578,7 +630,10 @@ describe("ibmi tool command — parameter handling", () => {
     const { existsSync, readFileSync, unlinkSync } = await import("fs");
     const os = await import("os");
     const path = await import("path");
-    const outputFile = path.join(os.tmpdir(), `ibmi-test-${Date.now()}-tool.csv`);
+    const outputFile = path.join(
+      os.tmpdir(),
+      `ibmi-test-${Date.now()}-tool.csv`,
+    );
     let stdoutOutput = "";
     process.stdout.write = ((chunk: string) => {
       stdoutOutput += String(chunk);
@@ -589,8 +644,16 @@ describe("ibmi tool command — parameter handling", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "--format", "csv", "--output", outputFile,
-        "tool", "optional_only", "--tools", "/fake.yaml",
+        "node",
+        "ibmi",
+        "--format",
+        "csv",
+        "--output",
+        outputFile,
+        "tool",
+        "optional_only",
+        "--tools",
+        "/fake.yaml",
       ]);
 
       expect(stdoutOutput).toBe("");
@@ -604,7 +667,10 @@ describe("ibmi tool command — parameter handling", () => {
     const { existsSync, readFileSync, unlinkSync } = await import("fs");
     const os = await import("os");
     const path = await import("path");
-    const outputFile = path.join(os.tmpdir(), `ibmi-test-${Date.now()}-dry.txt`);
+    const outputFile = path.join(
+      os.tmpdir(),
+      `ibmi-test-${Date.now()}-dry.txt`,
+    );
     let stdoutOutput = "";
     process.stdout.write = ((chunk: string) => {
       stdoutOutput += String(chunk);
@@ -615,8 +681,17 @@ describe("ibmi tool command — parameter handling", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "--format", "table", "--output", outputFile,
-        "tool", "optional_only", "--tools", "/fake.yaml", "--dry-run",
+        "node",
+        "ibmi",
+        "--format",
+        "table",
+        "--output",
+        outputFile,
+        "tool",
+        "optional_only",
+        "--tools",
+        "/fake.yaml",
+        "--dry-run",
       ]);
 
       expect(stdoutOutput).toBe("");
@@ -634,8 +709,12 @@ describe("ibmi tool command — parameter handling", () => {
     const { existsSync, readFileSync, unlinkSync } = await import("fs");
     const os = await import("os");
     const path = await import("path");
-    const { IBMiConnectionPool } = await import("@ibm/ibmi-mcp-server/services");
-    const outputFile = path.join(os.tmpdir(), `ibmi-test-${Date.now()}-watch.csv`);
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
+    const outputFile = path.join(
+      os.tmpdir(),
+      `ibmi-test-${Date.now()}-watch.csv`,
+    );
 
     let fileBeforeSecondRun = "";
     vi.mocked(IBMiConnectionPool.executeQuery)
@@ -650,8 +729,18 @@ describe("ibmi tool command — parameter handling", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "--format", "csv", "--watch", "1",
-        "--output", outputFile, "tool", "optional_only", "--tools", "/fake.yaml",
+        "node",
+        "ibmi",
+        "--format",
+        "csv",
+        "--watch",
+        "1",
+        "--output",
+        outputFile,
+        "tool",
+        "optional_only",
+        "--tools",
+        "/fake.yaml",
       ]);
 
       expect(IBMiConnectionPool.executeQuery).toHaveBeenCalledTimes(2);

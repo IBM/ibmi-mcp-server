@@ -17,31 +17,39 @@ export function registerRelatedCommand(program: Command): void {
       "Filter by object type (e.g. INDEX, VIEW, TRIGGER, FOREIGN KEY)",
     )
     .action(async (library: string, object: string, opts, cmd: Command) => {
-      await withConnection(cmd, "get_related_objects", async (_resolved, ctx) => {
-        const { getRelatedObjectsLogic } = await import("@ibm/ibmi-mcp-server/tools");
+      await withConnection(
+        cmd,
+        "get_related_objects",
+        async (_resolved, ctx) => {
+          const { getRelatedObjectsLogic } =
+            await import("@ibm/ibmi-mcp-server/tools");
 
-        const result = await getRelatedObjectsLogic(
-          {
-            library_name: library,
-            file_name: object,
-            // The server compares against upper-case type names (as `describe --type` does)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            object_type_filter: (opts["type"] as string | undefined)?.toUpperCase() as any,
-          },
-          ctx,
-          {} as SdkContext,
-        );
+          const result = await getRelatedObjectsLogic(
+            {
+              library_name: library,
+              file_name: object,
+              // The server compares against upper-case type names (as `describe --type` does)
+              object_type_filter: (
+                opts["type"] as string | undefined
+              )?.toUpperCase() as Parameters<
+                typeof getRelatedObjectsLogic
+              >[0]["object_type_filter"],
+            },
+            ctx,
+            {} as SdkContext,
+          );
 
-        if (!result.success) {
-          throw new ToolError(result.error, "Failed to get related objects");
-        }
+          if (!result.success) {
+            throw new ToolError(result.error, "Failed to get related objects");
+          }
 
-        return {
-          data: (result.data ?? []) as Record<string, unknown>[],
-          meta: {
-            rowCount: result.rowCount ?? 0,
-          },
-        };
-      });
+          return {
+            data: (result.data ?? []) as Record<string, unknown>[],
+            meta: {
+              rowCount: result.rowCount ?? 0,
+            },
+          };
+        },
+      );
     });
 }

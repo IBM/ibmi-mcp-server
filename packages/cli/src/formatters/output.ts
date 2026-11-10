@@ -12,10 +12,7 @@
 import { writeFileSync } from "fs";
 import { tableFormatter } from "@ibm/ibmi-mcp-server/formatting";
 import type { OutputFormat, ResolvedSystem } from "../config/types.js";
-import {
-  classifyError,
-  type ErrorCodeValue,
-} from "../utils/exit-codes.js";
+import { classifyError, type ErrorCodeValue } from "../utils/exit-codes.js";
 import type { MultiSystemResult } from "../utils/multi-connection.js";
 
 /** Module-level output file path set by --output global option. */
@@ -119,9 +116,7 @@ export function renderOutput(
  * Each row is a separate JSON object on its own line.
  * Agents and tools like `jq` can process rows incrementally.
  */
-export function renderNdjson(
-  data: Record<string, unknown>[],
-): void {
+export function renderNdjson(data: Record<string, unknown>[]): void {
   for (const row of data) {
     writeOutput(JSON.stringify(row) + "\n");
   }
@@ -130,13 +125,12 @@ export function renderNdjson(
 /**
  * Render as JSON envelope to stdout.
  */
-function renderJson(
-  data: Record<string, unknown>[],
-  meta?: OutputMeta,
-): void {
+function renderJson(data: Record<string, unknown>[], meta?: OutputMeta): void {
   const output = {
     ok: true,
-    ...(meta?.system ? { system: meta.system.name, host: meta.system.config.host } : {}),
+    ...(meta?.system
+      ? { system: meta.system.name, host: meta.system.config.host }
+      : {}),
     ...(meta?.command ? { command: meta.command } : {}),
     data,
     meta: {
@@ -343,7 +337,9 @@ function renderMultiSystemFooter(results: MultiSystemResult[]): void {
     if (r.error) {
       parts.push(`[${r.system}] ERROR`);
     } else {
-      parts.push(`[${r.system}] ${r.rowCount} row${r.rowCount !== 1 ? "s" : ""}${r.hasMore ? " (truncated)" : ""} · ${(r.elapsedMs / 1000).toFixed(2)}s`);
+      parts.push(
+        `[${r.system}] ${r.rowCount} row${r.rowCount !== 1 ? "s" : ""}${r.hasMore ? " (truncated)" : ""} · ${(r.elapsedMs / 1000).toFixed(2)}s`,
+      );
     }
   }
   writeOutput(parts.join("  ") + "\n");
@@ -352,12 +348,12 @@ function renderMultiSystemFooter(results: MultiSystemResult[]): void {
 /**
  * Render multi-system NDJSON. Each row gets a _system field.
  */
-export function renderMultiSystemNdjson(
-  results: MultiSystemResult[],
-): void {
+export function renderMultiSystemNdjson(results: MultiSystemResult[]): void {
   for (const r of results) {
     if (r.error) {
-      writeOutput(JSON.stringify({ _system: r.system, _error: r.error }) + "\n");
+      writeOutput(
+        JSON.stringify({ _system: r.system, _error: r.error }) + "\n",
+      );
     } else {
       for (const row of r.data) {
         writeOutput(JSON.stringify({ _system: r.system, ...row }) + "\n");
@@ -369,10 +365,7 @@ export function renderMultiSystemNdjson(
 /**
  * Render a simple message to stdout (e.g., success confirmation).
  */
-export function renderMessage(
-  message: string,
-  format: OutputFormat,
-): void {
+export function renderMessage(message: string, format: OutputFormat): void {
   if (format === "json") {
     writeOutput(JSON.stringify({ ok: true, message }) + "\n");
   } else {

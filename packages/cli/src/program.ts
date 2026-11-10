@@ -19,7 +19,10 @@ import { registerValidateCommand } from "./commands/validate.js";
 import { registerDescribeCommand } from "./commands/describe.js";
 import { registerSqlCommand } from "./commands/sql.js";
 import { registerToolCommand } from "./commands/tool.js";
-import { registerToolsCommand, registerToolsetsCommand } from "./commands/tools-list.js";
+import {
+  registerToolsCommand,
+  registerToolsetsCommand,
+} from "./commands/tools-list.js";
 import { registerCompletionCommand } from "./commands/completion.js";
 
 /**
@@ -57,9 +60,14 @@ export function createProgram(): Command {
 
   program
     .name("ibmi")
-    .description("IBM i command-line interface — query, explore, and manage IBM i systems")
+    .description(
+      "IBM i command-line interface — query, explore, and manage IBM i systems",
+    )
     .version(getVersion(), "-v, --version")
-    .option("--system <name>", "Target system name (overrides IBMI_SYSTEM and config default)")
+    .option(
+      "--system <name>",
+      "Target system name (overrides IBMI_SYSTEM and config default)",
+    )
     .addOption(
       new Option("--format <type>", "Output format").choices([
         "table",
@@ -70,7 +78,10 @@ export function createProgram(): Command {
     )
     .option("--raw", "Output as JSON (shorthand for --format json)")
     .option("--no-color", "Disable colored output")
-    .option("--tools <path>", "Path to YAML tool file(s) or directory (comma-separated)")
+    .option(
+      "--tools <path>",
+      "Path to YAML tool file(s) or directory (comma-separated)",
+    )
     .option("--stream", "Stream results as NDJSON (one JSON object per line)")
     .option("--watch <seconds>", "Re-run command at interval (seconds)")
     .option("--output <path>", "Write output to file instead of stdout");

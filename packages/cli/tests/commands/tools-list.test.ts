@@ -12,9 +12,7 @@ describe("ibmi tools command", () => {
   it("should have --toolset option", () => {
     const program = createProgram();
     const tools = program.commands.find((c) => c.name() === "tools");
-    expect(
-      tools?.options.find((o) => o.long === "--toolset"),
-    ).toBeDefined();
+    expect(tools?.options.find((o) => o.long === "--toolset")).toBeDefined();
   });
 
   it("should have a show subcommand", () => {

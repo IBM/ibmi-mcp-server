@@ -61,12 +61,19 @@ describe("ibmi related command", () => {
   });
 
   it("should upper-case --type before filtering", async () => {
-    const { getRelatedObjectsLogic } = await import("@ibm/ibmi-mcp-server/tools");
+    const { getRelatedObjectsLogic } =
+      await import("@ibm/ibmi-mcp-server/tools");
 
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "related", "APPLIB", "ORDERS", "--type", "index",
+      "node",
+      "ibmi",
+      "related",
+      "APPLIB",
+      "ORDERS",
+      "--type",
+      "index",
     ]);
 
     expect(vi.mocked(getRelatedObjectsLogic).mock.calls[0]?.[0]).toEqual({

@@ -45,7 +45,10 @@ describe("executeMultiSystem", () => {
   });
 
   it("should return results from multiple systems", async () => {
-    const systems = [makeSystem("dev", "dev400.com"), makeSystem("prod", "prod400.com")];
+    const systems = [
+      makeSystem("dev", "dev400.com"),
+      makeSystem("prod", "prod400.com"),
+    ];
 
     const results = await executeMultiSystem(systems, async (sourceName) => {
       return {
@@ -62,7 +65,10 @@ describe("executeMultiSystem", () => {
   });
 
   it("should register each system as a named source", async () => {
-    const systems = [makeSystem("dev", "dev400.com"), makeSystem("prod", "prod400.com")];
+    const systems = [
+      makeSystem("dev", "dev400.com"),
+      makeSystem("prod", "prod400.com"),
+    ];
 
     await executeMultiSystem(systems, async () => ({
       data: [],
@@ -72,16 +78,27 @@ describe("executeMultiSystem", () => {
     expect(mockRegisterSource).toHaveBeenCalledTimes(2);
     expect(mockRegisterSource).toHaveBeenCalledWith(
       "dev",
-      expect.objectContaining({ host: "dev400.com", user: "DEV", password: "mock-password" }),
+      expect.objectContaining({
+        host: "dev400.com",
+        user: "DEV",
+        password: "mock-password",
+      }),
     );
     expect(mockRegisterSource).toHaveBeenCalledWith(
       "prod",
-      expect.objectContaining({ host: "prod400.com", user: "PROD", password: "mock-password" }),
+      expect.objectContaining({
+        host: "prod400.com",
+        user: "PROD",
+        password: "mock-password",
+      }),
     );
   });
 
   it("should capture errors from failed systems without crashing", async () => {
-    const systems = [makeSystem("dev", "dev400.com"), makeSystem("prod", "prod400.com")];
+    const systems = [
+      makeSystem("dev", "dev400.com"),
+      makeSystem("prod", "prod400.com"),
+    ];
 
     const results = await executeMultiSystem(systems, async (sourceName) => {
       if (sourceName === "prod") {

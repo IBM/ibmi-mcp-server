@@ -34,11 +34,7 @@ export function registerDescribeCommand(program: Command): void {
     .description(
       "Generate DDL for one or more SQL objects (comma-separated LIBRARY.OBJECT)",
     )
-    .option(
-      "--type <type>",
-      `Object type: ${OBJECT_TYPES.join(", ")}`,
-      "TABLE",
-    )
+    .option("--type <type>", `Object type: ${OBJECT_TYPES.join(", ")}`, "TABLE")
     .action(async (objects: string, opts, cmd: Command) => {
       const objectType = (opts["type"] as string).toUpperCase();
       if (!OBJECT_TYPES.includes(objectType as (typeof OBJECT_TYPES)[number])) {
@@ -64,7 +60,8 @@ export function registerDescribeCommand(program: Command): void {
         cmd,
         "describe_sql_object",
         async (_resolved, ctx) => {
-          const { generateSqlTool } = await import("@ibm/ibmi-mcp-server/tools");
+          const { generateSqlTool } =
+            await import("@ibm/ibmi-mcp-server/tools");
           const logicFn = generateSqlTool.logic;
 
           const data: Record<string, unknown>[] = [];

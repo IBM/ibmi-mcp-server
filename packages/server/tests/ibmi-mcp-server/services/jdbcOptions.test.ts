@@ -92,12 +92,7 @@ class TestConnectionPool extends BaseConnectionPool<string> {
     params?: unknown[],
     context?: Record<string, unknown>,
   ) {
-    return this.executeQuery(
-      poolId,
-      query,
-      params as never,
-      context as never,
-    );
+    return this.executeQuery(poolId, query, params as never, context as never);
   }
 
   getPoolsMap() {
@@ -424,8 +419,7 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
   it("3.4 – trims whitespace around keys, values, and within libraries list", () => {
     setCreds();
-    process.env.DB2i_JDBC_OPTIONS =
-      " naming = system ; libraries = A , B ";
+    process.env.DB2i_JDBC_OPTIONS = " naming = system ; libraries = A , B ";
 
     expect(config.db2i!.jdbcOptions).toEqual({
       naming: "system",
@@ -435,8 +429,7 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
   it("3.5 – ignores empty segments (double semicolons, leading/trailing)", () => {
     setCreds();
-    process.env.DB2i_JDBC_OPTIONS =
-      ";naming=system;;date format=iso;";
+    process.env.DB2i_JDBC_OPTIONS = ";naming=system;;date format=iso;";
 
     expect(config.db2i!.jdbcOptions).toEqual({
       naming: "system",
@@ -768,9 +761,9 @@ describe("SourceManager – jdbc-options wiring", () => {
       password: "p",
     });
 
-    expect(
-      sm.getPoolsMap().get("dev")!.config.jdbcOptions?.libraries,
-    ).toEqual(["DEVLIB"]);
+    expect(sm.getPoolsMap().get("dev")!.config.jdbcOptions?.libraries).toEqual([
+      "DEVLIB",
+    ]);
     expect(
       sm.getPoolsMap().get("staging")!.config.jdbcOptions?.libraries,
     ).toEqual(["STGLIB", "STGDATA"]);

@@ -73,12 +73,7 @@ class TestConnectionPool extends BaseConnectionPool<string> {
     params?: unknown[],
     context?: Record<string, unknown>,
   ) {
-    return this.executeQuery(
-      poolId,
-      query,
-      params as never,
-      context as never,
-    );
+    return this.executeQuery(poolId, query, params as never, context as never);
   }
 
   async testExecuteQueryWithPagination(poolId: string, query: string) {

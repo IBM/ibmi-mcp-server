@@ -14,7 +14,8 @@ export function registerColumnsCommand(program: Command): void {
     .description("Get column metadata for a table")
     .action(async (schema: string, table: string, _opts, cmd: Command) => {
       await withConnection(cmd, "get_table_columns", async (_resolved, ctx) => {
-        const { getTableColumnsLogic } = await import("@ibm/ibmi-mcp-server/tools");
+        const { getTableColumnsLogic } =
+          await import("@ibm/ibmi-mcp-server/tools");
 
         const result = await getTableColumnsLogic(
           {

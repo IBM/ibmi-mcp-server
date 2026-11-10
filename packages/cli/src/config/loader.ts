@@ -57,7 +57,10 @@ function findProjectConfigPath(): string | null {
 
 /** Get the project-level config file path (nearest .ibmi/config.yaml walking up from cwd). */
 export function getProjectConfigPath(): string {
-  return findProjectConfigPath() ?? path.join(process.cwd(), PROJECT_CONFIG_DIR, CONFIG_FILE);
+  return (
+    findProjectConfigPath() ??
+    path.join(process.cwd(), PROJECT_CONFIG_DIR, CONFIG_FILE)
+  );
 }
 
 /** Get the user-level config file path. */
@@ -153,7 +156,9 @@ export function loadConfig(): CliConfig {
   // Validate cross-references
   const errors = validateConfig(config);
   if (errors.length > 0) {
-    throw new Error(`Configuration errors:\n${errors.map((e) => `  - ${e}`).join("\n")}`);
+    throw new Error(
+      `Configuration errors:\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+    );
   }
 
   return expandSystemEnvVars(config);
@@ -227,10 +232,7 @@ export function saveUserConfig(config: CliConfig): void {
  * Throws if the existing user config cannot be parsed or fails validation,
  * rather than replacing it.
  */
-export function upsertSystem(
-  name: string,
-  system: SystemConfig,
-): void {
+export function upsertSystem(name: string, system: SystemConfig): void {
   const config: CliConfig = loadConfigFile(getUserConfigPath()) ?? {
     systems: {},
   };

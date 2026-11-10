@@ -140,9 +140,7 @@ describe("resolveSystem", () => {
   });
 
   it("should throw for unknown --system flag value", () => {
-    expect(() => resolveSystem("nonexistent", testConfig)).toThrow(
-      /not found/,
-    );
+    expect(() => resolveSystem("nonexistent", testConfig)).toThrow(/not found/);
   });
 
   it("should throw for unknown IBMI_SYSTEM env value", () => {

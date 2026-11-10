@@ -20,7 +20,9 @@ describe("ExitCode constants", () => {
 
 describe("classifyError", () => {
   it("should classify authentication errors as AUTH (exit 5)", () => {
-    const result = classifyError(new Error("Authentication failed for user QUSER"));
+    const result = classifyError(
+      new Error("Authentication failed for user QUSER"),
+    );
     expect(result.exitCode).toBe(ExitCode.AUTH);
     expect(result.errorCode).toBe(ErrorCode.AUTH_FAILURE);
   });
@@ -37,7 +39,9 @@ describe("classifyError", () => {
   });
 
   it("should classify read-only violations as SECURITY (exit 4)", () => {
-    const result = classifyError(new Error("System is read-only. Mutation queries are not allowed."));
+    const result = classifyError(
+      new Error("System is read-only. Mutation queries are not allowed."),
+    );
     expect(result.exitCode).toBe(ExitCode.SECURITY);
     expect(result.errorCode).toBe(ErrorCode.SECURITY_VIOLATION);
   });
@@ -53,13 +57,17 @@ describe("classifyError", () => {
   });
 
   it("should classify SQL errors as QUERY (exit 3)", () => {
-    const result = classifyError(new Error("SQL0204 - CUSTMAST in MYLIB not found"));
+    const result = classifyError(
+      new Error("SQL0204 - CUSTMAST in MYLIB not found"),
+    );
     expect(result.exitCode).toBe(ExitCode.QUERY);
     expect(result.errorCode).toBe(ErrorCode.SQL_ERROR);
   });
 
   it("should classify query execution errors as QUERY", () => {
-    const result = classifyError(new Error("Query execution failed: syntax error"));
+    const result = classifyError(
+      new Error("Query execution failed: syntax error"),
+    );
     expect(result.exitCode).toBe(ExitCode.QUERY);
   });
 
@@ -169,7 +177,8 @@ describe("classifyError — structured information first", () => {
       new ToolError(
         {
           code: "-32007",
-          message: "Write operations detected: Write operation detected: Delete",
+          message:
+            "Write operations detected: Write operation detected: Delete",
           details: { violations: ["Write operation detected: Delete"] },
         },
         "failed",

@@ -21,7 +21,11 @@ describe("registerToolOptions", () => {
   it("should register a boolean flag (no value)", () => {
     const cmd = new Command("test");
     registerToolOptions(cmd, [
-      { name: "include_system", type: "boolean", description: "Include system" },
+      {
+        name: "include_system",
+        type: "boolean",
+        description: "Include system",
+      },
     ]);
     const opt = cmd.options.find((o) => o.long === "--include-system");
     expect(opt).toBeDefined();
@@ -30,9 +34,7 @@ describe("registerToolOptions", () => {
 
   it("should register an integer option with default", () => {
     const cmd = new Command("test");
-    registerToolOptions(cmd, [
-      { name: "limit", type: "integer", default: 50 },
-    ]);
+    registerToolOptions(cmd, [{ name: "limit", type: "integer", default: 50 }]);
     const opt = cmd.options.find((o) => o.long === "--limit");
     expect(opt).toBeDefined();
     expect(opt?.defaultValue).toBe(50);
@@ -107,9 +109,7 @@ describe("optsToParams", () => {
   });
 
   it("should handle single-word param names (no underscores)", () => {
-    const params: YamlToolParameter[] = [
-      { name: "limit", type: "integer" },
-    ];
+    const params: YamlToolParameter[] = [{ name: "limit", type: "integer" }];
 
     const opts = { limit: 100 };
     const result = optsToParams(opts, params);

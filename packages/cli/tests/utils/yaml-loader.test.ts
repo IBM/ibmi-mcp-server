@@ -52,7 +52,9 @@ toolsets:
     const config = loadYamlFile(path);
     expect(config.tools).toHaveProperty("system_status");
     expect(config.tools["system_status"]?.description).toBe("System status");
-    expect(config.tools["system_status"]?.statement).toContain("SYSTEM_STATUS_INFO");
+    expect(config.tools["system_status"]?.statement).toContain(
+      "SYSTEM_STATUS_INFO",
+    );
     expect(config.toolsets).toHaveProperty("performance");
     expect(config.toolsets["performance"]?.tools).toContain("system_status");
     expect(config.sources).toHaveProperty("ibmi-system");
@@ -71,7 +73,10 @@ tools: {}
     );
 
     const config = loadYamlFile(path);
-    expect(config.sources["ibmi-system"]).toHaveProperty("host", "test400.example.com");
+    expect(config.sources["ibmi-system"]).toHaveProperty(
+      "host",
+      "test400.example.com",
+    );
 
     delete process.env.TEST_YAML_HOST;
   });
@@ -140,7 +145,9 @@ tools:
     expect(empty.tools).toEqual({});
     expect(empty.toolsets).toEqual({});
 
-    const commentOnly = loadYamlFile(writeYaml("comment.yaml", "# nothing here\n"));
+    const commentOnly = loadYamlFile(
+      writeYaml("comment.yaml", "# nothing here\n"),
+    );
     expect(commentOnly.tools).toEqual({});
   });
 

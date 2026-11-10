@@ -33,7 +33,13 @@ describe("--watch global option", () => {
         const program = createProgram();
         program.exitOverride();
         await program.parseAsync([
-          "node", "ibmi", "--format", "table", "--watch", value, "schemas",
+          "node",
+          "ibmi",
+          "--format",
+          "table",
+          "--watch",
+          value,
+          "schemas",
         ]);
         expect(process.exitCode).toBe(2);
       }

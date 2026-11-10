@@ -32,7 +32,9 @@ export async function executeMultiSystem(
   systems: ResolvedSystem[],
   action: (
     sourceName: string,
-    mgr: InstanceType<typeof import("@ibm/ibmi-mcp-server/services").SourceManager>,
+    mgr: InstanceType<
+      typeof import("@ibm/ibmi-mcp-server/services").SourceManager
+    >,
     ctx: RequestContext,
   ) => Promise<CommandResult>,
 ): Promise<MultiSystemResult[]> {

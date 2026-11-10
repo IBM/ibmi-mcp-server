@@ -81,9 +81,7 @@ function makeSystem(name: string, confirm = false): ResolvedSystem {
 async function runSql(...args: string[]): Promise<void> {
   const program = createProgram();
   program.exitOverride();
-  await program.parseAsync([
-    "node", "ibmi", "--system", "dev,prod", ...args,
-  ]);
+  await program.parseAsync(["node", "ibmi", "--system", "dev,prod", ...args]);
 }
 
 describe("ibmi sql — multiple systems", () => {
@@ -122,8 +120,16 @@ describe("ibmi sql — multiple systems", () => {
     const program = createProgram();
     program.exitOverride();
     await program.parseAsync([
-      "node", "ibmi", "--system", "dev,prod", "--format", "csv",
-      "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE", "--limit", "500",
+      "node",
+      "ibmi",
+      "--system",
+      "dev,prod",
+      "--format",
+      "csv",
+      "sql",
+      "SELECT EMPNO FROM SAMPLE.EMPLOYEE",
+      "--limit",
+      "500",
     ]);
 
     expect(mgr.executeQuery).not.toHaveBeenCalled();
@@ -145,8 +151,16 @@ describe("ibmi sql — multiple systems", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "--system", "dev,prod", "--format", "csv",
-        "--output", outputFile, "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE",
+        "node",
+        "ibmi",
+        "--system",
+        "dev,prod",
+        "--format",
+        "csv",
+        "--output",
+        outputFile,
+        "sql",
+        "SELECT EMPNO FROM SAMPLE.EMPLOYEE",
       ]);
 
       expect(stdoutOutput).toBe("");
@@ -163,7 +177,12 @@ describe("ibmi sql — multiple systems", () => {
       .mockResolvedValueOnce({ success: true, data: [{ EMPNO: "100" }] })
       .mockRejectedValueOnce(new Error("connect ECONNREFUSED 10.0.0.2:8076"));
 
-    await runSql("--format", "json", "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE");
+    await runSql(
+      "--format",
+      "json",
+      "sql",
+      "SELECT EMPNO FROM SAMPLE.EMPLOYEE",
+    );
 
     const parsed = JSON.parse(stdoutOutput);
     expect(parsed.ok).toBe(false);
@@ -172,7 +191,12 @@ describe("ibmi sql — multiple systems", () => {
   });
 
   it("should exit 0 when every system succeeds", async () => {
-    await runSql("--format", "json", "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE");
+    await runSql(
+      "--format",
+      "json",
+      "sql",
+      "SELECT EMPNO FROM SAMPLE.EMPLOYEE",
+    );
 
     expect(JSON.parse(stdoutOutput).ok).toBe(true);
     expect(process.exitCode).toBeUndefined();
@@ -192,7 +216,12 @@ describe("ibmi sql — multiple systems", () => {
         truncated: false,
       });
 
-    await runSql("--format", "json", "sql", "SELECT EMPNO FROM SAMPLE.EMPLOYEE");
+    await runSql(
+      "--format",
+      "json",
+      "sql",
+      "SELECT EMPNO FROM SAMPLE.EMPLOYEE",
+    );
 
     const { systems } = JSON.parse(stdoutOutput);
     expect(systems[0]).toMatchObject({ system: "dev", hasMore: true });
@@ -258,7 +287,11 @@ describe("ibmi sql — multiple systems", () => {
       const { promptLine } = await import("../../src/config/credentials.js");
 
       await runSql(
-        "--format", "json", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1", "--yes",
+        "--format",
+        "json",
+        "sql",
+        "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+        "--yes",
       );
 
       expect(promptLine).not.toHaveBeenCalled();

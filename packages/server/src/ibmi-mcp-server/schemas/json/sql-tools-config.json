@@ -60,11 +60,7 @@
             "additionalProperties": {}
           }
         },
-        "required": [
-          "host",
-          "user",
-          "password"
-        ],
+        "required": ["host", "user", "password"],
         "additionalProperties": false,
         "description": "Database connection configuration"
       }
@@ -112,13 +108,7 @@
                 },
                 "type": {
                   "type": "string",
-                  "enum": [
-                    "string",
-                    "boolean",
-                    "integer",
-                    "float",
-                    "array"
-                  ],
+                  "enum": ["string", "boolean", "integer", "float", "array"],
                   "description": "Parameter data type for validation"
                 },
                 "description": {
@@ -153,12 +143,7 @@
                 "itemType": {
                   "description": "Array item type (only for array parameters)",
                   "type": "string",
-                  "enum": [
-                    "string",
-                    "boolean",
-                    "integer",
-                    "float"
-                  ]
+                  "enum": ["string", "boolean", "integer", "float"]
                 },
                 "min": {
                   "description": "Minimum value for numeric types",
@@ -180,11 +165,7 @@
                   "description": "Valid values (enum validation)",
                   "type": "array",
                   "items": {
-                    "type": [
-                      "string",
-                      "number",
-                      "boolean"
-                    ]
+                    "type": ["string", "number", "boolean"]
                   }
                 },
                 "pattern": {
@@ -192,10 +173,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "name",
-                "type"
-              ],
+              "required": ["name", "type"],
               "additionalProperties": false,
               "description": "SQL tool parameter definition with validation constraints"
             }
@@ -219,10 +197,7 @@
           "responseFormat": {
             "description": "Response format (default: json)",
             "type": "string",
-            "enum": [
-              "json",
-              "markdown"
-            ]
+            "enum": ["json", "markdown"]
           },
           "annotations": {
             "description": "Optional annotations for MCP clients",
@@ -300,12 +275,7 @@
             "default": "markdown",
             "description": "Table formatting style for SQL results (default: markdown). Options: markdown (GitHub-style), ascii (plain text), grid (Unicode boxes), compact (minimal spacing)",
             "type": "string",
-            "enum": [
-              "markdown",
-              "ascii",
-              "grid",
-              "compact"
-            ]
+            "enum": ["markdown", "ascii", "grid", "compact"]
           },
           "maxDisplayRows": {
             "default": 100,
@@ -341,11 +311,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "source",
-          "description",
-          "statement"
-        ],
+        "required": ["source", "description", "statement"],
         "additionalProperties": false,
         "description": "Individual SQL tool definition in YAML configuration"
       }
@@ -386,9 +352,7 @@
             "additionalProperties": {}
           }
         },
-        "required": [
-          "tools"
-        ],
+        "required": ["tools"],
         "additionalProperties": false,
         "description": "Toolset definition for grouping related tools"
       }

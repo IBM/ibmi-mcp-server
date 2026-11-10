@@ -55,9 +55,8 @@ async function testSystemConnection(
     cleanup = await connectSystem(resolved);
 
     // connectSystem only stages credentials — the pool connects on first query
-    const { IBMiConnectionPool } = await import(
-      "@ibm/ibmi-mcp-server/services"
-    );
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
     await IBMiConnectionPool.executeQuery(
       "VALUES 1",
       [],
@@ -111,7 +110,10 @@ export function registerSystemCommand(program: Command): void {
 
         renderOutput(data, format, { rowCount: data.length });
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -126,9 +128,7 @@ export function registerSystemCommand(program: Command): void {
         const config = loadConfig();
         const sys = config.systems[name];
         if (!sys) {
-          throw new Error(
-            `System "${name}" not found. Run: ibmi system list`,
-          );
+          throw new Error(`System "${name}" not found. Run: ibmi system list`);
         }
 
         const data = [
@@ -151,7 +151,10 @@ export function registerSystemCommand(program: Command): void {
 
         renderOutput(data, format, { rowCount: data.length });
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -163,7 +166,10 @@ export function registerSystemCommand(program: Command): void {
     .option("--host <host>", "IBM i hostname")
     .option("--port <port>", "Mapepire port", "8076")
     .option("--user <user>", "User profile")
-    .option("--password <password>", "Password (or use env var reference: ${MY_PASS})")
+    .option(
+      "--password <password>",
+      "Password (or use env var reference: ${MY_PASS})",
+    )
     .option("--description <desc>", "Description")
     .option("--read-only", "Block mutation queries", false)
     .option("--default-schema <schema>", "Default schema/library")
@@ -204,7 +210,9 @@ export function registerSystemCommand(program: Command): void {
 
         const port = parseInt(opts["port"] as string, 10);
         if (isNaN(port) || port <= 0 || port > 65535) {
-          throw new Error(`Invalid --port value: "${opts["port"]}". Must be a number between 1 and 65535.`);
+          throw new Error(
+            `Invalid --port value: "${opts["port"]}". Must be a number between 1 and 65535.`,
+          );
         }
 
         const system: SystemConfig = {
@@ -227,7 +235,10 @@ export function registerSystemCommand(program: Command): void {
           format,
         );
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -246,7 +257,10 @@ export function registerSystemCommand(program: Command): void {
           throw new Error(`System "${name}" not found.`);
         }
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -261,7 +275,10 @@ export function registerSystemCommand(program: Command): void {
         setDefaultSystem(name);
         renderMessage(`Default system set to "${name}".`, format);
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -291,14 +308,10 @@ export function registerSystemCommand(program: Command): void {
 
         // Resolve which system to test
         const targetName =
-          name ??
-          cmd.optsWithGlobals()["system"] ??
-          config.default;
+          name ?? cmd.optsWithGlobals()["system"] ?? config.default;
 
         if (!targetName) {
-          throw new Error(
-            "No system specified. Pass a name or set a default.",
-          );
+          throw new Error("No system specified. Pass a name or set a default.");
         }
 
         const sys = config.systems[targetName];
@@ -313,7 +326,9 @@ export function registerSystemCommand(program: Command): void {
             { PROPERTY: "host", VALUE: `${result.HOST}:${result.PORT}` },
             { PROPERTY: "user", VALUE: result.USER },
             { PROPERTY: "status", VALUE: result.STATUS },
-            ...(result.ERROR ? [{ PROPERTY: "error", VALUE: result.ERROR }] : []),
+            ...(result.ERROR
+              ? [{ PROPERTY: "error", VALUE: result.ERROR }]
+              : []),
           ],
           format,
           { rowCount: 1 },

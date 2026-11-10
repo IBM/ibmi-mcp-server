@@ -13,10 +13,7 @@
  */
 
 import { Command } from "commander";
-import {
-  loadYamlTools,
-  type YamlToolConfig,
-} from "../utils/yaml-loader.js";
+import { loadYamlTools, type YamlToolConfig } from "../utils/yaml-loader.js";
 import {
   registerToolOptions,
   optsToParams,
@@ -44,92 +41,96 @@ export function registerToolCommand(program: Command): void {
     .option("--dry-run", "Show resolved SQL and parameters without executing")
     .allowUnknownOption()
     .allowExcessArguments()
-    .action(async (name: string, _opts: Record<string, unknown>, cmd: Command) => {
-      const format = getFormat(cmd);
+    .action(
+      async (name: string, _opts: Record<string, unknown>, cmd: Command) => {
+        const format = getFormat(cmd);
 
-      try {
-        // Resolve --tools paths from global options
-        const globalOpts = cmd.optsWithGlobals();
-        const toolsOpt = globalOpts["tools"] as string | undefined;
-        if (!toolsOpt) {
-          renderError(
-            new Error(
-              "No tools path specified. Use --tools <path> to specify YAML tool file(s).",
-            ),
-            format,
-            undefined,
-            ErrorCode.USAGE_ERROR,
-          );
-          process.exitCode = ExitCode.USAGE;
-          return;
-        }
-
-        const paths = toolsOpt.split(",").map((p) => p.trim());
-        const config = loadYamlTools(paths);
-
-        // Find the tool
-        const tool = config.tools[name];
-        if (!tool) {
-          const available = Object.keys(config.tools).join(", ");
-          renderError(
-            new Error(
-              `Tool '${name}' not found. Available tools: ${available || "(none)"}`,
-            ),
-            format,
-            undefined,
-            ErrorCode.NOT_FOUND,
-          );
-          process.exitCode = ExitCode.USAGE;
-          return;
-        }
-
-        // Build a sub-command with tool-specific options and re-parse
-        let toolParams: Record<string, unknown>;
         try {
-          toolParams = resolveToolParams(cmd, tool);
+          // Resolve --tools paths from global options
+          const globalOpts = cmd.optsWithGlobals();
+          const toolsOpt = globalOpts["tools"] as string | undefined;
+          if (!toolsOpt) {
+            renderError(
+              new Error(
+                "No tools path specified. Use --tools <path> to specify YAML tool file(s).",
+              ),
+              format,
+              undefined,
+              ErrorCode.USAGE_ERROR,
+            );
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
+          const paths = toolsOpt.split(",").map((p) => p.trim());
+          const config = loadYamlTools(paths);
+
+          // Find the tool
+          const tool = config.tools[name];
+          if (!tool) {
+            const available = Object.keys(config.tools).join(", ");
+            renderError(
+              new Error(
+                `Tool '${name}' not found. Available tools: ${available || "(none)"}`,
+              ),
+              format,
+              undefined,
+              ErrorCode.NOT_FOUND,
+            );
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
+          // Build a sub-command with tool-specific options and re-parse
+          let toolParams: Record<string, unknown>;
+          try {
+            toolParams = resolveToolParams(cmd, tool);
+          } catch (err) {
+            // Unknown flag, missing option value, or a value of the wrong type
+            const message = err instanceof Error ? err.message : String(err);
+            renderError(
+              new Error(message.replace(/^error: /, "")),
+              format,
+              undefined,
+              ErrorCode.USAGE_ERROR,
+            );
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
+          // Validate required parameters
+          const missing = validateRequiredParams(toolParams, tool.parameters);
+          if (missing.length > 0) {
+            const flags = missing
+              .map((n) => `--${n.replace(/_/g, "-")}`)
+              .join(", ");
+            renderError(
+              new Error(`Missing required parameter(s): ${flags}`),
+              format,
+              undefined,
+              ErrorCode.USAGE_ERROR,
+            );
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
+          // Dry-run: show SQL and parameters
+          const dryRun = globalOpts["dryRun"] || _opts["dryRun"];
+          if (dryRun) {
+            await handleDryRun(name, tool, toolParams, cmd);
+            return;
+          }
+
+          // Execute the tool
+          await executeTool(name, tool, toolParams, cmd);
         } catch (err) {
-          // Unknown flag, missing option value, or a value of the wrong type
-          const message = err instanceof Error ? err.message : String(err);
-          renderError(
-            new Error(message.replace(/^error: /, "")),
-            format,
-            undefined,
-            ErrorCode.USAGE_ERROR,
-          );
-          process.exitCode = ExitCode.USAGE;
-          return;
+          const error = err instanceof Error ? err : new Error(String(err));
+          const classified = classifyError(error);
+          renderError(error, format, undefined, classified.errorCode);
+          process.exitCode = classified.exitCode;
         }
-
-        // Validate required parameters
-        const missing = validateRequiredParams(toolParams, tool.parameters);
-        if (missing.length > 0) {
-          const flags = missing.map((n) => `--${n.replace(/_/g, "-")}`).join(", ");
-          renderError(
-            new Error(`Missing required parameter(s): ${flags}`),
-            format,
-            undefined,
-            ErrorCode.USAGE_ERROR,
-          );
-          process.exitCode = ExitCode.USAGE;
-          return;
-        }
-
-        // Dry-run: show SQL and parameters
-        const dryRun = globalOpts["dryRun"] || _opts["dryRun"];
-        if (dryRun) {
-          await handleDryRun(name, tool, toolParams, cmd);
-          return;
-        }
-
-        // Execute the tool
-        await executeTool(name, tool, toolParams, cmd);
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        const classified = classifyError(error);
-        renderError(error, format, undefined, classified.errorCode);
-        process.exitCode = classified.exitCode;
-      }
-    });
+      },
+    );
 }
 
 /**
@@ -260,9 +261,8 @@ async function executeTool(
     }
 
     // Dynamic import to avoid loading server infrastructure until execution time
-    const { ParameterProcessor, IBMiConnectionPool } = await import(
-      "@ibm/ibmi-mcp-server/services"
-    );
+    const { ParameterProcessor, IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
 
     // Process SQL parameters (BindingValue from mapepire-js)
     let processedSql: string;
@@ -288,9 +288,8 @@ async function executeTool(
       (tool.security?.readOnly ?? true) || resolved.config.readOnly;
 
     if (effectiveReadOnly) {
-      const { SqlSecurityValidator } = await import(
-        "@ibm/ibmi-mcp-server/services"
-      );
+      const { SqlSecurityValidator } =
+        await import("@ibm/ibmi-mcp-server/services");
       SqlSecurityValidator.validateQuery(
         processedSql,
         {

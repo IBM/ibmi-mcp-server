@@ -84,12 +84,7 @@ describe("ibmi completion command", () => {
     try {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync([
-        "node",
-        "ibmi",
-        "completion",
-        "powershell",
-      ]);
+      await program.parseAsync(["node", "ibmi", "completion", "powershell"]);
       expect(stderrWrites.join("")).toContain("Unknown shell");
     } finally {
       process.stderr.write = original;

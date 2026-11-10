@@ -74,7 +74,9 @@ describe("--output file redirection", () => {
       setOutputFile(testFile);
       renderOutput([{ X: 1 }], "csv");
       finalizeOutput();
-      expect(stderrWrites.some((s) => s.includes("Output written to"))).toBe(true);
+      expect(stderrWrites.some((s) => s.includes("Output written to"))).toBe(
+        true,
+      );
     } finally {
       process.stderr.write = original;
     }

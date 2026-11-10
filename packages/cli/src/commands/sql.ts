@@ -202,20 +202,15 @@ export function registerSqlCommand(program: Command): void {
         const execSql = applyRowLimit(sql, maxRows);
 
         // Configure execute_sql tool security before importing
-        const { configureExecuteSqlTool, executeSqlTool } = await import(
-          "@ibm/ibmi-mcp-server/tools"
-        );
+        const { configureExecuteSqlTool, executeSqlTool } =
+          await import("@ibm/ibmi-mcp-server/tools");
         configureExecuteSqlTool({
           enabled: true,
           security: { readOnly },
         });
         const logicFn = executeSqlTool.logic;
 
-        const result = await logicFn(
-          { sql: execSql },
-          ctx,
-          {} as SdkContext,
-        );
+        const result = await logicFn({ sql: execSql }, ctx, {} as SdkContext);
 
         if (!result.success) {
           throw new ToolError(result.error, "SQL execution failed");
@@ -264,21 +259,18 @@ async function handleMultiSystemSql(
   await withOutput(cmd, async () => {
     try {
       const { resolveSystems } = await import("../config/resolver.js");
-      const { executeMultiSystem } = await import(
-        "../utils/multi-connection.js"
-      );
+      const { executeMultiSystem } =
+        await import("../utils/multi-connection.js");
 
       const systems = resolveSystems(systemFlag);
 
       // Enforce read-only: true if CLI flag is set OR any target system requires it
       const readOnly =
-        (opts["readOnly"] as boolean) ||
-        systems.some((s) => s.config.readOnly);
+        (opts["readOnly"] as boolean) || systems.some((s) => s.config.readOnly);
 
       if (readOnly) {
-        const { SqlSecurityValidator } = await import(
-          "@ibm/ibmi-mcp-server/services"
-        );
+        const { SqlSecurityValidator } =
+          await import("@ibm/ibmi-mcp-server/services");
         const ctx = createCliContext("multi_sql_security");
         SqlSecurityValidator.validateQuery(
           sql,
@@ -304,9 +296,7 @@ async function handleMultiSystemSql(
       // Respect the most restrictive system's row limit when none is explicit
       let maxRows = limit;
       if (maxRows === undefined) {
-        maxRows = Math.min(
-          ...systems.map((s) => s.config.maxRows ?? Infinity),
-        );
+        maxRows = Math.min(...systems.map((s) => s.config.maxRows ?? Infinity));
         if (!isFinite(maxRows)) maxRows = undefined;
       }
 

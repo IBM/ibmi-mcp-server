@@ -41,9 +41,8 @@ export async function connectSystem(
   // Return cleanup function
   return async () => {
     try {
-      const { IBMiConnectionPool } = await import(
-        "@ibm/ibmi-mcp-server/services"
-      );
+      const { IBMiConnectionPool } =
+        await import("@ibm/ibmi-mcp-server/services");
       await IBMiConnectionPool.close();
     } catch {
       // Ignore cleanup errors

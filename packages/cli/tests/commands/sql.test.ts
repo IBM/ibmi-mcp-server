@@ -23,36 +23,26 @@ describe("ibmi sql command", () => {
   it("should have --file option", () => {
     const program = createProgram();
     const sql = program.commands.find((c) => c.name() === "sql");
-    expect(
-      sql?.options.find((o) => o.long === "--file"),
-    ).toBeDefined();
+    expect(sql?.options.find((o) => o.long === "--file")).toBeDefined();
   });
 
   it("should have --dry-run option", () => {
     const program = createProgram();
     const sql = program.commands.find((c) => c.name() === "sql");
-    expect(
-      sql?.options.find((o) => o.long === "--dry-run"),
-    ).toBeDefined();
+    expect(sql?.options.find((o) => o.long === "--dry-run")).toBeDefined();
   });
 
   it("should have --read-only and --no-read-only options", () => {
     const program = createProgram();
     const sql = program.commands.find((c) => c.name() === "sql");
-    expect(
-      sql?.options.find((o) => o.long === "--read-only"),
-    ).toBeDefined();
-    expect(
-      sql?.options.find((o) => o.long === "--no-read-only"),
-    ).toBeDefined();
+    expect(sql?.options.find((o) => o.long === "--read-only")).toBeDefined();
+    expect(sql?.options.find((o) => o.long === "--no-read-only")).toBeDefined();
   });
 
   it("should have --limit option", () => {
     const program = createProgram();
     const sql = program.commands.find((c) => c.name() === "sql");
-    expect(
-      sql?.options.find((o) => o.long === "--limit"),
-    ).toBeDefined();
+    expect(sql?.options.find((o) => o.long === "--limit")).toBeDefined();
   });
 
   it("should output SQL with --dry-run", async () => {
@@ -66,9 +56,13 @@ describe("ibmi sql command", () => {
     try {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(
-        ["node", "ibmi", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1", "--dry-run"],
-      );
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "sql",
+        "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+        "--dry-run",
+      ]);
 
       const output = writes.join("");
       expect(output).toContain("SELECT 1 FROM SYSIBM.SYSDUMMY1");
@@ -79,7 +73,10 @@ describe("ibmi sql command", () => {
 
   it("should write 'No SQL provided' to stderr when no SQL given", async () => {
     const originalIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      configurable: true,
+    });
 
     const stderrWrites: string[] = [];
     const originalStderrWrite = process.stderr.write;
@@ -118,13 +115,22 @@ describe("ibmi sql command", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "sql", "--file", tmpFile, "--dry-run",
+        "node",
+        "ibmi",
+        "sql",
+        "--file",
+        tmpFile,
+        "--dry-run",
       ]);
 
       expect(stdoutWrites.join("")).toContain("SELECT * FROM MYLIB.MYTABLE");
     } finally {
       process.stdout.write = originalWrite;
-      try { unlinkSync(tmpFile); } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpFile);
+      } catch {
+        /* cleanup */
+      }
     }
   });
 
@@ -140,7 +146,11 @@ describe("ibmi sql command", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "sql", "--file", "/tmp/nonexistent-ibmi-test-file.sql",
+        "node",
+        "ibmi",
+        "sql",
+        "--file",
+        "/tmp/nonexistent-ibmi-test-file.sql",
       ]);
 
       expect(stderrWrites.join("")).toContain("Error reading file");
@@ -171,20 +181,34 @@ describe("ibmi sql command", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "sql", "--file", tmpFile, "--dry-run",
+        "node",
+        "ibmi",
+        "sql",
+        "--file",
+        tmpFile,
+        "--dry-run",
       ]);
 
-      expect(stdoutWrites.join("")).toContain("SELECT COUNT(*) FROM QSYS2.SYSTABLES");
+      expect(stdoutWrites.join("")).toContain(
+        "SELECT COUNT(*) FROM QSYS2.SYSTABLES",
+      );
       expect(stderrWrites.join("")).not.toContain("connect");
     } finally {
       process.stdout.write = originalStdout;
       process.stderr.write = originalStderr;
-      try { unlinkSync(tmpFile); } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpFile);
+      } catch {
+        /* cleanup */
+      }
     }
   });
 
   it("should write --dry-run output to the --output file", async () => {
-    const outputFile = path.join(os.tmpdir(), `ibmi-sql-dryrun-${Date.now()}.txt`);
+    const outputFile = path.join(
+      os.tmpdir(),
+      `ibmi-sql-dryrun-${Date.now()}.txt`,
+    );
     const stdoutWrites: string[] = [];
     const originalStdout = process.stdout.write;
     const originalStderr = process.stderr.write;
@@ -198,8 +222,15 @@ describe("ibmi sql command", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "--format", "table", "--output", outputFile,
-        "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1", "--dry-run",
+        "node",
+        "ibmi",
+        "--format",
+        "table",
+        "--output",
+        outputFile,
+        "sql",
+        "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+        "--dry-run",
       ]);
 
       expect(stdoutWrites.join("")).toBe("");
@@ -225,7 +256,14 @@ describe("ibmi sql command", () => {
       const program = createProgram();
       program.exitOverride();
       await program.parseAsync([
-        "node", "ibmi", "--format", "table", "sql", "SELECT 1 FROM SYSIBM.SYSDUMMY1", "--limit", "abc",
+        "node",
+        "ibmi",
+        "--format",
+        "table",
+        "sql",
+        "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+        "--limit",
+        "abc",
       ]);
 
       expect(stderrWrites.join("")).toContain('Invalid --limit value: "abc"');

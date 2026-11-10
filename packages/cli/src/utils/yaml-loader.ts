@@ -91,11 +91,16 @@ export function loadYamlFile(filePath: string): YamlToolsConfig {
   const parsed = loaded as Record<string, unknown>;
 
   return {
-    tools: normalizeTools(parsed["tools"] as Record<string, unknown> | undefined),
+    tools: normalizeTools(
+      parsed["tools"] as Record<string, unknown> | undefined,
+    ),
     toolsets: normalizeToolsets(
       parsed["toolsets"] as Record<string, unknown> | undefined,
     ),
-    sources: (parsed["sources"] ?? {}) as Record<string, Record<string, unknown>>,
+    sources: (parsed["sources"] ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >,
     metadata: parsed["metadata"] as Record<string, unknown> | undefined,
   };
 }
@@ -114,7 +119,9 @@ function normalizeTools(
       source: (tool["source"] as string) ?? "",
       description: (tool["description"] as string) ?? "",
       statement: tool["statement"] as string | undefined,
-      parameters: Array.isArray(tool["parameters"]) ? tool["parameters"] as YamlToolParameter[] : [],
+      parameters: Array.isArray(tool["parameters"])
+        ? (tool["parameters"] as YamlToolParameter[])
+        : [],
       security: tool["security"] as YamlToolSecurity | undefined,
       rowsToFetch: tool["rowsToFetch"] as number | undefined,
       fetchAllRows: tool["fetchAllRows"] as boolean | undefined,
@@ -138,7 +145,9 @@ function normalizeToolsets(
     result[name] = {
       title: toolset["title"] as string | undefined,
       description: toolset["description"] as string | undefined,
-      tools: Array.isArray(toolset["tools"]) ? (toolset["tools"] as string[]) : [],
+      tools: Array.isArray(toolset["tools"])
+        ? (toolset["tools"] as string[])
+        : [],
     };
   }
   return result;
