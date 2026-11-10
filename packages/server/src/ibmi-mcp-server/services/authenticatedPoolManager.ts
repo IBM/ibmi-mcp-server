@@ -20,6 +20,7 @@ import {
   PoolConnectionConfig,
 } from "./baseConnectionPool.js";
 import { SqlToolSecurityConfig } from "@/ibmi-mcp-server/schemas/index.js";
+import { config } from "@/config/index.js";
 
 /**
  * Pool configuration options for authenticated sessions
@@ -74,6 +75,10 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
         token: token.substring(0, 10) + "...",
       });
 
+    // Read outside tryCatch: malformed options must fail before credentials are
+    // stored, and tryCatch would put the raw option text in the sign-on response
+    const jdbcOptions = config.db2iJdbcOptions;
+
     return ErrorHandler.tryCatch(
       async () => {
         logger.info(
@@ -100,6 +105,7 @@ export class AuthenticatedPoolManager extends BaseConnectionPool<string> {
           ignoreUnauthorized: !credentials.rejectUnauthorized,
           maxSize: options.maxSize || 10,
           startingSize: options.startingSize || 2,
+          ...(jdbcOptions ? { jdbcOptions } : {}),
         };
 
         // Initialize pool using base class method

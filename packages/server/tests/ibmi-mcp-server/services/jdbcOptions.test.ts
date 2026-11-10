@@ -2,7 +2,8 @@
  * @fileoverview Tests for jdbc-options configuration across all layers
  * Covers: DB2i_JDBC_OPTIONS env var parsing, YAML schema validation,
  * PoolConnectionConfig wiring, mapepire Pool JDBC options, SourceManager
- * registration (with env-over-YAML merge), and IBMiConnectionPool.
+ * registration (with env-over-YAML merge), IBMiConnectionPool, and
+ * AuthenticatedPoolManager per-user pools.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -54,8 +55,14 @@ vi.mock("@ibm/mapepire-js", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
+// Must load first: AuthenticatedPoolManager imports logger from this barrel,
+// which is circular with utils/internal. Vitest snapshots `export *` keys, so
+// entering through utils/internal would leave logger missing from the barrel.
+import "../../../src/utils/index.js";
 import { BaseConnectionPool } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
+import { AuthenticatedPoolManager } from "../../../src/ibmi-mcp-server/services/authenticatedPoolManager.js";
+import { McpError } from "../../../src/types-global/errors.js";
 import {
   SourceConfigSchema,
   SqlToolsConfigSchema,
@@ -864,5 +871,180 @@ describe("SourceManager – jdbc-options wiring", () => {
       libraries: ["YAMLLIB"],
       naming: "sql",
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 6 – config.db2iJdbcOptions (no service account required)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("config.db2iJdbcOptions – available without service account", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.DB2i_HOST;
+    delete process.env.DB2i_USER;
+    delete process.env.DB2i_PASS;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("6.1 – parses options while config.db2i stays undefined", () => {
+    process.env.DB2i_JDBC_OPTIONS = "naming=system;libraries=A,B";
+
+    expect(config.db2iJdbcOptions).toEqual({
+      naming: "system",
+      libraries: ["A", "B"],
+    });
+    expect(config.db2i).toBeUndefined();
+  });
+
+  it("6.2 – is undefined when env var is unset, empty, or has no options", () => {
+    delete process.env.DB2i_JDBC_OPTIONS;
+    expect(config.db2iJdbcOptions).toBeUndefined();
+
+    process.env.DB2i_JDBC_OPTIONS = "";
+    expect(config.db2iJdbcOptions).toBeUndefined();
+
+    process.env.DB2i_JDBC_OPTIONS = " ; ";
+    expect(config.db2iJdbcOptions).toBeUndefined();
+  });
+
+  it("6.3 – config.db2i does not parse options without a service account", () => {
+    process.env.DB2i_JDBC_OPTIONS = "broken";
+
+    expect(config.db2i).toBeUndefined();
+    expect(() => config.db2iJdbcOptions).toThrow(/malformed pair/i);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 7 – AuthenticatedPoolManager per-user pools
+// ═══════════════════════════════════════════════════════════════════════════
+describe("AuthenticatedPoolManager – jdbcOptions wiring", () => {
+  const originalEnv = { ...process.env };
+  const CREDENTIALS = {
+    host: "user-host",
+    user: "signedon",
+    password: "userpass",
+    rejectUnauthorized: false,
+  };
+
+  function setServiceAccount() {
+    process.env.DB2i_HOST = "envhost";
+    process.env.DB2i_USER = "envuser";
+    process.env.DB2i_PASS = "envpass";
+  }
+
+  function clearServiceAccount() {
+    delete process.env.DB2i_HOST;
+    delete process.env.DB2i_USER;
+    delete process.env.DB2i_PASS;
+  }
+
+  function createPool(token: string) {
+    return AuthenticatedPoolManager.getInstance().createPool(
+      token,
+      CREDENTIALS,
+      {},
+      TEST_CONTEXT as never,
+    );
+  }
+
+  function getState(token: string) {
+    const manager = AuthenticatedPoolManager.getInstance() as unknown as {
+      pools: Map<string, { config: PoolConnectionConfig }>;
+      credentialsMap: Map<string, unknown>;
+    };
+    return {
+      poolConfig: manager.pools.get(token)?.config,
+      storedCredentials: manager.credentialsMap.get(token),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetMocks();
+    config.poolTimeouts.queryTimeoutMs = 0;
+    config.poolTimeouts.idleTimeoutMs = 0;
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+    restoreConfig();
+    vi.useRealTimers();
+    process.env = { ...originalEnv };
+  });
+
+  it("7.1 – per-user pool receives DB2i_JDBC_OPTIONS", async () => {
+    setServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = "naming=system;libraries=ENVLIB,QGPL";
+
+    await createPool("token-with-creds");
+
+    const expected = { naming: "system", libraries: ["ENVLIB", "QGPL"] };
+    expect(getState("token-with-creds").poolConfig?.jdbcOptions).toEqual(
+      expected,
+    );
+    expect(MockPool).toHaveBeenCalledTimes(1);
+    const poolArgs = MockPool.mock.calls[0][0];
+    expect(poolArgs.opts).toEqual(expected);
+    // The signed-on user's credentials are used, not the service account's
+    expect(poolArgs.creds.user).toBe(CREDENTIALS.user);
+    expect(poolArgs.creds.host).toBe(CREDENTIALS.host);
+  });
+
+  it("7.2 – per-user pool receives options without DB2i_HOST/USER/PASS", async () => {
+    clearServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = "naming=system;libraries=ENVLIB,QGPL";
+
+    await createPool("token-no-creds");
+
+    const expected = { naming: "system", libraries: ["ENVLIB", "QGPL"] };
+    expect(getState("token-no-creds").poolConfig?.jdbcOptions).toEqual(
+      expected,
+    );
+    expect(MockPool.mock.calls[0][0].opts).toEqual(expected);
+  });
+
+  it("7.3 – no jdbcOptions on per-user pool when env var is unset", async () => {
+    clearServiceAccount();
+    delete process.env.DB2i_JDBC_OPTIONS;
+
+    await createPool("token-unset");
+
+    const { poolConfig } = getState("token-unset");
+    expect(poolConfig).toBeDefined();
+    expect(poolConfig).not.toHaveProperty("jdbcOptions");
+    expect(MockPool.mock.calls[0][0].opts).toBeUndefined();
+  });
+
+  it("7.4 – no jdbcOptions on per-user pool when env var has no options", async () => {
+    clearServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = " ; ";
+
+    await createPool("token-empty");
+
+    expect(getState("token-empty").poolConfig).not.toHaveProperty(
+      "jdbcOptions",
+    );
+    expect(MockPool.mock.calls[0][0].opts).toBeUndefined();
+  });
+
+  it("7.5 – malformed options fail before credentials are stored", async () => {
+    clearServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = "key ring password s3cret";
+
+    const error = await createPool("token-malformed").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/malformed pair/i);
+    // httpAuthEndpoint returns McpError messages to the client; a plain Error
+    // becomes a generic 500, keeping the raw option text out of the response
+    expect(error).not.toBeInstanceOf(McpError);
+    expect(getState("token-malformed").storedCredentials).toBeUndefined();
+    expect(getState("token-malformed").poolConfig).toBeUndefined();
+    expect(MockPool).not.toHaveBeenCalled();
   });
 });
