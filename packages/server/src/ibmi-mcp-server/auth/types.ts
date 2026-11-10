@@ -1,5 +1,7 @@
 /**
  * @fileoverview Shared types for IBM i HTTP authentication flow.
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  */
 
 export interface AuthRequest {

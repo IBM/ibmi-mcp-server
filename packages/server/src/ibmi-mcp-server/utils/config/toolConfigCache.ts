@@ -5,20 +5,10 @@
  * @module src/ibmi-mcp-server/utils/yaml/toolConfigCache
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer, RegisteredTool } from "@modelcontextprotocol/server";
 import { logger, RequestContext } from "@/utils/internal/index.js";
 import type { CachedToolConfig } from "./types.js";
 import { createHandlerFromDefinition } from "./toolDefinitions.js";
-
-/**
- * Statistics about the cached tools
- */
-export interface ToolCacheStats {
-  /** Number of cached tools */
-  toolCount: number;
-  /** Number of toolsets */
-  toolsetCount: number;
-}
 
 /**
  * Tool Configuration Cache - Singleton class that manages cached tool configurations
@@ -27,10 +17,6 @@ export interface ToolCacheStats {
 export class ToolConfigCache {
   private static instance: ToolConfigCache | null = null;
   private cache: Map<string, CachedToolConfig> = new Map();
-  private stats: ToolCacheStats = {
-    toolCount: 0,
-    toolsetCount: 0,
-  };
 
   /**
    * Get or create the singleton instance
@@ -99,12 +85,7 @@ export class ToolConfigCache {
         }
       }
 
-      // Update stats
       const cacheDuration = Date.now() - cacheStart;
-      this.stats = {
-        toolCount: cachedToolCount,
-        toolsetCount: toolsetNames.size,
-      };
 
       logger.info(
         cacheContext,
@@ -134,76 +115,36 @@ export class ToolConfigCache {
   }
 
   /**
-   * Register all cached tools with an MCP server
-   * This is extremely fast since all preprocessing is done
+   * Register all cached tools with an MCP server instance.
+   * Runs once per HTTP request, so it only wires up what the cache holds.
+   * @returns the registered tools
    */
-  async registerCachedTools(
-    server: McpServer,
-    context: RequestContext,
-  ): Promise<void> {
-    const registrationContext = {
-      ...context,
-      operation: "ToolConfigCache.registerCachedTools",
-    };
-
-    if (this.cache.size === 0) {
-      logger.warning(
-        registrationContext,
-        "No cached tools available for registration",
-      );
-      return;
-    }
-
-    logger.info(
-      registrationContext,
-      `Registering ${this.cache.size} cached tools`,
-    );
-
-    const registrationStart = Date.now();
-    let registeredCount = 0;
+  registerCachedTools(server: McpServer): RegisteredTool[] {
+    const registered: RegisteredTool[] = [];
 
     for (const [toolName, config] of this.cache) {
       try {
-        const handler = createHandlerFromDefinition(config);
-
-        server.registerTool(
-          toolName,
-          {
-            title: config.title,
-            description: config.description,
-            inputSchema: config.inputSchema.shape,
-            outputSchema: config.outputSchema.shape,
-            annotations: config.annotations,
-          },
-          handler,
+        registered.push(
+          server.registerTool(
+            toolName,
+            {
+              title: config.title,
+              description: config.description,
+              inputSchema: config.inputSchema,
+              outputSchema: config.outputSchema,
+              annotations: config.annotations,
+            },
+            createHandlerFromDefinition(config),
+          ),
         );
-        registeredCount++;
       } catch (error) {
         logger.error(
-          registrationContext,
+          { operation: "ToolConfigCache.registerCachedTools" },
           `Failed to register cached tool ${toolName}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
 
-    const registrationDuration = Date.now() - registrationStart;
-    logger.info(
-      registrationContext,
-      `Registered ${registeredCount} cached tools in ${registrationDuration}ms`,
-    );
-  }
-
-  /**
-   * Get cache statistics
-   */
-  getStats(): ToolCacheStats {
-    return { ...this.stats };
-  }
-
-  /**
-   * Check if cache has any tools
-   */
-  isEmpty(): boolean {
-    return this.cache.size === 0;
+    return registered;
   }
 }

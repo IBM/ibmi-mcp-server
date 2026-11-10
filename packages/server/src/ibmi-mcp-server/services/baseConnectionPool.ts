@@ -323,7 +323,10 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       return await Promise.race([promise, timeoutPromise]);
     } catch (error) {
       // If it's our timeout error, mark pool unhealthy and close it
-      if (error instanceof McpError && error.code === JsonRpcErrorCode.Timeout) {
+      if (
+        error instanceof McpError &&
+        error.code === JsonRpcErrorCode.Timeout
+      ) {
         const poolState = this.pools.get(poolId);
         if (poolState) {
           poolState.healthStatus = "unhealthy";
@@ -345,7 +348,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
   /**
    * Start the idle pool check timer. Idempotent — safe to call multiple times.
-   * Uses interval of max(10s, timeout/2) following existing StatefulTransportManager pattern.
+   * Uses interval of max(10s, timeout/2).
    * If idleTimeoutMs <= 0, this is a no-op (disabled).
    */
   protected startIdleTimer(): void {

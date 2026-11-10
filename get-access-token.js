@@ -6,6 +6,9 @@
  * Loads credentials from .env DB2i_* variables by default, with CLI fallback
  * Sets IBMI_MCP_ACCESS_TOKEN environment variable on success
  *
+ * @deprecated IBM i HTTP token authentication is deprecated and will be
+ * removed in a future major release. Use `MCP_AUTH_MODE=oauth`.
+ *
  * Usage: node get-access-token.js [--user <username>] [--password <password>] [--host <ibmi-host>] [--verbose] [--https]
  */
 

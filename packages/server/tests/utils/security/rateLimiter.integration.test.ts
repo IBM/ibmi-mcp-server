@@ -9,7 +9,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { config } from "../../../src/config/index.js";
-import type { TransportManager } from "../../../src/mcp-server/transports/core/transportTypes.js";
 import { createHttpApp } from "../../../src/mcp-server/transports/http/httpTransport.js";
 import {
   JsonRpcErrorCode,
@@ -105,21 +104,15 @@ describe("Rate Limiter Config Integration", () => {
     const savedLimiterConfig = rateLimiter.getConfig();
 
     function buildApp() {
-      const handleRequest = vi.fn().mockResolvedValue({
-        type: "buffered",
-        headers: new Headers(),
-        statusCode: 200,
-        body: { jsonrpc: "2.0", result: {}, id: 1 },
-      });
-      const manager = {
-        handleRequest,
-        shutdown: vi.fn().mockResolvedValue(undefined),
-      } as unknown as TransportManager;
+      const handleRequest = vi.fn(async () =>
+        Response.json({ jsonrpc: "2.0", result: {}, id: 1 }),
+      );
       const app = createHttpApp(
-        manager,
+        { fetch: handleRequest },
         requestContextService.createRequestContext({
           operation: "rateLimiterIntegrationTest",
         }),
+        null,
       );
       return { app, handleRequest };
     }

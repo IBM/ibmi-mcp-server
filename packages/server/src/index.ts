@@ -10,8 +10,11 @@
 // First import: OTel facade (lazy-loads the SDK only when OTEL_ENABLED=true).
 import { shutdownOpenTelemetry } from "@/utils/telemetry/instrumentation.js";
 
-import { config, environment } from "@/config/index.js";
-import { initializeAndStartServer } from "@/mcp-server/server.js";
+import { config, environment, environmentIsValid } from "@/config/index.js";
+import {
+  initializeAndStartServer,
+  type RunningServer,
+} from "@/mcp-server/server.js";
 import { requestContextService } from "@/utils/index.js";
 import type { RequestContext } from "@/utils/internal/requestContext.js";
 import {
@@ -20,9 +23,11 @@ import {
   logOperationStart,
   logOperationSuccess,
 } from "@/utils/internal/logging-helpers.js";
-import { logger, reinitializeLogger } from "@/utils/internal/logger.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import http from "http";
+import {
+  flushLogger,
+  logger,
+  reinitializeLogger,
+} from "@/utils/internal/logger.js";
 import { statSync, existsSync } from "fs";
 import { applyCliOverrides } from "./config/resolver.js";
 import {
@@ -188,6 +193,16 @@ if (cliArgs.errors && cliArgs.errors.length > 0) {
   process.exit(1);
 }
 
+// An invalid environment leaves every setting at its default (the config
+// module has reported which variables are at fault). A server must not run
+// with settings its operator did not choose.
+if (!environmentIsValid) {
+  console.error(
+    `${config.mcpServerName}: Startup failed. Fix the invalid environment variables reported above.`,
+  );
+  process.exit(1);
+}
+
 // Show warnings but continue execution
 if (cliArgs.warnings && cliArgs.warnings.length > 0) {
   console.error("CLI Argument Warnings:");
@@ -199,6 +214,15 @@ applyCliOverrides(cliArgs);
 
 // Reinitialize logger with updated config (especially transport mode from CLI)
 reinitializeLogger();
+
+if (
+  process.env.MCP_SESSION_MODE &&
+  process.env.MCP_SESSION_MODE !== "stateless"
+) {
+  console.error(
+    "Warning: MCP_SESSION_MODE is ignored; this server is stateless.",
+  );
+}
 
 // In stdio mode stdout carries the JSON-RPC stream. Dependencies that print
 // with console.log (mapepire-js does on socket errors) would corrupt it, so
@@ -219,176 +243,102 @@ if (cliArgs.toolsets && cliArgs.toolsets.length > 0) {
   logger.info(`ℹ Using toolsets: ${cliArgs.toolsets.join(", ")}`);
 }
 
-let mcpStdioServer: McpServer | undefined;
-let actualHttpServer: http.Server | undefined;
+/** How long a shutdown may take before the process exits anyway. */
+const SHUTDOWN_DEADLINE_MS = 10_000;
+
+let runningServer: RunningServer | undefined;
+let shuttingDown = false;
 
 /**
- * Best-effort cleanup of connection pools and YAML file watchers.
- * When a context is provided, logs progress; otherwise runs silently.
+ * The only place the running server exits the process. Closes the transport,
+ * the connection pools, the YAML file watchers and telemetry, flushes the
+ * logger, then exits. A step that hangs is cut off by the deadline.
+ *
+ * @param signal - What triggered the shutdown, for the log.
+ * @param exitCode - 0 for a requested stop, non-zero on fatal paths.
  */
-async function performCleanup(context?: RequestContext): Promise<void> {
-  try {
-    if (context) {
-      logOperationStart(context, "Closing IBM i connection pools...");
-    }
-    await BaseConnectionPool.shutdownAll(context);
-    if (context) {
-      logOperationSuccess(context, "IBM i connection pools closed.");
-    }
-  } catch (error) {
-    if (context) {
-      logOperationError(
-        context,
-        "Error closing IBM i connection pools.",
-        error,
-      );
-    }
+const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
+  if (shuttingDown) {
+    return;
   }
-  try {
-    ToolProcessor.clearWatchers();
-  } catch {
-    // best-effort
-  }
-}
+  shuttingDown = true;
 
-const shutdown = async (signal: string): Promise<void> => {
-  const shutdownContext = requestContextService.createRequestContext({
+  setTimeout(() => process.exit(exitCode || 1), SHUTDOWN_DEADLINE_MS).unref();
+
+  const context: RequestContext = requestContextService.createRequestContext({
     operation: "ServerShutdown",
     triggerEvent: signal,
   });
+  logOperationStart(context, `Shutting down (${signal})...`);
 
-  logOperationStart(
-    shutdownContext,
-    `Received ${signal}. Initiating graceful shutdown...`,
-  );
-
-  try {
-    await shutdownOpenTelemetry();
-
-    let closePromise: Promise<void> = Promise.resolve();
-    const transportType = config.mcpTransportType;
-
-    if (transportType === "stdio" && mcpStdioServer) {
-      logOperationStart(
-        shutdownContext,
-        "Attempting to close main MCP server (STDIO)...",
-      );
-      closePromise = mcpStdioServer.close();
-    } else if (transportType === "http" && actualHttpServer) {
-      logOperationStart(shutdownContext, "Attempting to close HTTP server...");
-      closePromise = new Promise((resolve, reject) => {
-        actualHttpServer!.close((err) => {
-          if (err) {
-            logOperationError(
-              shutdownContext,
-              "Error closing HTTP server.",
-              err,
-            );
-            return reject(err);
-          }
-          logOperationSuccess(
-            shutdownContext,
-            "HTTP server closed successfully.",
-          );
-          resolve();
-        });
-      });
+  // Each step runs even if an earlier one failed.
+  const steps: Array<[string, () => Promise<void> | void]> = [
+    ["transport", () => runningServer?.close()],
+    ["IBM i connection pools", () => BaseConnectionPool.shutdownAll(context)],
+    ["YAML file watchers", () => ToolProcessor.clearWatchers()],
+    ["telemetry", () => shutdownOpenTelemetry()],
+  ];
+  for (const [name, step] of steps) {
+    try {
+      await step();
+    } catch (error) {
+      logOperationError(context, `Error closing ${name}.`, error);
+      exitCode ||= 1;
     }
-
-    await closePromise;
-
-    await performCleanup(shutdownContext);
-    logOperationSuccess(
-      shutdownContext,
-      "Graceful shutdown completed successfully. Exiting.",
-    );
-    process.exit(0);
-  } catch (error) {
-    logOperationError(
-      shutdownContext,
-      "Critical error during shutdown process.",
-      error,
-    );
-    await performCleanup();
-    process.exit(1);
   }
+
+  logOperationSuccess(context, "Shutdown complete. Exiting.");
+  await flushLogger();
+  process.exit(exitCode);
 };
 
-const start = async (): Promise<void> => {
-  const transportType = config.mcpTransportType;
-  const startupContext = requestContextService.createRequestContext({
-    operation: `ServerStartupSequence_${transportType}`,
-    applicationName: config.mcpServerName,
-    applicationVersion: config.mcpServerVersion,
-    nodeEnvironment: environment,
-  });
+/** Logs a fatal error, reports it on stderr and shuts down with exit code 1. */
+const fail = (message: string, error: unknown): Promise<void> => {
+  logFatal(
+    requestContextService.createRequestContext({ operation: "FatalError" }),
+    message,
+    error,
+  );
+  // One line on stderr: in stdio mode the logger writes to files only.
+  console.error(
+    `${config.mcpServerName}: ${message} ${error instanceof Error ? error.message : String(error)}`,
+  );
+  return shutdown(message, 1);
+};
 
-  logOperationStart(
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on(
+  "uncaughtException",
+  (error) => void fail("Uncaught exception.", error),
+);
+process.on(
+  "unhandledRejection",
+  (reason) => void fail("Unhandled promise rejection.", reason),
+);
+
+const startupContext = requestContextService.createRequestContext({
+  operation: `ServerStartupSequence_${config.mcpTransportType}`,
+  applicationName: config.mcpServerName,
+  applicationVersion: config.mcpServerVersion,
+  nodeEnvironment: environment,
+});
+logOperationStart(
+  startupContext,
+  `Starting ${config.mcpServerName} (Version: ${config.mcpServerVersion}, Transport: ${config.mcpTransportType}, Env: ${environment})...`,
+);
+
+try {
+  runningServer = await initializeAndStartServer();
+  if (config.mcpTransportType === "stdio") {
+    // The client closing stdin is the portable way to stop a stdio server.
+    // Open connection pools would otherwise keep the process alive.
+    process.stdin.once("end", () => void shutdown("stdin closed"));
+  }
+  logOperationSuccess(
     startupContext,
-    `Starting ${config.mcpServerName} (Version: ${config.mcpServerVersion}, Transport: ${transportType}, Env: ${environment})...`,
+    `${config.mcpServerName} is now running and ready.`,
   );
-
-  try {
-    const serverInstance = await initializeAndStartServer();
-
-    if (transportType === "stdio" && serverInstance instanceof McpServer) {
-      mcpStdioServer = serverInstance;
-    } else if (
-      transportType === "http" &&
-      serverInstance instanceof http.Server
-    ) {
-      actualHttpServer = serverInstance;
-    }
-
-    logOperationSuccess(
-      startupContext,
-      `${config.mcpServerName} is now running and ready.`,
-    );
-
-    process.on("SIGTERM", () => shutdown("SIGTERM"));
-    process.on("SIGINT", () => shutdown("SIGINT"));
-
-    // The logger already has a global uncaughtException handler for logging.
-    // This handler is for initiating a graceful shutdown.
-    process.on("uncaughtException", (error: Error) => {
-      const context = requestContextService.createRequestContext({
-        operation: "uncaughtException",
-      });
-      logFatal(context, "FATAL: Uncaught exception triggered shutdown.", error);
-      shutdown("uncaughtException");
-    });
-
-    process.on("unhandledRejection", (reason: unknown) => {
-      const context = requestContextService.createRequestContext({
-        operation: "unhandledRejection",
-      });
-      logFatal(
-        context,
-        "FATAL: Unhandled promise rejection triggered shutdown.",
-        reason,
-      );
-      shutdown("unhandledRejection");
-    });
-  } catch (error) {
-    logFatal(startupContext, "CRITICAL ERROR DURING STARTUP.", error);
-    await shutdownOpenTelemetry(); // Attempt to flush any startup-related traces
-    process.exit(1);
-  }
-};
-
-(async () => {
-  try {
-    await start();
-  } catch (error) {
-    const context = requestContextService.createRequestContext({
-      operation: "globalCatch",
-    });
-    logFatal(
-      context,
-      "[GLOBAL CATCH] A fatal, unhandled error occurred.",
-      error,
-    );
-    await performCleanup();
-    process.exit(1);
-  }
-})();
+} catch (error) {
+  await fail("Startup failed.", error);
+}

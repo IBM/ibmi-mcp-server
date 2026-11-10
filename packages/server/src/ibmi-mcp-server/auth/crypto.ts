@@ -1,5 +1,7 @@
 /**
  * @fileoverview Helpers for decrypting IBM i auth envelopes and exposing server key metadata.
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  */
 
 import { readFileSync } from "fs";

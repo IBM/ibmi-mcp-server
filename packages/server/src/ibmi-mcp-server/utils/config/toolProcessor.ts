@@ -6,7 +6,6 @@
  * @module src/ibmi-mcp-server/utils/yaml/yamlToolProcessor
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createHash } from "crypto";
 import { watch, FSWatcher, existsSync, statSync, readFileSync } from "fs";
 import { readFile } from "fs/promises";
@@ -30,7 +29,6 @@ import {
 import { SqlToolsConfig } from "../../schemas/index.js";
 import { SourceConfig } from "../../schemas/index.js";
 import { ToolConfigBuilder } from "./toolConfigBuilder.js";
-import { createHandlerFromDefinition } from "./toolDefinitions.js";
 
 /**
  * Result of tool processing operation
@@ -223,8 +221,7 @@ export class ToolProcessor {
           sourceCount: Object.keys(this.yamlConfig?.sources || {}).length,
           stats: {
             toolsProcessed: this.processedTools.length,
-            sourcesRegistered:
-              this.sourceManager.getRegisteredSources().length,
+            sourcesRegistered: this.sourceManager.getRegisteredSources().length,
             toolsetMappings: this.toolsetManager.getToolsetStats().totalTools,
           },
         };
@@ -238,73 +235,6 @@ export class ToolProcessor {
       },
       {
         operation: "ToolProcessor.processTools",
-        context: operationContext,
-        errorCode: JsonRpcErrorCode.InternalError,
-      },
-    );
-  }
-
-  /**
-   * Register processed tools with MCP server
-   * @param server - MCP server instance
-   * @param context - Request context for logging
-   */
-  async registerWithServer(
-    server: McpServer,
-    context?: RequestContext,
-  ): Promise<void> {
-    const operationContext =
-      context ||
-      requestContextService.createRequestContext({
-        operation: "ToolProcessor.registerWithServer",
-      });
-
-    return ErrorHandler.tryCatch(
-      async () => {
-        // Register YAML-generated tools
-        if (this.toolConfigs.length > 0) {
-          logger.info(
-            operationContext,
-            `Registering ${this.toolConfigs.length} YAML-generated tools with MCP server`,
-          );
-
-          let yamlRegisteredCount = 0;
-          for (const config of this.toolConfigs) {
-            try {
-              const handler = createHandlerFromDefinition(config);
-              server.registerTool(
-                config.name,
-                {
-                  title: config.title,
-                  description: config.description,
-                  inputSchema: config.inputSchema.shape,
-                  outputSchema: config.outputSchema.shape,
-                  annotations: config.annotations,
-                },
-                handler,
-              );
-              yamlRegisteredCount++;
-            } catch (error) {
-              logger.error(
-                operationContext,
-                `Failed to register YAML tool ${config.name}: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
-          }
-
-          logger.info(
-            operationContext,
-            `Successfully registered ${yamlRegisteredCount} YAML-generated tools`,
-          );
-        }
-
-        logger.info(
-          operationContext,
-          `Total tools registered with MCP server: ${this.toolConfigs.length}`,
-        );
-      },
-      {
-        operation: "ToolProcessor.registerWithServer",
         context: operationContext,
         errorCode: JsonRpcErrorCode.InternalError,
       },

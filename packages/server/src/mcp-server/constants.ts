@@ -3,7 +3,7 @@
  */
 
 /**
- * The MCP specification snapshot version used by this server.
- * Keep in sync with documentation references and transport implementations.
+ * The newest MCP specification revision this server serves. 2025-era
+ * revisions are served too, through the SDK's legacy fallback.
  */
-export const MCP_SPEC_VERSION = "2025-06-18" as const;
+export const MCP_SPEC_VERSION = "2026-07-28" as const;

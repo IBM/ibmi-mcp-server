@@ -1,166 +1,105 @@
 /**
- * @fileoverview Handles the registration of the `toolsets` resource with an MCP server instance.
+ * @fileoverview Handles the registration of the `toolsets` resources with an MCP server instance.
  * This module acts as the "handler" layer, connecting the pure business logic to the
  * MCP server and ensuring all outcomes (success or failure) are handled gracefully.
  * @module src/mcp-server/resources/toolsetsResource/registration
  * @see {@link src/mcp-server/resources/toolsetsResource/logic.ts} for the core business logic and schemas.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import { JsonRpcErrorCode } from "../../../types-global/errors.js";
-import {
-  ErrorHandler,
-  logger,
-  RequestContext,
-  requestContextService,
-} from "../../../utils/index.js";
+import type {
+  McpServer,
+  ReadResourceResult,
+  RegisteredResource,
+} from "@modelcontextprotocol/server";
+import { ErrorHandler, requestContextService } from "../../../utils/index.js";
 import { toolsetsResourceLogic } from "./logic.js";
 import { ToolsetManager } from "../../utils/config/toolsetManager.js";
 
-/**
- * Registers the 'toolsets' resource and its handlers with the provided MCP server instance.
- * This resource exposes all available toolsets on the server with their metadata and tool listings.
- *
- * @param server - The MCP server instance to register the resource with.
- */
-export const registerToolsetsResource = async (
-  server: McpServer,
-): Promise<void> => {
-  const resourceName = "toolsets-resource";
-  const registrationContext: RequestContext =
-    requestContextService.createRequestContext({
-      operation: "RegisterResource",
-      resourceName: resourceName,
-    });
+const RESOURCE_NAME = "toolsets-resource";
 
-  logger.info(registrationContext, `Registering resource: '${resourceName}'`);
+async function readToolsets(
+  uri: URL,
+  toolsetName?: string,
+): Promise<ReadResourceResult> {
+  const context = requestContextService.createRequestContext({
+    operation: "HandleResourceRead",
+    resourceUri: uri.href,
+  });
 
-  await ErrorHandler.tryCatch(
-    async () => {
-      // Register the main "all toolsets" resource
-      server.registerResource(
-        `${resourceName}-all`,
-        "toolsets://",
+  try {
+    const result = await toolsetsResourceLogic(
+      uri,
+      toolsetName ? { toolsetName } : {},
+      context,
+    );
+
+    return {
+      contents: [
         {
-          description:
-            "Complete catalog of all available toolsets and their tools",
+          uri: uri.href,
+          blob: Buffer.from(JSON.stringify(result, null, 2)).toString("base64"),
           mimeType: "application/json",
         },
-        async (
-          uri: URL,
-          callContext: Record<string, unknown>,
-        ): Promise<ReadResourceResult> => {
-          const sessionId =
-            typeof callContext?.sessionId === "string"
-              ? callContext.sessionId
-              : undefined;
+      ],
+    };
+  } catch (error) {
+    throw ErrorHandler.handleError(error, {
+      operation: "toolsetsResourceReadHandler",
+      context,
+      input: { uri: uri.href, toolsetName },
+    });
+  }
+}
 
-          const handlerContext: RequestContext =
-            requestContextService.createRequestContext({
-              parentContext: callContext,
-              operation: "HandleResourceRead",
-              resourceUri: uri.href,
-              sessionId,
-            });
-
-          try {
-            const result = await toolsetsResourceLogic(uri, {}, handlerContext);
-
-            return {
-              contents: [
-                {
-                  uri: uri.href,
-                  blob: Buffer.from(JSON.stringify(result, null, 2)).toString(
-                    "base64",
-                  ),
-                  mimeType: "application/json",
-                },
-              ],
-            };
-          } catch (error) {
-            throw ErrorHandler.handleError(error, {
-              operation: "toolsetsAllResourceReadHandler",
-              context: handlerContext,
-              input: { uri: uri.href },
-            });
-          }
-        },
-      );
-
-      // Register individual toolset resources
-      const toolsetManager = ToolsetManager.getInstance();
-      const allToolsetNames = toolsetManager.getAllToolsetNames();
-
-      for (const toolsetName of allToolsetNames) {
-        const toolsetConfig = toolsetManager.getToolsetConfig(toolsetName);
-        const toolsInToolset = toolsetManager.getToolsInToolset(toolsetName);
-
-        server.registerResource(
-          `${resourceName}-${toolsetName}`,
-          `toolsets://${toolsetName}`,
-          {
-            description: toolsetConfig?.description
-              ? `${toolsetConfig.description} (${toolsInToolset.length} tools)`
-              : `${toolsetName} toolset with ${toolsInToolset.length} tools`,
-            mimeType: "application/json",
-          },
-          async (
-            uri: URL,
-            callContext: Record<string, unknown>,
-          ): Promise<ReadResourceResult> => {
-            const sessionId =
-              typeof callContext?.sessionId === "string"
-                ? callContext.sessionId
-                : undefined;
-
-            const handlerContext: RequestContext =
-              requestContextService.createRequestContext({
-                parentContext: callContext,
-                operation: "HandleResourceRead",
-                resourceUri: uri.href,
-                sessionId,
-              });
-
-            try {
-              const result = await toolsetsResourceLogic(
-                uri,
-                { toolsetName },
-                handlerContext,
-              );
-
-              return {
-                contents: [
-                  {
-                    uri: uri.href,
-                    blob: Buffer.from(JSON.stringify(result, null, 2)).toString(
-                      "base64",
-                    ),
-                    mimeType: "application/json",
-                  },
-                ],
-              };
-            } catch (error) {
-              throw ErrorHandler.handleError(error, {
-                operation: `toolsetsResourceReadHandler_${toolsetName}`,
-                context: handlerContext,
-                input: { uri: uri.href, toolsetName },
-              });
-            }
-          },
-        );
-      }
-
-      logger.info(
-        registrationContext,
-        `Resource '${resourceName}' registered successfully.`,
-      );
-    },
+/**
+ * Registers the `toolsets://` catalog resource, which lists every toolset.
+ */
+export const registerToolsetsResource = (server: McpServer): void => {
+  server.registerResource(
+    `${RESOURCE_NAME}-all`,
+    "toolsets://",
     {
-      operation: `RegisteringResource_${resourceName}`,
-      context: registrationContext,
-      errorCode: JsonRpcErrorCode.InitializationFailed,
-      critical: true,
+      description: "Complete catalog of all available toolsets and their tools",
+      mimeType: "application/json",
     },
+    (uri) => readToolsets(uri),
   );
 };
+
+/**
+ * Describes the per-toolset resources for the YAML configuration currently
+ * loaded. Comparing two snapshots tells whether a reload changed the list.
+ */
+export const describeToolsetResources = (): Array<{
+  toolsetName: string;
+  description: string;
+}> => {
+  const toolsetManager = ToolsetManager.getInstance();
+  return toolsetManager.getAllToolsetNames().map((toolsetName) => {
+    const description =
+      toolsetManager.getToolsetConfig(toolsetName)?.description;
+    const toolCount = toolsetManager.getToolsInToolset(toolsetName).length;
+    return {
+      toolsetName,
+      description: description
+        ? `${description} (${toolCount} tools)`
+        : `${toolsetName} toolset with ${toolCount} tools`,
+    };
+  });
+};
+
+/**
+ * Registers one `toolsets://<name>` resource per toolset. Must run after the
+ * YAML tools are loaded, which is what fills the ToolsetManager.
+ */
+export const registerPerToolsetResources = (
+  server: McpServer,
+): RegisteredResource[] =>
+  describeToolsetResources().map(({ toolsetName, description }) =>
+    server.registerResource(
+      `${RESOURCE_NAME}-${toolsetName}`,
+      `toolsets://${toolsetName}`,
+      { description, mimeType: "application/json" },
+      (uri) => readToolsets(uri, toolsetName),
+    ),
+  );

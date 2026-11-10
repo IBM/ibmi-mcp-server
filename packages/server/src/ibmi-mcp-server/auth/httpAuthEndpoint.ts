@@ -2,6 +2,8 @@
  * @fileoverview HTTP authentication endpoint implementation for IBM i authentication.
  * Provides POST /api/v1/auth endpoint with TLS enforcement and bearer token generation.
  *
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  * @module src/ibmi-mcp-server/auth/httpAuthEndpoint
  */
 

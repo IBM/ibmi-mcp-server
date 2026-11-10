@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
@@ -115,10 +115,7 @@ export async function getRelatedObjectsLogic(
 
   const startTime = Date.now();
 
-  const bindParams: BindingValue[] = [
-    params.library_name,
-    params.file_name,
-  ];
+  const bindParams: BindingValue[] = [params.library_name, params.file_name];
 
   const whereClause = params.object_type_filter
     ? "\n    WHERE SQL_OBJECT_TYPE = ?"

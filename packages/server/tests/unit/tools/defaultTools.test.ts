@@ -20,6 +20,7 @@ import {
 } from "../../../src/types-global/errors.js";
 import { createRequestContext } from "../../../src/utils/internal/requestContext.js";
 import type { QueryResult } from "@ibm/mapepire-js";
+import type { SdkContext } from "../../../src/mcp-server/tools/utils/types.js";
 
 // Mock the IBMiConnectionPool before importing the modules
 vi.mock("../../../src/ibmi-mcp-server/services/connectionPool.js", () => ({
@@ -88,16 +89,8 @@ function createMockQueryResult<T = unknown>(
   } as QueryResult<T> & { truncated: boolean };
 }
 
-// Create a mock SdkContext for tool logic calls
-const mockSdkContext = {
-  signal: new AbortController().signal,
-  sendNotification: vi.fn(),
-  sendRequest: vi.fn(),
-  authInfo: undefined,
-  sessionId: undefined,
-} as unknown as Parameters<
-  typeof import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js").listSchemasTool.logic
->[2];
+// The tool logic does not read the SDK context; the CLI passes the same.
+const mockSdkContext = {} as SdkContext;
 
 describe("Default Tools - list_schemas", () => {
   const context = createRequestContext();

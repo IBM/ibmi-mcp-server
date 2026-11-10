@@ -1,175 +1,115 @@
+import type { McpServer, RegisteredTool } from "@modelcontextprotocol/server";
 import { config } from "@/config/index.js";
 import { ToolProcessor } from "./utils/config/toolProcessor.js";
 import { ToolConfigCache } from "./utils/config/toolConfigCache.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { describeToolsetResources } from "./resources/toolsetsResource/index.js";
 import {
   logger,
   requestContextService,
   RequestContext,
 } from "@/utils/internal/index.js";
 
-// Global cache for YAML tool configurations
-let cachedToolConfigs: ToolConfigCache | null = null;
+/** Called after a YAML reload replaced the cached tool set. */
+type ReloadListener = (change: { resourcesChanged: boolean }) => void;
 
-// Global tool processor instance
-let toolProcessor: ToolProcessor | null = null;
+const toolCache = ToolConfigCache.getInstance();
+const reloadListeners = new Set<ReloadListener>();
 
-export const registerSQLTools = async (server: McpServer): Promise<void> => {
-  // Load YAML tools if configured
-  if (config.toolsYamlPath) {
-    const context = requestContextService.createRequestContext({
-      operation: "registerSQLTools",
-      yamlPath: config.toolsYamlPath,
-    });
+/**
+ * Parses the YAML tool files and replaces the cached tool set.
+ * Throws when the configuration cannot be loaded; the cache then keeps its
+ * previous content.
+ */
+async function buildToolCache(context: RequestContext): Promise<void> {
+  const processor = new ToolProcessor();
+  await processor.initialize(context);
+  await processor.processTools(context);
 
-    // Check if we have cached tool configs
-    if (cachedToolConfigs && !cachedToolConfigs.isEmpty()) {
-      logger.info(
-        context,
-        `Registering ${cachedToolConfigs.getStats().toolCount} cached YAML tools (cache hit)`,
-      );
+  const cacheResult = toolCache.cacheToolConfigs(
+    processor.getToolConfigurations(),
+    context,
+  );
+  if (!cacheResult.success) {
+    throw new Error(`Tool caching failed: ${cacheResult.error}`);
+  }
+  logger.info(
+    context,
+    `YAML tools processed and cached: ${cacheResult.toolCount} tools, ${cacheResult.toolsetCount} toolsets`,
+  );
+}
 
-      // Register tools from cache - this is extremely fast
-      await cachedToolConfigs.registerCachedTools(server, context);
-
-      return;
-    }
-
-    logger.info(
-      context,
-      `Processing YAML tools from configuration: ${config.toolsYamlPath} (auto-reload: ${config.yamlAutoReload})`,
-    );
-
-    // Initialize processor if needed
-    if (!toolProcessor) {
-      toolProcessor = new ToolProcessor();
-    }
-
-    // Initialize cache if needed
-    if (!cachedToolConfigs) {
-      cachedToolConfigs = ToolConfigCache.getInstance();
-    }
-
-    try {
-      // Simple 3-step workflow: initialize → process → register
-      await toolProcessor.initialize(context);
-      const processingResult = await toolProcessor.processTools(context);
-
-      if (processingResult.success) {
-        // Cache the processed tool configurations
-        const toolConfigs = toolProcessor.getToolConfigurations();
-        const cacheResult = cachedToolConfigs.cacheToolConfigs(
-          toolConfigs,
-          context,
-        );
-
-        if (cacheResult.success) {
-          logger.info(
-            context,
-            `YAML tools processed and cached: ${cacheResult.toolCount} tools, ${cacheResult.toolsetCount} toolsets`,
-          );
-
-          // Register with server
-          await toolProcessor.registerWithServer(server, context);
-
-          // Setup auto-reload if enabled
-          if (config.yamlAutoReload) {
-            await setupAutoReload(context);
-          }
-        } else {
-          logger.error(
-            context,
-            `Failed to cache tool configurations: ${cacheResult.error}`,
-          );
-          throw new Error(`Tool caching failed: ${cacheResult.error}`);
-        }
-      } else {
-        logger.error(
-          context,
-          `Failed to process YAML tools: ${processingResult.error}`,
-        );
-        throw new Error(
-          `YAML tools processing failed: ${processingResult.error}`,
-        );
-      }
-    } catch (error) {
-      logger.error(
-        context,
-        `Error processing YAML tools: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      throw error;
-    }
-  } else {
+/**
+ * Loads the YAML tools once, at startup, and starts auto-reload when enabled.
+ * Server instances are built per request from the cache this fills, so YAML
+ * is never parsed on the request path.
+ */
+export const loadSQLTools = async (): Promise<void> => {
+  if (!config.toolsYamlPath) {
     logger.debug(
       {},
       "No YAML tools configuration found, skipping YAML tools loading",
     );
+    return;
+  }
+
+  const context = requestContextService.createRequestContext({
+    operation: "loadSQLTools",
+    yamlPath: config.toolsYamlPath,
+  });
+  logger.info(
+    context,
+    `Processing YAML tools from configuration: ${config.toolsYamlPath} (auto-reload: ${config.yamlAutoReload})`,
+  );
+
+  await buildToolCache(context);
+
+  if (config.yamlAutoReload) {
+    ToolProcessor.registerChangeCallback(reloadSQLTools);
+    logger.info(context, "YAML auto-reload functionality enabled");
   }
 };
 
+/** Registers the cached YAML tools with a server instance. */
+export const registerSQLTools = (server: McpServer): RegisteredTool[] =>
+  toolCache.registerCachedTools(server);
+
 /**
- * Setup auto-reload functionality for YAML configuration changes
- * @param context - Request context
- * @private
+ * Subscribes to YAML reloads. Returns the unsubscribe function.
  */
-async function setupAutoReload(context: RequestContext): Promise<void> {
-  ToolProcessor.registerChangeCallback(
-    async (filePath, eventType, changeContext) => {
-      const rebuildContext =
-        changeContext ||
-        requestContextService.createRequestContext({
-          operation: "AutoReloadOnFileChange",
-          filePath,
-          eventType,
-        });
+export const onSQLToolsReloaded = (listener: ReloadListener): (() => void) => {
+  reloadListeners.add(listener);
+  return () => reloadListeners.delete(listener);
+};
 
-      logger.info(
-        rebuildContext,
-        `YAML file changed (${eventType}): ${filePath} - rebuilding tools`,
-      );
-
-      try {
-        // Create new processor for rebuild
-        const newProcessor = new ToolProcessor();
-        await newProcessor.initialize(rebuildContext);
-        const result = await newProcessor.processTools(rebuildContext);
-
-        if (result.success) {
-          // Update cache with new configurations
-          const toolConfigs = newProcessor.getToolConfigurations();
-          const cacheResult = cachedToolConfigs!.cacheToolConfigs(
-            toolConfigs,
-            rebuildContext,
-          );
-
-          if (cacheResult.success) {
-            logger.info(
-              rebuildContext,
-              `Tools rebuilt successfully: ${cacheResult.toolCount} tools, ${cacheResult.toolsetCount} toolsets`,
-            );
-
-            // Update global processor reference
-            toolProcessor = newProcessor;
-          } else {
-            logger.error(
-              rebuildContext,
-              `Failed to cache rebuilt tools: ${cacheResult.error}`,
-            );
-          }
-        } else {
-          logger.error(
-            rebuildContext,
-            `Failed to rebuild tools: ${result.error}`,
-          );
-        }
-      } catch (error) {
-        logger.error(
-          rebuildContext,
-          `Error during auto-reload: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    },
+async function reloadSQLTools(
+  filePath: string,
+  eventType: string,
+  changeContext?: RequestContext,
+): Promise<void> {
+  const context =
+    changeContext ||
+    requestContextService.createRequestContext({
+      operation: "AutoReloadOnFileChange",
+      filePath,
+      eventType,
+    });
+  logger.info(
+    context,
+    `YAML file changed (${eventType}): ${filePath} - rebuilding tools`,
   );
 
-  logger.info(context, "YAML auto-reload functionality enabled");
+  try {
+    const resourcesBefore = JSON.stringify(describeToolsetResources());
+    await buildToolCache(context);
+    const resourcesChanged =
+      resourcesBefore !== JSON.stringify(describeToolsetResources());
+    for (const listener of reloadListeners) {
+      listener({ resourcesChanged });
+    }
+  } catch (error) {
+    logger.error(
+      context,
+      `Error during auto-reload: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }

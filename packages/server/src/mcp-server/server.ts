@@ -1,145 +1,144 @@
 /**
- * @fileoverview Main entry point for the MCP (Model Context Protocol) server.
- * This file orchestrates the server's lifecycle:
- * 1. Initializes the core `McpServer` instance (from `@modelcontextprotocol/sdk`) with its identity and capabilities.
- * 2. Registers available resources and tools, making them discoverable and usable by clients.
- * 3. Selects and starts the appropriate communication transport (stdio or Streamable HTTP)
- *    based on configuration.
- * 4. Handles top-level error management during startup.
+ * @fileoverview Builds MCP server instances and starts the configured transport.
  *
- * MCP Specification References:
- * - Lifecycle: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-03-26/basic/lifecycle.mdx
- * - Overview (Capabilities): https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-03-26/basic/index.mdx
- * - Transports: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-03-26/basic/transports.mdx
+ * The server is stateless: `createMcpServerInstance` is a factory the SDK calls
+ * once per HTTP request (`createMcpHandler`) or once per stdio connection
+ * (`serveStdio`). Both entries serve protocol revision 2026-07-28 and
+ * 2025-era clients from the same factory.
+ *
  * @module src/mcp-server/server
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import http from "http";
+import { McpServer } from "@modelcontextprotocol/server";
 import { config } from "@/config/index.js";
-import { ErrorHandler, requestContextService } from "@/utils/index.js";
+import { requestContextService } from "@/utils/index.js";
 import {
-  logFatal,
-  logOperationError,
   logOperationStart,
   logOperationSuccess,
 } from "@/utils/internal/logging-helpers.js";
-import { registerAllResources } from "@/mcp-server/resources/index.js";
 import { registerAllTools } from "@/mcp-server/tools/index.js";
+import { assertAuthModeSupported } from "@/mcp-server/transports/auth/index.js";
+import { assertHttpSecurityPosture } from "@/mcp-server/transports/http/hostValidation.js";
 import { startHttpTransport } from "@/mcp-server/transports/http/index.js";
 import { startStdioTransport } from "@/mcp-server/transports/stdio/index.js";
-import { registerSQLTools } from "@/ibmi-mcp-server/index.js";
-import { advertiseJsonSchema202012 } from "@/mcp-server/schema/advertiseJsonSchema202012.js";
+import {
+  loadSQLTools,
+  onSQLToolsReloaded,
+  registerSQLTools,
+} from "@/ibmi-mcp-server/index.js";
+import {
+  registerPerToolsetResources,
+  registerToolsetsResource,
+} from "@/ibmi-mcp-server/resources/toolsetsResource/index.js";
+
+/** A started transport. */
+export interface RunningServer {
+  /** Stops accepting requests and closes the transport. */
+  close(): Promise<void>;
+}
 
 /**
- * Creates and configures a new instance of the `McpServer`.
- *
- * @returns A promise resolving with the configured `McpServer` instance.
- * @throws {McpError} If any resource or tool registration fails.
- * @private
+ * Registers everything that comes from the YAML tool files: the SQL tools and
+ * one resource per toolset. The resources go last because the toolsets only
+ * exist once the tools are loaded.
  */
-async function createMcpServerInstance(): Promise<McpServer> {
-  const context = requestContextService.createRequestContext({
-    operation: "createMcpServerInstance",
-  });
-  logOperationStart(context, "Initializing MCP server instance");
+function registerYamlSurface(server: McpServer): Array<{ remove(): void }> {
+  return [...registerSQLTools(server), ...registerPerToolsetResources(server)];
+}
 
+/**
+ * Creates and configures a new `McpServer` instance.
+ *
+ * Runs on every HTTP request, so it must stay cheap: YAML tools come from the
+ * cache filled by `loadSQLTools`, and nothing here reads files or opens
+ * connections.
+ *
+ * @param followReloads - For an instance that outlives a request (a stdio
+ *   connection): swap its YAML tools and toolset resources when the YAML
+ *   files are reloaded. The SDK then sends the list-changed notifications.
+ * @param listChanged - Whether the client can be told about a reload. False
+ *   for a 2025-era HTTP request: it has no stream a notification could
+ *   arrive on.
+ */
+export async function createMcpServerInstance(
+  followReloads = false,
+  listChanged = true,
+): Promise<McpServer> {
   const server = new McpServer(
     { name: config.mcpServerName, version: config.mcpServerVersion },
     {
       capabilities: {
-        logging: {},
-        resources: { listChanged: true },
-        tools: { listChanged: true },
+        resources: { listChanged },
+        tools: { listChanged },
       },
+      // A reload swaps many tools at once; tell the client once.
+      debouncedNotificationMethods: [
+        "notifications/tools/list_changed",
+        "notifications/resources/list_changed",
+      ],
     },
   );
 
-  try {
-    logOperationStart(context, "Registering resources and tools...");
-    await registerAllResources(server);
-    await registerSQLTools(server);
-    await registerAllTools(server);
+  let yamlSurface = registerYamlSurface(server);
+  await registerAllTools(server);
+  registerToolsetsResource(server);
 
-    logOperationSuccess(context, "Resources and tools registered successfully");
-  } catch (err) {
-    logOperationError(context, "Failed to register resources/tools", err);
-    throw err;
+  if (followReloads) {
+    server.server.onclose = onSQLToolsReloaded(() => {
+      yamlSurface.forEach((registered) => registered.remove());
+      yamlSurface = registerYamlSurface(server);
+    });
   }
-
-  // Temporary fix until typescript-sdk#2085 emits 2020-12 on tools/list.
-  advertiseJsonSchema202012(server.server);
 
   return server;
 }
 
 /**
- * Selects, sets up, and starts the appropriate MCP transport layer based on configuration.
+ * Loads the tools and starts the configured transport.
  *
- * @returns Resolves with `McpServer` for 'stdio' or `http.Server` for 'http'.
- * @throws {Error} If transport type is unsupported or setup fails.
- * @private
+ * @throws If the YAML tools cannot be loaded or the transport cannot start.
  */
-async function startTransport(): Promise<McpServer | http.Server> {
+export async function initializeAndStartServer(): Promise<RunningServer> {
   const transportType = config.mcpTransportType;
   const context = requestContextService.createRequestContext({
-    operation: "startTransport",
+    operation: "initializeAndStartServer",
     transport: transportType,
   });
   logOperationStart(context, `Starting transport: ${transportType}`);
 
+  assertAuthModeSupported();
+
   if (transportType === "http") {
-    const { server } = await startHttpTransport(
-      () => createMcpServerInstance(),
-      context,
-    );
-    return server as http.Server;
+    // Refuse the dangerous posture (unauthenticated + non-loopback + IBM i
+    // credentials) before any tool loading happens. Runs after
+    // applyCliOverrides, so CLI-provided transport/tools flags are visible.
+    assertHttpSecurityPosture(context);
   }
 
-  if (transportType === "stdio") {
-    const server = await createMcpServerInstance();
-    await startStdioTransport(server, context);
-    return server;
-  }
+  await loadSQLTools();
+  // Build one instance now, so that a registration error (two tools with the
+  // same name, say) stops startup instead of failing every request.
+  await (await createMcpServerInstance()).close();
 
-  const error = new Error(
-    `Unsupported transport type: ${transportType}. Must be 'stdio' or 'http'.`,
-  );
-  logFatal(
-    context,
-    `Unsupported transport type configured: ${transportType}`,
-    error,
-  );
-  // logFatal will exit, but throw for type safety and clarity
-  throw error;
-}
-
-/**
- * Main application entry point. Initializes and starts the MCP server.
- *
- */
-export async function initializeAndStartServer(): Promise<
-  McpServer | http.Server
-> {
-  const context = requestContextService.createRequestContext({
-    operation: "initializeAndStartServer",
-  });
-  logOperationStart(context, "MCP Server initialization sequence started.");
-  try {
-    const result = await startTransport();
-    logOperationSuccess(
+  let running: RunningServer;
+  if (transportType === "http") {
+    const { handler, close } = await startHttpTransport(
+      ({ era }) => createMcpServerInstance(false, era === "modern"),
       context,
-      "MCP Server initialization sequence completed successfully.",
     );
-    return result;
-  } catch (err) {
-    logFatal(context, "Critical error during MCP server initialization.", err);
-    // This part is likely unreachable as logFatal exits, but kept for robustness.
-    ErrorHandler.handleError(err, {
-      ...context,
-      operation: "initializeAndStartServer_Catch",
-      critical: true,
+    // Requests after a reload already see the new tools (the factory reads
+    // the cache); this tells clients holding a subscriptions/listen stream.
+    onSQLToolsReloaded(({ resourcesChanged }) => {
+      handler.notify.toolsChanged();
+      if (resourcesChanged) {
+        handler.notify.resourcesChanged();
+      }
     });
-    process.exit(1);
+    running = { close };
+  } else {
+    running = startStdioTransport(() => createMcpServerInstance(true), context);
   }
+
+  logOperationSuccess(context, "MCP server started.");
+  return running;
 }

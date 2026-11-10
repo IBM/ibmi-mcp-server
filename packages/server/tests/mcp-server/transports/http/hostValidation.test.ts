@@ -1,10 +1,10 @@
 /**
  * Tests for the DNS rebinding protection middleware (Host/Origin allowlist).
  *
- * Built against the full Hono app from createHttpApp with a stubbed
- * TransportManager: asserting the stub's handleRequest was never called is
- * what proves a rejection happened BEFORE MCP dispatch, which is the
- * HackerOne report's actual requirement.
+ * Built against the full Hono app from createHttpApp with a stubbed MCP
+ * handler: asserting the stub's fetch was never called is what proves a
+ * rejection happened BEFORE MCP dispatch, which is the HackerOne report's
+ * actual requirement.
  *
  * @module tests/mcp-server/transports/http/hostValidation.test
  */
@@ -12,7 +12,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { config } from "../../../../src/config/index.js";
 import { createHttpApp } from "../../../../src/mcp-server/transports/http/httpTransport.js";
-import type { TransportManager } from "../../../../src/mcp-server/transports/core/transportTypes.js";
 import { JsonRpcErrorCode } from "../../../../src/types-global/errors.js";
 import { logger, requestContextService } from "../../../../src/utils/index.js";
 
@@ -32,21 +31,15 @@ const MCP_BODY = JSON.stringify({
 });
 
 function buildApp() {
-  const handleRequest = vi.fn().mockResolvedValue({
-    type: "buffered",
-    headers: new Headers(),
-    statusCode: 200,
-    body: { jsonrpc: "2.0", result: {}, id: 1 },
-  });
-  const manager = {
-    handleRequest,
-    shutdown: vi.fn().mockResolvedValue(undefined),
-  } as unknown as TransportManager;
+  const handleRequest = vi.fn(async () =>
+    Response.json({ jsonrpc: "2.0", result: {}, id: 1 }),
+  );
   const app = createHttpApp(
-    manager,
+    { fetch: handleRequest },
     requestContextService.createRequestContext({
       operation: "hostValidationTest",
     }),
+    null,
   );
   return { app, handleRequest };
 }

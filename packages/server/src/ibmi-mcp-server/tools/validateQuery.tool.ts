@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
@@ -434,9 +434,7 @@ export async function validateQueryLogic(
               (c) => !c.schema || !c.tableName,
             );
             if (skipped.length > 0) {
-              skippedColumns = [
-                ...new Set(skipped.map((c) => c.columnName)),
-              ];
+              skippedColumns = [...new Set(skipped.map((c) => c.columnName))];
             }
           }
 

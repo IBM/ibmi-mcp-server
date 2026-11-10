@@ -1,7 +1,10 @@
 /**
- * @fileoverview Barrel export file for the toolsets resource.
- * This module exposes the registration function for the toolsets resource.
+ * @fileoverview Barrel export file for the toolsets resources.
  * @module src/mcp-server/resources/toolsetsResource/index
  */
 
-export { registerToolsetsResource } from "./registration.js";
+export {
+  describeToolsetResources,
+  registerPerToolsetResources,
+  registerToolsetsResource,
+} from "./registration.js";

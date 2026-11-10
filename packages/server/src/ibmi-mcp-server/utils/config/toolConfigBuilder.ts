@@ -268,7 +268,9 @@ export class ToolConfigBuilder {
       schemaShape[param.name] = zodType;
     }
 
-    return z.object(schemaShape).strict();
+    // Not strict: arguments the tool does not declare are dropped, not
+    // rejected, so a client that sends extras still gets its result.
+    return z.object(schemaShape);
   }
 
   /**

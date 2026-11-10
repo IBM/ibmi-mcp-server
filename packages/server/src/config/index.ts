@@ -8,7 +8,14 @@
  */
 
 import dotenv from "dotenv";
-import { existsSync, mkdirSync, readFileSync, statSync } from "fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "fs";
 import { homedir } from "os";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -159,7 +166,6 @@ const EnvSchema = z.object({
     .default(path.join(homedir(), ".ibmi-mcp-server", "logs")),
   NODE_ENV: z.string().default("development"),
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
-  MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
   MCP_HTTP_PORT: z.coerce.number().int().positive().default(3010),
   MCP_HTTP_HOST: z.string().default("127.0.0.1"),
   MCP_HTTP_ENDPOINT_PATH: z.string().default("/mcp"),
@@ -169,11 +175,6 @@ const EnvSchema = z.object({
     .int()
     .nonnegative()
     .default(50),
-  MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(1_800_000),
   MCP_ALLOWED_ORIGINS: z.string().optional(),
   MCP_ALLOWED_HOSTS: z.string().optional(),
   MCP_ALLOW_UNAUTHENTICATED_HTTP: z
@@ -181,19 +182,30 @@ const EnvSchema = z.object({
     .optional()
     .default("false")
     .transform((val) => val === "true" || val === "1"),
-  MCP_AUTH_SECRET_KEY: z
-    .string()
-    .min(
-      32,
-      "MCP_AUTH_SECRET_KEY must be at least 32 characters long for security reasons.",
-    )
-    .optional(),
-  MCP_AUTH_MODE: z.enum(["jwt", "oauth", "ibmi", "none"]).default("none"),
-  OAUTH_ISSUER_URL: z.string().url().optional(),
-  OAUTH_JWKS_URI: z.string().url().optional(),
+  /**
+   * HTTP authentication mode. `oauth` makes the server an OAuth 2.1 resource
+   * server as defined by the MCP authorization specification; `ibmi` is the
+   * deprecated IBM i token scheme; `none` disables authentication. The
+   * retired `jwt` passes validation only so that it cannot invalidate the
+   * rest of the environment; the server refuses to start with it.
+   */
+  MCP_AUTH_MODE: z.enum(["none", "oauth", "ibmi", "jwt"]).default("none"),
+  // The OAuth settings are plain strings here and are validated when the HTTP
+  // transport starts (transports/auth/oauth.ts), so a bad value stops the
+  // server with a message naming the variable.
+  /**
+   * Canonical public URL of the MCP endpoint (RFC 8707 resource identifier),
+   * e.g. `https://mcp.example.com/mcp`. Required when `MCP_AUTH_MODE=oauth`.
+   */
+  MCP_RESOURCE_URL: z.string().optional(),
+  /** Authorization server issuer. Required when `MCP_AUTH_MODE=oauth`. */
+  OAUTH_ISSUER_URL: z.string().optional(),
+  /** JWKS URL of the issuer. Default: discovered from the issuer's metadata. */
+  OAUTH_JWKS_URI: z.string().optional(),
+  /** Expected token audience. Default: `MCP_RESOURCE_URL`. */
   OAUTH_AUDIENCE: z.string().optional(),
-  DEV_MCP_CLIENT_ID: z.string().optional(),
-  DEV_MCP_SCOPES: z.string().optional(),
+  /** Space-separated scopes every request to the MCP endpoint must carry. */
+  OAUTH_REQUIRED_SCOPES: z.string().optional(),
 
   // --- START: OpenTelemetry Configuration ---
   /** If 'true', OpenTelemetry will be initialized and enabled. Default: 'false'. */
@@ -277,7 +289,12 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true"),
 
-  /** IBM i HTTP Authentication configuration. From `IBMI_AUTH_*` environment variables. */
+  /**
+   * IBM i HTTP token authentication. From `IBMI_HTTP_AUTH_ENABLED` and the
+   * `IBMI_AUTH_*` environment variables below.
+   * @deprecated IBM i HTTP token authentication will be removed in a future
+   * major release. Use `MCP_AUTH_MODE=oauth`.
+   */
   IBMI_HTTP_AUTH_ENABLED: z
     .string()
     .optional()
@@ -411,6 +428,12 @@ if (!parsedEnv.success) {
 const env = parsedEnv.success ? parsedEnv.data : EnvSchema.parse({});
 
 /**
+ * Whether the environment passed validation. When it did not, every setting
+ * has its default; the server refuses to start in that state.
+ */
+export const environmentIsValid = parsedEnv.success;
+
+/**
  * Expands tilde (~) to user's home directory
  * @param filePath - Path that may contain ~
  * @returns Path with ~ expanded to home directory
@@ -461,7 +484,9 @@ const ensureDirectory = (
       return null;
     }
   } else {
-    // Verify existing path is actually a directory
+    // Verify existing path is actually a directory, and one this process can
+    // write to: log transports pointed at a read-only directory block the
+    // event loop while they fail to flush.
     try {
       const stats = statSync(resolvedDirPath);
       if (!stats.isDirectory()) {
@@ -472,6 +497,7 @@ const ensureDirectory = (
         }
         return null;
       }
+      accessSync(resolvedDirPath, constants.W_OK);
     } catch (statError: unknown) {
       if (process.stdout.isTTY) {
         const statErrorMessage =
@@ -536,9 +562,7 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
     const key = pair.slice(0, eqIdx).trim();
     const value = pair.slice(eqIdx + 1).trim();
     if (!key) {
-      throw new Error(
-        `Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`,
-      );
+      throw new Error(`Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`);
     }
     if (key === "libraries") {
       result[key] = value
@@ -549,26 +573,21 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
       result[key] = value;
     }
   }
-  return Object.keys(result).length > 0
-    ? (result as JDBCOptions)
-    : undefined;
+  return Object.keys(result).length > 0 ? (result as JDBCOptions) : undefined;
 }
 
 export const config = {
-  pkg,
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
   mcpServerVersion: env.MCP_SERVER_VERSION || pkg.version,
   logLevel: env.MCP_LOG_LEVEL,
   logsPath: validatedLogsPath,
   environment: env.NODE_ENV,
   mcpTransportType: env.MCP_TRANSPORT_TYPE,
-  mcpSessionMode: env.MCP_SESSION_MODE,
   mcpHttpPort: env.MCP_HTTP_PORT,
   mcpHttpHost: env.MCP_HTTP_HOST,
   mcpHttpEndpointPath: env.MCP_HTTP_ENDPOINT_PATH,
   mcpHttpMaxPortRetries: env.MCP_HTTP_MAX_PORT_RETRIES,
   mcpHttpPortRetryDelayMs: env.MCP_HTTP_PORT_RETRY_DELAY_MS,
-  mcpStatefulSessionStaleTimeoutMs: env.MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS,
   mcpAllowedOrigins: env.MCP_ALLOWED_ORIGINS?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
@@ -576,13 +595,12 @@ export const config = {
     .map((host) => host.trim())
     .filter(Boolean),
   mcpAllowUnauthenticatedHttp: env.MCP_ALLOW_UNAUTHENTICATED_HTTP,
-  mcpAuthSecretKey: env.MCP_AUTH_SECRET_KEY,
   mcpAuthMode: env.MCP_AUTH_MODE,
+  mcpResourceUrl: env.MCP_RESOURCE_URL,
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,
   oauthJwksUri: env.OAUTH_JWKS_URI,
   oauthAudience: env.OAUTH_AUDIENCE,
-  devMcpClientId: env.DEV_MCP_CLIENT_ID,
-  devMcpScopes: env.DEV_MCP_SCOPES?.split(",").map((s) => s.trim()),
+  oauthRequiredScopes: env.OAUTH_REQUIRED_SCOPES?.split(/\s+/).filter(Boolean),
   openTelemetry: {
     enabled: env.OTEL_ENABLED,
     serviceName: env.OTEL_SERVICE_NAME || env.MCP_SERVER_NAME || pkg.name,
@@ -648,7 +666,12 @@ export const config = {
     validateMerged: env.YAML_VALIDATE_MERGED,
   },
 
-  /** IBM i HTTP Authentication configuration. From `IBMI_AUTH_*` environment variables. */
+  /**
+   * IBM i HTTP token authentication. From `IBMI_HTTP_AUTH_ENABLED` and the
+   * `IBMI_AUTH_*` environment variables.
+   * @deprecated IBM i HTTP token authentication will be removed in a future
+   * major release. Use `MCP_AUTH_MODE=oauth`.
+   */
   ibmiHttpAuth: {
     enabled: env.IBMI_HTTP_AUTH_ENABLED,
     allowHttp: env.IBMI_AUTH_ALLOW_HTTP,

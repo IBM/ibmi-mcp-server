@@ -3,6 +3,8 @@
  * Manages per-token Mapepire Pool instances with lifecycle management.
  * Extends BaseConnectionPool for consistent connection management patterns.
  *
+ * @deprecated Per-user pools exist only for IBM i HTTP token authentication,
+ * which will be removed in a future major release. Use `MCP_AUTH_MODE=oauth`.
  * @module src/ibmi-mcp-server/services/authenticatedPoolManager
  */
 

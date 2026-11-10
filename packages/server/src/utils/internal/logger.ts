@@ -87,7 +87,7 @@ function createPinoLogger(): PinoLogger {
   if (isStdioTransport || isProd) {
     if (!resolvedLogsDir) {
       throw new Error(
-        "Configuration Error: LOGS_DIR must be defined for STDIO transport or production environments.",
+        "Configuration Error: LOGS_DIR must be a writable directory for STDIO transport or production environments.",
       );
     }
   }
@@ -185,23 +185,20 @@ function createPinoLogger(): PinoLogger {
 
 let mainLogger = createPinoLogger();
 
-// Set up a global uncaught exception handler to ensure fatal errors are logged before exit.
-// Registered once here rather than per instance, so reinitializeLogger() does not
-// stack listeners and the record goes to the current instance.
-process.on("uncaughtException", (err) => {
-  mainLogger.fatal(
-    err,
-    "Uncaught exception detected. The application will now exit.",
-  );
-  process.exit(1);
-});
-
 /**
  * Reinitialize the logger with updated configuration
  * Call this after CLI arguments are applied to config
  */
 export function reinitializeLogger(): void {
   mainLogger = createPinoLogger();
+}
+
+/**
+ * Resolves once buffered log records have been handed to the transports.
+ * Call before exiting the process; the logger itself never exits.
+ */
+export function flushLogger(): Promise<void> {
+  return new Promise((resolve) => mainLogger.flush(() => resolve()));
 }
 
 // Wrapper function to preserve the original MCP log levels.
