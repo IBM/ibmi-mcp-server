@@ -737,10 +737,6 @@ tools:
         description: "User profile name to audit"
     security:
       readOnly: true
-      audit: true
-      requiredAuthority: "*AUDIT"
-      scopes: ["security:audit"]
-      warning: "Accesses sensitive user profile information. Requires *AUDIT authority."
 ```
 
 ### Array Parameter Tool
@@ -831,18 +827,14 @@ tools:
 
   <Accordion title="Security Considerations" icon="lock">
     **Mark sensitive tools:**
-    - Set `audit: true` for all tools accessing user data
     - Use `readOnly: true` for SELECT-only operations
-    - Document required authorities in `security.requiredAuthority`
-    - Add warnings for potentially destructive operations
+    - Mention required authorities in the tool `description`; IBM i enforces them using the connection's user profile
+    - For potentially destructive operations, set `readOnly: false` explicitly and describe the side effects in the `description`
 
     **Example:**
     ```yaml
     security:
       readOnly: true
-      audit: true
-      requiredAuthority: "*SECADM"
-      warning: "Accesses security configuration. Use with caution."
     ```
   </Accordion>
 </AccordionGroup>

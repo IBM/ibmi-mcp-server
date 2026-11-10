@@ -586,7 +586,95 @@ describe("SourceManager – getHealthSummary", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Group 5 – rowsToFetch threading (issue #139)
+// Group 5 – SourceManager.registerSource pool reuse (issue #212)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("SourceManager – registerSource pool reuse", () => {
+  const SOURCE = {
+    host: "system400",
+    user: "testuser",
+    password: "testpass",
+    port: 8076,
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetMocks();
+    config.poolTimeouts.queryTimeoutMs = 0;
+    config.poolTimeouts.idleTimeoutMs = 0;
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+    restoreConfig();
+    vi.useRealTimers();
+  });
+
+  it("5.1 – re-register with same settings keeps the live pool", async () => {
+    const sm = new TestSourceManager();
+    await sm.registerSource("ibmi-system", SOURCE);
+
+    const state = sm.getPoolsMap().get("ibmi-system")!;
+    const fakePool = { end: vi.fn().mockResolvedValue(undefined) };
+    state.pool = fakePool as never;
+    state.isInitialized = true;
+    state.healthStatus = "healthy";
+
+    await sm.registerSource("ibmi-system", { ...SOURCE });
+
+    const after = sm.getPoolsMap().get("ibmi-system")!;
+    expect(after.pool).toBe(fakePool);
+    expect(after.isInitialized).toBe(true);
+    expect(fakePool.end).not.toHaveBeenCalled();
+  });
+
+  it("5.2 – re-register with changed host closes the old pool", async () => {
+    const sm = new TestSourceManager();
+    await sm.registerSource("ibmi-system", SOURCE);
+
+    const state = sm.getPoolsMap().get("ibmi-system")!;
+    const fakePool = { end: vi.fn().mockResolvedValue(undefined) };
+    state.pool = fakePool as never;
+    state.isInitialized = true;
+    state.healthStatus = "healthy";
+
+    await sm.registerSource("ibmi-system", {
+      ...SOURCE,
+      host: "other400",
+    });
+
+    expect(fakePool.end).toHaveBeenCalledTimes(1);
+    const after = sm.getPoolsMap().get("ibmi-system")!;
+    expect(after.pool).toBeNull();
+    expect(after.isInitialized).toBe(false);
+    expect(after.config.host).toBe("other400");
+  });
+
+  it("5.3 – re-register with changed jdbc-options closes the old pool", async () => {
+    const sm = new TestSourceManager();
+    await sm.registerSource("ibmi-system", {
+      ...SOURCE,
+      "jdbc-options": { libraries: ["LIBA"] },
+    });
+
+    const state = sm.getPoolsMap().get("ibmi-system")!;
+    const fakePool = { end: vi.fn().mockResolvedValue(undefined) };
+    state.pool = fakePool as never;
+    state.isInitialized = true;
+
+    await sm.registerSource("ibmi-system", {
+      ...SOURCE,
+      "jdbc-options": { libraries: ["LIBB"] },
+    });
+
+    expect(fakePool.end).toHaveBeenCalledTimes(1);
+    expect(
+      sm.getPoolsMap().get("ibmi-system")!.config.jdbcOptions?.libraries,
+    ).toEqual(["LIBB"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 6 – rowsToFetch threading (issue #139)
 // ═══════════════════════════════════════════════════════════════════════════
 describe("BaseConnectionPool – rowsToFetch threading", () => {
   let pool: TestConnectionPool;
@@ -603,7 +691,7 @@ describe("BaseConnectionPool – rowsToFetch threading", () => {
     restoreConfig();
   });
 
-  it("5.1 – omits rowsToFetch arg when not provided (mapepire default 100 applies)", async () => {
+  it("6.1 – omits rowsToFetch arg when not provided (mapepire default 100 applies)", async () => {
     await pool.testExecuteQuery("test", "SELECT 1");
 
     // pool.query() called with statement + parameters
@@ -616,7 +704,7 @@ describe("BaseConnectionPool – rowsToFetch threading", () => {
     expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
   });
 
-  it("5.2 – forwards rowsToFetch to Query.execute(n)", async () => {
+  it("6.2 – forwards rowsToFetch to Query.execute(n)", async () => {
     // Use the protected method through a typed subclass cast
     const protectedPool = pool as unknown as {
       executeQuery: (
@@ -642,7 +730,7 @@ describe("BaseConnectionPool – rowsToFetch threading", () => {
     expect(mockQueryInstance.close).toHaveBeenCalled();
   });
 
-  it("5.3 – close() still called when execute() rejects", async () => {
+  it("6.3 – close() still called when execute() rejects", async () => {
     mockQueryInstance.execute.mockRejectedValueOnce(new Error("boom"));
 
     await expect(pool.testExecuteQuery("test", "SELECT 1")).rejects.toThrow(

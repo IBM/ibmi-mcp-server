@@ -196,7 +196,6 @@ duckdata/
 # LARGE PROJECT DIRECTORIES (exclude from Docker build context)
 # =============================================================================
 agents/
-app/
 client/
 release/
 coverage/
