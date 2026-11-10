@@ -246,6 +246,8 @@ Below is the reference for core server configuration options. Each section inclu
 
 <Info>
 **How it works:** The idle timer checks pools at an interval of `max(10s, timeout/2)`. When a pool exceeds the idle timeout, it is closed automatically. The next query triggers a transparent re-initialization through the existing lazy-init path — no manual intervention needed. The query timeout uses `Promise.race()` to abort queries on stale connections, marking the pool unhealthy so it is re-created on the next request.
+
+With the [SSH transport](#ssh-transport), a timed-out query closes the shared SSH session (it has a single SQL job, which may be stuck). In-flight queries on it fail, and the next request re-creates the session.
 </Info>
 
 <Warning>
@@ -579,8 +581,70 @@ Below is the reference for core server configuration options. Each section inclu
 **IBM i Requirements**:
 - User profile must have appropriate database authorities
 - Access to QSYS2 system services
-- Mapepire daemon must be running on the specified port
+- Mapepire daemon must be running on the specified port (not needed with the [SSH transport](#ssh-transport))
 </Note>
+
+### SSH Transport
+
+**Connect over SSH instead of the Mapepire daemon.** With `DB2i_TRANSPORT=ssh`, the server opens an SSH session to the IBM i and starts `mapepire-server` on demand through an SSH exec channel (mapepire-js `ssh-single` transport). No Mapepire daemon or port `8076` is needed. It applies to both the built-in tools and the YAML tools, which share one SSH session and one SQL job.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `DB2i_TRANSPORT` | `websocket` (Mapepire daemon) or `ssh` | `websocket` | `ssh` |
+| `DB2i_HOST` / `DB2i_USER` | SSH host and user (reused from the connection settings above) | (none) | `my-ibmi.company.com` / `MYUSER` |
+| `DB2i_SSH_PRIVATE_KEY_PATH` | Absolute path to a private key (see [supported key formats](#ssh-key-setup)). When set, the key is the only credential tried; `DB2i_PASS` is not used as a fallback. `~` is not expanded. | (none) | `/home/me/.ssh/id_ed25519` |
+| `DB2i_SSH_PASSPHRASE` | Passphrase for an encrypted private key | (none) | |
+| `DB2i_PASS` | SSH password, used only when no private key is set. With a key, set it to any non-empty dummy value so [YAML tools still load](#ssh-yaml-password). | (none) | |
+| `DB2i_SSH_HOST_KEY_SHA256` | Expected host key fingerprint (`SHA256:<base64>` from `ssh-keygen -lf`, or 64 hex chars). The connection is refused on mismatch. | (none, host key **not** verified) | `SHA256:AbC...` |
+| `DB2i_SSH_PORT` | SSH port on the IBM i | `22` | `22` |
+| `DB2i_SSH_TECHNIQUE` | JDBC technique for `ssh-single`: `tcp` (jt400) or `cli` | `tcp` | `tcp` |
+
+```bash
+DB2i_TRANSPORT=ssh
+DB2i_HOST=my-ibmi.company.com
+DB2i_USER=MYUSER
+DB2i_SSH_PRIVATE_KEY_PATH=/home/me/.ssh/id_ed25519
+```
+
+<a id="ssh-key-setup"></a>
+**SSH key setup**
+- The **private** key stays on the machine that runs the MCP server (`DB2i_SSH_PRIVATE_KEY_PATH`). The **public** key (`.pub`) goes on the IBM i, in the `~/.ssh/authorized_keys` of the profile in `DB2i_USER`:
+  ```bash
+  ssh-copy-id -i ~/.ssh/id_ed25519.pub MYUSER@my-ibmi.company.com
+  ```
+- On the IBM i, `~/.ssh` must be `700`, `authorized_keys` must be `600`, and the home directory must not be group- or world-writable, otherwise `sshd` silently ignores the key.
+- Check it before starting the server: `ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes MYUSER@my-ibmi.company.com "echo OK"` must print `OK` without a password prompt.
+- Supported key formats: OpenSSH-format **Ed25519**, **RSA** (2048 bit or more) and **ECDSA** keys, and RSA in PEM (`BEGIN RSA PRIVATE KEY`). Passphrase-protected keys work with `DB2i_SSH_PASSPHRASE`.
+- Not supported: ECDSA in PEM (`BEGIN EC PRIVATE KEY`) and PKCS#8 (`BEGIN PRIVATE KEY`). Generate a new key with `ssh-keygen -t ed25519`.
+- Whether the IBM i accepts a given key type depends on its `sshd` configuration.
+- If authentication fails the server logs `All configured authentication methods failed`. The key is not tried together with the password, so fix the key (or remove `DB2i_SSH_PRIVATE_KEY_PATH` to use the password).
+
+<a id="ssh-host-key"></a>
+**Host key verification**
+- Get the fingerprint from a trusted channel: `ssh-keyscan -t ed25519 my-ibmi.company.com | ssh-keygen -lf -` (use the key type the IBM i offers) and set `DB2i_SSH_HOST_KEY_SHA256=SHA256:...`.
+- With the variable set, a different host key is refused and the log says `IBM i SSH host key does not match DB2i_SSH_HOST_KEY_SHA256`.
+- Without it any host key is accepted and a warning is logged each time a session is opened.
+
+<a id="ssh-yaml-password"></a>
+**YAML tools and `DB2i_PASS`**
+
+The sample YAML tool files declare their source with `password: ${DB2i_PASS}`, and the YAML schema rejects an empty password. If you use a private key and leave `DB2i_PASS` unset, no YAML file loads and the server fails with `No valid configurations to merge`. Set `DB2i_PASS` to any non-empty dummy value (for example `DB2i_PASS=unused`). While `DB2i_SSH_PRIVATE_KEY_PATH` is set the value is never sent to the IBM i.
+
+**How the shared session behaves**
+- The built-in tools and every YAML source share ONE SSH session and ONE SQL job (per host, user, technique and JDBC options). Nothing is opened per source.
+- The first query takes about 10 seconds (SSH connect plus JVM start); later queries reuse the job and are fast.
+- Queries run on that single job, so parallel tool calls are served one after another.
+- If the SSH session drops, the next request re-creates it (one cold start).
+- See [Connection Pool Timeouts](#connection-pool-timeouts) for what happens when a query times out.
+
+<Warning>
+**Limits**
+- Set `DB2i_SSH_HOST_KEY_SHA256` (see [Host key verification](#ssh-host-key)). Without it the server accepts any host key.
+- YAML source `host` and `port` are ignored in SSH mode; SSH settings are global (per-source SSH is not supported).
+- Requests that carry an IBM i bearer token (`IBMI_HTTP_AUTH_ENABLED=true`) still use the WebSocket transport.
+- The SSH transport is designed and tested for the MCP server. The `ibmi` CLI has no SSH option of its own (it supplies host, user and password from its own config), and its use with `DB2i_TRANSPORT=ssh` set in the environment is untested.
+- Heavy queries such as `QSYS2.SYSTEM_STATUS(DETAILED_INFO=>'ALL')` can take 25s or more on a cold, small partition. Raise `MCP_POOL_QUERY_TIMEOUT_MS` if you see timeouts.
+</Warning>
 
 ### DB2i_JDBC_OPTIONS Env Var
 

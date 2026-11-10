@@ -287,6 +287,27 @@ const EnvSchema = z.object({
    */
   DB2i_JDBC_OPTIONS: z.string().optional(),
 
+  /**
+   * IBM i connection transport. `websocket` (default) uses the Mapepire daemon;
+   * `ssh` launches mapepire-server over SSH (private key or password auth).
+   * From `DB2i_TRANSPORT`.
+   */
+  DB2i_TRANSPORT: z.enum(["websocket", "ssh"]).default("websocket"),
+  /** Path to the SSH private key (OpenSSH, RSA-PEM) used when `DB2i_TRANSPORT=ssh`. From `DB2i_SSH_PRIVATE_KEY_PATH`. */
+  DB2i_SSH_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+  /** Passphrase for an encrypted SSH private key. From `DB2i_SSH_PASSPHRASE`. */
+  DB2i_SSH_PASSPHRASE: z.string().optional(),
+  /** SSH port on the IBM i system. From `DB2i_SSH_PORT`. Default: 22. */
+  DB2i_SSH_PORT: z.coerce.number().int().positive().default(22),
+  /**
+   * Expected SSH host key fingerprint (SHA-256), as printed by `ssh-keygen -lf`
+   * (`SHA256:...`) or as 64 hex chars. When set, the connection is rejected on
+   * mismatch. From `DB2i_SSH_HOST_KEY_SHA256`.
+   */
+  DB2i_SSH_HOST_KEY_SHA256: z.string().min(1).optional(),
+  /** Mapepire JDBC technique for SSH single transport. `tcp` (default) uses jt400. From `DB2i_SSH_TECHNIQUE`. */
+  DB2i_SSH_TECHNIQUE: z.enum(["tcp", "cli"]).default("tcp"),
+
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   TOOLS_YAML_PATH: z
     .string()
@@ -592,6 +613,19 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
     : undefined;
 }
 
+let cachedPrivateKeyPath: string | undefined;
+let cachedPrivateKeyBuffer: Buffer | undefined;
+
+function getCachedPrivateKey(keyPath: string): Buffer {
+  if (cachedPrivateKeyPath === keyPath && cachedPrivateKeyBuffer) {
+    return cachedPrivateKeyBuffer;
+  }
+  const buf = readFileSync(keyPath);
+  cachedPrivateKeyPath = keyPath;
+  cachedPrivateKeyBuffer = buf;
+  return buf;
+}
+
 export const config = {
   pkg,
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
@@ -711,6 +745,60 @@ export const config = {
     };
   },
 
+  /** IBM i connection transport. From `DB2i_TRANSPORT`. Default: "websocket". */
+  db2iTransport: env.DB2i_TRANSPORT,
+
+  /**
+   * IBM i SSH configuration (used when `DB2i_TRANSPORT=ssh`).
+   * Supports key-based auth (`DB2i_SSH_PRIVATE_KEY_PATH`) or password auth
+   * (`DB2i_PASS`, the same variable used by the WebSocket transport). Key-based auth
+   * takes precedence when both are set.
+   * Returns `undefined` if `DB2i_HOST`, `DB2i_USER`, and at least one auth
+   * credential (`DB2i_SSH_PRIVATE_KEY_PATH` or `DB2i_PASS`) are not set.
+   * `DB2i_HOST`/`DB2i_USER` are reused as the SSH host/username. `DB2i_PASS` is
+   * only needed for password auth (not when a private key is used).
+   */
+  get db2iSsh():
+    | {
+        host: string;
+        port: number;
+        username: string;
+        privateKey?: Buffer;
+        passphrase?: string;
+        password?: string;
+        hostKeySha256?: string;
+        technique: "tcp" | "cli";
+      }
+    | undefined {
+    const host = process.env.DB2i_HOST;
+    const username = process.env.DB2i_USER;
+    const keyPath = process.env.DB2i_SSH_PRIVATE_KEY_PATH;
+    const sshPassword = process.env.DB2i_PASS;
+    // Need at least one auth mechanism
+    if (!host || !username || (!keyPath && !sshPassword)) return undefined;
+    const passphrase = process.env.DB2i_SSH_PASSPHRASE;
+    const hostKeySha256 = process.env.DB2i_SSH_HOST_KEY_SHA256?.trim();
+    return {
+      host,
+      port: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(22)
+        .parse(process.env.DB2i_SSH_PORT),
+      username,
+      // Key-based auth takes precedence; password is the fallback
+      ...(keyPath ? { privateKey: getCachedPrivateKey(keyPath) } : {}),
+      ...(passphrase ? { passphrase } : {}),
+      ...(sshPassword && !keyPath ? { password: sshPassword } : {}),
+      ...(hostKeySha256 ? { hostKeySha256 } : {}),
+      technique: z
+        .enum(["tcp", "cli"])
+        .default("tcp")
+        .parse(process.env.DB2i_SSH_TECHNIQUE),
+    };
+  },
+
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   toolsYamlPath: env.TOOLS_YAML_PATH,
 
@@ -783,6 +871,23 @@ if (config.ibmiHttpAuth.enabled) {
       `IBM i HTTP auth is enabled but missing required key configuration: ${missing.join(", ")}`,
     );
   }
+}
+
+if (config.db2iTransport === "ssh") {
+  const missing: string[] = [];
+  if (!process.env.DB2i_HOST) missing.push("DB2i_HOST");
+  if (!process.env.DB2i_USER) missing.push("DB2i_USER");
+  if (!process.env.DB2i_SSH_PRIVATE_KEY_PATH && !process.env.DB2i_PASS) {
+    missing.push("DB2i_SSH_PRIVATE_KEY_PATH or DB2i_PASS");
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `DB2i_TRANSPORT=ssh but missing required SSH configuration: ${missing.join(", ")}`,
+    );
+  }
+  // Fail fast if the private key file is set but cannot be read.
+  void config.db2iSsh;
 }
 
 export const logLevel: string = config.logLevel;

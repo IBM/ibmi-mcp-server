@@ -11,7 +11,7 @@ import pkg, {
   DaemonServer,
   QueryMetaData,
 } from "@ibm/mapepire-js";
-import type { JDBCOptions } from "@ibm/mapepire-js";
+import type { JDBCOptions, QueryOptions } from "@ibm/mapepire-js";
 const { Pool, getRootCertificate } = pkg;
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
@@ -27,6 +27,30 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGINATION_ROWS,
 } from "@/config/index.js";
+
+import { acquireSSHSession, type SSHCredentials } from "./sshSession.js";
+
+/**
+ * Minimal pool surface used by `BaseConnectionPool`. Satisfied by mapepire's
+ * `Pool` (WebSocket daemon) and by a lease on the shared SSH session
+ * (`acquireSSHSession`).
+ */
+export interface PoolLike {
+  init(): Promise<unknown>;
+  query(
+    sql: string,
+    opts?: QueryOptions,
+  ): ReturnType<InstanceType<typeof Pool>["query"]>;
+  end(): void | Promise<void>;
+  /** Optional liveness probe; `false` makes the base class re-initialize the pool. */
+  isAlive?(): boolean;
+  /**
+   * Optional hook called when a query created by this pool timed out. Return
+   * `true` if the pool recovered by itself, in which case the base class does
+   * not close the whole pool.
+   */
+  onQueryTimeout?(query: unknown): boolean;
+}
 
 /**
  * Pool health status values used across pool interfaces and return types
@@ -45,13 +69,18 @@ export interface PoolConnectionConfig {
   maxSize?: number;
   startingSize?: number;
   jdbcOptions?: JDBCOptions;
+  /**
+   * When set, the pool connects over SSH (`ssh-single` transport) instead of
+   * the Mapepire WebSocket daemon. `host`/`user`/`password` are ignored.
+   */
+  ssh?: SSHCredentials;
 }
 
 /**
  * Pool instance state
  */
 export interface PoolInstanceState {
-  pool: InstanceType<typeof Pool> | null;
+  pool: PoolLike | null;
   isInitialized: boolean;
   isConnecting: boolean;
   lastHealthCheck?: Date;
@@ -149,6 +178,24 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       this.pools.set(poolId, poolState);
     }
 
+    // Drop a pool whose underlying session died (e.g. SSH connection lost)
+    // so that it is re-created below.
+    if (
+      poolState.isInitialized &&
+      poolState.pool &&
+      poolState.pool.isAlive?.() === false
+    ) {
+      logger.warning(
+        context,
+        `Pool '${String(poolId)}' is no longer alive; re-initializing`,
+      );
+      const deadPool = poolState.pool;
+      poolState.pool = null;
+      poolState.isInitialized = false;
+      poolState.healthStatus = "unknown";
+      await Promise.resolve(deadPool.end()).catch(() => undefined);
+    }
+
     // Check if already initialized
     if (poolState.isInitialized && poolState.pool) {
       logger.debug(context, `Pool '${String(poolId)}' already initialized`);
@@ -214,19 +261,31 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         `Initializing connection pool: ${String(poolId).substring(0, 7)}***`,
       );
 
-      // Create daemon server configuration
-      const server = await this.createDaemonServer(poolState.config, context);
-
-      // Create and initialize connection pool
-      poolState.pool = new Pool({
-        creds: server,
-        maxSize: poolState.config.maxSize || 10,
-        startingSize: poolState.config.startingSize || 2,
-        ...(poolState.config.jdbcOptions &&
+      const jdbcOptions =
+        poolState.config.jdbcOptions &&
         Object.keys(poolState.config.jdbcOptions).length > 0
-          ? { opts: poolState.config.jdbcOptions }
-          : {}),
-      });
+          ? poolState.config.jdbcOptions
+          : undefined;
+
+      if (poolState.config.ssh) {
+        // SSH transport: lease on the one shared ssh-single SQLJob.
+        logger.info(
+          { ...context, transport: "ssh", host: poolState.config.ssh.host },
+          `Using SSH transport for pool: ${String(poolId).substring(0, 7)}***`,
+        );
+        poolState.pool = acquireSSHSession(poolState.config.ssh, jdbcOptions);
+      } else {
+        // Create daemon server configuration
+        const server = await this.createDaemonServer(poolState.config, context);
+
+        // Create and initialize connection pool
+        poolState.pool = new Pool({
+          creds: server,
+          maxSize: poolState.config.maxSize || 10,
+          startingSize: poolState.config.startingSize || 2,
+          ...(jdbcOptions ? { opts: jdbcOptions } : {}),
+        });
+      }
 
       await poolState.pool.init();
       poolState.isInitialized = true;
@@ -261,13 +320,18 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
 
   /**
    * Wrap a promise with a configurable timeout.
-   * On timeout: marks pool unhealthy, closes it async so next request re-inits.
+   * On timeout: if the pool reports that it recovered by itself (optional
+   * `onQueryTimeout` hook returning true) nothing else happens; otherwise the
+   * pool is marked unhealthy and closed async so the next request re-inits it.
+   * The SSH lease returns false, so its shared session is torn down and
+   * re-created on the next request.
    * If queryTimeoutMs <= 0, passes through without timeout (disabled).
    */
   private async executeWithTimeout<T>(
     poolId: TId,
     promise: Promise<T>,
     context: RequestContext,
+    queryObj?: unknown,
   ): Promise<T> {
     const timeoutMs = config.poolTimeouts.queryTimeoutMs;
     if (timeoutMs <= 0) {
@@ -291,8 +355,21 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       return await Promise.race([promise, timeoutPromise]);
     } catch (error) {
       // If it's our timeout error, mark pool unhealthy and close it
-      if (error instanceof McpError && error.code === JsonRpcErrorCode.Timeout) {
+      if (
+        error instanceof McpError &&
+        error.code === JsonRpcErrorCode.Timeout
+      ) {
         const poolState = this.pools.get(poolId);
+        if (
+          queryObj !== undefined &&
+          poolState?.pool?.onQueryTimeout?.(queryObj) === true
+        ) {
+          logger.error(
+            { ...context, timeoutMs, poolId: String(poolId) },
+            `Query timed out on pool '${String(poolId)}'. Pool recovered by itself and stays open.`,
+          );
+          throw error;
+        }
         if (poolState) {
           poolState.healthStatus = "unhealthy";
         }
@@ -528,6 +605,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             poolId,
             executionPromise,
             operationContext,
+            queryObj,
           );
         } finally {
           await queryObj.close().catch((closeErr: unknown) => {
@@ -649,6 +727,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
           poolId,
           queryObj.execute(),
           operationContext,
+          queryObj,
         );
         // Capture metadata from the first result — subsequent fetchMore calls
         // don't re-send column descriptors, so SQL tools need this snapshot.

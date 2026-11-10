@@ -16,9 +16,14 @@ import {
 import type { DaemonServer } from "@ibm/mapepire-js";
 
 /**
- * IBM i credentials for authenticated sessions - using DaemonServer interface
+ * IBM i credentials for authenticated sessions - using DaemonServer interface.
+ * mapepire-js v1 made user/password optional on DaemonServer; token-authenticated
+ * sessions always require them.
  */
-export type IBMiCredentials = DaemonServer;
+export type IBMiCredentials = DaemonServer & {
+  user: string;
+  password: string;
+};
 
 /**
  * Token session metadata

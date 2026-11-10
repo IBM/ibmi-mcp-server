@@ -314,6 +314,56 @@ const shutdown = async (signal: string): Promise<void> => {
   }
 };
 
+/**
+ * Logs which IBM i connection mode is active (SSH vs WebSocket).
+ * Never logs secrets.
+ */
+function logDb2iConnectionMode(context: RequestContext): void {
+  if (config.db2iTransport === "ssh") {
+    let ssh: typeof config.db2iSsh;
+    try {
+      ssh = config.db2iSsh;
+    } catch (error) {
+      logger.error(
+        {
+          ...context,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "IBM i connection mode: SSH (DB2i_TRANSPORT=ssh) but SSH config could not be read",
+      );
+      return;
+    }
+    logger.info(
+      {
+        ...context,
+        transport: "ssh",
+        host: ssh?.host,
+        port: ssh?.port,
+        user: ssh?.username,
+        authMethod: ssh ? (ssh.privateKey ? "key" : "password") : "none",
+        technique: ssh?.technique,
+      },
+      `IBM i connection mode: SSH (${ssh?.username ?? "?"}@${ssh?.host ?? "?"}:${ssh?.port ?? "?"}) — built-in and YAML tools connect lazily on first call`,
+    );
+    return;
+  }
+
+  const db2i = config.db2i;
+  logger.info(
+    {
+      ...context,
+      transport: "websocket",
+      host: db2i?.host,
+      port: db2i?.port,
+      user: db2i?.user,
+      configured: Boolean(db2i),
+    },
+    db2i
+      ? `IBM i connection mode: WebSocket (Mapepire daemon) ${db2i.user}@${db2i.host}:${db2i.port}`
+      : `IBM i connection mode: WebSocket (Mapepire daemon) but DB2i_HOST/DB2i_USER/DB2i_PASS are not set. Set DB2i_TRANSPORT=ssh to use SSH.`,
+  );
+}
+
 const start = async (): Promise<void> => {
   const transportType = config.mcpTransportType;
   const startupContext = requestContextService.createRequestContext({
@@ -327,6 +377,7 @@ const start = async (): Promise<void> => {
     startupContext,
     `Starting ${config.mcpServerName} (Version: ${config.mcpServerVersion}, Transport: ${transportType}, Env: ${environment})...`,
   );
+  logDb2iConnectionMode(startupContext);
 
   try {
     const serverInstance = await initializeAndStartServer();
