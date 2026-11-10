@@ -13,3 +13,6 @@ export type {
 
 // Export factory functions
 export * from "./tool-factory.js";
+
+// Soft-failure → McpError helpers (issue #205)
+export * from "./toolSuccess.js";
