@@ -30,12 +30,9 @@ Before starting the server, set the `MCP_SERVER_CONFIG` environment variable to 
 
   <Tab title="Build from Source">
     ```bash
-    # Point to your .env file with an absolute path (run from the repository root).
-    # Relative paths are resolved from packages/server, where the server runs.
-    export MCP_SERVER_CONFIG="$(pwd)/.env"
-
-    # Start the server
-    cd packages/server
+    # From the repository root. The root .env is loaded automatically;
+    # set MCP_SERVER_CONFIG only to use a file somewhere else.
+    npm run build
     npm run start:http
     ```
   </Tab>
@@ -121,7 +118,7 @@ Below is the reference for core server configuration options. Each section inclu
 | `MCP_HTTP_HOST` | HTTP server host | `127.0.0.1` | `0.0.0.0` |
 | `MCP_ALLOWED_ORIGINS` | CORS + browser `Origin` allowlist (comma-separated). Governs browsers only — it does not restrict non-browser clients | (none) | `http://localhost:3000,https://myapp.com` |
 | `MCP_ALLOWED_HOSTS` | `Host` header allowlist for DNS rebinding protection; extends the always-allowed loopback set. `*` disables Host checking only — Origin is still enforced | (loopback only) | `mcp.example.com` |
-| `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present (server refuses to start otherwise). Note `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` counts as unauthenticated | `false` | `true` |
+| `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present (server refuses to start otherwise). | `false` | `true` |
 
 <Tabs>
   <Tab title="HTTP Transport (Recommended)">
@@ -144,20 +141,9 @@ Below is the reference for core server configuration options. Each section inclu
   </Tab>
 </Tabs>
 
-### Session Management (HTTP Only)
+### Protocol Versions and Sessions
 
-**Control how HTTP connections maintain state.** Session modes determine whether the server maintains persistent connections (stateful) or treats each request independently (stateless). The `auto` mode intelligently detects client capabilities and chooses the optimal strategy.
-
-| Variable | Description | Default | Options |
-|----------|-------------|---------|---------|
-| `MCP_SESSION_MODE` | Session handling mode | `auto` | `stateless`, `stateful`, `auto` |
-
-<Info>
-**Session Modes**:
-- `auto`: Automatically detects client capabilities (recommended)
-- `stateful`: Maintains persistent sessions with connection state
-- `stateless`: Each request is independent, no session state
-</Info>
+The server is stateless. One endpoint serves MCP protocol revision `2026-07-28` and clients on earlier revisions, over both HTTP and stdio. It issues no `Mcp-Session-Id` and keeps no per-client state between requests, so there is nothing to configure. The MCP endpoint accepts `POST` only; `GET` and `DELETE` return `405`.
 
 ### Rate Limiting (HTTP Only)
 
@@ -202,6 +188,8 @@ Below is the reference for core server configuration options. Each section inclu
 
 <Info>
 **Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these headers are absent (e.g., behind Docker without proxy header forwarding), the server falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting.
+
+**Authenticated requests** are limited per token subject, falling back to the client id and then the IP address.
 </Info>
 
 ### Connection Pool Timeouts
@@ -265,76 +253,35 @@ Below is the reference for core server configuration options. Each section inclu
 
 ## Authentication Configuration
 
+Authentication applies to the HTTP transport. The stdio transport does not authenticate.
+
 ### Choosing an Authentication Mode
 
-**Which auth mode should you use?** Select based on your deployment scenario:
+| Mode | Use for | SQL runs as |
+|------|---------|-------------|
+| `none` (default) | Local development, stdio | `DB2i_USER` |
+| `oauth` | **Recommended** for multi-user remote deployments | `DB2i_USER` (service account) |
+| `ibmi` | **Deprecated.** Existing deployments that need per-user IBM i authority | The authenticated IBM i user |
 
 <AccordionGroup>
-  <Accordion title="Development & Testing → Use 'none'" icon="flask">
-    **No authentication, shared credentials**
+  <Accordion title="Local development and stdio → 'none'" icon="flask">
+    No authentication. All SQL runs with the configured `DB2i_USER` credentials.
 
-    **Benefits:**
-    - Quick setup for local development
-    - Ideal for testing and prototyping
-    - No additional configuration required
-
-    **Limitations:**
-    - **Never use in production environments**
-    - No per-user tracking or authorities
-    - Security risk for networked deployments
-
-    **Setup:** Simply set `MCP_AUTH_MODE=none` in your `.env` file
+    With IBM i credentials configured, an unauthenticated HTTP server only starts on a loopback bind (`MCP_HTTP_HOST=127.0.0.1`, the default) unless you set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`.
   </Accordion>
 
-  <Accordion title="Production with Multiple Users → Use 'ibmi'" icon="users">
-    **Per-user IBM i authentication with RSA encryption**
+  <Accordion title="Multi-user remote deployments → 'oauth'" icon="building">
+    The server acts as an OAuth 2.1 resource server as defined by the MCP authorization specification. It verifies JWT access tokens issued by your authorization server (identity provider) and publishes the metadata clients need to find that server.
 
-    **Benefits:**
-    - Each user connects with their own IBM i credentials
-    - Respects individual IBM i object authorities
-    - Full audit trail per user
-    - Enterprise-grade security
+    A token identifies the caller only. All SQL runs as the `DB2i_USER` service account.
 
-    **Requirements:**
-    - RSA keypair generation (public/private keys)
-    - IBM i HTTP authentication endpoints enabled
-    - Per-user credential management
-
-    **Setup:** Requires `IBMI_AUTH_PRIVATE_KEY_PATH`, `IBMI_AUTH_PUBLIC_KEY_PATH`, and `IBMI_HTTP_AUTH_ENABLED=true`
+    **Setup:** `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`. See [OAuth Authentication](/server-config/oauth).
   </Accordion>
 
-  <Accordion title="Custom SSO / Identity Provider → Use 'oauth'" icon="building">
-    **External OAuth/OIDC authentication**
+  <Accordion title="Per-user IBM i credentials → 'ibmi' (deprecated)" icon="users">
+    Each user exchanges IBM i credentials for a server-issued token and gets a connection pool under their own profile.
 
-    **Benefits:**
-    - Integrate with existing enterprise auth systems
-    - Support for SSO (Single Sign-On)
-    - Centralized identity management
-    - Industry-standard OAuth 2.0 / OIDC protocols
-
-    **Requirements:**
-    - OAuth provider configuration (issuer URL, audience)
-    - Token validation infrastructure
-    - External identity provider setup
-
-    **Setup:** Configure `OAUTH_ISSUER_URL` and `OAUTH_AUDIENCE` for your identity provider
-  </Accordion>
-
-  <Accordion title="Custom Token System → Use 'jwt'" icon="key">
-    **JSON Web Token authentication**
-
-    **Benefits:**
-    - Custom authentication logic and workflows
-    - Token-based stateless auth
-    - Flexible integration with existing systems
-    - Control over token generation and validation
-
-    **Requirements:**
-    - You manage token generation and signing
-    - Shared secret key (minimum 32 characters)
-    - Custom token issuance logic
-
-    **Setup:** Set `MCP_AUTH_SECRET_KEY` with a secure secret (min 32 chars)
+    This mode is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
   </Accordion>
 </AccordionGroup>
 
@@ -342,34 +289,29 @@ Below is the reference for core server configuration options. Each section inclu
 
 | Variable | Description | Default | Options |
 |----------|-------------|---------|---------|
-| `MCP_AUTH_MODE` | Authentication mode | `none` | `none`, `jwt`, `oauth`, `ibmi` |
+| `MCP_AUTH_MODE` | Authentication mode | `none` | `none`, `oauth`, `ibmi` |
+
+The server refuses to start when any environment variable fails validation (an unknown `MCP_AUTH_MODE`, a non-numeric port, and so on): stderr names the variables at fault and the process exits with code 1.
 
 <Tabs>
   <Tab title="No Authentication">
     ```bash
     MCP_AUTH_MODE=none
     ```
-    **Use for**: Development, internal networks, trusted environments
+    **Use for**: Local development, stdio
   </Tab>
 
-  <Tab title="JWT Authentication">
-    ```bash
-    MCP_AUTH_MODE=jwt
-    MCP_AUTH_SECRET_KEY=your-secret-key-min-32-chars
-    ```
-    **Use for**: Custom authentication systems, token-based auth
-  </Tab>
-
-  <Tab title="OAuth Authentication">
+  <Tab title="OAuth (Recommended)">
     ```bash
     MCP_AUTH_MODE=oauth
-    OAUTH_ISSUER_URL=https://your-auth-server.com
-    OAUTH_AUDIENCE=ibmi-mcp-server
+    MCP_RESOURCE_URL=https://mcp.example.com/mcp
+    OAUTH_ISSUER_URL=https://auth.example.com
+    OAUTH_REQUIRED_SCOPES=mcp:tools
     ```
-    **Use for**: Enterprise SSO, external identity providers
+    **Use for**: Multi-user remote deployments
   </Tab>
 
-  <Tab title="IBM i Authentication">
+  <Tab title="IBM i Authentication (Deprecated)">
     ```bash
     MCP_AUTH_MODE=ibmi
     IBMI_HTTP_AUTH_ENABLED=true
@@ -377,11 +319,31 @@ Below is the reference for core server configuration options. Each section inclu
     IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
     IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
     ```
-    **Use for**: Per-user IBM i credentials, connection pooling
+    **Use for**: Existing deployments that need per-user IBM i credentials
   </Tab>
 </Tabs>
 
+### OAuth Settings
+
+Used when `MCP_AUTH_MODE=oauth`.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `MCP_RESOURCE_URL` | Public URL of the MCP endpoint as clients reach it. Required. | (none) | `https://mcp.example.com/mcp` |
+| `OAUTH_ISSUER_URL` | Issuer of the authorization server; must match the token's `iss` exactly. Required. `https` unless loopback. | (none) | `https://auth.example.com` |
+| `OAUTH_JWKS_URI` | JWKS URL used to verify token signatures. `https` unless loopback. | Discovered from the issuer's metadata | `https://auth.example.com/.well-known/jwks.json` |
+| `OAUTH_AUDIENCE` | Expected token audience (`aud`) | `MCP_RESOURCE_URL` | `api://ibmi-mcp` |
+| `OAUTH_REQUIRED_SCOPES` | Space-separated scopes every request must carry | (none) | `mcp:tools` |
+
+<Card title="OAuth Authentication Guide →" icon="shield-check" href="/server-config/oauth">
+  How discovery works for clients, token requirements, a worked example, testing with curl, and limits.
+</Card>
+
 ### IBM i Authentication Settings
+
+<Warning>
+**Deprecated.** IBM i HTTP token authentication will be removed in a future major release. It still works; the server logs one deprecation warning at startup. Use [OAuth](/server-config/oauth) for new deployments.
+</Warning>
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -400,7 +362,7 @@ Below is the reference for core server configuration options. Each section inclu
 
 ### Setting Up RSA Encryption Keys
 
-**IBM i authentication requires RSA keypairs to protect credentials during transmission.** The authentication flow uses RSA and AES encryption to securely exchange IBM i credentials between clients and the server.
+**The deprecated IBM i authentication mode requires RSA keypairs to protect credentials during transmission.** The authentication flow uses RSA and AES encryption to securely exchange IBM i credentials between clients and the server.
 
 <Steps>
   <Step title="Create Secrets Directory">
@@ -530,14 +492,14 @@ Below is the reference for core server configuration options. Each section inclu
 
 ## IBM i Database Connection
 
-**Connect to IBM i DB2 for i databases via Mapepire.** These settings configure the connection to your IBM i system through the Mapepire database server. The server uses these credentials to execute SQL tools and access DB2 for i data. All connections are pooled for efficiency and support both shared (development) and per-user (production) authentication modes.
+**Connect to IBM i DB2 for i databases via Mapepire.** These settings configure the connection to your IBM i system through the Mapepire database server. The server uses these credentials to execute SQL tools and access DB2 for i data. All connections are pooled. SQL runs with these credentials unless the deprecated IBM i authentication mode supplies per-user credentials.
 
 ### Connection Settings
 
 | Variable | Description | Default | Example | Security Impact |
 |----------|-------------|---------|---------|-----------------|
 | `DB2i_HOST` | IBM i host (Mapepire daemon) | (none) | `my-ibmi-system.company.com` | Use hostname, not `127.0.0.1` in Docker |
-| `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Shared credentials (dev only) |
+| `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Service account: all SQL runs as this profile, including under OAuth |
 | `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
 | `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Empty or unset also defaults to `8076` |
 | `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
@@ -1054,11 +1016,11 @@ The server creates **5 log files** with automatic rotation:
 **NO_COLOR Support**: The server respects the [NO_COLOR](https://no-color.org/) environment variable standard. Set `NO_COLOR=1` to disable all colored output, useful for CI/CD pipelines and log aggregation systems.
 </Note>
 
-#### Session Correlation with OpenTelemetry
+#### Log Correlation with OpenTelemetry
 
 **How to correlate logs across server restarts:**
 
-Since logs now append across server sessions (rather than creating timestamped files), use **structured logging fields** to filter by session:
+Logs append across server restarts (rather than creating timestamped files), so use **structured logging fields** to filter:
 
 <CodeGroup>
 ```json Example: Filter by Request ID
@@ -1086,7 +1048,7 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
 ```
 
 This adds `traceId` and `spanId` to every log entry, making it easy to:
-- Filter logs by specific server sessions
+- Filter logs by a specific request or trace
 - Correlate requests across services
 - Track performance over time
 - Debug issues with full request context
@@ -1136,7 +1098,6 @@ This adds `traceId` and `spanId` to every log entry, making it easy to:
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_HTTP_HOST=127.0.0.1
-MCP_SESSION_MODE=auto
 
 # Authentication (disabled for development)
 MCP_AUTH_MODE=none
@@ -1166,20 +1127,16 @@ OTEL_ENABLED=false
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_HTTP_HOST=0.0.0.0
-MCP_SESSION_MODE=stateful
 MCP_ALLOWED_HOSTS=mcp.company.com
 MCP_ALLOWED_ORIGINS=https://myapp.company.com
 
 # Authentication
-MCP_AUTH_MODE=ibmi
-IBMI_HTTP_AUTH_ENABLED=true
-IBMI_AUTH_KEY_ID=production
-IBMI_AUTH_PRIVATE_KEY_PATH=/app/secrets/private.pem
-IBMI_AUTH_PUBLIC_KEY_PATH=/app/secrets/public.pem
-IBMI_AUTH_ALLOW_HTTP=false
-IBMI_AUTH_TOKEN_EXPIRY_SECONDS=7200
+MCP_AUTH_MODE=oauth
+MCP_RESOURCE_URL=https://mcp.company.com/mcp
+OAUTH_ISSUER_URL=https://auth.company.com
+OAUTH_REQUIRED_SCOPES=mcp:tools
 
-# IBM i Connection
+# IBM i Connection (service account all SQL runs as)
 DB2i_HOST=prod-ibmi.company.com
 DB2i_USER=${IBM_USER}
 DB2i_PASS=${IBM_PASS}
@@ -1216,11 +1173,10 @@ services:
     environment:
       MCP_TRANSPORT_TYPE: http
       MCP_HTTP_PORT: 3010
-      MCP_AUTH_MODE: ibmi
-      IBMI_HTTP_AUTH_ENABLED: "true"
-      IBMI_AUTH_KEY_ID: production
-      IBMI_AUTH_PRIVATE_KEY_PATH: /app/secrets/private.pem
-      IBMI_AUTH_PUBLIC_KEY_PATH: /app/secrets/public.pem
+      MCP_ALLOWED_HOSTS: mcp.company.com
+      MCP_AUTH_MODE: oauth
+      MCP_RESOURCE_URL: https://mcp.company.com/mcp
+      OAUTH_ISSUER_URL: https://auth.company.com
       DB2i_HOST: ${DB2i_HOST}
       DB2i_USER: ${DB2i_USER}
       DB2i_PASS: ${DB2i_PASS}
@@ -1233,10 +1189,9 @@ services:
       - "3010:3010"
     volumes:
       - ./configs:/app/configs:ro
-      - ./secrets:/app/secrets:ro
 ```
 </Accordion>
 
 <Tip>
-For additional security considerations and IBM i authority requirements, see the [Authentication](/server-config/ibmi-auth) and [Production Deployment](/deployment/overview) guides.
+For additional security considerations and IBM i authority requirements, see the [OAuth Authentication](/server-config/oauth) and [Production Deployment](/deployment/overview) guides.
 </Tip>

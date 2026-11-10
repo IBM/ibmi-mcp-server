@@ -39,6 +39,29 @@ The `--tools` path must be an **absolute path**.
 
 ## Remote (HTTP) Setup
 
+### With OAuth (Recommended)
+
+For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/server-config/oauth)), configure the URL without an `Authorization` header:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "https://mcp.example.com/mcp",
+      "type": "http"
+    }
+  }
+}
+```
+
+If your version of Cursor supports OAuth for remote MCP servers, it opens a browser sign-in on first use. If it does not, add an `Authorization: Bearer <token>` header with an access token from your identity provider. See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
+
+### With IBM i Tokens (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
 ```json
 {
   "mcpServers": {
@@ -73,7 +96,8 @@ The `--tools` path must be an **absolute path**.
   <Accordion title="Authentication Failed">
     - Verify server is running with authentication enabled
     - Check token hasn't expired
-    - Get fresh token: `node get-access-token.js --verbose`
+    - OAuth: sign in again, or replace an expired bearer token
+    - IBM i tokens (deprecated): get a fresh token with `node get-access-token.js --verbose`
   </Accordion>
 </AccordionGroup>
 

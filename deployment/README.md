@@ -93,7 +93,7 @@ DB2i_HOST="your_host"
 DB2i_USER="your_user"
 DB2i_PASS="your_pass"
 
-# MCP Auth mode
+# MCP Auth mode (IBM i HTTP token authentication is deprecated, see the note below)
 MCP_AUTH_MODE=ibmi
 
 # IBM i HTTP authentication settings
@@ -112,7 +112,9 @@ IBMI_AUTH_ALLOW_HTTP=true
 MCP_ALLOWED_HOSTS=ibmi-mcp-server
 ```
 
-> **Note:** You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](../README.md#-ibm-i-http-authentication-beta) section in the main README for instructions.
+> **Note:** You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](../packages/server/README.md#-ibm-i-http-authentication-deprecated) section in the server README for instructions.
+>
+> **Deprecated:** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`) will be removed in a future major release. The recommended mode for remote deployments is `MCP_AUTH_MODE=oauth` with `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; every client of the server, the gateway included, must then present an access token from your authorization server. See [OAuth Authentication](../packages/server/README.md#oauth-authentication).
 
 Once you have your `.env` file configured, you can start the complete stack using Docker or Podman.
 
@@ -372,16 +374,15 @@ See the [OpenShift README](openshift/apps/openshift/README.md#troubleshooting) f
 ### Security
 
 - **Use HTTPS:** Configure reverse proxy (Nginx, Caddy) for TLS termination
-- **Set `IBMI_AUTH_ALLOW_HTTP=false`** in production
 - **Use secrets management:** Kubernetes secrets, Vault, or cloud provider solutions
-- **Enable authentication:** Set `MCP_AUTH_MODE=ibmi` or `jwt`
+- **Enable authentication:** Set `MCP_AUTH_MODE=oauth` (IBM i token authentication, `MCP_AUTH_MODE=ibmi`, is deprecated; if you still use it, set `IBMI_AUTH_ALLOW_HTTP=false`)
 - **Restrict CORS:** Set `MCP_ALLOWED_ORIGINS` to specific domains
-- **Regular key rotation:** Rotate JWT keys and IBM i credentials periodically
+- **Regular rotation:** Rotate IBM i credentials periodically
 
 ### Performance
 
 - **Resource limits:** Set memory/CPU limits in docker-compose.yml
-- **Connection pooling:** Configure `IBMI_AUTH_MAX_CONCURRENT_SESSIONS`
+- **Connection pooling:** Tune `MCP_POOL_IDLE_TIMEOUT_MS` and `MCP_POOL_QUERY_TIMEOUT_MS`
 - **Caching:** Redis is included for session and response caching
 - **Horizontal scaling:** Use multiple replicas behind a load balancer
 

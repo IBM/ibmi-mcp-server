@@ -31,13 +31,13 @@
     - [Getting Started](#getting-started)
   - [⚙️ Configuration](#️-configuration)
     - [General Authentication](#general-authentication)
-    - [JWT Authentication](#jwt-authentication)
     - [OAuth Authentication](#oauth-authentication)
     - [IBM i HTTP Authentication](#ibm-i-http-authentication)
     - [Tool Loading](#tool-loading)
     - [Configuration Merging](#configuration-merging)
     - [Configuration Best Practices](#configuration-best-practices)
-  - [🔐 IBM i HTTP Authentication (Beta)](#-ibm-i-http-authentication-beta)
+  - [Upgrading](#upgrading)
+  - [🔐 IBM i HTTP Authentication (Deprecated)](#-ibm-i-http-authentication-deprecated)
     - [Authentication Flow](#authentication-flow)
     - [Configuration](#configuration)
     - [Getting Access Tokens](#getting-access-tokens)
@@ -51,7 +51,7 @@
     - [Transport Modes](#transport-modes)
       - [HTTP Transport (Recommended for Development)](#http-transport-recommended-for-development)
       - [Stdio Transport (for CLI tools and MCP Inspector)](#stdio-transport-for-cli-tools-and-mcp-inspector)
-    - [Session Modes (HTTP Only)](#session-modes-http-only)
+    - [Protocol Versions and Sessions](#protocol-versions-and-sessions)
     - [CLI Options](#cli-options)
     - [Common Development Scenarios](#common-development-scenarios)
     - [Development Tips](#development-tips)
@@ -368,7 +368,30 @@ npx -y @ibm/ibmi-mcp-server@latest --help
 
 ### Remote Server Setup
 
-For HTTP remote connections, you need to:
+For a remote server shared by several users, use **OAuth** (`MCP_AUTH_MODE=oauth`). The server verifies access tokens issued by your identity provider; it does not issue tokens itself.
+
+1. **Start the server with OAuth enabled:**
+
+   ```bash
+   # In your .env:
+   MCP_TRANSPORT_TYPE=http
+   MCP_HTTP_HOST=0.0.0.0
+   MCP_ALLOWED_HOSTS=mcp.example.com
+   MCP_AUTH_MODE=oauth
+   MCP_RESOURCE_URL=https://mcp.example.com/mcp   # public URL of the MCP endpoint
+   OAUTH_ISSUER_URL=https://auth.example.com      # your authorization server
+
+   npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
+   ```
+
+2. **Configure your client with the server URL only.** A client that implements MCP authorization receives a `401` challenge, reads `/.well-known/oauth-protected-resource`, and opens a browser sign-in with your identity provider. For a client without OAuth support, obtain an access token from the identity provider and send it as `Authorization: Bearer <token>`. The remote client examples below show the `headers` form; leave the `headers` block out for an OAuth sign-in.
+
+All SQL runs as the `DB2i_USER` service account; the token only identifies the caller. See [OAuth Authentication](#oauth-authentication) for all settings.
+
+<details>
+<summary><strong>Deprecated: IBM i token setup</strong></summary>
+
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. It still works:
 
 1. **Start the server with IBM i authentication enabled:**
 
@@ -391,9 +414,11 @@ For HTTP remote connections, you need to:
    export IBMI_MCP_ACCESS_TOKEN="your-token-here"
    ```
 
-   See [IBM i HTTP Authentication](#ibm-i-http-authentication-beta) for detailed authentication setup.
+   See [IBM i HTTP Authentication](#-ibm-i-http-authentication-deprecated) for detailed authentication setup.
 
 3. **Configure your client** with the server URL and Bearer token (examples below).
+
+</details>
 
 > **⚠️ Production Note:** Replace `http://localhost:3010` with your production endpoint URL and ensure HTTPS is enabled (`IBMI_AUTH_ALLOW_HTTP=false`).
 
@@ -469,7 +494,10 @@ claude mcp add ibmi-mcp \
 
 **Using CLI:**
 ```bash
-# Add remote HTTP server with authentication
+# OAuth server: add the URL, then run /mcp inside Claude Code to sign in
+claude mcp add --transport http ibmi-mcp https://mcp.example.com/mcp
+
+# Fixed bearer token
 claude mcp add --transport http ibmi-mcp http://localhost:3010/mcp \
   --header "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
 ```
@@ -1313,41 +1341,31 @@ NODE_ENV=production
 <details>
 <summary><strong>🌐 HTTP Transport Settings</strong></summary>
 
-Configuration for HTTP transport mode, including network settings, session management, and CORS.
+Configuration for HTTP transport mode, including network settings and CORS. The HTTP server is stateless: it serves MCP protocol revision 2026-07-28 and earlier clients from one endpoint and has no session settings.
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `MCP_HTTP_PORT` | HTTP server port | `3010` | No |
 | `MCP_HTTP_HOST` | HTTP server bind address | `127.0.0.1` | No |
 | `MCP_HTTP_ENDPOINT_PATH` | MCP endpoint path | `/mcp` | No |
-| `MCP_SESSION_MODE` | Session handling: `stateless`, `stateful`, or `auto` | `auto` | No |
-| `MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS` | Timeout for idle stateful sessions (milliseconds) | `1800000` (30 min) | No |
 | `MCP_HTTP_MAX_PORT_RETRIES` | Max attempts to find available port if default is in use | `15` | No |
 | `MCP_HTTP_PORT_RETRY_DELAY_MS` | Delay between port retry attempts (milliseconds) | `50` | No |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | None (all origins blocked) | No |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` header allowlist (extends the always-allowed loopback set); `*` disables Host checking only, not Origin checking | None (loopback only) | No |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present | `false` | No |
 
-**Session Modes:**
-- **`auto`**: Automatically detects client capabilities and uses the best session mode
-- **`stateful`**: Maintains persistent sessions with connection state (best for long-running interactions)
-- **`stateless`**: Each request is independent (best for load balancing and horizontal scaling)
-
 **Examples:**
 ```bash
 # Development server with CORS for local web clients (loopback-only bind)
 MCP_HTTP_PORT=3010
 MCP_HTTP_HOST=127.0.0.1
-MCP_SESSION_MODE=auto
 MCP_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # Production server with strict security
 MCP_HTTP_PORT=443
 MCP_HTTP_HOST=0.0.0.0                       # non-loopback bind requires MCP_AUTH_MODE != none
-MCP_SESSION_MODE=stateful
 MCP_ALLOWED_HOSTS=mcp.example.com           # public hostname(s) this server is reached at
 MCP_ALLOWED_ORIGINS=https://app.example.com,https://dashboard.example.com
-MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS=3600000  # 1 hour
 ```
 
 </details>
@@ -1379,7 +1397,7 @@ MCP_RATE_LIMIT_WINDOW_MS=60000
 MCP_RATE_LIMIT_ENABLED=false
 ```
 
-> **Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these are absent (e.g., behind Docker without proxy header forwarding), it falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting.
+> **Docker / Reverse Proxy**: The server reads `X-Forwarded-For` and `X-Real-IP` headers for client identification. When these are absent (e.g., behind Docker without proxy header forwarding), it falls back to the TCP socket's remote address. Configure your reverse proxy to forward these headers for accurate per-client rate limiting. Authenticated requests are limited per token subject, falling back to the client id and then the IP address.
 
 </details>
 
@@ -1421,29 +1439,40 @@ Security configuration for protecting the MCP server and authenticating clients.
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `MCP_AUTH_MODE` | Authentication mode: `none`, `jwt`, `oauth`, `ibmi` | `none` | No |
+| `MCP_AUTH_MODE` | Authentication mode for the HTTP transport: `none`, `oauth`, `ibmi` (deprecated) | `none` | No |
 
-### JWT Authentication
+- `none`: no authentication. For local development and stdio (the stdio transport never authenticates).
+- `oauth`: **recommended for multi-user remote deployments.**
+- `ibmi`: IBM i token authentication. **Deprecated.**
 
-Required when `MCP_AUTH_MODE=jwt`.
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `MCP_AUTH_SECRET_KEY` | Secret key for signing/verifying JWT tokens (min 32 characters) | None | ✅ Yes (for JWT mode) |
+The server refuses to start when any environment variable fails validation (an unknown `MCP_AUTH_MODE`, a non-numeric port, and so on): stderr names the variables at fault and the process exits with code 1.
 
 ### OAuth Authentication
 
-Required when `MCP_AUTH_MODE=oauth`.
+Used when `MCP_AUTH_MODE=oauth`. The server is an OAuth 2.1 resource server as defined by the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization): it verifies JWT access tokens issued by your authorization server and never issues tokens itself.
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `OAUTH_ISSUER_URL` | OAuth authorization server issuer URL | None | ✅ Yes (for OAuth mode) |
-| `OAUTH_JWKS_URI` | OAuth JWKS endpoint for public key verification | None | No |
-| `OAUTH_AUDIENCE` | Expected audience identifier for this MCP server | None | ✅ Yes (for OAuth mode) |
+| `MCP_RESOURCE_URL` | Public URL of the MCP endpoint as clients reach it, e.g. `https://mcp.example.com/mcp`. Tokens must be issued for it (`aud`). | None | ✅ Yes (for OAuth mode) |
+| `OAUTH_ISSUER_URL` | Issuer of the authorization server. Must match the token's `iss` exactly. `https` unless loopback. | None | ✅ Yes (for OAuth mode) |
+| `OAUTH_JWKS_URI` | JWKS URL used to verify token signatures. `https` unless loopback. | Discovered from the issuer's metadata (`/.well-known/oauth-authorization-server`, then `/.well-known/openid-configuration`) | No |
+| `OAUTH_AUDIENCE` | Expected token audience, for authorization servers that do not put the resource URL in `aud` | `MCP_RESOURCE_URL` | No |
+| `OAUTH_REQUIRED_SCOPES` | Space-separated scopes every request must carry | None | No |
+
+What the server does in this mode:
+
+- Requires `Authorization: Bearer <JWT>` on every request to the MCP endpoint. It checks the signature (asymmetric algorithms only), `iss`, `aud` and `exp`.
+- Serves OAuth Protected Resource Metadata (RFC 9728) without a token at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource<endpoint path>`, so clients can discover the authorization server.
+- Answers a missing or invalid token with `401` and a `WWW-Authenticate: Bearer ... resource_metadata="..."` challenge, and a token lacking a required scope with `403` `insufficient_scope`.
+- Runs **all SQL as the `DB2i_USER` service account** (or the YAML source's user). The token identifies the caller only and is never forwarded to IBM i.
+
+Limits: JWT access tokens only (no opaque tokens, no RFC 7662 introspection), one issuer, no per-tool scopes, no clock-skew tolerance.
+
+Full guide: [docs/server-config/oauth.mdx](../../docs/server-config/oauth.mdx).
 
 ### IBM i HTTP Authentication
 
-Required when `MCP_AUTH_MODE=ibmi`. See [IBM i HTTP Authentication](#ibm-i-http-authentication-beta) for detailed setup.
+**Deprecated.** Used when `MCP_AUTH_MODE=ibmi`. See [IBM i HTTP Authentication](#-ibm-i-http-authentication-deprecated) for detailed setup.
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
@@ -1461,17 +1490,13 @@ Required when `MCP_AUTH_MODE=ibmi`. See [IBM i HTTP Authentication](#ibm-i-http-
 # No authentication (development only)
 MCP_AUTH_MODE=none
 
-# JWT authentication
-MCP_AUTH_MODE=jwt
-MCP_AUTH_SECRET_KEY="your-very-secret-key-at-least-32-characters-long"
-
-# OAuth authentication
+# OAuth authentication (recommended for remote deployments)
 MCP_AUTH_MODE=oauth
+MCP_RESOURCE_URL=https://mcp.example.com/mcp
 OAUTH_ISSUER_URL=https://auth.example.com
-OAUTH_AUDIENCE=https://api.example.com/mcp
-OAUTH_JWKS_URI=https://auth.example.com/.well-known/jwks.json
+OAUTH_REQUIRED_SCOPES=mcp:tools
 
-# IBM i authentication (see docs for keypair generation)
+# IBM i authentication (deprecated; see below for keypair generation)
 MCP_AUTH_MODE=ibmi
 IBMI_HTTP_AUTH_ENABLED=true
 IBMI_AUTH_KEY_ID=production
@@ -1483,9 +1508,8 @@ IBMI_AUTH_TOKEN_EXPIRY_SECONDS=7200  # 2 hours
 
 **⚠️ Security Notes:**
 - **Never** use `MCP_AUTH_MODE=none` in production
-- **Always** use `IBMI_AUTH_ALLOW_HTTP=false` in production (requires HTTPS)
-- Generate strong secret keys (32+ characters) for JWT mode
-- Rotate keys regularly for enhanced security
+- Serve the MCP endpoint over HTTPS in production (terminate TLS at a reverse proxy)
+- With the deprecated IBM i mode, **always** use `IBMI_AUTH_ALLOW_HTTP=false` in production and rotate the RSA keypair regularly
 
 </details>
 
@@ -1812,9 +1836,8 @@ OTEL_TRACES_SAMPLER_ARG=1.0  # Sample all traces
 # Recommended development .env
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
-MCP_SESSION_MODE=auto
 MCP_LOG_LEVEL=debug
-MCP_AUTH_MODE=none  # Or ibmi with allow HTTP
+MCP_AUTH_MODE=none
 NODE_ENV=development
 
 DB2i_HOST=ibmi-dev.local
@@ -1832,10 +1855,13 @@ OTEL_ENABLED=true
 # Recommended production .env
 MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
-MCP_SESSION_MODE=auto
 MCP_LOG_LEVEL=warning
-MCP_AUTH_MODE=ibmi  # Or jwt/oauth
+MCP_AUTH_MODE=oauth
 NODE_ENV=production
+
+MCP_RESOURCE_URL=https://mcp.example.com/mcp
+OAUTH_ISSUER_URL=https://auth.example.com
+OAUTH_REQUIRED_SCOPES=mcp:tools
 
 DB2i_HOST=ibmi-prod.example.com
 DB2i_USER=PRODUSER
@@ -1846,11 +1872,6 @@ TOOLS_YAML_PATH=/opt/mcp-tools/production.yaml
 YAML_AUTO_RELOAD=false
 YAML_VALIDATE_MERGED=true
 
-IBMI_HTTP_AUTH_ENABLED=true
-IBMI_AUTH_ALLOW_HTTP=false  # HTTPS only
-IBMI_AUTH_PRIVATE_KEY_PATH=/opt/secrets/private.pem
-IBMI_AUTH_PUBLIC_KEY_PATH=/opt/secrets/public.pem
-
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp.example.com/v1/traces
 ```
@@ -1859,11 +1880,10 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp.example.com/v1/traces
 - ✅ Never commit `.env` files to version control
 - ✅ Use secrets management (Vault, AWS Secrets Manager, etc.) in production
 - ✅ Rotate credentials and keys regularly
-- ✅ Use HTTPS/TLS in production (`IBMI_AUTH_ALLOW_HTTP=false`)
-- ✅ Enable authentication (`MCP_AUTH_MODE != none`)
+- ✅ Use HTTPS/TLS in production
+- ✅ Enable authentication (`MCP_AUTH_MODE=oauth`)
 - ✅ Use strong passwords (12+ characters, mixed case, numbers, symbols)
 - ✅ Restrict `MCP_ALLOWED_ORIGINS` to known domains
-- ✅ Set appropriate `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` limits
 
 ### DNS Rebinding Protection
 
@@ -1879,8 +1899,6 @@ Requests carrying a browser `Origin` header must match `MCP_ALLOWED_ORIGINS` or 
 
 **This is a browser defense, not authentication.** Host validation stops a malicious web page from driving the server via DNS rebinding — it does nothing against an attacker with direct network reach, who can forge any header. For that reason the server **refuses to start** when all of the following hold: HTTP transport, authentication not enforced, a non-loopback bind, and IBM i credentials present (via `DB2i_*` env vars **or** a tools YAML). Enable authentication, bind to loopback, or — only as an explicit, understood risk — set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`. The published Docker image binds `0.0.0.0`, so containers handed credentials without authentication will hit this guard by design.
 
-> **"Authentication not enforced" includes `MCP_AUTH_MODE=jwt` with no `MCP_AUTH_SECRET_KEY`.** Outside production that combination puts the JWT strategy into a development bypass where *any* bearer token is accepted, so the guard treats it as unauthenticated rather than trusting the mode name.
-
 Kubernetes liveness probes that target the pod IP will receive `403` on `/healthz`; prefer overriding the probe's Host header rather than allowlisting dynamic pod IPs:
 
 ```yaml
@@ -1893,7 +1911,31 @@ livenessProbe:
         value: localhost
 ```
 
-## 🔐 IBM i HTTP Authentication (Beta)
+## Upgrading
+
+Breaking changes when upgrading from 0.6.x:
+
+| Removed or changed | What to do |
+|--------------------|------------|
+| `MCP_SESSION_MODE`, `MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS` | Remove them. The HTTP server is always stateless and issues no `Mcp-Session-Id`. A leftover `MCP_SESSION_MODE` other than `stateless` prints a warning and is ignored. |
+| `MCP_AUTH_MODE=jwt`, `MCP_AUTH_SECRET_KEY`, `DEV_MCP_CLIENT_ID`, `DEV_MCP_SCOPES` | Removed; the server exits at startup with `MCP_AUTH_MODE=jwt`. Use `MCP_AUTH_MODE=oauth` with `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`. |
+| `MCP_AUTH_MODE=oauth` settings | `MCP_RESOURCE_URL` is new and required. `OAUTH_AUDIENCE` is now optional (default: `MCP_RESOURCE_URL`). With `OAUTH_JWKS_URI` unset, the JWKS is discovered from the issuer's metadata instead of assuming `<issuer>/.well-known/jwks.json`. The issuer and JWKS URLs must be `https` unless loopback. Tokens must use an asymmetric algorithm. |
+| OAuth error responses | `401`/`403` in `oauth` mode are OAuth-shaped (`{"error":"invalid_token",...}` plus `WWW-Authenticate`), not JSON-RPC-shaped. |
+| Invalid environment variables | The server refuses to start when any environment variable fails validation, instead of running with every setting at its default. Fix the variables reported on stderr. |
+| IBM i HTTP token authentication | Deprecated, still works. Plan a move to `oauth`; note that under OAuth all SQL runs as the `DB2i_USER` service account, so per-user IBM i authority is lost. |
+| `GET` / `DELETE` on the MCP endpoint | Both return `405`. The JSON info page a plain `GET /mcp` used to return is gone; use `GET /healthz` for health checks. |
+| Request validation | A non-JSON `Content-Type` returns `415`. |
+| `logging` capability | No longer advertised; `logging/setLevel` returns "Method not found". |
+| Unloadable tools YAML | Stops startup in HTTP mode too (exit code 1). |
+| `SdkContext` type from `@ibm/ibmi-mcp-server/tools` | Now the MCP TypeScript SDK v2 `ServerContext`. |
+
+The server now runs on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`) and serves MCP protocol revision 2026-07-28 and earlier clients from the same endpoint, over HTTP and stdio.
+
+## 🔐 IBM i HTTP Authentication (Deprecated)
+
+> **Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, `IBMI_AUTH_*`, `/api/v1/auth`, per-user pools) will be removed in a future major release. It works as described below; the server logs one deprecation warning at startup and `/api/v1/auth` responses carry a `Deprecation: true` header. Use [OAuth](#oauth-authentication) for multi-user remote deployments.
+>
+> **What moving to OAuth costs:** per-user IBM i authority. Here each user's SQL runs under their own IBM i profile. Under OAuth all SQL runs as the `DB2i_USER` service account, and the token only identifies the caller to the MCP server.
 
 The server supports IBM i HTTP authentication that allows clients to obtain access tokens for authenticated SQL tool execution. This enables per-user connection pooling and secure access to IBM i resources.
 
@@ -2098,8 +2140,8 @@ code .env
 **4. Run Development Server:**
 
 ```bash
-# npm runs the server from packages/server, so point it at the root .env
-export MCP_SERVER_CONFIG="$(pwd)/.env"
+# Run from the repository root: the root .env is loaded automatically
+# and relative paths (--tools, LOGS_DIR) resolve from the repository root.
 
 # Start in HTTP mode
 npm run start:http
@@ -2150,22 +2192,9 @@ npm run start:stdio -- --tools ./my-custom-tools
 
 > Make sure that to use the absolute path for tools
 
-### Session Modes (HTTP Only)
+### Protocol Versions and Sessions
 
-The `MCP_SESSION_MODE` environment variable controls how the HTTP server handles client sessions:
-
-- **`auto` (default)**: Automatically detects client capabilities and uses the best session mode
-- **`stateful`**: Maintains persistent sessions with connection state
-- **`stateless`**: Each request is independent, no session state maintained
-
-```bash
-# Set session mode via environment variable
-MCP_SESSION_MODE=stateful npm run start:http
-
-# Or set in .env file
-echo "MCP_SESSION_MODE=stateful" >> .env
-npm run start:http
-```
+The server is stateless and serves MCP protocol revision 2026-07-28 and earlier clients from one endpoint, over HTTP and stdio. There are no session modes and no `Mcp-Session-Id`. The MCP endpoint accepts `POST` only.
 
 ### CLI Options
 
@@ -2191,7 +2220,6 @@ Both transport modes support these command-line options:
 npm run start:http
 # Server: http://localhost:3010/mcp
 # Tools: tools/ (from .env)
-# Session: auto-detected
 ```
 
 **2. Custom Tools Path**
@@ -2214,7 +2242,7 @@ npm run start:http -- --toolsets performance,monitoring
 - **Hot Reloading**: Enable `YAML_AUTO_RELOAD=true` in `.env` for automatic tool configuration updates
 - **Verbose Logging**: Set `MCP_LOG_LEVEL=debug` for detailed operation logs
 - **CORS**: Configure `MCP_ALLOWED_ORIGINS` for web-based clients
-- **Authentication**: Use `MCP_AUTH_MODE=ibmi` with IBM i HTTP auth for token-based access
+- **Authentication**: Use `MCP_AUTH_MODE=oauth` for remote, multi-user access
 
 ### Troubleshooting
 

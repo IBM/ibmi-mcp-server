@@ -59,7 +59,30 @@ Save the configuration and restart Cline to load the new server.
 
 ## Remote (HTTP) Setup
 
-**Step 1: Start remote server**
+### With OAuth (Recommended)
+
+For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/server-config/oauth)), add the URL without an `Authorization` header to the Cline MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "https://mcp.example.com/mcp",
+      "type": "streamableHttp"
+    }
+  }
+}
+```
+
+If your version of Cline supports OAuth for remote MCP servers, it opens a browser sign-in on first use. If it does not, add an `Authorization: Bearer <token>` header with an access token from your identity provider. See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
+
+### With IBM i Tokens (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
+**Step 1: Start remote server** (configured for IBM i authentication; see [IBM i Authentication](/server-config/ibmi-auth))
 ```bash
 # On server machine
 npm run start:http
@@ -128,9 +151,10 @@ After configuration:
 
   <Accordion title="Authentication Failed (Remote)">
     **Solutions**:
-    - Verify server is running: `curl http://localhost:3010/mcp`
+    - Verify server is running: `curl http://localhost:3010/healthz`
     - Check token hasn't expired
-    - Get fresh token: `node get-access-token.js --verbose`
+    - OAuth: sign in again, or replace an expired bearer token
+    - IBM i tokens (deprecated): get a fresh token with `node get-access-token.js --verbose`
     - Ensure `streamableHttp` type is used (not just `http`)
   </Accordion>
 
@@ -211,8 +235,8 @@ Cline also supports discovering MCP servers through the [Cline MCP Marketplace](
   <Card title="Configuration" icon="gear" href="/configuration">
     Explore all configuration options
   </Card>
-  <Card title="Authentication" icon="lock" href="/configuration#ibm-i-authentication-settings">
-    Set up secure authentication
+  <Card title="Authentication" icon="lock" href="/server-config/oauth">
+    Set up OAuth for remote servers
   </Card>
   <Card title="Other Clients" icon="grid" href="/clients/overview">
     Explore other MCP clients

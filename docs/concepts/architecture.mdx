@@ -254,7 +254,7 @@ graph TB
   </Step>
 
   <Step title="Database Execution">
-    SQL executes against Db2 for i using authenticated user's authorities
+    SQL executes against Db2 for i with the authorities of the IBM i profile the connection uses (the `DB2i_USER` service account unless the deprecated IBM i authentication mode is active)
   </Step>
 
   <Step title="Result Formatting">
@@ -282,10 +282,11 @@ The server is organized into clear functional areas:
 
 **Tool discovery:**
 ```bash
-# AI agents can list all available tools
-GET /mcp/tools/list
+# AI agents list all available tools with a JSON-RPC request
+POST /mcp
+{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 
-# Response includes tool names, descriptions, and schemas
+# The result includes tool names, descriptions, and schemas
 {
   "tools": [
     {"name": "get_active_jobs", "description": "List currently active jobs..."},
@@ -324,28 +325,29 @@ npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance,securit
 **Features:**
 - Connection pooling for performance
 - Automatic reconnection on failures
-- Per-user connection isolation (HTTP auth mode)
-- Credential encryption (IBM i auth)
+- Idle pool cleanup and query timeouts
 
-**Two authentication modes:**
+**Which IBM i profile runs the SQL:**
 
 <Tabs>
-  <Tab title="Shared Connection (STDIO)">
-    **Best for:** Development, CLI tools, single-user scenarios
+  <Tab title="Service Account (Default)">
+    **Applies to:** stdio, and HTTP with `MCP_AUTH_MODE=none` or `oauth`
 
     ```bash
-    # All operations use same Db2i user
+    # All operations use the same Db2i user
     DB2i_HOST=ibmi-system.com
     DB2i_USER=MCPUSER
     DB2i_PASS=password
     ```
+
+    Under [OAuth](/server-config/oauth) the access token identifies the caller to the MCP server. It is never forwarded to IBM i, and SQL still runs as this service account.
   </Tab>
 
-  <Tab title="Per-User Connection (HTTP)">
-    **Best for:** Production, web apps, multi-user scenarios
+  <Tab title="Per-User Connection (Deprecated)">
+    **Applies to:** HTTP with the deprecated [IBM i authentication](/server-config/ibmi-auth) mode
 
     ```bash
-    # Each user authenticates individually
+    # Each user authenticates with IBM i credentials
     MCP_AUTH_MODE=ibmi
     IBMI_HTTP_AUTH_ENABLED=true
 
@@ -359,14 +361,22 @@ npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance,securit
 
 **What it does:** Handles communication between AI agents and the server
 
-**Two transport modes:**
+The server is built on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). Both transports use the same server factory, which builds an `McpServer` with the built-in tools, the cached YAML tools and the toolset resources.
 
-| Transport | Use Case | Protocol | Port |
-|-----------|----------|----------|------|
-| **STDIO** | Development, CLI tools | stdin/stdout | N/A |
-| **HTTP** | Production, web apps | HTTP/SSE | 3010 |
+| Transport | Use Case | SDK entry point | Port |
+|-----------|----------|-----------------|------|
+| **STDIO** | Local clients, CLI tools | `serveStdio(factory)`: one server instance per connection | N/A |
+| **HTTP** | Remote and multi-user access | `createMcpHandler(factory)`: one server instance per request | 3010 |
 
-**STDIO** is simpler (direct process communication), while **HTTP** enables remote access, load balancing, and web integration.
+**Stateless by design:**
+- One endpoint serves MCP protocol revision `2026-07-28` and clients on earlier revisions.
+- There are no sessions: the server issues no `Mcp-Session-Id` and keeps no per-client state between requests.
+- The HTTP endpoint accepts `POST` only. `GET` and `DELETE` return `405`.
+- YAML files are parsed once at startup and on change, not per request.
+
+**Around the SDK handler**, the HTTP transport (a Hono app) adds Host/Origin validation, CORS, authentication ([OAuth](/server-config/oauth)), rate limiting and the `/healthz` endpoint.
+
+**Hot reload:** when YAML tool files change, later requests see the new tools. Connected stdio clients, and HTTP clients holding a `subscriptions/listen` stream, receive a `tools/list_changed` notification.
 
 ---
 

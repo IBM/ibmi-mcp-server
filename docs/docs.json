@@ -33,6 +33,7 @@
             "group": "Server Configuration",
             "pages": [
               "configuration",
+              "server-config/oauth",
               "server-config/ibmi-auth"
             ]
           },

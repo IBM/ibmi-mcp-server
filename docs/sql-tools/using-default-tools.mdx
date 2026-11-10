@@ -270,12 +270,14 @@ export YAML_ALLOW_DUPLICATE_TOOLS=false   # Prevent accidental tool name conflic
 <Warning>
 **Binding beyond loopback requires authentication.** The server refuses to start when it is bound to a non-loopback address (`MCP_HTTP_HOST=0.0.0.0`) with IBM i credentials configured and authentication not enforced — otherwise anyone with network reach could execute these SQL tools with your credentials.
 
-To expose the server on a network, set `MCP_AUTH_MODE` (note that `jwt` also needs `MCP_AUTH_SECRET_KEY`, or verification is bypassed) and allowlist the hostname clients use:
+To expose the server on a network, enable [OAuth](/server-config/oauth) and allowlist the hostname clients use:
 
 ```bash
 export MCP_HTTP_HOST="0.0.0.0"
 export MCP_ALLOWED_HOSTS="mcp.mycompany.local"
-export MCP_AUTH_MODE=ibmi
+export MCP_AUTH_MODE=oauth
+export MCP_RESOURCE_URL="https://mcp.mycompany.local/mcp"
+export OAUTH_ISSUER_URL="https://auth.mycompany.local"
 ```
 
 To accept the risk on a trusted network instead, set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` explicitly.

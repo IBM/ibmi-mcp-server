@@ -3,8 +3,8 @@
 ![alt text](docs/images/logo-2.png)
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-^5.8.3-blue?style=flat-square)](https://www.typescriptlang.org/)
-[![Model Context Protocol SDK](https://img.shields.io/badge/MCP%20SDK-^1.25.2-green?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
-[![MCP Spec Version](https://img.shields.io/badge/MCP%20Spec-2025--06--18-lightgrey?style=flat-square)](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/changelog.mdx)
+[![Model Context Protocol SDK](https://img.shields.io/badge/MCP%20SDK-^2.4.0-green?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
+[![MCP Spec Version](https://img.shields.io/badge/MCP%20Spec-2026--07--28-lightgrey?style=flat-square)](https://modelcontextprotocol.io/specification/2026-07-28)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-green?style=flat-square)](https://github.com/IBM/ibmi-mcp-server.git)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/IBM/ibmi-mcp-server)
@@ -161,7 +161,7 @@ Both tools sit on top of the same YAML tool engine. The **MCP Server** is the de
 |-------------------|--------------------------|
 | You need **developer ergonomics** — an interactive terminal experience for querying Db2 for i, exploring schemas, scripting in shell/CI, or piping results into other tools | You are **building AI agents or AI-powered applications** that should call IBM i tools conversationally (Claude Desktop, VSCode Copilot, Bob, Agno, LangChain, custom agents) |
 | You are running a **local AI agent** and want the CLI as a lightweight, in-process alternative to a long-lived MCP server — e.g., a coding agent that shells out to `ibmi sql` or `ibmi tool` as part of its loop | You need remote server support over the MCP protocol, including `stdio` or HTTP transports |
-| You want **fast synchronous execution** against one or many systems with rich output formats (`table`, `json`, `csv`, `markdown`, NDJSON) and no server process to manage | You need **shared, networked access** with auth, rate limiting, structured telemetry, and session handling |
+| You want **fast synchronous execution** against one or many systems with rich output formats (`table`, `json`, `csv`, `markdown`, NDJSON) and no server process to manage | You need **shared, networked access** with OAuth authentication, rate limiting, and structured telemetry |
 
 > See the [CLI Agent Integration guide](https://ibm-d95bab6e.mintlify.app/cli/agent-integration) for concrete examples of wiring the `ibmi` CLI into local AI agents.
 
@@ -268,24 +268,24 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 async def main():
-    # Connect to the IBM i MCP server with authentication
+    # Connect to a local IBM i MCP server (no authentication)
     async with streamablehttp_client("http://localhost:3010/mcp") as (
         read_stream,
         write_stream,
         _,
     ):
-        # Create a session using the authenticated streams
+        # Create a client session on the streams
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
             await session.initialize()
 
-            # List available tools (now authenticated with your IBM i credentials)
+            # List available tools
             tools = await session.list_tools()
             for i, tool in enumerate(tools.tools, 1):
                 print(f"{i:2d}. {tool.name}")
                 print(f"    └─ {tool.description}")
 
-            # Execute a tool with authenticated IBM i access
+            # Execute a tool
             print("\n" + "=" * 80)
             print("SYSTEM ACTIVITY RESULT")
             print("=" * 80)

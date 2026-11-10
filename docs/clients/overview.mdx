@@ -69,7 +69,7 @@ The IBM i MCP Server supports two transport protocols:
   </Tab>
 
   <Tab title="HTTP (Remote)">
-    **HTTP/WebSocket** - Network-based communication
+    **Streamable HTTP** - Network-based communication
 
     **Characteristics**:
     - Runs on a remote server
@@ -86,7 +86,7 @@ The IBM i MCP Server supports two transport protocols:
     **Requirements**:
     - Server running with HTTP transport
     - Network accessibility
-    - Authentication tokens (IBM i auth recommended)
+    - Authentication (OAuth recommended)
     - HTTPS for production
   </Tab>
 </Tabs>
@@ -96,12 +96,14 @@ The IBM i MCP Server supports two transport protocols:
 | Client | Platform | Stdio | HTTP | Authentication | Notes |
 |--------|----------|:-----:|:----:|:--------------:|-------|
 | **Claude Desktop** | macOS, Windows | ✅ | ❌ | N/A | Official desktop app (stdio only) |
-| **Claude Code** | CLI | ✅ | ✅ | Bearer Token | CLI server management |
-| **IBM Bob** | IDE | ✅ | ✅ | Bearer Token | IBM's AI assistant (6,000+ users) |
-| **VSCode** | Editor | ✅ | ✅ | Bearer Token | Via Copilot Chat |
-| **Cursor** | Editor | ✅ | ✅ | Bearer Token | AI-first code editor |
-| **Gemini CLI** | CLI | ✅ | ✅ | Bearer Token | Google AI integration |
-| **Cline** | VSCode Ext | ✅ | ✅ | Bearer Token | streamableHttp support |
+| **Claude Code** | CLI | ✅ | ✅ | OAuth or bearer token | CLI server management |
+| **IBM Bob** | IDE | ✅ | ✅ | Bearer token | IBM's AI assistant (6,000+ users) |
+| **VSCode** | Editor | ✅ | ✅ | Bearer token | Via Copilot Chat |
+| **Cursor** | Editor | ✅ | ✅ | Bearer token | AI-first code editor |
+| **Gemini CLI** | CLI | ✅ | ✅ | Bearer token | Google AI integration |
+| **Cline** | VSCode Ext | ✅ | ✅ | Bearer token | streamableHttp support |
+
+"Bearer token" means the client can send a fixed `Authorization` header. Whether a client also runs the OAuth sign-in flow on its own depends on the client and its version; see [OAuth Remote Setup](#oauth-remote-setup).
 
 ## Setup Prerequisites
 
@@ -160,18 +162,39 @@ The IBM i MCP Server supports two transport protocols:
   </Tab>
 </Tabs>
 
-### For Remote (HTTP) Setup
+### OAuth Remote Setup
 
-1. **Configure server for HTTP with authentication:**
+OAuth is the recommended way to connect to a remote server. The server administrator configures it once; see [OAuth Authentication](/server-config/oauth).
+
+**Clients that implement MCP authorization** need only the server URL:
+
+1. Add the server URL (for example `https://mcp.example.com/mcp`) to the client. Do not configure an `Authorization` header.
+2. On the first request the server answers `401` with a challenge. The client reads the server's metadata, finds your identity provider, and opens a browser sign-in.
+3. After sign-in the client sends the access token on every request and renews it as its implementation allows.
+
+Check your client's documentation for whether your version supports OAuth for remote MCP servers and which client registration methods it needs from the identity provider.
+
+**Clients without OAuth support** can still connect with a fixed header. Obtain an access token for the server from your identity provider and configure it as `Authorization: Bearer <token>`. The token expires and must then be replaced by hand.
+
+### IBM i Token Setup (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
+1. **Configure server for HTTP with IBM i authentication:**
    ```bash
    # In your .env file
    MCP_TRANSPORT_TYPE=http
    MCP_AUTH_MODE=ibmi
    IBMI_HTTP_AUTH_ENABLED=true
    IBMI_AUTH_ALLOW_HTTP=true  # Development only
+   IBMI_AUTH_KEY_ID=development
+   IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
+   IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
    ```
 
-2. **Generate RSA keypair (for IBM i auth):**
+2. **Generate RSA keypair:**
    ```bash
    mkdir -p secrets
    openssl genpkey -algorithm RSA -out secrets/private.pem -pkeyopt rsa_keygen_bits:2048
@@ -191,17 +214,29 @@ The IBM i MCP Server supports two transport protocols:
 
 ## Authentication Methods
 
-<Accordion title="No Authentication (Development Only)">
+<Accordion title="No Authentication (Local Development)">
 ```bash
 MCP_AUTH_MODE=none
 ```
 
-**Use for**: Local development, testing, trusted networks
+**Use for**: Local development and stdio
 
-**⚠️ Warning**: Never use in production
+**⚠️ Warning**: Never use for a server reachable from other machines
 </Accordion>
 
-<Accordion title="IBM i HTTP Authentication (Recommended)">
+<Accordion title="OAuth (Recommended for Remote)">
+```bash
+MCP_AUTH_MODE=oauth
+MCP_RESOURCE_URL=https://mcp.example.com/mcp
+OAUTH_ISSUER_URL=https://auth.example.com
+```
+
+**Use for**: Multi-user remote deployments with an identity provider
+
+All SQL runs as the server's `DB2i_USER` service account. See [OAuth Authentication](/server-config/oauth).
+</Accordion>
+
+<Accordion title="IBM i HTTP Authentication (Deprecated)">
 ```bash
 MCP_AUTH_MODE=ibmi
 IBMI_HTTP_AUTH_ENABLED=true
@@ -210,32 +245,9 @@ IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem
 IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
 ```
 
-**Use for**: Per-user credentials, connection pooling, production
+**Use for**: Existing deployments that need per-user IBM i credentials
 
-**Features**:
-- Secure RSA+AES encryption
-- Per-user connection pools
-- Token-based access
-- IBM i credential validation
-</Accordion>
-
-<Accordion title="JWT Authentication">
-```bash
-MCP_AUTH_MODE=jwt
-MCP_AUTH_SECRET_KEY=your-secret-key-min-32-chars
-```
-
-**Use for**: Custom authentication systems, token-based auth
-</Accordion>
-
-<Accordion title="OAuth Authentication">
-```bash
-MCP_AUTH_MODE=oauth
-OAUTH_ISSUER_URL=https://your-auth-server.com
-OAUTH_AUDIENCE=ibmi-mcp-server
-```
-
-**Use for**: Enterprise SSO, external identity providers
+See [IBM i Authentication](/server-config/ibmi-auth).
 </Accordion>
 
 ## Common Configuration Patterns
@@ -281,7 +293,10 @@ claude mcp add ibmi-mcp \
   --env DB2i_PASS=your-password \
   -- npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 
-# Add remote HTTP server
+# Add remote HTTP server (OAuth: authenticate with /mcp inside Claude Code)
+claude mcp add --transport http ibmi-mcp https://mcp.example.com/mcp
+
+# Add remote HTTP server with a fixed bearer token
 claude mcp add --transport http ibmi-mcp \
   http://localhost:3010/mcp \
   --header "Authorization: Bearer YOUR_TOKEN"
@@ -336,8 +351,8 @@ For detailed setup instructions, click on any client card above or navigate usin
   </Accordion>
 
   <Accordion title="Authentication Failed (Remote)">
-    - Confirm server is running with `IBMI_HTTP_AUTH_ENABLED=true`
-    - Verify token is valid: `echo $IBMI_MCP_ACCESS_TOKEN`
+    - **OAuth**: a `401` means the token is missing, expired, or not issued for this server; a `403` with `insufficient_scope` means it lacks a required scope. See [OAuth troubleshooting](/server-config/oauth#troubleshooting).
+    - **IBM i tokens (deprecated)**: confirm the server runs with `IBMI_HTTP_AUTH_ENABLED=true` and the token has not expired: `echo $IBMI_MCP_ACCESS_TOKEN`
     - Check server logs for authentication errors
     - Ensure HTTPS is used in production
   </Accordion>
@@ -367,6 +382,7 @@ For detailed setup instructions, click on any client card above or navigate usin
 ## Additional Resources
 
 - [Configuration Reference](/configuration) - All environment variables
-- [IBM i Authentication](/configuration#ibm-i-authentication-settings) - Secure token setup
+- [OAuth Authentication](/server-config/oauth) - Recommended for remote servers
+- [IBM i Authentication](/server-config/ibmi-auth) - Deprecated token setup
 - [Quick Start Guide](/quickstart) - Basic server setup
 - [SQL Tools](/sql-tools/overview) - Creating custom tools

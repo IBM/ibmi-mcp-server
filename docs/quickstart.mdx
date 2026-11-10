@@ -214,7 +214,7 @@ Replace the connection values with your actual IBM i system credentials. The use
 </Success>
 
 <Card title="Explore All Configuration Options →" icon="gear" href="/configuration">
- The Configuration guide covers authentication modes (JWT, OAuth, IBM i), HTTP/HTTPS settings, OpenTelemetry observability, and all environment variables with examples for development and production.
+ The Configuration guide covers authentication (OAuth for remote deployments), HTTP settings, OpenTelemetry observability, and all environment variables with examples for development and production.
 </Card>
 
 ---
@@ -334,31 +334,20 @@ Start the server in HTTP mode with your new SQL tool:
     export MCP_SERVER_CONFIG=.env
     npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quickstart.yaml
     ```
-
-    **Session Modes**:
-    - `auto` (default): Automatically detects client capabilities ← **Start with this**
-    - `stateful`: Maintains persistent sessions with connection state
-    - `stateless`: Each request is independent, no session state
-
-    Set via environment: `MCP_SESSION_MODE=stateful npx -y @ibm/ibmi-mcp-server@latest --transport http`
   </Tab>
 
   <Tab title="Build from Source">
     ```bash
-    # From the repository root (the server runs with packages/server as its working directory,
-    # so point it at the root .env and give the tools path relative to packages/server)
-    export MCP_SERVER_CONFIG="$(pwd)/.env"
-    npm run start:http -- --tools ../../tools/quickstart.yaml
+    # From the repository root. The root .env is loaded automatically
+    # and paths are relative to the repository root.
+    npm run start:http -- --tools ./tools/quickstart.yaml
     ```
-
-    **Session Modes**:
-    - `auto` (default): Automatically detects client capabilities ← **Start with this**
-    - `stateful`: Maintains persistent sessions with connection state
-    - `stateless`: Each request is independent, no session state
-
-    Set via environment: `MCP_SESSION_MODE=stateful npm run start:http`
   </Tab>
 </Tabs>
+
+<Info>
+The HTTP server is stateless and serves MCP protocol revision `2026-07-28` and earlier clients from the same endpoint. There is no session mode to configure.
+</Info>
 
 <Note>
 **Alternative: Stdio Transport** - For MCP Inspector or CLI tools, use `--transport stdio` (NPM package) or `npm run start:stdio` (build from source). However, HTTP transport is recommended for most use cases.
@@ -661,7 +650,7 @@ Your MCP server is now ready for:
 
   <Accordion title="Client Script Fails (mcp_client.py)" icon="">
     **Connection refused or timeout:**
-    - Ensure MCP server is running: check for "Server ready!" message
+    - Ensure MCP server is running: check for the "MCP Server running at" message
     - Verify server is on port 3010 (or update script if using different port)
     - Server must use HTTP transport (not stdio)
 

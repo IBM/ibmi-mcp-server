@@ -44,16 +44,21 @@ The applications are deployed on OpenShift using a source-to-image (S2I) build s
    MCP_ALLOWED_HOSTS=ibmi-mcp-server.apps.example.com
 
    # Authentication must be enforced, or the server refuses to start.
-   # Note: MCP_AUTH_MODE=jwt ALSO requires MCP_AUTH_SECRET_KEY — without it,
-   # JWT verification is bypassed and the guard still trips.
-   MCP_AUTH_MODE=ibmi
+   # OAuth is the recommended mode: the server verifies access tokens from
+   # your authorization server. MCP_RESOURCE_URL is the Route URL of /mcp.
+   MCP_AUTH_MODE=oauth
+   MCP_RESOURCE_URL=https://ibmi-mcp-server.apps.example.com/mcp
+   OAUTH_ISSUER_URL=https://auth.example.com
+   # Deprecated alternative: IBM i token authentication
+   # MCP_AUTH_MODE=ibmi
+   # IBMI_HTTP_AUTH_ENABLED=true
    # ...or accept the risk explicitly on a trusted cluster network:
    # MCP_ALLOW_UNAUTHENTICATED_HTTP=true
    ```
 
    The liveness and readiness probes in `ibmi-mcp-server-deployment.yaml` already override their `Host` header to `localhost`, since kubelet otherwise sends the (dynamic) pod IP and the probes would 403.
 
-   The tools ConfigMap is mounted at `/app/tools` and the key Secret at `/app/secrets` (the image's working directory is `/app`). Set `TOOLS_YAML_PATH=/app/tools` to load the mounted tools; the `.env.example` defaults `IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem` and `IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem` already resolve to the mounted keys.
+   The tools ConfigMap is mounted at `/app/tools` and the key Secret at `/app/secrets` (the image's working directory is `/app`). Set `TOOLS_YAML_PATH=/app/tools` to load the mounted tools; the `.env.example` defaults `IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem` and `IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem` already resolve to the mounted keys. The keys are used only by the deprecated IBM i token authentication, but the kustomization still expects the two files in `ibmi-mcp-server/secrets/`.
 
 3. **Set your namespace**
 

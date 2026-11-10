@@ -148,11 +148,9 @@ If configured correctly, Claude should list the IBM i MCP tools and be able to e
     **Symptoms**: Connection refused or 401 Unauthorized
 
     **Solutions**:
-    - Verify server is running: `curl http://localhost:3010/mcp`
-    - Check token is valid: `echo $IBMI_MCP_ACCESS_TOKEN`
-    - Ensure token hasn't expired (default: 1 hour)
-    - Confirm `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true`
-    - Get a fresh token: `node get-access-token.js --verbose`
+    - Verify server is running: `curl http://localhost:3010/healthz`
+    - OAuth: the token is missing, expired, or not issued for this server. See [OAuth troubleshooting](/server-config/oauth#troubleshooting)
+    - IBM i tokens (deprecated): confirm `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true`, and get a fresh token with `node get-access-token.js --verbose` (tokens expire after 1 hour by default)
   </Accordion>
 
   <Accordion title="Tools Not Loading">
@@ -246,8 +244,8 @@ Load specific toolsets instead of all tools:
   <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
     Learn how to create custom SQL tools
   </Card>
-  <Card title="Authentication" icon="lock" href="/configuration#ibm-i-authentication-settings">
-    Set up secure IBM i HTTP authentication
+  <Card title="Authentication" icon="lock" href="/server-config/oauth">
+    Set up OAuth for remote servers
   </Card>
   <Card title="Other Clients" icon="grid" href="/clients/overview">
     Explore other MCP-compatible clients

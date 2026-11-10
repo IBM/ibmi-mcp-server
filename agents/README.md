@@ -1,6 +1,6 @@
 # IBM i MCP Agents
 
-AI agents for IBM i system administration and monitoring using Model Context Protocol (MCP) tools. This directory contains multiple agent framework implementations, deployment infrastructure, and web interfaces for interacting with intelligent IBM i system agents.
+AI agents for IBM i system administration and monitoring using Model Context Protocol (MCP) tools. This directory contains multiple agent framework implementations and web interfaces for interacting with intelligent IBM i system agents.
 
 ## Agent Capabilities
 
@@ -39,20 +39,6 @@ The `frameworks/` directory provides different agent SDK implementations, allowi
 | [Agno](./frameworks/agno) | Python | ✅ Active | [frameworks/agno/README.md](frameworks/agno/README.md) |
 | [LangChain](./frameworks/langchain) | Python | ✅ Active | [frameworks/langchain/README.md](frameworks/langchain/README.md) |
 | [Google ADK](./frameworks/google_adk) | Python | ✅ Active | [frameworks/google_adk/README.md](frameworks/google_adk/README.md) |
-
-## Deployment Infrastructure
-
-Deploy IBM i agents using Agno AgentOS stack with Docker.
-
-**Documentation:** See [docker/ibmi-agent-infra/README.md](docker/ibmi-agent-infra/README.md)  
-
-**What's Included:**
-- **AgentOS API**: RESTful API for agent interactions
-- **IBM i MCP Server**: Automatically configured and running
-- **PostgreSQL Database**: Session and memory persistence
-- **Agent UI**: Optional web interface
-- **Multi-provider LLM Support**: watsonx, OpenAI, Anthropic
-
 
 ## Resources
 

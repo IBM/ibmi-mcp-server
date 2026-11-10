@@ -8,7 +8,7 @@ Claude Code is the official CLI tool for Claude that provides built-in MCP serve
 <Note>
 **Platform Support**: macOS, Linux, Windows
 **Transport Modes**: Stdio (local) and HTTP (remote)
-**Authentication**: Bearer Token for HTTP mode
+**Authentication**: OAuth or bearer token for HTTP mode
 </Note>
 
 ## Prerequisites
@@ -76,7 +76,23 @@ Edit `~/.claude.json`:
 
 Connect to a remote IBM i MCP Server:
 
-### Using CLI Commands
+### With OAuth (Recommended)
+
+For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/server-config/oauth)), add the URL without an `Authorization` header:
+
+```bash
+claude mcp add -t http ibmi-mcp https://mcp.example.com/mcp
+```
+
+Then run `/mcp` inside Claude Code, select the server and authenticate. Claude Code opens a browser sign-in with your identity provider and stores the token.
+
+### With IBM i Tokens (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
+#### Using CLI Commands
 
 ```bash
 # Add remote HTTP server with authentication
@@ -85,7 +101,7 @@ claude mcp add -t http ibmi-mcp \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
 ```
 
-### Using Configuration File
+#### Using Configuration File
 
 Edit `~/.claude.json`:
 
@@ -210,9 +226,9 @@ npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools /path/to/tools
     **Symptoms**: 401 Unauthorized for remote connections
 
     **Solutions**:
-    - Get fresh token: `node get-access-token.js --verbose`
+    - OAuth: run `/mcp` and authenticate again
+    - IBM i tokens (deprecated): get a fresh token with `node get-access-token.js --verbose`; tokens expire after 1 hour by default
     - Verify server is running with auth enabled
-    - Check token hasn't expired (default: 1 hour)
     - Ensure header format is correct: `Authorization: Bearer TOKEN`
   </Accordion>
 
@@ -295,4 +311,4 @@ claude mcp add ibmi-all \
 
 - [Claude Code MCP Documentation](https://docs.claude.com/en/docs/claude-code/mcp)
 - [IBM i MCP Quick Start](/quickstart)
-- [Authentication Setup](/configuration#ibm-i-authentication-settings)
+- [OAuth Authentication](/server-config/oauth)

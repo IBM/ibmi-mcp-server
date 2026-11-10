@@ -104,7 +104,7 @@ Different goals? Jump directly to what you need:
   <Card title="Enterprise Security" icon="shield-halved">
     **IBM i security integration**
 
-    Respects user profiles, object authorities, and audit requirements. Multiple auth modes including IBM i HTTP authentication with RSA encryption.
+    Respects user profiles, object authorities, and audit requirements. OAuth 2.1 authentication for remote deployments.
 
     [See Configuration →](/configuration)
   </Card>
@@ -157,20 +157,13 @@ Different goals? Jump directly to what you need:
   </Accordion>
 
   <Accordion title="How does authentication work?" icon="key">
-    The server supports multiple authentication modes to fit your deployment:
+    **Local development (stdio or loopback HTTP):** no authentication. All SQL runs with the configured `DB2i_USER` credentials.
 
-    **For Development:**
-    - **Shared credentials** (stdio): All operations use same Db2i user
-    - Fast setup for testing and local development
+    **Remote, multi-user deployments (HTTP):** OAuth. The server is an OAuth 2.1 resource server as defined by the MCP authorization specification: it verifies access tokens from your identity provider. A token identifies the caller; SQL still runs as the `DB2i_USER` service account.
 
-    **For Production:**
-    - **Per-user authentication** (HTTP): Each user connects with their own credentials
-    - **IBM i HTTP Auth**: RSA-encrypted credential exchange
-    - **JWT/OAuth**: Custom authentication systems
+    **IBM i HTTP token authentication** (per-user IBM i credentials) is deprecated.
 
-    All modes respect IBM i object authorities and maintain audit trails.
-
-    [See authentication setup →](/configuration#authentication-configuration)
+    [See OAuth setup →](/server-config/oauth)
   </Accordion>
 
   <Accordion title="What can I build with this?" icon="lightbulb">
@@ -236,7 +229,7 @@ Different goals? Jump directly to what you need:
     - Rate limiting and resource protection
     - Multi-environment configuration
 
-    Use HTTP transport with IBM i authentication for production deployments.
+    Use HTTP transport with [OAuth](/server-config/oauth) for production deployments.
   </Accordion>
 
   <Accordion title="Where do I get help?" icon="life-ring">

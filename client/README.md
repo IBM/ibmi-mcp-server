@@ -79,4 +79,4 @@ uv run agent.py -p "What's my system status?" --model-id "ollama:gpt-oss:latest"
 - `agent.py`: The main example agent that connects to your IBM i MCP server and allows natural language queries.
 - `list_tool_annotations.py`: A test script that demonstrates how to use tool annotations with the agent.
 - `list_toolset_resources.py`: A test script that demonstrates how to use toolset resources with the agent.
-- `test_auth_agent.py`: A test script that demonstrates how to use authentication with the agent.
+- `test_auth_agent.py`: A test script that sends a bearer token from `IBMI_MCP_ACCESS_TOKEN` in the `Authorization` header. The token can be an OAuth access token (`MCP_AUTH_MODE=oauth`) or one issued by the deprecated IBM i token authentication.

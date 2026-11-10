@@ -95,9 +95,8 @@ Refusing to start: unauthenticated HTTP transport on non-loopback bind 0.0.0.0 w
 
 | Setting | Effect |
 |---|---|
-| `MCP_AUTH_MODE=ibmi` | Clients authenticate with their own IBM i user and password. See [IBM i Authentication](/server-config/ibmi-auth). |
-| `MCP_AUTH_MODE=oauth` | Clients present tokens from your OAuth provider. |
-| `MCP_AUTH_MODE=jwt` and `MCP_AUTH_SECRET_KEY` | Clients present tokens you issue. `jwt` without a secret key is treated as no authentication. |
+| `MCP_AUTH_MODE=oauth` | Recommended. Clients present access tokens from your identity provider. Also requires `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`, and the public hostname in `MCP_ALLOWED_HOSTS`. See [OAuth Authentication](/server-config/oauth). |
+| `MCP_AUTH_MODE=ibmi` | Deprecated. Clients authenticate with their own IBM i user and password. See [IBM i Authentication](/server-config/ibmi-auth). |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` | No authentication. Pair with `-p 127.0.0.1:3010:3010`, or use only on a network you trust. |
 
 <Warning>
@@ -183,9 +182,9 @@ To use your own YAML tool configurations, mount them into the container:
       --name ibmi-mcp-server \
       -p 127.0.0.1:3010:3010 \
       --env-file .env \
-      -v $(pwd)/tools:/usr/src/app/tools:ro \
+      -v $(pwd)/tools:/app/tools:ro \
       ghcr.io/ibm/ibmi-mcp-server:latest \
-      npx @ibm/ibmi-mcp-server --tools /usr/src/app/tools
+      node packages/server/dist/index.js --tools /app/tools
     ```
   </Tab>
   <Tab title="Podman">
@@ -194,9 +193,9 @@ To use your own YAML tool configurations, mount them into the container:
       --name ibmi-mcp-server \
       -p 127.0.0.1:3010:3010 \
       --env-file .env \
-      -v $(pwd)/tools:/usr/src/app/tools:ro \
+      -v $(pwd)/tools:/app/tools:ro \
       ghcr.io/ibm/ibmi-mcp-server:latest \
-      npx @ibm/ibmi-mcp-server --tools /usr/src/app/tools
+      node packages/server/dist/index.js --tools /app/tools
     ```
   </Tab>
 </Tabs>
@@ -204,6 +203,8 @@ To use your own YAML tool configurations, mount them into the container:
 <Note>
 The `:ro` flag mounts the directory as read-only inside the container, which is a security best practice.
 </Note>
+
+The image's working directory is `/app` and the server entry point is `packages/server/dist/index.js`. Start the server with `node packages/server/dist/index.js`, as the image's default command does. Do not use `npx ibmi-mcp-server` inside the container: the server's package is `@ibm/ibmi-mcp-server`, and when the unscoped name does not resolve locally, `npx` tries to download a package by that name from the registry.
 
 A mounted tools directory counts as IBM i credentials for the startup check, because YAML `sources:` entries carry connection details. The `.env` file must set `MCP_AUTH_MODE` or `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`.
 
@@ -226,17 +227,17 @@ services:
     env_file:
       - .env
     volumes:
-      - ./tools:/usr/src/app/tools:ro
-    command: ["npx", "ibmi-mcp-server", "--tools", "/usr/src/app/tools"]
+      - ./tools:/app/tools:ro
+    command: ["node", "packages/server/dist/index.js", "--tools", "/app/tools"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3010/healthz"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
 ```
 
-The `.env` file is the one from [Using an Environment File](#using-an-environment-file). The healthcheck addresses the server as `localhost` and passes the Host check. Other services in the same Compose file reach the server as `http://ibmi-mcp-server:3010/mcp`; that name must be listed in `MCP_ALLOWED_HOSTS`.
+The `.env` file is the one from [Using an Environment File](#using-an-environment-file). The image contains no `curl`, so the healthcheck uses Node's built-in `fetch`. It addresses the server as `127.0.0.1` and passes the Host check. Other services in the same Compose file reach the server as `http://ibmi-mcp-server:3010/mcp`; that name must be listed in `MCP_ALLOWED_HOSTS`.
 
 Start the service:
 
@@ -343,11 +344,11 @@ The server exposes a health endpoint at `/healthz`:
 # From the host
 curl http://localhost:3010/healthz
 
-# From inside the container
-docker exec ibmi-mcp-server curl http://localhost:3010/healthz
+# From inside the container (the image has no curl; use Node)
+docker exec ibmi-mcp-server node -e "fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && echo healthy
 ```
 
-The health endpoint is subject to the Host check. Both commands above address the server as `localhost` and pass. A probe that addresses the server by IP address, such as a Kubernetes probe using the pod IP, receives `403`. Set a `Host: localhost` header on such probes; the repository's OpenShift deployment manifest does this.
+The health endpoint is subject to the Host check. Both commands above address the server by a loopback name and pass. A probe that addresses the server by IP address, such as a Kubernetes probe using the pod IP, receives `403`. Set a `Host: localhost` header on such probes; the repository's OpenShift deployment manifest does this.
 
 ---
 
@@ -392,9 +393,11 @@ The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed
   </Accordion>
 
   <Accordion title="Container exits with 'Refusing to start: unauthenticated HTTP transport'">
-    The server holds IBM i credentials, has no authentication configured, and is bound to `0.0.0.0`. It refuses this combination. Set `MCP_AUTH_MODE`, or set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` and publish the port with `-p 127.0.0.1:3010:3010`. See [Network Exposure and Authentication](#network-exposure-and-authentication).
+    The server holds IBM i credentials, has no authentication configured, and is bound to `0.0.0.0`. It refuses this combination. Set `MCP_AUTH_MODE=oauth`, or set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` and publish the port with `-p 127.0.0.1:3010:3010`. See [Network Exposure and Authentication](#network-exposure-and-authentication).
+  </Accordion>
 
-    `MCP_AUTH_MODE=jwt` without `MCP_AUTH_SECRET_KEY` produces the same error, with `Auth mode: jwt - MCP_AUTH_SECRET_KEY is unset` in the message.
+  <Accordion title="Container exits with 'MCP_AUTH_MODE=jwt is no longer supported'">
+    The `jwt` mode was removed. Use `MCP_AUTH_MODE=oauth` with `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`. See [OAuth Authentication](/server-config/oauth).
   </Accordion>
 
   <Accordion title="Requests return 403 Forbidden">
@@ -404,9 +407,9 @@ The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed
   </Accordion>
 
   <Accordion title="Cannot connect to IBM i from container">
-    Verify the container can reach your IBM i system:
+    Verify the container can reach your IBM i system (the image has no `nc`; use Node):
     ```bash
-    docker exec ibmi-mcp-server nc -zv your-ibmi-host 8076
+    docker exec ibmi-mcp-server node -e "require('net').connect(8076,'your-ibmi-host').on('connect',()=>{console.log('reachable');process.exit(0)}).on('error',e=>{console.error(e.message);process.exit(1)})"
     ```
     If using Docker Desktop on macOS/Windows, ensure the IBM i host is reachable from within the VM.
   </Accordion>
@@ -421,11 +424,11 @@ The image runs as a non-root user (`appuser`) for security. Port 3010 is exposed
   <Accordion title="Permission denied on mounted volumes">
     The container runs as a non-root user. Ensure mounted files are readable:
     ```bash
-    chmod -R 644 tools/
+    chmod -R a+rX tools/
     ```
     On SELinux-enabled systems (RHEL/Fedora), add the `:z` flag:
     ```bash
-    -v $(pwd)/tools:/usr/src/app/tools:ro,z
+    -v $(pwd)/tools:/app/tools:ro,z
     ```
   </Accordion>
 </AccordionGroup>

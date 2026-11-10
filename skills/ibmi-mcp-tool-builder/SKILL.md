@@ -190,8 +190,9 @@ node --env-file=.env <skill-dir>/scripts/validate-tools.mjs tools-tmp/my-tools.y
 It checks:
 
 - **Schema**: YAML parses and matches `assets/sql-tools-config.json` (required fields, types, enums, unknown keys).
-- **Bindings**: undeclared `:params`, unused parameters, `:` followed by a digit (the server rejects it, even inside a
-  literal like `'12:30'`), placeholders in a tool with no parameters, optional parameters with no default,
+- **Bindings**: undeclared `:params`, unused parameters, `:` followed by a digit in SQL code (the server rejects it
+  when the tool has parameters; inside a literal like `'12:30'` or a comment it is fine, because the server masks
+  literals, delimited identifiers and comments first), placeholders in a tool with no parameters, optional parameters with no default,
   `:param IS NULL` tests, array parameters not wrapped in `( )`.
 - **Security**: non-`SELECT/WITH/VALUES` statements that are not marked `security.readOnly: false`.
 - **References**: every tool's `source` and every toolset entry exists across all files given.

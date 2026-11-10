@@ -1,20 +1,28 @@
 ---
-title: "IBM i Authentication"
-description: "Complete guide to IBM i HTTP authentication with token-based access, RSA encryption, and per-user connection pooling."
+title: "IBM i Authentication (Deprecated)"
+description: "Deprecated IBM i HTTP token authentication: token-based access, RSA encryption, and per-user connection pooling."
 ---
 
-IBM i HTTP authentication enables secure, token-based access to the MCP server with per-user connection pooling. Clients authenticate with IBM i credentials to obtain Bearer tokens for subsequent API requests.
+<Warning>
+**Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, the `IBMI_AUTH_*` variables, the `/api/v1/auth` endpoints and per-user connection pools) will be removed in a future major release. It still works as documented here. The server logs one deprecation warning at startup, and every `/api/v1/auth` response carries a `Deprecation: true` header.
+
+Use [OAuth](/server-config/oauth) for multi-user remote deployments.
+
+**What you lose by moving to OAuth:** per-user IBM i authority. With IBM i authentication each user's SQL runs under their own IBM i profile, so object authorities and audit journals apply per user. Under OAuth every SQL statement runs as the `DB2i_USER` service account; the token only identifies the caller to the MCP server. If you depend on per-user authority, plan for that before migrating.
+</Warning>
+
+IBM i HTTP authentication gives token-based access to the MCP server with per-user connection pooling. Clients authenticate with IBM i credentials to obtain Bearer tokens for subsequent requests.
 
 <Info>
-**When to use IBM i authentication:**
-- **Multi-user environments**: Each user gets their own connection pool with their credentials
-- **Production deployments**: Token-based auth with automatic expiry and session management
-- **Enhanced security**: Credentials encrypted during transmission using RSA/AES
-- **Audit trails**: Per-user tracking of database operations
+**What IBM i authentication provides:**
+- **Per-user pools**: Each user gets their own connection pool with their credentials
+- **Token expiry**: Tokens expire and their pools are cleaned up automatically
+- **Encrypted credentials**: Credentials are encrypted in transit using RSA/AES
+- **Audit trails**: Database operations run under each user's own profile
 
-**When to use simpler auth:**
-- **Development**: Use shared `DB2i_USER`/`DB2i_PASS` credentials (no token auth needed)
-- **Single-user scenarios**: JWT or OAuth may be sufficient
+**Alternatives:**
+- **Development**: Use shared `DB2i_USER`/`DB2i_PASS` credentials with `MCP_AUTH_MODE=none` on loopback
+- **Remote deployments**: Use [OAuth](/server-config/oauth)
 </Info>
 
 ---
@@ -54,7 +62,7 @@ sequenceDiagram
 - **End-to-end encryption**: Credentials never transmitted in plain text
 - **Per-user pools**: Each token gets its own dedicated DB2 connection pool
 - **Token lifecycle**: Automatic expiry and cleanup of stale sessions
-- **Key rotation**: Support for multiple keypairs for zero-downtime rotation
+- **Single keypair**: The server loads one active keypair, identified by `IBMI_AUTH_KEY_ID`
 
 ---
 
@@ -238,7 +246,7 @@ IBM i authentication requires RSA keypairs to protect credentials during transmi
 7. **Server authenticates** against IBM i and issues an access token
 
 <Note>
-**Key Rotation**: To rotate keys, generate a new keypair with a different `IBMI_AUTH_KEY_ID`. The server can support multiple keypairs simultaneously, allowing gradual migration without service interruption.
+**Key Rotation**: To rotate keys, generate a new keypair, point the key paths at it, set a different `IBMI_AUTH_KEY_ID`, and restart the server. The server loads a single active keypair, so clients must fetch the new public key after rotation.
 </Note>
 
 ---
@@ -286,38 +294,26 @@ IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
     npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
     ```
 
-    You should see:
+    On a terminal you should see:
     ```
-    ✓ IBM i HTTP authentication enabled
-    ✓ Public key loaded from secrets/public.pem
-    ✓ Private key loaded from secrets/private.pem
-    ✓ Server ready!
-      Transport: http
-      Host: 127.0.0.1:3010
-      Endpoint: http://127.0.0.1:3010/mcp
-      Auth: IBM i HTTP (key_id: production)
+    🚀 MCP Server running at: http://127.0.0.1:3010/mcp
     ```
+
+    The log also contains `IBM i HTTP authentication endpoint enabled at /api/v1/auth` and the deprecation warning.
   </Tab>
 
   <Tab title="Build from Source">
     ```bash
-    # From the repository root
-    export MCP_SERVER_CONFIG=.env
-    cd packages/server
-    npm run start:http -- --tools ../../tools
+    # From the repository root (the root .env is loaded automatically)
+    npm run start:http -- --tools ./tools
     ```
 
-    You should see:
+    On a terminal you should see:
     ```
-    ✓ IBM i HTTP authentication enabled
-    ✓ Public key loaded from secrets/public.pem
-    ✓ Private key loaded from secrets/private.pem
-    ✓ Server ready!
-      Transport: http
-      Host: 127.0.0.1:3010
-      Endpoint: http://127.0.0.1:3010/mcp
-      Auth: IBM i HTTP (key_id: production)
+    🚀 MCP Server running at: http://127.0.0.1:3010/mcp
     ```
+
+    The log also contains `IBM i HTTP authentication endpoint enabled at /api/v1/auth` and the deprecation warning.
   </Tab>
 </Tabs>
 
@@ -625,7 +621,11 @@ Once you have a token, configure your MCP client:
     **Check:**
     ```bash
     # Verify header format
-    curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:3010/mcp
+    curl -X POST http://localhost:3010/mcp \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json, text/event-stream" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
     # Get a fresh token
     node get-access-token.js --verbose

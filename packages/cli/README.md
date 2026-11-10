@@ -118,7 +118,7 @@ ibmi tool get_table_data --schema SAMPLE --table EMPLOYEE --tools ./custom.yaml
 ibmi tool active_job_info --dry-run --tools ../../tools/performance/performance.yaml
 ```
 
-Each YAML tool's parameters become CLI flags automatically (`snake_case` → `--kebab-case`).
+Each YAML tool's parameters become CLI flags automatically (`snake_case` → `--kebab-case`). A flag the tool does not define, a flag missing its value, or a value of the wrong type is rejected with exit code `2` (usage error) before any connection is made.
 
 | Option | Description |
 |--------|-------------|
@@ -244,6 +244,8 @@ systems:
 ```
 
 `${VAR}` references are expanded from environment variables at load time.
+
+The CLI writes the user config file `~/.ibmi/config.yaml` with mode `0600` (owner read/write only), because it can hold plaintext passwords.
 
 ### System Resolution Order
 
@@ -391,7 +393,8 @@ ibmi sql "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS = 'RUN'"
 
 ```
 packages/cli/src/
-├── index.ts                   # Program setup, global options, command registration
+├── index.ts                   # Executable entry point (the `ibmi` bin): parses argv
+├── program.ts                 # Program setup, global options, command registration
 ├── commands/
 │   ├── sql.ts                 # ibmi sql — direct SQL execution (+ multi-system)
 │   ├── describe.ts            # ibmi describe — DDL generation

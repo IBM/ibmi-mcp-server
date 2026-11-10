@@ -63,9 +63,10 @@ Unknown keys are schema errors (`additionalProperties: false`).
 
 ### Binding behavior (verified against the server)
 
-- Placeholders are found with `/:(\w+)/g` on the **raw** statement, string literals included.
-  `':'` followed by a digit anywhere (e.g. `'12:30'`, `'::1'`) is rejected when the tool has parameters.
-  Use `TIME('12.30.00')` or pass the value as a parameter.
+- The server masks string literals, delimited identifiers (`"..."`) and comments, then finds placeholders
+  with `/:(\w+)/g` in the remaining SQL code. A `:` followed by a digit inside a literal (e.g. `'12:30'`,
+  `'::1'`) is fine. A `:` followed by a digit in SQL code is rejected when the tool has parameters, as is an
+  unterminated quote.
 - A tool with **no** `parameters` sends its SQL unchanged. Any `:name` left in it is a SQL error.
 - An omitted optional parameter with no default binds as `''` for **every** type, never `NULL`.
   `:x IS NULL` therefore never matches, and `''` into a numeric comparison fails at runtime.
