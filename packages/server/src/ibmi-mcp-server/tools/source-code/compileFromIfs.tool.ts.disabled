@@ -1,0 +1,191 @@
+/**
+ * Compile from IFS Tool
+ *
+ * Compiles IBM i source code from IFS stream file using SRCSTMF parameter.
+ * Works with source written via write_source_to_ifs tool.
+ *
+ * @module compileFromIfs.tool
+ */
+
+import { z } from "zod";
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import { JsonRpcErrorCode, McpError } from "../../../types-global/errors.js";
+import type { RequestContext } from "../../../utils/index.js";
+import { logger } from "../../../utils/internal/logger.js";
+import { IBMiConnectionPool } from "../../services/connectionPool.js";
+import { defineTool } from "../../../mcp-server/tools/utils/tool-factory.js";
+import type { SdkContext } from "../../../mcp-server/tools/utils/types.js";
+
+// =============================================================================
+// Schemas
+// =============================================================================
+
+const CompileFromIfsInputSchema = z.object({
+  library: z
+    .string()
+    .min(1, "Library name cannot be empty.")
+    .max(10, "Library name cannot exceed 10 characters.")
+    .describe("Target library for compiled object"),
+  object_name: z
+    .string()
+    .min(1, "Object name cannot be empty.")
+    .max(10, "Object name cannot exceed 10 characters.")
+    .describe("Name of the compiled object (program/module)"),
+  ifs_path: z
+    .string()
+    .min(1, "IFS path cannot be empty.")
+    .describe("IFS path to the source file (e.g., '/home/user/src/MYPROG.sqlrpgle')"),
+  compile_type: z
+    .enum(["SQLRPGLE", "RPGLE", "CLLE", "CBLLE"])
+    .describe("Type of compilation"),
+  setup_program: z
+    .string()
+    .optional()
+    .default("DB")
+    .describe("Library setup program to call before compilation (default: 'DB')"),
+});
+
+const CompileFromIfsOutputSchema = z.object({
+  success: z.boolean().describe("Whether compilation was successful."),
+  library: z.string().optional(),
+  objectName: z.string().optional(),
+  ifsPath: z.string().optional(),
+  executionTime: z.number().optional().describe("Execution time in milliseconds"),
+  message: z.string().optional(),
+  error: z
+    .object({
+      code: z.string().describe("Error code"),
+      message: z.string().describe("Error message"),
+      details: z.record(z.unknown()).optional().describe("Error details"),
+    })
+    .optional()
+    .describe("Error information if compilation failed."),
+});
+
+type CompileFromIfsInput = z.infer<typeof CompileFromIfsInputSchema>;
+type CompileFromIfsOutput = z.infer<typeof CompileFromIfsOutputSchema>;
+
+// =============================================================================
+// Business Logic
+// =============================================================================
+
+export async function compileFromIfsLogic(
+  params: CompileFromIfsInput,
+  appContext: RequestContext,
+  _sdkContext: SdkContext,
+): Promise<CompileFromIfsOutput> {
+  logger.debug(
+    { ...appContext, toolInput: params },
+    "Processing compile from IFS logic."
+  );
+
+  const startTime = Date.now();
+  const { library, object_name, ifs_path, compile_type, setup_program } = params;
+
+  const pool = IBMiConnectionPool.getInstance();
+  const job = await pool.getJob();
+
+  try {
+    // Determine compile command based on type
+    let compileCmd = "";
+    switch (compile_type) {
+      case "SQLRPGLE":
+        compileCmd = `CRTSQLRPGI OBJ(${library}/${object_name}) SRCSTMF('${ifs_path}') COMMIT(*NONE) DBGVIEW(*SOURCE)`;
+        break;
+      case "RPGLE":
+        compileCmd = `CRTBNDRPG PGM(${library}/${object_name}) SRCSTMF('${ifs_path}') DBGVIEW(*SOURCE)`;
+        break;
+      case "CLLE":
+        compileCmd = `CRTBNDCL PGM(${library}/${object_name}) SRCSTMF('${ifs_path}') DBGVIEW(*SOURCE)`;
+        break;
+      case "CBLLE":
+        compileCmd = `CRTBNDCBL PGM(${library}/${object_name}) SRCSTMF('${ifs_path}') DBGVIEW(*SOURCE)`;
+        break;
+      default:
+        throw new McpError(
+          JsonRpcErrorCode.InvalidParams,
+          `Unsupported compile type: ${compile_type}`
+        );
+    }
+
+    logger.info(
+      { ...appContext, library, objectName: object_name, ifsPath: ifs_path, compileType: compile_type },
+      "Compiling from IFS stream file"
+    );
+
+    // Build CL program that calls setup, then compiles
+    const clSource = `
+      PGM
+        CALL PGM(${library}/${setup_program})
+        MONMSG MSGID(CPF0000)
+        ${compileCmd}
+      ENDPGM
+    `;
+
+    // Create temp CL in QTEMP
+    const tempMember = `CMP${Date.now().toString().substring(7)}`;
+    
+    // Create CL source file if needed
+    try {
+      await job.query(`CREATE TABLE QTEMP.QCLSRC LIKE QSYS.QCLSRC`, {});
+    } catch (e) {
+      // Already exists, ignore
+    }
+
+    // Write CL source
+    await job.query(
+      `INSERT INTO QTEMP.QCLSRC (SRCSEQ, SRCDAT, SRCDTA) VALUES (?, ?, ?)`,
+      { parameters: [1.00, 0, clSource] }
+    );
+
+    // Create and call the CL program
+    await job.query(`CALL QSYS2.QCMDEXC('CRTBNDCL PGM(QTEMP/${tempMember}) SRCFILE(QTEMP/QCLSRC)')`);
+    await job.query(`CALL QSYS2.QCMDEXC('CALL PGM(QTEMP/${tempMember})')`);
+
+    const executionTime = Date.now() - startTime;
+
+    logger.info(
+      { ...appContext, library, objectName: object_name, executionTime },
+      "Successfully compiled from IFS"
+    );
+
+    return {
+      success: true,
+      library,
+      objectName: object_name,
+      ifsPath: ifs_path,
+      executionTime,
+      message: `Program ${object_name} compiled successfully from ${ifs_path}`,
+    };
+  } catch (error) {
+    const executionTime = Date.now() - startTime;
+    logger.error(
+      { ...appContext, error, library, objectName: object_name, executionTime },
+      "Failed to compile from IFS"
+    );
+
+    throw new McpError(
+      JsonRpcErrorCode.InternalError,
+      `Compilation failed: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        library,
+        objectName: object_name,
+        ifsPath: ifs_path,
+        error: String(error),
+      }
+    );
+  } finally {
+    await pool.returnJob(job);
+  }
+}
+
+// =============================================================================
+// Tool Registration
+// =============================================================================
+
+export const compileFromIfsTool = defineTool({
+  name: "compile_from_ifs",
+  description: `Compile IBM i source code from IFS stream file with library setup. Calls the setup program (default: DB) to configure the library list, then compiles using SRCSTMF parameter. This is the modern approach for IBM i development.`,
+  inputSchema: CompileFromIfsInputSchema,
+  logic: compileFromIfsLogic,
+});
