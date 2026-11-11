@@ -58,6 +58,8 @@ const WRONG_PASSWORD = "wrong-Pw-000";
 /** Every character a form has to encode, in a shape that can sign on. */
 const SPECIAL_PASSWORD = "p+w &=/?#'<>~1";
 const FORM = "application/x-www-form-urlencoded";
+const LOOPBACK_NOTE =
+  "If your browser then shows a page that can't be reached, don't share its address.";
 const PROFILE_ROW = {
   STATUS: "*ENABLED",
   PASSWORD_CHANGE_DATE: "2026-01-01 00:00:00.000000",
@@ -575,20 +577,12 @@ describe("GET /oauth/authorize", () => {
 
   it("shows the system, the client as unverified, the destination and the warnings", async () => {
     const { html } = await signInPage();
-    expect(html).toContain("<h1>Sign on to IBM i system IBMI.EXAMPLE</h1>");
+    expect(html).toContain("<h1>Sign on to IBM i</h1>");
+    expect(html).toContain('<p class="system">IBMI.EXAMPLE</p>');
     expect(html).toContain(
-      "an application that calls itself &quot;https://client.example/oauth/metadata.json&quot; (not verified)",
+      "&quot;https://client.example/oauth/metadata.json&quot; (not verified) will run SQL as you, then return to <strong>http://127.0.0.1:33418/callback</strong>. Sign on only if you started this from that application.",
     );
-    expect(html).toContain(
-      '<p class="destination"><strong>http://127.0.0.1:33418/callback</strong></p>',
-    );
-    expect(html).toContain("This is a loopback address");
-    expect(html).toMatch(
-      /After you sign on, an application .* \(not verified\) at http:\/\/127\.0\.0\.1:33418\/callback will be able to run SQL as your user profile on IBMI\.EXAMPLE\. Continue only if you started this from that application yourself\./,
-    );
-    expect(html).toContain(
-      "After signing on you may see a page that cannot be reached. Never send that page's address to anyone.",
-    );
+    expect(html).toContain(LOOPBACK_NOTE);
     expect(messageOf(html)).toBeUndefined();
   });
 
@@ -606,7 +600,6 @@ describe("GET /oauth/authorize", () => {
     expect(password).toContain('name="password"');
     expect(password).toContain('type="password"');
     expect(password).toContain('autocomplete="current-password"');
-    expect(html).toContain("Type national characters as # and $.");
   });
 
   it("names a registered client by the name it gave, and says when it gave none", async () => {
@@ -616,12 +609,12 @@ describe("GET /oauth/authorize", () => {
     });
     const { html } = await signInPage({ client_id: named.client_id });
     expect(html).toContain(
-      "an application that calls itself &quot;Example Tool&quot; (not verified)",
+      "&quot;Example Tool&quot; (not verified) will run SQL as you",
     );
     const unnamed = await register({ redirect_uris: [REDIRECT] });
     const page = await signInPage({ client_id: unnamed.client_id });
     expect(page.html).toContain(
-      "an application that gave no name (not verified)",
+      "An application that gave no name will run SQL as you",
     );
   });
 
@@ -629,7 +622,7 @@ describe("GET /oauth/authorize", () => {
     config.oauth.redirectUris = [HTTPS_REDIRECT];
     const { html } = await signInPage({ redirect_uri: HTTPS_REDIRECT });
     expect(html).toContain("<strong>https://vscode.dev/redirect</strong>");
-    expect(html).not.toContain("loopback");
+    expect(html).not.toContain(LOOPBACK_NOTE);
   });
 
   it.each([
@@ -2152,7 +2145,7 @@ describe("markup in request values", () => {
     const { html } = await signInPage({ client_id: client.client_id });
     expect(html).not.toMatch(/<script|<img/);
     expect(html).toContain(
-      "calls itself &quot;&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&#39;&lt;img src=x onerror=alert(1)&gt;&quot; (not verified)",
+      "&quot;&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&#39;&lt;img src=x onerror=alert(1)&gt;&quot; (not verified)",
     );
   });
 
@@ -2163,10 +2156,7 @@ describe("markup in request values", () => {
     expect(html).toContain(
       "<title>Sign on to &lt;b&gt;&amp;&quot;&#39;</title>",
     );
-    expect(html).toContain(
-      "<h1>Sign on to IBM i system &lt;b&gt;&amp;&quot;&#39;</h1>",
-    );
-    expect(html).toContain("on &lt;b&gt;&amp;&quot;&#39;. Continue only");
+    expect(html).toContain('<p class="system">&lt;b&gt;&amp;&quot;&#39;</p>');
     expect(html).not.toContain("<b>");
   });
 
