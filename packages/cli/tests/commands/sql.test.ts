@@ -274,9 +274,10 @@ describe("ibmi sql command", () => {
   });
 
   describe("applyRowLimit", () => {
-    it("appends FETCH FIRST to SELECT statements", () => {
+    it("appends FETCH FIRST limit+1 to SELECT statements", () => {
+      // The extra row lets limitRows report that the limit cut the result.
       expect(applyRowLimit("SELECT * FROM QSYS2.SYSTABLES;", 10)).toBe(
-        "SELECT * FROM QSYS2.SYSTABLES FETCH FIRST 10 ROWS ONLY",
+        "SELECT * FROM QSYS2.SYSTABLES FETCH FIRST 11 ROWS ONLY",
       );
     });
 
@@ -286,9 +287,9 @@ describe("ibmi sql command", () => {
           "WITH t AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) SELECT * FROM t",
           5,
         ),
-      ).toMatch(/ FETCH FIRST 5 ROWS ONLY$/);
+      ).toMatch(/ FETCH FIRST 6 ROWS ONLY$/);
       expect(applyRowLimit("VALUES 1", 5)).toBe(
-        "VALUES 1 FETCH FIRST 5 ROWS ONLY",
+        "VALUES 1 FETCH FIRST 6 ROWS ONLY",
       );
     });
 
@@ -336,7 +337,7 @@ describe("ibmi sql command", () => {
 
     it("still limits a statement whose identifiers merely contain those words", () => {
       expect(applyRowLimit("SELECT CREDIT_LIMIT, FORMAT FROM T", 5)).toBe(
-        "SELECT CREDIT_LIMIT, FORMAT FROM T FETCH FIRST 5 ROWS ONLY",
+        "SELECT CREDIT_LIMIT, FORMAT FROM T FETCH FIRST 6 ROWS ONLY",
       );
     });
   });

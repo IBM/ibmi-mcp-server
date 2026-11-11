@@ -73,6 +73,60 @@ describe("ibmi sql — single system execution", () => {
     process.exitCode = undefined;
   });
 
+  it("should report hasMore when the appended FETCH FIRST cut the result", async () => {
+    // The server honours FETCH FIRST 3: one row more than the limit exists.
+    executeSql.mockResolvedValue({
+      success: true,
+      data: [{ N: 1 }, { N: 2 }, { N: 3 }],
+      rowCount: 3,
+    });
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node",
+      "ibmi",
+      "--format",
+      "json",
+      "sql",
+      "SELECT N FROM T",
+      "--limit",
+      "2",
+    ]);
+
+    expect(executeSql.mock.calls[0]?.[0]).toEqual({
+      sql: "SELECT N FROM T FETCH FIRST 3 ROWS ONLY",
+    });
+    const parsed = JSON.parse(stdoutOutput);
+    expect(parsed.data).toEqual([{ N: 1 }, { N: 2 }]);
+    expect(parsed.meta).toMatchObject({ rows: 2, hasMore: true });
+  });
+
+  it("should not report hasMore when the result fits the limit", async () => {
+    executeSql.mockResolvedValue({
+      success: true,
+      data: [{ N: 1 }, { N: 2 }],
+      rowCount: 2,
+    });
+
+    const program = createProgram();
+    program.exitOverride();
+    await program.parseAsync([
+      "node",
+      "ibmi",
+      "--format",
+      "json",
+      "sql",
+      "SELECT N FROM T",
+      "--limit",
+      "2",
+    ]);
+
+    const parsed = JSON.parse(stdoutOutput);
+    expect(parsed.data).toEqual([{ N: 1 }, { N: 2 }]);
+    expect(parsed.meta).toMatchObject({ rows: 2, hasMore: false });
+  });
+
   it("should enforce --limit on the fetched rows when the SQL cannot take FETCH FIRST", async () => {
     executeSql.mockResolvedValue({
       success: true,

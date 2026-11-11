@@ -136,7 +136,7 @@ describe("ibmi sql — multiple systems", () => {
     expect(mgr.executeQueryWithPagination).toHaveBeenCalledTimes(2);
     expect(mgr.executeQueryWithPagination.mock.calls[0]?.slice(0, 2)).toEqual([
       "dev",
-      "SELECT EMPNO FROM SAMPLE.EMPLOYEE FETCH FIRST 500 ROWS ONLY",
+      "SELECT EMPNO FROM SAMPLE.EMPLOYEE FETCH FIRST 501 ROWS ONLY",
     ]);
     expect(stdoutOutput).toBe("SYSTEM,EMPNO\ndev,100\nprod,100\n");
   });

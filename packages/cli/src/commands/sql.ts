@@ -77,8 +77,9 @@ const NO_FETCH_APPEND =
   /--|\/\*|\b(FETCH\s+(FIRST|NEXT)|LIMIT|OFFSET|FOR\s+(READ|FETCH)\s+ONLY|FOR\s+UPDATE|OPTIMIZE\s+FOR|WITH\s+(UR|CS|RS|RR|NC)|SKIP\s+LOCKED\s+DATA|USE\s+CURRENTLY\s+COMMITTED|WAIT\s+FOR\s+OUTCOME)\b/i;
 
 /**
- * Append FETCH FIRST N ROWS ONLY to a query when that is safe (see
- * {@link NO_FETCH_APPEND}); otherwise return the statement unchanged.
+ * Append FETCH FIRST N+1 ROWS ONLY to a query when that is safe (see
+ * {@link NO_FETCH_APPEND}); otherwise return the statement unchanged. The
+ * one extra row tells {@link limitRows} that the limit cut the result.
  * Non-query statements (CALL, INSERT, DDL, ...) do not accept a fetch clause
  * and are passed through unchanged (#173).
  */
@@ -91,14 +92,15 @@ export function applyRowLimit(
     /^\s*(SELECT|WITH|VALUES)\b/i.test(sql) &&
     !NO_FETCH_APPEND.test(sql)
   ) {
-    return `${sql.replace(/;\s*$/, "")} FETCH FIRST ${maxRows} ROWS ONLY`;
+    return `${sql.replace(/;\s*$/, "")} FETCH FIRST ${maxRows + 1} ROWS ONLY`;
   }
   return sql;
 }
 
 /**
- * Enforce the row limit on fetched rows, for statements whose text
- * {@link applyRowLimit} left alone. `limited` is true when rows were dropped.
+ * Enforce the row limit on fetched rows: drops the extra row
+ * {@link applyRowLimit} asked for, and the rows beyond the limit of a
+ * statement it left alone. `limited` is true when rows were dropped.
  */
 export function limitRows(
   rows: Record<string, unknown>[],
