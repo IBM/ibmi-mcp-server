@@ -694,11 +694,15 @@ describe("built-in IBM i sign-on, end to end", () => {
 
     expect(auditEvents()).toEqual([
       "signon_ok",
+      // The exchange with the wrong verifier.
+      "oauth_error",
       "code_exchanged",
       "connection_closed",
       "token_refreshed",
       "reconnect_ok",
       "grant_ended",
+      // The refused refresh after the revocation.
+      "oauth_error",
     ]);
     expectNoSecretLogged();
   });

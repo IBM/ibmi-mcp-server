@@ -678,6 +678,13 @@ function oauthError(
   description: string,
   headers: Record<string, string> = {},
 ): Response {
+  // The error code and the fixed description only: never a field's value.
+  audit("oauth_error", {
+    path: c.req.path,
+    status,
+    error,
+    errorDescription: description,
+  });
   return c.json({ error, error_description: description }, status, {
     "Cache-Control": "no-store",
     ...headers,

@@ -1705,6 +1705,15 @@ describe("POST /oauth/token", () => {
     });
   });
 
+  it("logs why it refused, without the presented value", async () => {
+    const presented = "B".repeat(43);
+    await exchange(presented);
+    const refusal = lines.find((line) => line.includes('"oauth_error"'));
+    expect(refusal).toContain('"path":"/oauth/token"');
+    expect(refusal).toContain('"error":"invalid_grant"');
+    expect(lines.join("\n")).not.toContain(presented);
+  });
+
   it("ends the sign-on when its code is presented a second time", async () => {
     const { code } = await signOnCode();
     const tokens = await tokensOf(await exchange(code));

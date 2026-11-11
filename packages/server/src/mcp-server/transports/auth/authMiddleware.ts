@@ -33,8 +33,19 @@ export function createAuthMiddleware(
     }
     if (authInfo instanceof Response) {
       onRefused?.(c);
-      logger.debug(
-        { ...context, status: authInfo.status },
+      // Why, from the challenge: an error code and a fixed description. A
+      // request without credentials has neither, which is the normal first
+      // step of a client's discovery.
+      const challenge = authInfo.headers.get("www-authenticate") ?? "";
+      logger.info(
+        {
+          ...context,
+          status: authInfo.status,
+          error: /\berror="([^"]*)"/.exec(challenge)?.[1],
+          errorDescription: /\berror_description="([^"]*)"/.exec(
+            challenge,
+          )?.[1],
+        },
         "Request refused by authentication.",
       );
       return authInfo;
