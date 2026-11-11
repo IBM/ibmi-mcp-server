@@ -39,6 +39,7 @@
                   "server-config/oauth",
                   "server-config/oauth-ibmi-signon",
                   "server-config/oauth-provider",
+                  "server-config/oauth-security",
                   "server-config/oauth-reference",
                   "server-config/oauth-troubleshooting"
                 ]

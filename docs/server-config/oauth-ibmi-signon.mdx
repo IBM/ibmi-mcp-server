@@ -3,144 +3,173 @@ title: "Set Up IBM i Sign-On"
 description: "People sign in with their IBM i user profile, and every tool runs SQL as them."
 ---
 
-At the end of this page, people connect their MCP client to the server, sign in with their IBM i user profile in the browser, and every tool runs its SQL as that profile. The server holds no service account password.
+Let's set up the MCP server so that people sign in with their own IBM i profile and every tool runs its SQL as them. We'll do it in two parts:
+
+1. Run it on your own machine and sign in yourself.
+2. Open it to your team.
+
+In this example the IBM i is `ibmi.example.com` and you sign in as `ANA`. Replace both with your own.
 
 ## What you need
 
 - A machine to run the server: Linux, macOS or Windows with Node.js 22.17 or later. Start with your own computer.
-- [Mapepire](/setup-mapepire) running on the IBM i, reachable from that machine (port `8076` by default).
-- An IBM i user profile to test with, without `*ALLOBJ` or `*SECADM` special authority (those are refused by default). Each profile must be able to read its own row in `QSYS2.USER_INFO_BASIC`; the server uses it to spot privileged profiles.
+- [Mapepire](/setup-mapepire) running on the IBM i, reachable from that machine on port `8076`.
+- An IBM i user profile that doesn't start with `Q` and doesn't have `*ALLOBJ` or `*SECADM` special authority. Those are refused by default. The profile must be able to read its own row in `QSYS2.USER_INFO_BASIC`, which is how the server checks.
 - An AI assistant that can sign in to MCP servers, such as Claude Code, VS Code or Cursor.
 
-## Try it on your machine
+## Part 1: Run it on your machine
 
-The server only listens on `127.0.0.1` by default, so no HTTPS is needed yet.
+The server listens only on `127.0.0.1` by default, so you don't need HTTPS yet.
 
-<Steps>
-  <Step title="Save Mapepire's certificate">
-    The server checks this certificate before it sends anyone's password to Mapepire.
+### Save Mapepire's certificate
 
-    ```bash
-    openssl s_client -connect ibmi.example.com:8076 </dev/null 2>/dev/null \
-      | openssl x509 > mapepire.crt
-    ```
-
-    Replace `ibmi.example.com` with your IBM i. If the certificate has expired, the server refuses it. On a test system you can skip the check instead: leave out `DB2i_SERVER_CERT_FILE` in the next step and set `DB2i_IGNORE_UNAUTHORIZED=true`.
-  </Step>
-
-  <Step title="Create a .env file">
-    In the same folder, create `.env`:
-
-    ```bash
-    MCP_TRANSPORT_TYPE=http
-    MCP_AUTH_MODE=oauth
-    MCP_RESOURCE_URL=http://127.0.0.1:3010/mcp
-    DB2i_HOST=ibmi.example.com
-    DB2i_SERVER_CERT_FILE=/full/path/to/mapepire.crt
-    ```
-
-    Don't set `DB2i_USER` or `DB2i_PASS`. People bring their own profile, and the server refuses to start when `DB2i_PASS` is set.
-  </Step>
-
-  <Step title="Start the server">
-    From the same folder:
-
-    ```bash
-    npx -y @ibm/ibmi-mcp-server@latest
-    ```
-
-    The log shows `Built-in OAuth authorization server enabled.`
-  </Step>
-
-  <Step title="Connect your assistant and sign in">
-    In Claude Code:
-
-    ```bash
-    claude mcp add -t http ibmi http://127.0.0.1:3010/mcp
-    ```
-
-    Run `/mcp`, choose `ibmi`, and authenticate. A browser opens the sign-in page. Sign in with your IBM i user profile and password. For other assistants, see [MCP Clients](/clients/overview).
-  </Step>
-
-  <Step title="Check it works">
-    Ask the assistant to list the schemas on the system. Then:
-
-    ```bash
-    curl -s http://127.0.0.1:3010/healthz
-    ```
-
-    The answer includes `"signOn":{"grants":1,"openConnections":1,…}`: one person is signed in and has one IBM i connection.
-  </Step>
-</Steps>
-
-## Run it for your team
-
-Move the server to a machine your colleagues can reach, and make these changes to the `.env` from above.
-
-**1. Serve over HTTPS.** People type their IBM i password into the sign-in page, so the server only accepts it over HTTPS. Do one of:
-
-- Give the server its own certificate, issued by your organization's CA for the host name people will use:
-
-  ```bash
-  MCP_HTTP_HOST=0.0.0.0
-  MCP_TLS_CERT_FILE=/etc/ibmi-mcp/server.crt
-  MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key
-  ```
-
-- Or put a reverse proxy that handles HTTPS (nginx, Caddy, …) on the same machine. Keep `MCP_HTTP_HOST` at its default `127.0.0.1`, set `MCP_TRUSTED_PROXIES=127.0.0.1`, and have the proxy set the `X-Forwarded-For` header and forward `/mcp`, `/oauth/*` and `/.well-known/*` unchanged. A proxy on another machine must connect to the server over HTTPS: set the server's own certificate as well, and list the proxy's address in `MCP_TRUSTED_PROXIES`. [OpenShift](/deployment/openshift#built-in-ibm-i-sign-on) shows an example.
-
-**2. Set the public URL** that people will add to their assistant. With the server's own certificate, keep the port (`3010` unless you set `MCP_HTTP_PORT`). Behind a proxy, use the proxy's address.
+The server checks Mapepire's certificate before it sends anyone's password. Save it to a file:
 
 ```bash
+openssl s_client -connect ibmi.example.com:8076 </dev/null 2>/dev/null \
+  | openssl x509 > mapepire.crt
+```
+
+You now have `mapepire.crt` in the current folder.
+
+<Tip>
+On a test system whose certificate has expired, skip this step. In the next step, replace the `DB2i_SERVER_CERT_FILE` line with `DB2i_IGNORE_UNAUTHORIZED=true`.
+</Tip>
+
+### Configure the server
+
+Create `.env` in the same folder:
+
+```bash .env
+MCP_TRANSPORT_TYPE=http
+MCP_AUTH_MODE=oauth
+MCP_RESOURCE_URL=http://127.0.0.1:3010/mcp
+DB2i_HOST=ibmi.example.com
+DB2i_SERVER_CERT_FILE=/full/path/to/mapepire.crt
+```
+
+There is no `DB2i_USER` or `DB2i_PASS`: people bring their own profile. The server refuses to start if `DB2i_PASS` is set.
+
+### Start the server
+
+From the same folder:
+
+```bash
+npx -y @ibm/ibmi-mcp-server@latest
+```
+
+The log shows `Built-in OAuth authorization server enabled.` The server is now running at `http://127.0.0.1:3010/mcp`.
+
+### Connect your assistant
+
+In Claude Code:
+
+```bash
+claude mcp add -t http ibmi http://127.0.0.1:3010/mcp
+```
+
+Run `/mcp`, choose `ibmi` and authenticate. Your browser opens the server's sign-in page. Sign in as `ANA` with your IBM i password. For other assistants, see [MCP Clients](/clients/overview).
+
+### Check it works
+
+Ask the assistant: "List the schemas on the IBM i." It answers with the schemas `ANA` can see.
+
+The health endpoint confirms the sign-in:
+
+```bash
+curl -s http://127.0.0.1:3010/healthz
+```
+
+The answer includes `"signOn":{"grants":1,"openConnections":1,…}`: one person signed in, with one IBM i connection.
+
+## Part 2: Open it to your team
+
+Move the server to a machine your colleagues can reach. In this example, that's `mcp.example.com`. Then make these changes to `.env`.
+
+### Serve over HTTPS
+
+People type their IBM i password into the sign-in page, so the server only accepts it over HTTPS. Give the server a certificate for `mcp.example.com`, issued by your company's CA or by Let's Encrypt:
+
+```bash .env
+MCP_HTTP_HOST=0.0.0.0
+MCP_TLS_CERT_FILE=/etc/ibmi-mcp/server.crt
+MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key
+```
+
+The server now listens with HTTPS on port `3010` on every network interface. Open that port in the machine's firewall.
+
+To put a reverse proxy (nginx, Caddy, …) in front instead, see [Behind a reverse proxy](/server-config/oauth-reference#behind-a-reverse-proxy).
+
+### Set the public URL
+
+This is the URL your colleagues add to their assistant:
+
+```bash .env
 MCP_RESOURCE_URL=https://mcp.example.com:3010/mcp
 MCP_ALLOWED_HOSTS=mcp.example.com
 ```
 
-**3. Pin a certificate you exported on the IBM i.** A certificate fetched over the network, as in the first step, could come from someone in between. On the IBM i, in a PASE shell (SSH or `QSH`), export it from Mapepire's keystore:
+`MCP_ALLOWED_HOSTS` takes the host name alone, without the port.
+
+### Pin a certificate exported on the IBM i
+
+The certificate you saved in Part 1 came over the network, so someone in between could have swapped it. On the IBM i, in a PASE shell, export the real one from Mapepire's keystore:
 
 ```bash
 keytool -exportcert -rfc -alias mapepire \
   -keystore /QOpenSys/etc/mapepire/cert/server.jks -file mapepire.crt
 ```
 
-That is the keystore of a [custom certificate](/setup-mapepire). If Mapepire generated its own certificate, its keystore is in the `.mapepire` directory of the profile Mapepire runs under. Copy `mapepire.crt` to the server and point `DB2i_SERVER_CERT_FILE` at it. If your organization's CA issued the certificate, set `DB2i_CA_FILE` to the CA instead. Remove `DB2i_IGNORE_UNAUTHORIZED` if you set it.
+`keytool` asks for the keystore password (`mapepire`, unless it was changed). Copy `mapepire.crt` to the server and point `DB2i_SERVER_CERT_FILE` at it. If you used `DB2i_IGNORE_UNAUTHORIZED=true`, remove it.
 
-**4. Turn on the admin socket**, so you can unblock profiles and sign people out. The folder must exist and be writable by the server:
+That keystore path is for a [custom Mapepire certificate](/setup-mapepire). If Mapepire uses the self-signed certificate it generated itself, its keystore is in the `.mapepire` directory of the profile Mapepire runs under. If your company's CA issued the certificate, set `DB2i_CA_FILE` to the CA instead of pinning.
 
-```bash
+### Turn on the admin socket
+
+The admin socket lets you unblock profiles and sign people out. Choose a path in a folder the server can write to:
+
+```bash .env
 OAUTH_ADMIN_SOCKET=/var/run/ibmi-mcp/admin.sock
 ```
 
-**5. Lock down Mapepire on the IBM i.** While someone is connected, Mapepire keeps their password in its job's memory. So:
+### Keep it running
 
-- Run Mapepire under its own user profile that nobody signs on as.
-- Exclude `*PUBLIC` from that profile's home and `.mapepire` directories, and change the keystore passwords from the default.
-- Limit who can dump Mapepire's JVM: remove `*PUBLIC` from `GENJVMDMP` and `QSYS2.SET_JVM`, and review who holds `*JOBCTL`.
-- Run mapepire-server 2.3.2 or later with default trace levels, and without the `-Dcodeserver.jdbc.autoconnect=true` startup option.
-- Check `QMAXSIGN`. The server blocks a profile after 2 wrong passwords (`OAUTH_SIGNON_MAX_FAILURES`). Lower it to `1` if 2 is too close to your `QMAXSIGN`.
+Run the server as a service, so it starts with the machine and restarts if it stops: a systemd unit that runs `npx -y @ibm/ibmi-mcp-server@latest` in this folder, or a [Docker container](/deployment/docker#built-in-ibm-i-sign-on). Run one instance only.
 
-**6. On the server machine**, run the server under its own OS user as a service (systemd, a container, …), turn off core dumps for it (`LimitCORE=0` in systemd, `ulimit -c 0` in a shell), and run one instance only: sign-ins are kept in memory and aren't shared between instances.
+### Lock it down
 
-Then send your colleagues the URL from step 2 and the [client guide](/clients/overview) for their assistant.
+Work through the [hardening checklist](/server-config/oauth-security#hardening-checklist) before your colleagues sign in.
+
+<Warning>
+While someone is connected, Mapepire keeps their password in its job's memory on the IBM i. The checklist limits who can read it.
+</Warning>
+
+### Invite your colleagues
+
+Send them `https://mcp.example.com:3010/mcp` and the [client guide](/clients/overview) for their assistant. Each of them signs in with their own profile.
 
 ## Good to know
 
-- **Sign-ins last up to 12 hours** (`OAUTH_GRANT_MAX_HOURS`). Restarting the server signs everyone out.
-- **Idle connections close after 10 minutes** (`OAUTH_IDLE_CLOSE_MINUTES`). The assistant reconnects on its next request without asking the person to sign in again. If an assistant sends people back to the sign-in page after every break, raise this value.
-- **Some passwords can't be used**, for example ones that contain `:` or `%` or start with `*`. The sign-in page names the rule, and nothing is sent to the IBM i. The person changes the password at a 5250 session. [Full list](/server-config/oauth-reference#sign-on-blocking).
-- **Two wrong passwords block the profile on this server**, not on the IBM i. The person signs on once at a 5250 session to reset the IBM i's count, then you unblock the profile. Without the admin socket (step 4 above), restart the server instead. With it, run this from the server's folder, so it reads the same `.env`:
+- **Sign-ins last up to 12 hours.** Restarting the server signs everyone out.
+- **Idle connections close after 10 minutes.** The assistant reconnects on its next request without asking the person to sign in again.
+- **Some passwords can't be used**, for example ones that contain `:` or `%` or start with `*`. The sign-in page names the rule, and the person changes the password at a 5250 session.
+- **Two wrong passwords block the profile on this server**, not on the IBM i. The person signs on once at a 5250 session, then you unblock the profile from the server's folder:
 
   ```bash
-  npx -y @ibm/ibmi-mcp-server@latest --admin "unblock MYUSER"
+  npx -y @ibm/ibmi-mcp-server@latest --admin "unblock ANA"
   ```
 
-- **One statement at a time per person.** Parallel tool calls from one assistant wait in line.
-- **Your own SQL tool files** (loaded with `--tools`) run as the signed-in person. Their sources' `user` and `password` are ignored. See [YAML tools](/server-config/oauth-reference#yaml-tools).
-- **Desktop assistants need nothing extra.** A web-based assistant whose sign-in returns to the vendor's website needs that address in `OAUTH_REDIRECT_URIS`.
-- **Not supported:** multi-factor sign-on, unattended agents (use [your identity provider](/server-config/oauth-provider) for those), and more than one IBM i per server.
+  Without the admin socket, restart the server instead.
+- **Your own SQL tool files** (loaded with `--tools`) also run as the signed-in person. See [YAML tools](/server-config/oauth-reference#yaml-tools).
+- **Not supported:** multi-factor sign-on, unattended agents ([use your identity provider](/server-config/oauth-provider) for those), and more than one IBM i per server.
 
 ## Next steps
 
-- [Settings reference](/server-config/oauth-reference)
-- [Troubleshooting](/server-config/oauth-troubleshooting)
-- [Docker](/deployment/docker#built-in-ibm-i-sign-on) and [OpenShift](/deployment/openshift#built-in-ibm-i-sign-on) deployments
+<CardGroup cols={2}>
+  <Card title="Security" icon="shield-check" href="/server-config/oauth-security">
+    What is protected, and the hardening checklist.
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/server-config/oauth-troubleshooting">
+    Startup errors and sign-in problems.
+  </Card>
+</CardGroup>

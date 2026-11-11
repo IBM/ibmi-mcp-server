@@ -1,6 +1,6 @@
 # Built-in IBM i sign-on: security design notes
 
-For maintainers and security reviewers. Operators read `docs/server-config/oauth-ibmi-signon.mdx` (setup) and `docs/server-config/oauth-reference.mdx` (settings). This file keeps the detail behind them: what is stored where, what an attacker needs, what the design does not protect against, the sign-on budget, and what has been tested.
+For maintainers and security reviewers. Operators read `docs/server-config/oauth-security.mdx`, which summarizes this file, plus the setup and reference pages next to it. This file keeps the detail behind them: what is stored where, what an attacker needs, what the design does not protect against, the sign-on budget, and what has been tested.
 
 ## How It Works
 

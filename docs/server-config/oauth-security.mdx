@@ -1,0 +1,89 @@
+---
+title: "Security"
+description: "How IBM i sign-on handles passwords, what it protects against, and how to lock it down."
+---
+
+IBM i sign-on asks people for their real IBM i password, so it's worth knowing where that password goes. This page covers how passwords are handled, what the design does and doesn't protect against, and a checklist to work through before your team signs in.
+
+## How passwords are handled
+
+When Ana signs in:
+
+1. Her browser sends the password to the server once, over HTTPS, in the body of the sign-in form. It's never part of a URL.
+2. The server signs on to the IBM i as `ANA` and keeps that connection open for her tool calls.
+3. The server encrypts the password and keeps it only in memory. The key that unlocks it is itself locked with Ana's refresh token, which only her assistant holds. The server can't decrypt the password on its own.
+4. After 10 idle minutes the connection closes. When Ana's assistant next calls a tool, it refreshes its token. The refresh token unlocks the password for a moment, the server signs on again, and the password is locked away again. Ana sees none of this.
+5. When the sign-in ends (12 hours, a sign-out or a server restart), the encrypted password is erased.
+
+Nothing is written to disk: not the password, not the tokens, not the keys.
+
+## Where secrets live
+
+| Secret | Where | For how long |
+|--------|-------|--------------|
+| Password, encrypted | MCP server memory | Until the sign-in ends |
+| Password, in clear | Mapepire's job on the IBM i | While Ana's connection is open |
+| Access token | Ana's assistant | 15 minutes |
+| Refresh token | Ana's assistant | Until the sign-in ends |
+| Anything from this server | Ana's browser | Never, unless she saves the password there |
+
+## What is protected
+
+- **The server's disk, logs, backups and container image.** They hold no passwords, tokens or keys.
+- **A stolen access token** stops working within 15 minutes and can't reopen a closed connection.
+- **A stolen refresh token** can't reveal the password. It does allow tool calls as that person until the sign-in ends or you revoke it.
+- **Password guessing.** After two wrong passwords the server stops sending sign-ons for that profile, below the IBM i's default `QMAXSIGN` of 3.
+- **Powerful profiles.** Profiles with `*ALLOBJ` or `*SECADM` are refused unless you allow them.
+- **Where sign-ins are sent.** The one-time code from a sign-in only goes back to the person's own machine, or to addresses you list in `OAUTH_REDIRECT_URIS`.
+
+## What is not protected
+
+- **Someone who controls the server machine**, its process, or a proxy that handles its HTTPS. They can see passwords as people type them.
+- **Someone who can dump Mapepire's job on the IBM i.** They can read the passwords of people connected at that moment.
+- **A memory dump of the MCP server.** It can contain recent passwords.
+- **The connection to Mapepire with `DB2i_IGNORE_UNAUTHORIZED=true`.** Anyone who can pose as Mapepire on the network receives the passwords.
+- **SQL in your own YAML tool files.** It runs with the authority of whoever calls the tool.
+- **Lookalike sign-in pages** on other web addresses, and passwords saved in browsers.
+
+## Hardening checklist
+
+### On the IBM i
+
+- Run Mapepire under its own user profile that nobody signs on as: create one with `PASSWORD(*NONE)` and start Mapepire as that profile (for example with Service Commander's `sbmjob_opts: 'USER(MAPEPIRE)'`).
+- Exclude `*PUBLIC` from that profile's home and `.mapepire` directories , for example `CHGAUT OBJ('/home/MAPEPIRE') USER(*PUBLIC) DTAAUT(*EXCLUDE) OBJAUT(*NONE)`.
+- Change the keystore passwords from the default `mapepire` (`keytool -storepasswd` and `keytool -keypasswd`).
+- Limit who can dump Mapepire's JVM: `RVKOBJAUT OBJ(QSYS/GENJVMDMP) OBJTYPE(*CMD) USER(*PUBLIC) AUT(*ALL)`, do the same for the `QSYS2.SET_JVM` procedure, and review who holds `*JOBCTL`.
+- Run mapepire-server 2.3.2 or later. Keep its trace levels at the defaults, and check that its start command doesn't include `-Dcodeserver.jdbc.autoconnect=true`.
+- Compare `QMAXSIGN` and `QMAXSGNACN` with `OAUTH_SIGNON_MAX_FAILURES` (default `2`). Set it to `1` if 2 is too close.
+- Leave `OAUTH_ALLOW_PRIVILEGED_PROFILES` off. Limit who may sign on with `OAUTH_ALLOWED_PROFILES` if not everyone should.
+
+### On the server machine
+
+- Run the server under its own OS user, with its certificate and tool files read-only.
+- Turn off core dumps for the server (`LimitCORE=0` in systemd, `ulimit -c 0` in a shell).
+- Run one instance. Sign-ins live in memory and aren't shared between instances.
+
+### On the network
+
+- Verify Mapepire's certificate: `DB2i_SERVER_CERT_FILE` or `DB2i_CA_FILE`, never `DB2i_IGNORE_UNAUTHORIZED=true` outside a test system.
+- Keep `OAUTH_SIGNON_ALLOWED_CIDRS` to networks that may already reach the IBM i.
+- Behind a proxy, list it in `MCP_TRUSTED_PROXIES` and have it set `X-Forwarded-For`. Otherwise everyone appears to come from the proxy.
+- On a machine several people log in to, set `OAUTH_ALLOW_LOOPBACK_REDIRECTS=false`.
+
+## What your security officer sees
+
+Each connection is a database server job under the person's own profile, so authority checks, job logs and object auditing name that person. The job's client application name is `ibmi-mcp/<grantId>`, and the same id appears in the MCP server's log, which ties an IBM i job to a sign-in.
+
+<Note>
+Mapepire connects to the database on `localhost`. Exit programs and rules that check the client's IP address see a local connection, not the person's address.
+</Note>
+
+## If something goes wrong
+
+Sign one person out at once, ending their IBM i job and erasing their stored password. Run this from the server's folder (it needs `OAUTH_ADMIN_SOCKET`):
+
+```bash
+npx -y @ibm/ibmi-mcp-server@latest --admin "revoke ANA"
+```
+
+To keep them out, also disable the profile on the IBM i. Restarting the server signs everyone out.

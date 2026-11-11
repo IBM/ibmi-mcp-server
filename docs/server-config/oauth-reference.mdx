@@ -10,6 +10,8 @@ Used when `MCP_AUTH_MODE=oauth` and `OAUTH_ISSUER_URL` is not set.
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `MCP_RESOURCE_URL` | required | Public URL of the MCP endpoint. `https`, or `http` on `localhost`, `127.0.0.1` or `[::1]`. The sign-in and token endpoints sit at this URL minus its last path segment. |
+| `MCP_ALLOWED_HOSTS` | loopback names | Host names (without port) the server answers to. Add the public host name. |
+| `MCP_HTTP_HOST`, `MCP_HTTP_PORT` | `127.0.0.1`, `3010` | Address and port the server listens on. |
 | `DB2i_HOST`, `DB2i_PORT` | port `8076` | The IBM i people sign on to, and its Mapepire port. |
 | `DB2i_SERVER_CERT_FILE` | | PEM file with the exact certificate Mapepire presents. |
 | `DB2i_CA_FILE` | | PEM file with the CA that issued Mapepire's certificate. Not with `DB2i_SERVER_CERT_FILE`. |
@@ -30,6 +32,25 @@ Used when `MCP_AUTH_MODE=oauth` and `OAUTH_ISSUER_URL` is not set.
 | `OAUTH_ADMIN_SOCKET` | | Path of the admin socket. See [Admin commands](#admin-commands). |
 
 `OAUTH_JWKS_URI` and `OAUTH_AUDIENCE` stop startup in this mode. `OAUTH_REQUIRED_SCOPES` has no effect.
+
+## Behind a reverse proxy
+
+With a proxy that handles HTTPS on the same machine, the server keeps listening on `127.0.0.1` without its own certificate:
+
+```bash .env
+MCP_HTTP_HOST=127.0.0.1
+MCP_TRUSTED_PROXIES=127.0.0.1     # add ::1 if the proxy connects over IPv6
+MCP_RESOURCE_URL=https://mcp.example.com/mcp
+```
+
+The proxy must:
+
+- set the `X-Forwarded-For` header itself (overwrite or append the client address);
+- forward `/mcp`, `/oauth/*` and `/.well-known/*` unchanged;
+- leave the `Origin` request header, and the sign-in page's `Content-Security-Policy` and `Referrer-Policy` response headers, alone;
+- not buffer responses, because MCP streams them (`proxy_buffering off` in nginx).
+
+A proxy on another machine must connect to the server over HTTPS: give the server its own certificate as well, and list the proxy's address in `MCP_TRUSTED_PROXIES`. See [Docker](/deployment/docker#built-in-ibm-i-sign-on) and [OpenShift](/deployment/openshift#built-in-ibm-i-sign-on) for examples.
 
 ## Identity provider settings
 
