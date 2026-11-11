@@ -378,6 +378,7 @@ See the [OpenShift README](openshift/apps/openshift/README.md#troubleshooting) f
 ### Security
 
 - **Use HTTPS:** Either give the MCP server its own TLS listener (`MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE`, PEM files), or configure a reverse proxy (Nginx, Caddy) for TLS termination and set `MCP_TRUSTED_PROXIES` on the MCP server to that proxy's address or CIDR range. The server then uses the client address and scheme the proxy reports (`X-Forwarded-For`, `X-Forwarded-Proto`): the client is the right-most `X-Forwarded-For` entry that is not itself a listed proxy. Have the proxy set `X-Forwarded-For` itself (overwrite or append). Leave `MCP_TRUSTED_PROXIES` unset when clients reach the server directly
+- **Replace the demo values:** `docker-compose.yml` ships fixed demo values for `JWT_SECRET_KEY`, `PLATFORM_ADMIN_PASSWORD`, `PGADMIN_DEFAULT_PASSWORD` and `POSTGRES_PASSWORD`, and Redis has no password. That is why it publishes every port on `127.0.0.1` only. Set your own values and a Redis password before you publish any port on another interface
 - **Use secrets management:** Kubernetes secrets, Vault, or cloud provider solutions
 - **Enable authentication:** Set `MCP_AUTH_MODE=oauth`. Without `OAUTH_ISSUER_URL` users sign on with their IBM i user profile and SQL runs as that user; a container then needs the TLS listener, and no `DB2i_PASS`. With `OAUTH_ISSUER_URL` the server verifies tokens from your authorization server and SQL runs as the service account. See [OAuth Authentication](../packages/server/README.md#oauth-authentication) and [Built-in IBM i Sign-On](../packages/server/README.md#built-in-ibm-i-sign-on). (IBM i token authentication, `MCP_AUTH_MODE=ibmi`, is deprecated; if you still use it, set `IBMI_AUTH_ALLOW_HTTP=false`)
 - **Restrict CORS:** Set `MCP_ALLOWED_ORIGINS` to specific domains
@@ -388,7 +389,7 @@ See the [OpenShift README](openshift/apps/openshift/README.md#troubleshooting) f
 - **Resource limits:** Set memory/CPU limits in docker-compose.yml
 - **Connection pooling:** Tune `MCP_POOL_IDLE_TIMEOUT_MS` and `MCP_POOL_QUERY_TIMEOUT_MS`
 - **Caching:** Redis is included for session and response caching
-- **Horizontal scaling:** Use multiple replicas behind a load balancer
+- **Horizontal scaling:** Use multiple replicas behind a load balancer. Not with the built-in IBM i sign-on: its sign-ons live in one process, so run a single instance
 
 ### Monitoring
 
