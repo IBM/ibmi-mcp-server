@@ -45,7 +45,7 @@ These apply to every command:
 | `--system <name>` | Target a specific configured system |
 | `--format <type>` | `table`, `json`, `csv`, or `markdown` |
 | `--raw` | Shorthand for `--format json` |
-| `--stream` | NDJSON output (one JSON object per line) |
+| `--stream` | NDJSON output (one JSON object per line); implies JSON unless `--format` is given |
 | `--output <path>` | Write output to a file instead of stdout (commands that query a system: `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe`, `validate`) |
 | `--watch <seconds>` | Re-run command at interval (Ctrl+C to stop); same commands as `--output`. With `--output`, the file is rewritten after every run |
 | `--tools <path>` | Path to YAML tool file(s), comma-separated |

@@ -32,10 +32,14 @@ import {
 /**
  * Get the effective output format from parent command options and config.
  *
- * Priority: --raw → --format → config format → TTY auto-detect.
+ * Priority: --raw → --format → --stream (NDJSON is JSON) → config format →
+ * TTY auto-detect.
  */
 export function getFormat(cmd: Command): OutputFormat {
   const opts = cmd.optsWithGlobals();
+  if (opts["stream"] === true && !opts["raw"] && !opts["format"]) {
+    return "json";
+  }
   let configFormat: OutputFormat | undefined;
   try {
     configFormat = loadConfig().format;
