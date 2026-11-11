@@ -1,0 +1,96 @@
+---
+title: "OAuth Troubleshooting"
+description: "Fixes for OAuth startup errors and sign-in problems."
+---
+
+## Startup
+
+<AccordionGroup>
+  <Accordion title="Fix the invalid environment variables reported above">
+    A variable failed validation. Fix the ones printed on stderr. A missing or non-`https` `MCP_RESOURCE_URL` is reported this way too.
+  </Accordion>
+
+  <Accordion title="Startup names DB2i_PASS, DB2i_IGNORE_UNAUTHORIZED or MCP_HTTP_HOST">
+    Usually an `.env` copied from a service-account setup. For IBM i sign-on: remove `DB2i_USER` and `DB2i_PASS`, remove `DB2i_IGNORE_UNAUTHORIZED` when a certificate file is set, and either set the TLS files or keep `MCP_HTTP_HOST=127.0.0.1`.
+  </Accordion>
+
+  <Accordion title="Startup says MCP_TRUSTED_PROXIES does not name the proxy">
+    A public `MCP_RESOURCE_URL` is served from `127.0.0.1`, so a proxy on the same machine must be in front. Set `MCP_TRUSTED_PROXIES=127.0.0.1` and have the proxy set `X-Forwarded-For`. For local testing without a proxy, use `MCP_RESOURCE_URL=http://127.0.0.1:3010/mcp`.
+  </Accordion>
+
+  <Accordion title="Startup names an environment variable in a tool file">
+    With IBM i sign-on, tool files may only use `${DB2i_HOST}` and `${DB2i_PORT}`. Write the value into the file instead.
+  </Accordion>
+
+  <Accordion title="The sign-in page appears, but you meant to use your identity provider">
+    `OAUTH_ISSUER_URL` isn't set, or the server can't see it. Without it, the server uses IBM i sign-on.
+  </Accordion>
+
+  <Accordion title="No authorization server metadata found">
+    The server couldn't fetch your provider's metadata. Check that `OAUTH_ISSUER_URL` is exact and reachable from the server, or set `OAUTH_JWKS_URI`.
+  </Accordion>
+</AccordionGroup>
+
+## Signing in (IBM i sign-on)
+
+<AccordionGroup>
+  <Accordion title="The IBM i system is unavailable">
+    The server couldn't reach Mapepire at `DB2i_HOST`:`DB2i_PORT`, or Mapepire's certificate didn't pass the check (expired, or not the pinned one). The log shows `signon_unavailable`. Nothing was sent to the IBM i.
+  </Accordion>
+
+  <Accordion title="The log warns that the Mapepire certificate is not verified">
+    `DB2i_IGNORE_UNAUTHORIZED=true` is set, often from `.env.example`. Remove it and set `DB2i_SERVER_CERT_FILE` or `DB2i_CA_FILE`.
+  </Accordion>
+
+  <Accordion title="Every sign-on is refused as holding *ALLOBJ or *SECADM">
+    The server couldn't read the profile in `QSYS2.USER_INFO_BASIC` and treats that as privileged. Check that people can query that view for their own profile.
+  </Accordion>
+
+  <Accordion title="Sign-on is not available from your network address">
+    The address is outside `OAUTH_SIGNON_ALLOWED_CIDRS`. The `signon_refused` log line shows the address the server saw. If it's your proxy's address, add the proxy to `MCP_TRUSTED_PROXIES`.
+  </Accordion>
+
+  <Accordion title="The proxy does not match MCP_TRUSTED_PROXIES">
+    A request carried forwarding headers but didn't come from a listed proxy, or came from one without `X-Forwarded-For`. Add the proxy's address and make it set `X-Forwarded-For`.
+  </Accordion>
+
+  <Accordion title="The sign-in form was not sent from this server's own page">
+    `MCP_RESOURCE_URL` doesn't match the address in the browser, or a proxy rewrites the `Origin` header. Set `MCP_RESOURCE_URL` to the URL people see.
+  </Accordion>
+
+  <Accordion title="Sign-on for this user profile is blocked on this server">
+    Too many wrong passwords. Sign on at a 5250 session once to reset the IBM i count, then run `ibmi-mcp-server --admin "unblock MYUSER"`. That needs `OAUTH_ADMIN_SOCKET`; without it, restart the server.
+  </Accordion>
+
+  <Accordion title="invalid_grant right after signing in">
+    The client exchanged its code from a different address than the browser (a remote client, or IPv4 and IPv6 mixed). Look for `signon_source_mismatch` in the log. `OAUTH_CODE_ADDRESS_BINDING=audit` allows it.
+  </Accordion>
+
+  <Accordion title="The client asks people to sign in again after every break">
+    The client doesn't reconnect after an idle close. Raise `OAUTH_IDLE_CLOSE_MINUTES`.
+  </Accordion>
+
+  <Accordion title="The client can't connect after the server restarted">
+    A restart signs everyone out. The client should start a new sign-in. If it keeps retrying old tokens, clear its stored sign-in for the server and connect again.
+  </Accordion>
+</AccordionGroup>
+
+## Tokens (identity provider)
+
+<AccordionGroup>
+  <Accordion title="Every token is rejected with 401">
+    Find `Access token rejected.` in the log; `reason` says why. Common causes: `aud` isn't the resource URL (set `OAUTH_AUDIENCE`), `iss` differs by a trailing slash, the token isn't a JWT, or it's signed with `HS256`.
+  </Accordion>
+
+  <Accordion title="403 insufficient_scope">
+    The token is valid but lacks a scope in `OAUTH_REQUIRED_SCOPES`. Grant the scope to the person in your provider.
+  </Accordion>
+</AccordionGroup>
+
+## Either mode
+
+<AccordionGroup>
+  <Accordion title="403 Forbidden: Host not allowed">
+    Add the public host name to `MCP_ALLOWED_HOSTS`.
+  </Accordion>
+</AccordionGroup>

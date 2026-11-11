@@ -150,7 +150,7 @@ Paths are relative to `packages/server/src/ibmi-mcp-server/`:
 
 In `oauth/`, passwords, authorization codes and refresh tokens are handled as `Buffer`s from `Buffer.allocUnsafeSlow`, never as strings, and are zero-filled by whoever allocated them. None of them, and nothing Mapepire answers to a sign-on, may appear in a log line, an error message or a thrown error. Tests there run against the in-process fake in `packages/server/tests/ibmi-mcp-server/oauth/fakeMapepire.ts`; never against a real IBM i.
 
-Operator guide: `docs/server-config/oauth.mdx`.
+Operator docs: `docs/server-config/oauth*.mdx` (setup in `oauth-ibmi-signon.mdx`, settings in `oauth-reference.mdx`). Security design notes (what is stored where, threat model, what was tested): `packages/server/src/ibmi-mcp-server/oauth/SECURITY.md`. Write user docs with the `user-docs` skill: internals and test history go in `SECURITY.md`, not the docs site.
 
 ### Request Context & Logging
 

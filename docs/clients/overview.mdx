@@ -357,7 +357,7 @@ For detailed setup instructions, click on any client card above or navigate usin
   </Accordion>
 
   <Accordion title="Authentication Failed (Remote)">
-    - **OAuth**: a `401` means the token is missing, expired, or not issued for this server; a `403` with `insufficient_scope` means it lacks a required scope. See [OAuth troubleshooting](/server-config/oauth#troubleshooting).
+    - **OAuth**: a `401` means the token is missing, expired, or not issued for this server; a `403` with `insufficient_scope` means it lacks a required scope. See [OAuth troubleshooting](/server-config/oauth-troubleshooting).
     - **IBM i tokens (deprecated)**: confirm the server runs with `IBMI_HTTP_AUTH_ENABLED=true` and the token has not expired: `echo $IBMI_MCP_ACCESS_TOKEN`
     - Check server logs for authentication errors
     - Ensure HTTPS is used in production

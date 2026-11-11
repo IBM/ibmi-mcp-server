@@ -96,7 +96,7 @@ Refusing to start: unauthenticated HTTP transport on non-loopback bind 0.0.0.0 w
 | Setting | Effect |
 |---|---|
 | `MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL` | Recommended. Users sign on with their IBM i user profile at a page the server serves, and SQL runs as that user. See [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on) below. |
-| `MCP_AUTH_MODE=oauth` with `OAUTH_ISSUER_URL` | Clients present access tokens from your identity provider; SQL runs as the `DB2i_USER` service account. Also requires `MCP_RESOURCE_URL`, and the public hostname in `MCP_ALLOWED_HOSTS`. See [OAuth Authentication](/server-config/oauth#external-authorization-server). |
+| `MCP_AUTH_MODE=oauth` with `OAUTH_ISSUER_URL` | Clients present access tokens from your identity provider; SQL runs as the `DB2i_USER` service account. Also requires `MCP_RESOURCE_URL`, and the public hostname in `MCP_ALLOWED_HOSTS`. See [OAuth Authentication](/server-config/oauth-provider). |
 | `MCP_AUTH_MODE=ibmi` | Deprecated. Clients authenticate with their own IBM i user and password. See [IBM i Authentication](/server-config/ibmi-auth). |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` | No authentication. Pair with `-p 127.0.0.1:3010:3010`, or use only on a network you trust. |
 
@@ -106,7 +106,7 @@ Do not set `MCP_HTTP_HOST=127.0.0.1` for a container. Docker and Podman forward 
 
 ### Built-in IBM i Sign-On
 
-With `MCP_AUTH_MODE=oauth` and no `OAUTH_ISSUER_URL`, users sign on with their IBM i user profile and the container holds no service account password. Read [Built-in IBM i Sign-On](/server-config/oauth#built-in-ibm-i-sign-on) first; this section covers what is specific to a container.
+With `MCP_AUTH_MODE=oauth` and no `OAUTH_ISSUER_URL`, users sign on with their IBM i user profile and the container holds no service account password. Read [Built-in IBM i Sign-On](/server-config/oauth-ibmi-signon) first; this section covers what is specific to a container.
 
 A container binds `0.0.0.0`, and in this mode the server does not listen for passwords in clear on a network interface. Give it its own TLS listener by mounting a certificate and key:
 

@@ -78,7 +78,7 @@ The manifests deploy the IBM i MCP Server alongside the optional MCP Context For
 
     The pod must bind all interfaces, so also set `MCP_HTTP_HOST=0.0.0.0`, set `MCP_ALLOWED_HOSTS` to the Route hostname, and enable authentication with `MCP_AUTH_MODE=oauth`. Without authentication the server refuses to start unless `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` is set.
 
-    The manifests as shipped fit an [external authorization server](/server-config/oauth#external-authorization-server) (`MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; SQL runs as the `DB2i_USER` service account). For users signing on with their IBM i user profile, follow [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on) below: it needs three changes to the manifests.
+    The manifests as shipped fit an [external authorization server](/server-config/oauth-provider) (`MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; SQL runs as the `DB2i_USER` service account). For users signing on with their IBM i user profile, follow [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on) below: it needs three changes to the manifests.
 
     The Route terminates TLS in front of the pod, so the server sees the router's address unless that address is listed in `MCP_TRUSTED_PROXIES` (see [Finding the router's address](#finding-the-routers-address)). The server then uses the right-most `X-Forwarded-For` entry that is not itself a listed proxy, which is the one the router writes under its default `append` policy and under `replace`. Do not set the Route annotation `haproxy.router.openshift.io/set-forwarded-headers` to `never` or `if-none`: both pass a client's own header through. See [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy).
     </Warning>
@@ -127,7 +127,7 @@ The manifests deploy the IBM i MCP Server alongside the optional MCP Context For
 
 ## Built-in IBM i Sign-On
 
-With the [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) users type their IBM i password into a page the server serves. The server therefore does not accept plain HTTP on a pod interface, and the shipped Route, which terminates TLS at the router (`edge`) and forwards plain HTTP to the pod, cannot be used. The router is a proxy on another host: it must **re-encrypt**, and the pod must listen with TLS.
+With the [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) users type their IBM i password into a page the server serves. The server therefore does not accept plain HTTP on a pod interface, and the shipped Route, which terminates TLS at the router (`edge`) and forwards plain HTTP to the pod, cannot be used. The router is a proxy on another host: it must **re-encrypt**, and the pod must listen with TLS.
 
 <Warning>
 The steps below were written from the server's requirements and OpenShift's documented behaviour. They were not run on a cluster for this release. Check each step on yours.

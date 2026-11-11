@@ -25,7 +25,7 @@ Sources define database connections that your SQL tools use to execute queries a
 ---
 
 <Note>
-**With the built-in IBM i sign-on** (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`) every tool runs on the connection of the user who calls it. A source's `user` and `password` are ignored (variables they reference need not be set), its `host` must be `DB2i_HOST`, its `port` and `ignore-unauthorized` are not used, and a source that sets `jdbc-options` stops startup. `${VAR}` is replaced only for `DB2i_HOST` and `DB2i_PORT`: any other variable in a tool file, outside a source's `user` and `password`, stops startup. See [YAML Tools](/server-config/oauth#yaml-tools).
+**With the built-in IBM i sign-on** (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`) every tool runs on the connection of the user who calls it. A source's `user` and `password` are ignored (variables they reference need not be set), its `host` must be `DB2i_HOST`, its `port` and `ignore-unauthorized` are not used, and a source that sets `jdbc-options` stops startup. `${VAR}` is replaced only for `DB2i_HOST` and `DB2i_PORT`: any other variable in a tool file, outside a source's `user` and `password`, stops startup. See [YAML Tools](/server-config/oauth-reference#yaml-tools).
 </Note>
 
 ## Basic Source Configuration

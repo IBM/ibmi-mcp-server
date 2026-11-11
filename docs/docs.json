@@ -33,7 +33,16 @@
             "group": "Server Configuration",
             "pages": [
               "configuration",
-              "server-config/oauth",
+              {
+                "group": "OAuth",
+                "pages": [
+                  "server-config/oauth",
+                  "server-config/oauth-ibmi-signon",
+                  "server-config/oauth-provider",
+                  "server-config/oauth-reference",
+                  "server-config/oauth-troubleshooting"
+                ]
+              },
               "server-config/ibmi-auth"
             ]
           },

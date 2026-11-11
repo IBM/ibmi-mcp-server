@@ -149,7 +149,7 @@ If configured correctly, Claude should list the IBM i MCP tools and be able to e
 
     **Solutions**:
     - Verify server is running: `curl http://localhost:3010/healthz`
-    - OAuth: the token is missing, expired, or not issued for this server. See [OAuth troubleshooting](/server-config/oauth#troubleshooting)
+    - OAuth: the token is missing, expired, or not issued for this server. See [OAuth troubleshooting](/server-config/oauth-troubleshooting)
     - IBM i tokens (deprecated): confirm `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true`, and get a fresh token with `node get-access-token.js --verbose` (tokens expire after 1 hour by default)
   </Accordion>
 

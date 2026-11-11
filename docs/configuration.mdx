@@ -156,7 +156,7 @@ MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key    # PEM private key
 - Setting only one of the two stops startup, as does a file that cannot be read or that does not hold a certificate and its key.
 - The files are read once at startup. Restart the server after renewing the certificate.
 - A plain-HTTP request to a TLS listener gets no answer. Health checks must use `https`; the container image's built-in health check does not (see [Docker](/deployment/docker#built-in-ibm-i-sign-on)).
-- The [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) requires the TLS listener unless `MCP_HTTP_HOST` is a loopback address.
+- The [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) requires the TLS listener unless `MCP_HTTP_HOST` is a loopback address.
 
 ### Behind a Reverse Proxy
 
@@ -175,7 +175,7 @@ The headers are believed only when the TCP peer is inside that list. The server 
 - **the client address** from `X-Forwarded-For`: the right-most entry that is not itself inside the list. Entries further left are whatever the caller sent and are not read. With several proxies in a row, list all of them, or every client appears at the address of the proxy before the last. An entry that is not a plain IP address (one with a port, for example) cannot be used, and the proxy's own address is taken instead. `X-Real-IP` is not read.
 - **the scheme** from `X-Forwarded-Proto`. It is used by the HTTPS check on `/api/v1/auth` (deprecated IBM i authentication). For a request from a listed proxy only this header counts, also when the proxy's own connection to the server uses TLS (`MCP_TLS_CERT_FILE`): the client may have reached the proxy in clear.
 
-The client address is used for rate limiting, in logs, and by the [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) to decide who may reach the sign-in page.
+The client address is used for rate limiting, in logs, and by the [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) to decide who may reach the sign-in page.
 
 Without the setting, every client behind the proxy shares the proxy's address and with it one per-address rate-limit budget, and `/api/v1/auth` refuses every request with `HTTPS/TLS is required for authentication endpoints`.
 
@@ -247,7 +247,7 @@ The limiter tracks at most 10,000 keys; the oldest window is dropped first.
 ### Connection Pool Timeouts
 
 <Note>
-These two settings do not apply to the [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on), which has no connection pools: each signed-on user has one connection, closed after `OAUTH_IDLE_CLOSE_MINUTES`, and a statement is abandoned after a fixed 120 seconds.
+These two settings do not apply to the [built-in IBM i sign-on](/server-config/oauth-ibmi-signon), which has no connection pools: each signed-on user has one connection, closed after `OAUTH_IDLE_CLOSE_MINUTES`, and a statement is abandoned after a fixed 120 seconds.
 </Note>
 
 **Control automatic cleanup of idle database connections and query timeouts.** In cloud deployments (Railway, Heroku, etc.), reverse proxies silently kill idle TCP connections. The Mapepire connection pool may still report as initialized, but queries sent over a dead WebSocket will hang indefinitely. These settings prevent that by proactively closing idle pools and aborting stale queries.
@@ -336,7 +336,7 @@ Authentication applies to the HTTP transport. The stdio transport does not authe
   <Accordion title="Users with IBM i profiles → 'oauth', built-in sign-on" icon="users">
     With `OAUTH_ISSUER_URL` unset the server is its own OAuth 2.1 authorization server. Users sign on at a page it serves with their IBM i user profile and password, and every tool runs SQL as that user. There is no service account, and `DB2i_PASS` must be unset.
 
-    **Setup:** `MCP_RESOURCE_URL`, `DB2i_HOST`, TLS for the server, and a way to verify the Mapepire certificate. See [Built-in IBM i Sign-On](/server-config/oauth#built-in-ibm-i-sign-on).
+    **Setup:** `MCP_RESOURCE_URL`, `DB2i_HOST`, TLS for the server, and a way to verify the Mapepire certificate. See [Built-in IBM i Sign-On](/server-config/oauth-ibmi-signon).
   </Accordion>
 
   <Accordion title="Callers from your identity provider → 'oauth', external issuer" icon="building">
@@ -344,7 +344,7 @@ Authentication applies to the HTTP transport. The stdio transport does not authe
 
     A token identifies the caller only. All SQL runs as the `DB2i_USER` service account.
 
-    **Setup:** `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`. See [External Authorization Server](/server-config/oauth#external-authorization-server).
+    **Setup:** `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`. See [External Authorization Server](/server-config/oauth-provider).
   </Accordion>
 
   <Accordion title="IBM i token authentication → 'ibmi' (deprecated)" icon="key">
@@ -450,7 +450,7 @@ The built-in sign-on also needs `DB2i_HOST`, refuses `DB2i_PASS`, limits `DB2i_J
 ### IBM i Authentication Settings
 
 <Warning>
-**Deprecated.** IBM i HTTP token authentication will be removed in a future major release. It still works; the server logs one deprecation warning at startup. Use [OAuth](/server-config/oauth) for new deployments: its [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) also runs SQL under each user's own profile.
+**Deprecated.** IBM i HTTP token authentication will be removed in a future major release. It still works; the server logs one deprecation warning at startup. Use [OAuth](/server-config/oauth) for new deployments: its [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) also runs SQL under each user's own profile.
 </Warning>
 
 | Variable | Description | Default | Example |
@@ -601,7 +601,7 @@ The built-in sign-on also needs `DB2i_HOST`, refuses `DB2i_PASS`, limits `DB2i_J
 
 ## IBM i Database Connection
 
-**Connect to IBM i DB2 for i databases via Mapepire.** These settings configure the connection to your IBM i system through the Mapepire database server. The server uses these credentials to execute SQL tools and access DB2 for i data. All connections are pooled. SQL runs with these credentials unless users sign on with their own IBM i profile (the [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) of `MCP_AUTH_MODE=oauth`, or the deprecated IBM i authentication mode).
+**Connect to IBM i DB2 for i databases via Mapepire.** These settings configure the connection to your IBM i system through the Mapepire database server. The server uses these credentials to execute SQL tools and access DB2 for i data. All connections are pooled. SQL runs with these credentials unless users sign on with their own IBM i profile (the [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) of `MCP_AUTH_MODE=oauth`, or the deprecated IBM i authentication mode).
 
 ### Connection Settings
 
@@ -811,7 +811,7 @@ TOOLS_YAML_PATH=configs/**/*.yaml
 - A path that does not exist is treated as a glob pattern when it contains `*`, `?`, `[`, `]`, `{` or `}`. Quote patterns on the command line: `--tools 'tools/**/*.yaml'`.
 - A YAML tool that has the name of an enabled built-in tool stops startup. Rename the YAML tool or leave the built-in tool off.
 
-- With the [built-in IBM i sign-on](/server-config/oauth#yaml-tools) every tool runs on the signed-on user's connection. A source's `user` and `password` are ignored, its `host` must be `DB2i_HOST`, and a source that sets `jdbc-options` stops startup.
+- With the [built-in IBM i sign-on](/server-config/oauth-reference#yaml-tools) every tool runs on the signed-on user's connection. A source's `user` and `password` are ignored, its `host` must be `DB2i_HOST`, and a source that sets `jdbc-options` stops startup.
 
 See [Sources](/sql-tools/sources) and [Tools](/sql-tools/tools) for what a tool file may contain.
 

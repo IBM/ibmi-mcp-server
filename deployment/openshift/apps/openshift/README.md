@@ -184,7 +184,7 @@ Notes:
 - Admin commands run inside the pod: `oc exec deploy/ibmi-mcp-server -- node packages/server/dist/index.js --admin "status"` (also `unblock <profile>` and `revoke <profile|grantId>`).
 - Other pods that call the server directly, such as the MCP Context Forge gateway, must then use `https://ibmi-mcp-server.<namespace>.svc:3010` (add the name to `MCP_ALLOWED_HOSTS`) and trust the service CA. A gateway cannot sign on as a person; give it a separate instance with `OAUTH_ISSUER_URL`.
 
-The full guide, including the IBM i setup this mode requires, is [docs/server-config/oauth.mdx](../../../../docs/server-config/oauth.mdx); the OpenShift specifics are in [docs/deployment/openshift.mdx](../../../../docs/deployment/openshift.mdx).
+The setup guide, including the IBM i setup this mode requires, is [docs/server-config/oauth-ibmi-signon.mdx](../../../../docs/server-config/oauth-ibmi-signon.mdx); the OpenShift specifics are in [docs/deployment/openshift.mdx](../../../../docs/deployment/openshift.mdx).
 
 ## Troubleshooting
 

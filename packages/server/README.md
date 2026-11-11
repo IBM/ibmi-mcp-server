@@ -1570,7 +1570,7 @@ Behind a reverse proxy, list the proxy in `MCP_TRUSTED_PROXIES` and have it set 
 
 Delete the `DB2i_USER` and `DB2i_PASS` lines from the `.env` file for this mode; a line left blank (`DB2i_PASS=`) is rejected as an invalid value.
 
-Full guide, including what is stored where, what the design does not protect against, the sign-on budget, the admin socket, log events and the IBM i setup this mode requires: [docs/server-config/oauth.mdx](../../docs/server-config/oauth.mdx).
+Setup guide, including the IBM i setup this mode requires: [docs/server-config/oauth-ibmi-signon.mdx](../../docs/server-config/oauth-ibmi-signon.mdx). Settings, the admin socket and log events: [oauth-reference.mdx](../../docs/server-config/oauth-reference.mdx). What is stored where and what the design does not protect against: [SECURITY.md](src/ibmi-mcp-server/oauth/SECURITY.md).
 
 ### IBM i HTTP Authentication
 
