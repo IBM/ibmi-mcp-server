@@ -1056,25 +1056,28 @@ The server writes **two log files** with automatic rotation:
 
 | File | Content | Rotation |
 |------|---------|----------|
-| `combined.log.N` | Everything at `MCP_LOG_LEVEL` and above | Daily or 10MB |
-| `error.log.N` | Error level and above | Daily or 10MB |
+| `combined.N.log` | Everything at `MCP_LOG_LEVEL` and above | Daily or 10MB |
+| `error.N.log` | Error level and above | Daily or 10MB |
 
 **Rotation behavior:**
 - Logs rotate when they reach **10MB** OR at **midnight daily** (whichever comes first)
-- Files are numbered sequentially: `combined.log.1`, `combined.log.2`, etc. The highest number is the file currently being written (there is no un-numbered file)
-- **Current file + 5 previous files** are kept (6 total files per log file)
-- When the 7th file would be created, the oldest file is automatically deleted
+- Files are numbered sequentially: `combined.1.log`, `combined.2.log`, etc. The highest number is the file currently being written (there is no un-numbered file)
+- **Current file + 5 previous files** are kept (6 total files per log file), including files left by earlier runs of the server: at each rotation the oldest files beyond that are deleted
 - Daily rotation re-uses the existing file if still within the same day
+
+<Note>
+Versions up to 0.6.x named the files `combined.log.N` and could fill `LOGS_DIR` with millions of empty files on the day daylight saving time ends, which makes the server slow to start and to stop. If `~/.ibmi-mcp-server/logs` holds files named `*.log.N`, stop every server that uses it and delete them.
+</Note>
 
 <Accordion title="Log File Examples">
 
 **Directory structure:**
 ```bash
 ~/.ibmi-mcp-server/logs/
-├── combined.log.1     # Oldest kept
-├── combined.log.2     # Previous rotation
-├── combined.log.3     # Current log (highest number, being written to)
-└── error.log.1        # Current error log
+├── combined.1.log     # Oldest kept
+├── combined.2.log     # Previous rotation
+├── combined.3.log     # Current log (highest number, being written to)
+└── error.1.log        # Current error log
 ```
 
 **Sample log entry (JSON format):**

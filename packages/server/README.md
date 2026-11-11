@@ -1352,7 +1352,7 @@ Core server configuration including server identity, transport mode, and logging
 | `NODE_ENV` | Node environment: `development`, `production`, `test` | `development` | No |
 | `MCP_SERVER_CONFIG` | Path of the `.env` file to load instead of `.env` in the working directory | None | No |
 
-**Log files:** `combined.log.N` (everything at `MCP_LOG_LEVEL` and above) and `error.log.N` (errors), rotated daily or at 10 MB. If `LOGS_DIR` cannot be created or written to, the server does not stop: it prints one warning on stderr and logs to stderr instead (with the stdio transport, at `warn` level and above).
+**Log files:** `combined.N.log` (everything at `MCP_LOG_LEVEL` and above) and `error.N.log` (errors), rotated daily or at 10 MB; six of each are kept, across restarts. Versions up to 0.6.x could fill `LOGS_DIR` with millions of empty `*.log.N` files when daylight saving time ended; delete those with every server stopped. If `LOGS_DIR` cannot be created or written to, the server does not stop: it prints one warning on stderr and logs to stderr instead (with the stdio transport, at `warn` level and above).
 
 **Examples:**
 ```bash
@@ -2047,7 +2047,7 @@ The server now runs on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`
 | `.env` lookup | Only the file named by `MCP_SERVER_CONFIG`, otherwise `.env` in the working directory. `../.env` is no longer read. |
 | `MCP_HTTP_MAX_PORT_RETRIES`, `MCP_HTTP_PORT_RETRY_DELAY_MS` | Removed and ignored. A port that is in use is a startup error: `Port <port> on <host> is already in use. Stop the process using it, or set MCP_HTTP_PORT to a free port.` (exit code 1). The server no longer moves to the next port. |
 | Unknown `--toolsets` / `SELECTED_TOOLSETS` names | Stop startup: `Unknown toolsets requested: <names>. Available toolsets: <names>`. They used to be a logged warning. |
-| Log files | Only `combined.log.N` and `error.log.N` are written. `info.log.N`, `warn.log.N` and `debug.log.N` are gone (existing files are left in place). `combined.log` now follows `MCP_LOG_LEVEL` instead of being fixed at `info`. The log directory is created on the first log record, not at startup. |
+| Log files | Only `combined.N.log` and `error.N.log` are written (renamed from `combined.log.N` and `error.log.N`), six of each across restarts. `info.log.N`, `warn.log.N` and `debug.log.N` are gone. Files with the old names are left in place; delete them by hand. `combined.log` now follows `MCP_LOG_LEVEL` instead of being fixed at `info`. The log directory is created on the first log record, not at startup. |
 | Unwritable `LOGS_DIR` | No longer stops the server (it used to with the stdio transport or `NODE_ENV=production`). The server prints `Warning: cannot write logs to LOGS_DIR '<path>' (<reason>). File logging is disabled; ...` once and logs to stderr. |
 | OpenTelemetry | The HTTP and pino instrumentations are removed; they never took effect in this build. Tool execution spans and spans for outgoing `fetch` calls remain. |
 

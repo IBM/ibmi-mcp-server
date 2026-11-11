@@ -142,7 +142,9 @@ function createPinoLogger(): PinoLogger {
           frequency: "daily",
           mkdir: true,
           size: "10m",
-          limit: { count: 5 },
+          // Without removeOtherLogFiles the count covers only the files of
+          // the current process, so every restart left its files behind.
+          limit: { count: 5, removeOtherLogFiles: true },
         },
         level: fileLevel,
       });
