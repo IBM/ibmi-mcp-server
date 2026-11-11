@@ -22,7 +22,15 @@
 
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { connect, createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,8 +93,10 @@ beforeEach(() => {
   }
 });
 
+const POOL_SIZE = Buffer.poolSize;
+
 afterEach(async () => {
-  Buffer.poolSize = 8 * 1024;
+  Buffer.poolSize = POOL_SIZE;
   await running?.close();
   running = undefined;
   vi.useRealTimers();
@@ -251,13 +261,26 @@ async function listSchemas(accessToken: Buffer): Promise<void> {
   }
 }
 
-/** A V8 heap snapshot of this process, as its JSON bytes. It starts with a full GC. */
-async function heapSnapshot(): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of v8.getHeapSnapshot()) {
-    chunks.push(chunk as Buffer);
+/**
+ * A V8 heap snapshot of this process, as its JSON bytes. It starts with a
+ * full GC. Written to a file and read into an unpooled Buffer: the chunks of
+ * `v8.getHeapSnapshot()` come from the Buffer pool this test checks, and
+ * tens of megabytes of them would fill its slab.
+ */
+function heapSnapshot(): Buffer {
+  const file = v8.writeHeapSnapshot(join(directory, "heap.heapsnapshot"));
+  const fd = openSync(file, "r");
+  try {
+    const snapshot = Buffer.allocUnsafeSlow(fstatSync(fd).size);
+    let read = 0;
+    while (read < snapshot.length) {
+      read += readSync(fd, snapshot, read, snapshot.length - read, read);
+    }
+    return snapshot;
+  } finally {
+    closeSync(fd);
+    rmSync(file);
   }
-  return Buffer.concat(chunks);
 }
 
 /** How often each needle is in the snapshot. The needles stay bytes. */
@@ -364,11 +387,15 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   vi.spyOn(console, "log").mockImplementation(() => {});
 
   // One slab for every pooled allocation from here on, so that the check
-  // at the end sees all of them: a 9000-byte allocation does not fit the
-  // current slab and starts the new one.
+  // at the end sees all of them: the current slab is filled up, and the
+  // next one is made at the new size.
   Buffer.poolSize = 64 * 1024 * 1024;
-  Buffer.allocUnsafe(9000);
+  const slab = Buffer.allocUnsafe(1).buffer;
+  while (Buffer.allocUnsafe(1).buffer === slab) {
+    Buffer.allocUnsafe(4096);
+  }
   const poolBefore = Buffer.allocUnsafe(1).buffer;
+  expect(poolBefore.byteLength).toBe(Buffer.poolSize);
   running = await initializeAndStartServer();
 
   // --- Sign-on ---------------------------------------------------------------
@@ -421,7 +448,7 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   const canaries = { short: patterned(0x30, 10), long: patterned(0x47, 20) };
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  let snapshot = await heapSnapshot();
+  let snapshot = heapSnapshot();
   expect(occurrences(snapshot, canaries)).toEqual({
     short: expect.toSatisfy((count: number) => count > 0),
     long: expect.toSatisfy((count: number) => count > 0),
@@ -469,7 +496,7 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   ]);
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  snapshot = await heapSnapshot();
+  snapshot = heapSnapshot();
   expect(occurrences(snapshot, canaries)).toEqual({
     short: expect.toSatisfy((count: number) => count > 0),
     long: expect.toSatisfy((count: number) => count > 0),
@@ -490,7 +517,8 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   expect(occurrences(snapshot, tokenNeedles(code))).toEqual(NONE);
 
   // Nor are the bytes in the Buffer pool: the one slab of the whole test.
-  expect(Buffer.allocUnsafe(1).buffer).toBe(poolBefore);
+  // A boolean: a failing toBe on two 64 MiB slabs would print their diff.
+  expect(Buffer.allocUnsafe(1).buffer === poolBefore).toBe(true);
   const pool = Buffer.from(poolBefore);
   expect(pool.includes(password())).toBe(false);
   expect(pool.includes(first.refreshToken)).toBe(false);
