@@ -95,13 +95,52 @@ Refusing to start: unauthenticated HTTP transport on non-loopback bind 0.0.0.0 w
 
 | Setting | Effect |
 |---|---|
-| `MCP_AUTH_MODE=oauth` | Recommended. Clients present access tokens from your identity provider. Also requires `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`, and the public hostname in `MCP_ALLOWED_HOSTS`. See [OAuth Authentication](/server-config/oauth). |
+| `MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL` | Recommended. Users sign on with their IBM i user profile at a page the server serves, and SQL runs as that user. See [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on) below. |
+| `MCP_AUTH_MODE=oauth` with `OAUTH_ISSUER_URL` | Clients present access tokens from your identity provider; SQL runs as the `DB2i_USER` service account. Also requires `MCP_RESOURCE_URL`, and the public hostname in `MCP_ALLOWED_HOSTS`. See [OAuth Authentication](/server-config/oauth#external-authorization-server). |
 | `MCP_AUTH_MODE=ibmi` | Deprecated. Clients authenticate with their own IBM i user and password. See [IBM i Authentication](/server-config/ibmi-auth). |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` | No authentication. Pair with `-p 127.0.0.1:3010:3010`, or use only on a network you trust. |
 
 <Warning>
 Do not set `MCP_HTTP_HOST=127.0.0.1` for a container. Docker and Podman forward published ports to the container's network interface, not to its loopback address, so a server bound to `127.0.0.1` inside the container is unreachable from the host. Limit exposure with `-p 127.0.0.1:3010:3010` instead. The repository's `.env.example` sets `MCP_HTTP_HOST=127.0.0.1`; remove that line from any `.env` file passed to a container.
 </Warning>
+
+### Built-in IBM i Sign-On
+
+With `MCP_AUTH_MODE=oauth` and no `OAUTH_ISSUER_URL`, users sign on with their IBM i user profile and the container holds no service account password. Read [Built-in IBM i Sign-On](/server-config/oauth#built-in-ibm-i-sign-on) first; this section covers what is specific to a container.
+
+A container binds `0.0.0.0`, and in this mode the server does not listen for passwords in clear on a network interface. Give it its own TLS listener by mounting a certificate and key:
+
+```bash
+docker run -d \
+  --name ibmi-mcp-server \
+  --no-healthcheck \
+  -p 3010:3010 \
+  -v /etc/ibmi-mcp:/etc/ibmi-mcp:ro \
+  -e MCP_AUTH_MODE=oauth \
+  -e MCP_RESOURCE_URL=https://mcp.example.com:3010/mcp \
+  -e MCP_ALLOWED_HOSTS=mcp.example.com \
+  -e MCP_TLS_CERT_FILE=/etc/ibmi-mcp/server.crt \
+  -e MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key \
+  -e DB2i_HOST=ibmi.example.com \
+  -e DB2i_SERVER_CERT_FILE=/etc/ibmi-mcp/mapepire.crt \
+  -e OAUTH_ADMIN_SOCKET=/tmp/ibmi-mcp-admin.sock \
+  ghcr.io/ibm/ibmi-mcp-server:latest
+```
+
+- **No `DB2i_USER`, `DB2i_PASS` or `DB2i_IGNORE_UNAUTHORIZED`.** `DB2i_PASS` stops startup in this mode. `DB2i_IGNORE_UNAUTHORIZED=true` stops it together with `DB2i_SERVER_CERT_FILE`; without a certificate file it turns verification of the Mapepire certificate off, so users' passwords go to a server whose identity is not checked.
+- **The mounted files must be readable by the container's user** (`appuser`, not root).
+- **`--no-healthcheck`.** The image's built-in health check requests `http://127.0.0.1:3010/healthz`, which a TLS listener does not answer, so the container would be reported unhealthy. Check `https://mcp.example.com:3010/healthz` from outside instead.
+- **One container.** Sign-ons are held in the memory of one process. Do not run replicas, and expect every user to sign on again after the container restarts.
+- **Client addresses.** Depending on how the container runtime publishes the port, the server may see the address of the runtime's bridge gateway instead of each client's own address (common on Docker Desktop). All users then share one address for `OAUTH_SIGNON_ALLOWED_CIDRS`, the code address binding and the per-address rate limit, and that address is a private one, which the default `OAUTH_SIGNON_ALLOWED_CIDRS` admits. The server cannot detect this at startup. On Linux, `--network host` avoids it.
+
+Send admin commands inside the container, where `OAUTH_ADMIN_SOCKET` is already in the environment:
+
+```bash
+docker exec ibmi-mcp-server node packages/server/dist/index.js --admin "status"
+docker exec ibmi-mcp-server node packages/server/dist/index.js --admin "unblock MYUSER"
+```
+
+A TLS-terminating proxy in another container is on another host as far as the server is concerned: keep the server's TLS listener, have the proxy connect with `https`, and list the proxy's address in `MCP_TRUSTED_PROXIES`.
 
 ---
 
@@ -409,7 +448,7 @@ The image is built on `node:22-bookworm-slim` and runs as a non-root user (`appu
   <Accordion title="Requests return 403 Forbidden">
     `Forbidden: Host not allowed.` means the client addresses the server by a name that is not `localhost` and is not listed in `MCP_ALLOWED_HOSTS`. The container log records the rejected name. Add it to `MCP_ALLOWED_HOSTS` and restart the container.
 
-    `Forbidden: Origin not allowed.` means the request came from a browser page whose origin is not listed in `MCP_ALLOWED_ORIGINS`. Add the origin, for example `MCP_ALLOWED_ORIGINS=http://localhost:3000`.
+    `Forbidden: Origin not allowed.` means the request came from a browser page whose origin is not listed in `MCP_ALLOWED_ORIGINS`. Add the origin, for example `MCP_ALLOWED_ORIGINS=http://localhost:3000`. The sign-in page of the built-in IBM i sign-on needs no entry: the origin of `MCP_RESOURCE_URL` is always accepted. If its form is refused with this message, `MCP_RESOURCE_URL` is not the URL users open in their browser.
   </Accordion>
 
   <Accordion title="Cannot connect to IBM i from container">

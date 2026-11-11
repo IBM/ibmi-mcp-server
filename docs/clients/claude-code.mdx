@@ -84,7 +84,10 @@ For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/ser
 claude mcp add -t http ibmi-mcp https://mcp.example.com/mcp
 ```
 
-Then run `/mcp` inside Claude Code, select the server and authenticate. Claude Code opens a browser sign-in with your identity provider and stores the token.
+Then run `/mcp` inside Claude Code, select the server and authenticate. Claude Code opens a browser sign-in and stores the token. Which sign-in you see depends on how the server is configured:
+
+- **External authorization server** (`OAUTH_ISSUER_URL` set on the server): you sign in with your identity provider.
+- **Built-in IBM i sign-on** (no `OAUTH_ISSUER_URL` on the server): you sign on with your IBM i user profile at a page the MCP server serves. That sign-on has not been tested with Claude Code: only the MCP TypeScript SDK client is covered by the server's tests. There is no bearer-token fallback in that mode: tokens come only from the sign-in flow.
 
 ### With IBM i Tokens (Deprecated)
 

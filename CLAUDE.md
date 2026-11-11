@@ -74,8 +74,11 @@ packages/
 │   │   ├── mcp-server/
 │   │   │   ├── server.ts           # createMcpServerInstance factory, initializeAndStartServer
 │   │   │   ├── tools/utils/        # defineTool (tool-factory.ts)
-│   │   │   └── transports/         # stdio/ (SDK serveStdio), http/ (SDK createMcpHandler in a Hono app), auth/ (oauth, ibmi)
+│   │   │   └── transports/         # stdio/ (SDK serveStdio), http/ (SDK createMcpHandler in a Hono app; TLS listener, clientAddress.ts), auth/ (oauth, builtinOAuth, ibmi)
 │   │   ├── ibmi-mcp-server/        # Tools, services, security
+│   │   │   ├── oauth/              # Built-in authorization server: sign-in page, grant manager, Mapepire session, admin socket (contracts.ts lists the modules)
+│   │   │   ├── services/           # queryRouter.ts (where every tool's SQL leaves from), connection pools
+│   │   │   └── tools/              # Built-in *.tool.ts files
 │   │   ├── utils/                  # telemetry, logger, formatting
 │   │   └── types-global/           # McpError, JsonRpcErrorCode
 │   └── tests/
@@ -130,9 +133,24 @@ Load tools via `--tools ./tools/<dir>/<file>.yaml` and select toolsets via `--to
 
 Paths are relative to `packages/server/src/ibmi-mcp-server/`:
 
+- **Query router** (`services/queryRouter.ts`) - The one place a tool's SQL leaves from. Built-in tools and the YAML tool factory call its `executeQuery` / `executeQueryWithPagination`, never a pool. It picks the caller's own IBM i connection (built-in sign-on) or a pool (every other mode).
 - **SourceManager** (`services/sourceManager.ts`) - Mapepire connection pooling
+- **Grant manager** (`oauth/grantManager.ts`) - Built-in sign-on only: one Mapepire connection per signed-on user, sealed passwords, token rotation, idle close and reconnect
 - **SqlSecurityValidator** (`utils/security/sqlSecurityValidator.ts`) - Enforces read-only queries by default
 - **ToolProcessor** (`utils/config/toolProcessor.ts`) - YAML tool hydration and registration
+
+### Authentication
+
+`MCP_AUTH_MODE` selects HTTP authentication (the stdio transport never authenticates):
+
+- `none` (default) - local development.
+- `oauth` with `OAUTH_ISSUER_URL` unset - **built-in IBM i sign-on**. The server is its own OAuth 2.1 authorization server (`packages/server/src/ibmi-mcp-server/oauth/`): users sign on with an IBM i user profile at a page it serves, and every tool runs SQL on a Mapepire connection signed on as that user. No service pool exists, `DB2i_PASS` must be unset, and a tool call without a sign-on throws. The resource-server side and the startup refusals are in `packages/server/src/mcp-server/transports/auth/builtinOAuth.ts`.
+- `oauth` with `OAUTH_ISSUER_URL` set - **external authorization server**. The server only verifies JWT access tokens (`transports/auth/oauth.ts`); all SQL runs as the `DB2i_USER` service account.
+- `ibmi` - deprecated IBM i token authentication (`/api/v1/auth`).
+
+In `oauth/`, passwords, authorization codes and refresh tokens are handled as `Buffer`s from `Buffer.allocUnsafeSlow`, never as strings, and are zero-filled by whoever allocated them. None of them, and nothing Mapepire answers to a sign-on, may appear in a log line, an error message or a thrown error. Tests there run against the in-process fake in `packages/server/tests/ibmi-mcp-server/oauth/fakeMapepire.ts`; never against a real IBM i.
+
+Operator guide: `docs/server-config/oauth.mdx`.
 
 ### Request Context & Logging
 
@@ -151,7 +169,7 @@ logger.info("Executing query", context);
 
 Follow the existing tools in `packages/server/src/ibmi-mcp-server/tools/` (e.g. `listSchemas.tool.ts`):
 
-1. Create `myTool.tool.ts`: define Zod input/output schemas and a logic function that throws on error, then export the result of `defineTool({ name, description, inputSchema, outputSchema, logic, ... })`
+1. Create `myTool.tool.ts`: define Zod input/output schemas and a logic function that throws on error, then export the result of `defineTool({ name, description, inputSchema, outputSchema, logic, ... })`. Run SQL through `executeQuery` or `executeQueryWithPagination` of `services/queryRouter.ts`, not through a connection pool, so that the tool also works when users sign on with their own IBM i profile
 2. Import it in `packages/server/src/ibmi-mcp-server/tools/index.ts`
 3. Add it to the array returned by `getAllToolDefinitions()`
 
@@ -185,9 +203,13 @@ Key variables (set in `.env` or environment):
 | `DB2i_PASS` | Database password |
 | `MCP_TRANSPORT_TYPE` | `stdio` or `http` |
 | `MCP_LOG_LEVEL` | `debug`, `info`, `notice`, `warning`, `error`, `crit`, `alert`, `emerg` |
+| `DB2i_SERVER_CERT_FILE`, `DB2i_CA_FILE` | Built-in sign-on: how the Mapepire certificate is verified (exact certificate, or CA) |
 | `MCP_AUTH_MODE` | HTTP authentication: `none` (default), `oauth`, `ibmi` (deprecated) |
 | `MCP_RESOURCE_URL` | Public URL of the MCP endpoint; required with `MCP_AUTH_MODE=oauth` |
-| `OAUTH_ISSUER_URL` | Authorization server issuer; required with `MCP_AUTH_MODE=oauth` |
+| `OAUTH_ISSUER_URL` | Issuer of an external authorization server. Unset with `MCP_AUTH_MODE=oauth` selects the built-in IBM i sign-on (then `DB2i_PASS` must be unset) |
+| `OAUTH_*` (others) | Built-in sign-on policy: `OAUTH_SIGNON_ALLOWED_CIDRS`, `OAUTH_CODE_ADDRESS_BINDING`, `OAUTH_GRANT_MAX_HOURS`, `OAUTH_IDLE_CLOSE_MINUTES`, `OAUTH_MAX_CONNECTIONS`, `OAUTH_ALLOWED_PROFILES`, `OAUTH_ALLOW_PRIVILEGED_PROFILES`, `OAUTH_SIGNON_MAX_FAILURES`, `OAUTH_ALLOW_LOOPBACK_REDIRECTS`, `OAUTH_REDIRECT_URIS`, `OAUTH_ADMIN_SOCKET` |
+| `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | PEM files; with both set the HTTP server listens with TLS (any auth mode) |
+| `MCP_TRUSTED_PROXIES` | IP addresses / CIDR ranges of reverse proxies whose `X-Forwarded-*` headers are believed |
 
 ## Code Style
 

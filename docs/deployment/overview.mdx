@@ -45,7 +45,7 @@ Images are built automatically by GitHub Actions when a new version tag is pushe
 All deployment methods require:
 
 1. **Mapepire running on IBM i** — The WebSocket-based SQL gateway that the MCP server connects to. See the [Setup Mapepire guide](/setup-mapepire) if not already configured.
-2. **IBM i credentials** — Hostname, user profile, and password with database authorities.
+2. **IBM i credentials** — Hostname, user profile, and password with database authorities. With the [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) only the hostname is configured: each user signs on with their own profile.
 3. **Network connectivity** — The container must be able to reach your IBM i system on the Mapepire port (default: 8076).
 
 ---
@@ -57,7 +57,7 @@ All deployment methods require:
 | **Best for** | Local development, small teams, standalone deployments | Enterprise production, multi-tenant, CI/CD pipelines |
 | **Setup time** | 5 minutes | 30 minutes |
 | **Scaling** | Manual (docker-compose replicas) | Automatic (pod autoscaling) |
-| **TLS** | Manual (reverse proxy) | Built-in (OpenShift Routes) |
+| **TLS** | The server's own listener (`MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE`) or a reverse proxy | OpenShift Routes |
 | **Image builds** | Pre-built from GHCR | Source-to-Image (S2I) from Git |
 | **Monitoring** | Container logs | OpenShift console, OpenTelemetry |
 

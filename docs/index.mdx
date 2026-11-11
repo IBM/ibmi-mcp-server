@@ -159,7 +159,7 @@ Different goals? Jump directly to what you need:
   <Accordion title="How does authentication work?" icon="key">
     **Local development (stdio or loopback HTTP):** no authentication. All SQL runs with the configured `DB2i_USER` credentials.
 
-    **Remote, multi-user deployments (HTTP):** OAuth. The server is an OAuth 2.1 resource server as defined by the MCP authorization specification: it verifies access tokens from your identity provider. A token identifies the caller; SQL still runs as the `DB2i_USER` service account.
+    **Remote, multi-user deployments (HTTP):** OAuth, following the MCP authorization specification, in one of two forms. With the built-in IBM i sign-on, users sign on with their IBM i user profile at a page the server serves and SQL runs as that user. With an external authorization server, the server verifies access tokens from your identity provider; a token identifies the caller and SQL runs as the `DB2i_USER` service account.
 
     **IBM i HTTP token authentication** (per-user IBM i credentials) is deprecated.
 

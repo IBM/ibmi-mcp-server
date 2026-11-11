@@ -6,9 +6,9 @@ description: "Deprecated IBM i HTTP token authentication: token-based access, RS
 <Warning>
 **Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, the `IBMI_AUTH_*` variables, the `/api/v1/auth` endpoints and per-user connection pools) will be removed in a future major release. It still works as documented here. The server logs one deprecation warning at startup, and every `/api/v1/auth` response carries a `Deprecation: true` header.
 
-Use [OAuth](/server-config/oauth) for multi-user remote deployments.
+**Replacement:** the [built-in IBM i sign-on](/server-config/oauth#built-in-ibm-i-sign-on) of `MCP_AUTH_MODE=oauth`. Users sign on with their IBM i user profile at a page the server serves, and their SQL runs under that profile, so object authorities and audit journals still apply per user. Clients use the standard MCP OAuth flow instead of `/api/v1/auth` and `get-access-token.js`, and the server needs no RSA key pair.
 
-**What you lose by moving to OAuth:** per-user IBM i authority. With IBM i authentication each user's SQL runs under their own IBM i profile, so object authorities and audit journals apply per user. Under OAuth every SQL statement runs as the `DB2i_USER` service account; the token only identifies the caller to the MCP server. If you depend on per-user authority, plan for that before migrating.
+Before you move, read its [limitations](/server-config/oauth#limitations): one IBM i per server, no multi-factor sign-on, profiles with `*ALLOBJ` or `*SECADM` refused by default, and clients that can only send a fixed `Authorization` header cannot use it. OAuth with an [external authorization server](/server-config/oauth#external-authorization-server) is the other option; there every SQL statement runs as the `DB2i_USER` service account.
 </Warning>
 
 IBM i HTTP authentication gives token-based access to the MCP server with per-user connection pooling. Clients authenticate with IBM i credentials to obtain Bearer tokens for subsequent requests.
@@ -22,7 +22,7 @@ IBM i HTTP authentication gives token-based access to the MCP server with per-us
 
 **Alternatives:**
 - **Development**: Use shared `DB2i_USER`/`DB2i_PASS` credentials with `MCP_AUTH_MODE=none` on loopback
-- **Remote deployments**: Use [OAuth](/server-config/oauth)
+- **Remote deployments**: Use [OAuth](/server-config/oauth). Its built-in IBM i sign-on keeps per-user IBM i authority.
 </Info>
 
 ---
@@ -79,7 +79,8 @@ sequenceDiagram
 | `IBMI_AUTH_PUBLIC_KEY_PATH` | Path to RSA public key | (none) | ✅ Yes |
 | `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP. Only honoured when `NODE_ENV=development` | `false` | No |
 | `IBMI_AUTH_ALLOWED_HOSTS` | Comma-separated IBM i host names users may sign on to (case-insensitive) | `DB2i_HOST` | When `DB2i_HOST` is not set |
-| `MCP_TRUST_PROXY` | Believe the reverse proxy's `X-Forwarded-Proto` and `X-Forwarded-For` headers | `false` | Behind a TLS-terminating proxy |
+| `MCP_TRUSTED_PROXIES` | Addresses or CIDR ranges of the reverse proxies whose `X-Forwarded-Proto` and `X-Forwarded-For` headers are believed | (none) | Behind a TLS-terminating proxy |
+| `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | PEM certificate and private key; with both set the server listens with HTTPS itself | (none) | Without a TLS-terminating proxy |
 | `IBMI_AUTH_TOKEN_EXPIRY_SECONDS` | Token lifetime | `3600` (1hr) | No |
 | `IBMI_AUTH_CLEANUP_INTERVAL_SECONDS` | Cleanup interval | `300` (5min) | No |
 | `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` | Max sessions | `100` | No |
@@ -101,7 +102,12 @@ When IBM i authentication is enabled and neither `IBMI_AUTH_ALLOWED_HOSTS` nor `
 
 ### HTTPS and Reverse Proxies
 
-`POST /api/v1/auth` must arrive over HTTPS. The server itself listens on plain HTTP, so in production it sits behind a reverse proxy that terminates TLS and sends `X-Forwarded-Proto: https`. The server believes that header only when `MCP_TRUST_PROXY=true`. Without it every sign-on is refused with `400` and `HTTPS/TLS is required for authentication endpoints`.
+`POST /api/v1/auth` must arrive over HTTPS. A request counts as HTTPS in one of two ways:
+
+- **The server terminates TLS itself.** Set `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE` to PEM files; the server then listens with HTTPS.
+- **A reverse proxy terminates TLS** and sends `X-Forwarded-Proto: https`. The server believes that header only from a proxy whose address is listed in `MCP_TRUSTED_PROXIES` (IP addresses or CIDR ranges, comma-separated).
+
+Otherwise every sign-on is refused with `400` and `HTTPS/TLS is required for authentication endpoints`. See [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy).
 
 For local testing without a proxy, set `IBMI_AUTH_ALLOW_HTTP=true` together with `NODE_ENV=development`.
 
@@ -298,7 +304,7 @@ MCP_LOG_LEVEL=info
 
 # Security (production, behind a reverse proxy that terminates TLS)
 IBMI_AUTH_ALLOW_HTTP=false
-MCP_TRUST_PROXY=true
+MCP_TRUSTED_PROXIES=10.0.0.5   # address of that proxy
 IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
 ```
 
@@ -359,7 +365,7 @@ If you see the public key, authentication is properly configured!
 </Success>
 
 <Warning>
-**Production HTTPS**: In production, ensure `IBMI_AUTH_ALLOW_HTTP=false` and use HTTPS. The server will reject HTTP authentication requests for security. Behind a TLS-terminating proxy, set `MCP_TRUST_PROXY=true`; see [HTTPS and Reverse Proxies](#https-and-reverse-proxies).
+**Production HTTPS**: In production, ensure `IBMI_AUTH_ALLOW_HTTP=false` and use HTTPS. The server will reject HTTP authentication requests for security. Behind a TLS-terminating proxy, set `MCP_TRUSTED_PROXIES` to the proxy's address; see [HTTPS and Reverse Proxies](#https-and-reverse-proxies).
 </Warning>
 
 ---
@@ -615,7 +621,7 @@ Once you have a token, configure your MCP client:
   <Accordion title="Network Security" icon="network-wired">
     - **HTTPS Only**: Never allow `IBMI_AUTH_ALLOW_HTTP=true` in production
     - **Firewall Rules**: Restrict access to auth endpoints
-    - **Rate Limiting**: `POST /api/v1/auth` is limited to 10 requests per minute per client address. Behind a proxy, set `MCP_TRUST_PROXY=true` so the limit applies per client and not to the proxy
+    - **Rate Limiting**: `POST /api/v1/auth` is limited to 10 requests per minute per client address. Behind a proxy, set `MCP_TRUSTED_PROXIES` to the proxy's address so the limit applies per client and not to the proxy
     - **Allowed hosts**: Keep `IBMI_AUTH_ALLOWED_HOSTS` to the systems users should reach
     - **IP Whitelisting**: Restrict auth access to known client IPs when possible
   </Accordion>
@@ -639,7 +645,7 @@ Once you have a token, configure your MCP client:
   <Accordion title="Sign-on Fails: 400, 401, 403 or 429 from /api/v1/auth">
     | Status | Message | Cause |
     |--------|---------|-------|
-    | `400` | `HTTPS/TLS is required for authentication endpoints` | The request did not arrive over HTTPS. Behind a TLS-terminating proxy set `MCP_TRUST_PROXY=true`; for local testing set `IBMI_AUTH_ALLOW_HTTP=true` with `NODE_ENV=development` |
+    | `400` | `HTTPS/TLS is required for authentication endpoints` | The request did not arrive over HTTPS. Behind a TLS-terminating proxy set `MCP_TRUSTED_PROXIES` to the proxy's address, or give the server its own TLS listener (`MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE`); for local testing set `IBMI_AUTH_ALLOW_HTTP=true` with `NODE_ENV=development` |
     | `401` | `Authentication failed` | The IBM i sign-on did not succeed (wrong user or password, host unreachable, and so on). The response does not say why; the server log does, in the `IBM i sign-on failed` record |
     | `403` | `Sign-on to this host is not allowed` | The requested host is not in `IBMI_AUTH_ALLOWED_HOSTS` (default: `DB2i_HOST`) |
     | `429` | Rate limit exceeded | More than 10 sign-on requests in one minute from one client address |

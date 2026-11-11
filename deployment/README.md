@@ -117,7 +117,7 @@ MCP_ALLOWED_HOSTS=ibmi-mcp-server
 
 > **Note:** You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](../packages/server/README.md#-ibm-i-http-authentication-deprecated) section in the server README for instructions.
 >
-> **Deprecated:** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`) will be removed in a future major release. The recommended mode for remote deployments is `MCP_AUTH_MODE=oauth` with `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; every client of the server, the gateway included, must then present an access token from your authorization server. See [OAuth Authentication](../packages/server/README.md#oauth-authentication).
+> **Deprecated:** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`) will be removed in a future major release. The recommended mode for remote deployments is `MCP_AUTH_MODE=oauth`. For a server that sits behind this gateway, set `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; every client of the server, the gateway included, must then present an access token from your authorization server. See [OAuth Authentication](../packages/server/README.md#oauth-authentication). The [built-in IBM i sign-on](../packages/server/README.md#built-in-ibm-i-sign-on) (no `OAUTH_ISSUER_URL`) needs a person at a browser, so a gateway cannot use it.
 
 Once you have your `.env` file configured, you can start the complete stack using Docker or Podman.
 
@@ -377,9 +377,9 @@ See the [OpenShift README](openshift/apps/openshift/README.md#troubleshooting) f
 
 ### Security
 
-- **Use HTTPS:** Configure reverse proxy (Nginx, Caddy) for TLS termination, and set `MCP_TRUST_PROXY=true` on the MCP server so that it uses the client address and scheme the proxy reports (`X-Forwarded-For`, `X-Forwarded-Proto`). Have the proxy set `X-Forwarded-For` itself (overwrite or append); the server uses the last entry. Leave it unset when clients reach the server directly
+- **Use HTTPS:** Either give the MCP server its own TLS listener (`MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE`, PEM files), or configure a reverse proxy (Nginx, Caddy) for TLS termination and set `MCP_TRUSTED_PROXIES` on the MCP server to that proxy's address or CIDR range. The server then uses the client address and scheme the proxy reports (`X-Forwarded-For`, `X-Forwarded-Proto`): the client is the right-most `X-Forwarded-For` entry that is not itself a listed proxy. Have the proxy set `X-Forwarded-For` itself (overwrite or append). Leave `MCP_TRUSTED_PROXIES` unset when clients reach the server directly
 - **Use secrets management:** Kubernetes secrets, Vault, or cloud provider solutions
-- **Enable authentication:** Set `MCP_AUTH_MODE=oauth` (IBM i token authentication, `MCP_AUTH_MODE=ibmi`, is deprecated; if you still use it, set `IBMI_AUTH_ALLOW_HTTP=false`)
+- **Enable authentication:** Set `MCP_AUTH_MODE=oauth`. Without `OAUTH_ISSUER_URL` users sign on with their IBM i user profile and SQL runs as that user; a container then needs the TLS listener, and no `DB2i_PASS`. With `OAUTH_ISSUER_URL` the server verifies tokens from your authorization server and SQL runs as the service account. See [OAuth Authentication](../packages/server/README.md#oauth-authentication) and [Built-in IBM i Sign-On](../packages/server/README.md#built-in-ibm-i-sign-on). (IBM i token authentication, `MCP_AUTH_MODE=ibmi`, is deprecated; if you still use it, set `IBMI_AUTH_ALLOW_HTTP=false`)
 - **Restrict CORS:** Set `MCP_ALLOWED_ORIGINS` to specific domains
 - **Regular rotation:** Rotate IBM i credentials periodically
 

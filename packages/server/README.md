@@ -32,6 +32,7 @@
   - [⚙️ Configuration](#️-configuration)
     - [General Authentication](#general-authentication)
     - [OAuth Authentication](#oauth-authentication)
+    - [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on)
     - [IBM i HTTP Authentication](#ibm-i-http-authentication)
     - [Tool Loading](#tool-loading)
     - [Configuration Merging](#configuration-merging)
@@ -316,6 +317,7 @@ npx -y @ibm/ibmi-mcp-server@latest [options]
 | `--transport <type>` | Transport type: `stdio` (default) or `http` |
 | `--builtin-tools` | Enable built-in schema discovery tools (`list_schemas`, `list_tables_in_schema`, `get_table_columns`, `get_related_objects`, `validate_query`) |
 | `--execute-sql` | Enable the `execute_sql` tool for ad-hoc queries |
+| `--admin <command>` | Send one command to the admin socket (`OAUTH_ADMIN_SOCKET`) of a running server, print its one-line reply and exit: `status`, `unblock <profile>` or `revoke <profile\|grantId>`. See [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on) |
 | `--help` | Show help message |
 
 Options are checked strictly. An unknown option, an option without its value, a positional argument or an invalid `--transport` value prints `Invalid arguments: <message>` on stderr and exits with code 1. Both `--tools ./tools` and `--tools=./tools` are accepted. Quote glob patterns: `--tools 'tools/**/*.yaml'`.
@@ -370,25 +372,34 @@ npx -y @ibm/ibmi-mcp-server@latest --help
 
 ### Remote Server Setup
 
-For a remote server shared by several users, use **OAuth** (`MCP_AUTH_MODE=oauth`). The server verifies access tokens issued by your identity provider; it does not issue tokens itself.
+For a remote server shared by several users, use **OAuth** (`MCP_AUTH_MODE=oauth`). It has two flavours, selected by `OAUTH_ISSUER_URL`:
+
+- **Unset: built-in IBM i sign-on (recommended).** The server is its own authorization server. Users sign on with their IBM i user profile at a page it serves, and SQL runs as that user. See [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on).
+- **Set: external authorization server.** The server verifies access tokens issued by your identity provider; it does not issue tokens itself. All SQL runs as the `DB2i_USER` service account; the token only identifies the caller. See [OAuth Authentication](#oauth-authentication).
 
 1. **Start the server with OAuth enabled:**
 
    ```bash
-   # In your .env:
+   # In your .env, built-in IBM i sign-on:
    MCP_TRANSPORT_TYPE=http
    MCP_HTTP_HOST=0.0.0.0
    MCP_ALLOWED_HOSTS=mcp.example.com
    MCP_AUTH_MODE=oauth
-   MCP_RESOURCE_URL=https://mcp.example.com/mcp   # public URL of the MCP endpoint
-   OAUTH_ISSUER_URL=https://auth.example.com      # your authorization server
+   MCP_RESOURCE_URL=https://mcp.example.com:3010/mcp   # public URL of the MCP endpoint
+   MCP_TLS_CERT_FILE=/etc/ibmi-mcp/server.crt          # the server's own HTTPS listener
+   MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key
+   DB2i_HOST=ibmi.example.com                          # no DB2i_USER, no DB2i_PASS
+   DB2i_SERVER_CERT_FILE=/etc/ibmi-mcp/mapepire.crt
+
+   # ...or an external authorization server:
+   # MCP_RESOURCE_URL=https://mcp.example.com/mcp
+   # OAUTH_ISSUER_URL=https://auth.example.com
+   # DB2i_HOST=..., DB2i_USER=..., DB2i_PASS=...
 
    npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
    ```
 
-2. **Configure your client with the server URL only.** A client that implements MCP authorization receives a `401` challenge, reads `/.well-known/oauth-protected-resource`, and opens a browser sign-in with your identity provider. For a client without OAuth support, obtain an access token from the identity provider and send it as `Authorization: Bearer <token>`. The remote client examples below show the `headers` form; leave the `headers` block out for an OAuth sign-in.
-
-All SQL runs as the `DB2i_USER` service account; the token only identifies the caller. See [OAuth Authentication](#oauth-authentication) for all settings.
+2. **Configure your client with the server URL only.** A client that implements MCP authorization receives a `401` challenge, reads `/.well-known/oauth-protected-resource`, and opens a browser sign-in: the server's own sign-in page, or your identity provider's. With an external authorization server, a client without OAuth support can send an access token obtained from the identity provider as `Authorization: Bearer <token>`; the built-in sign-on has no such fallback. The remote client examples below show the `headers` form; leave the `headers` block out for an OAuth sign-in.
 
 <details>
 <summary><strong>Deprecated: IBM i token setup</strong></summary>
@@ -426,7 +437,9 @@ IBM i HTTP token authentication is deprecated and will be removed in a future ma
 
 In production environments, it is strongly recommended to deploy the MCP server behind a reverse proxy server such as Nginx, HAProxy, or Caddy. The reverse proxy server can provide TLS/SSL termination for the MCP server to handle HTTPS connections and SSL/TLS certificate management. Below is an example of an Nginx configuration. You may need to adjust it according to your specific networking configuration and security requirements.
 
-Set `MCP_TRUST_PROXY=true` on the MCP server when it runs behind such a proxy. Without it the server ignores `X-Forwarded-For` and `X-Forwarded-Proto`: all clients then share the proxy's address for rate limiting, and the deprecated `/api/v1/auth` endpoint refuses every request with `HTTPS/TLS is required for authentication endpoints`. The proxy must set `X-Forwarded-For` itself (overwrite it or append to it), because the server uses the last entry: a header that is passed through unchanged is the client's own.
+Set `MCP_TRUSTED_PROXIES` on the MCP server to the address (or CIDR range) of such a proxy, for example `MCP_TRUSTED_PROXIES=127.0.0.1` for a proxy on the same host. The server believes `X-Forwarded-For` and `X-Forwarded-Proto` only when the TCP peer is inside that list; the client address is then the right-most `X-Forwarded-For` hop that is not itself inside the list, so with several proxies in a row list all of them. Without the setting the server ignores both headers: all clients then share the proxy's address for rate limiting, and the deprecated `/api/v1/auth` endpoint refuses every request with `HTTPS/TLS is required for authentication endpoints`. The proxy must set `X-Forwarded-For` itself (overwrite it or append to it): a header that is passed through unchanged is the client's own. A hop that carries a port, or that is not an IP address, is not usable, and the proxy's own address is used instead.
+
+The server can also terminate TLS itself: with `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE` (PEM files) it listens with HTTPS and needs no proxy for that.
 
 ```
 pid /run/nginx.pid;
@@ -440,10 +453,10 @@ http {
         ssl_ciphers HIGH:!aNULL:!MD5;
         ssl_session_cache shared:SSL:50m;
         ssl_prefer_server_ciphers on;
-        # Read by the MCP server only when MCP_TRUST_PROXY=true.
+        # Read by the MCP server only when this proxy's address is in MCP_TRUSTED_PROXIES.
         # X-Forwarded-Proto is needed for getting access token when IBM i HTTP authentication enabled with HTTPS only
         proxy_set_header X-Forwarded-Proto https;
-        # Set here, not passed through: the server uses the last entry as the client address
+        # Set here, not passed through: the server takes the client address from this header
         proxy_set_header X-Forwarded-For $remote_addr;
         location / {
             proxy_pass http://mcp_server;
@@ -502,6 +515,7 @@ claude mcp add ibmi-mcp \
 **Using CLI:**
 ```bash
 # OAuth server: add the URL, then run /mcp inside Claude Code to sign in
+# (the server's built-in IBM i sign-on has not been tested with Claude Code)
 claude mcp add --transport http ibmi-mcp https://mcp.example.com/mcp
 
 # Fixed bearer token
@@ -1370,7 +1384,8 @@ Configuration for HTTP transport mode, including network settings and CORS. The 
 | `MCP_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins | None (all origins blocked) | No |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` header allowlist (extends the always-allowed loopback set); `*` disables Host checking only, not Origin checking | None (loopback only) | No |
 | `MCP_ALLOW_UNAUTHENTICATED_HTTP` | Explicitly permit unauthenticated HTTP on a non-loopback bind with IBM i credentials present | `false` | No |
-| `MCP_TRUST_PROXY` | Take the client address and scheme from `X-Forwarded-For` (last entry) and `X-Forwarded-Proto`. Set to `true` only behind a reverse proxy you control; otherwise those headers are ignored | `false` | No |
+| `MCP_TRUSTED_PROXIES` | Comma-separated IP addresses or CIDR ranges of the reverse proxies in front of the server. `X-Forwarded-For` and `X-Forwarded-Proto` are believed only from those peers; the client address is the right-most `X-Forwarded-For` hop that is not in the list. Without it those headers are ignored | (none) | No |
+| `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | PEM certificate and private key. With both set the server listens with HTTPS, in every auth mode | (none) | No |
 
 **Examples:**
 ```bash
@@ -1384,7 +1399,7 @@ MCP_HTTP_PORT=443
 MCP_HTTP_HOST=0.0.0.0                       # non-loopback bind requires MCP_AUTH_MODE != none
 MCP_ALLOWED_HOSTS=mcp.example.com           # public hostname(s) this server is reached at
 MCP_ALLOWED_ORIGINS=https://app.example.com,https://dashboard.example.com
-MCP_TRUST_PROXY=true                        # only behind a reverse proxy you control
+MCP_TRUSTED_PROXIES=10.0.0.5                # address or CIDR range of your reverse proxy
 ```
 
 </details>
@@ -1422,7 +1437,7 @@ MCP_RATE_LIMIT_ENABLED=false
 - With authentication, an authenticated request counts against the token's subject (the client id when the token has no subject). A request that authentication refuses counts against the client address, as do fetches of the OAuth metadata. Once an address has used up its budget, further requests from it that authentication refuses get `429` until the window ends. Requests with a valid token are still served: they never count against the address.
 - `POST /api/v1/auth` (deprecated IBM i authentication) has its own fixed budget of 10 requests per minute per client address.
 
-> **Docker / Reverse Proxy**: The client address is the TCP peer address. Behind a reverse proxy that is the proxy, so all clients share one budget. Set `MCP_TRUST_PROXY=true` to use the address the proxy reports in `X-Forwarded-For` (last entry), and have the proxy set that header itself.
+> **Docker / Reverse Proxy**: The client address is the TCP peer address. Behind a reverse proxy that is the proxy, so all clients share one budget. Set `MCP_TRUSTED_PROXIES` to the proxy's address or CIDR range to use the address the proxy reports in `X-Forwarded-For`, and have the proxy set that header itself.
 
 </details>
 
@@ -1471,19 +1486,19 @@ Security configuration for protecting the MCP server and authenticating clients.
 | `MCP_AUTH_MODE` | Authentication mode for the HTTP transport: `none`, `oauth`, `ibmi` (deprecated) | `none` | No |
 
 - `none`: no authentication. For local development and stdio (the stdio transport never authenticates).
-- `oauth`: **recommended for multi-user remote deployments.**
-- `ibmi`: IBM i token authentication. **Deprecated.**
+- `oauth`: **recommended for multi-user remote deployments.** Without `OAUTH_ISSUER_URL` users sign on with their IBM i user profile and SQL runs as that user ([Built-in IBM i Sign-On](#built-in-ibm-i-sign-on)); with it the server verifies tokens of your authorization server and SQL runs as the service account ([OAuth Authentication](#oauth-authentication)).
+- `ibmi`: IBM i token authentication. **Deprecated**; the built-in IBM i sign-on replaces it.
 
 The server refuses to start when any environment variable fails validation (an unknown `MCP_AUTH_MODE`, a non-numeric port, and so on): stderr names the variables at fault and the process exits with code 1.
 
 ### OAuth Authentication
 
-Used when `MCP_AUTH_MODE=oauth`. The server is an OAuth 2.1 resource server as defined by the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization): it verifies JWT access tokens issued by your authorization server and never issues tokens itself.
+Used when `MCP_AUTH_MODE=oauth` and `OAUTH_ISSUER_URL` is set. The server is an OAuth 2.1 resource server as defined by the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization): it verifies JWT access tokens issued by your authorization server and never issues tokens itself. Without `OAUTH_ISSUER_URL` the server is its own authorization server and users sign on with their IBM i user profile: see [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on).
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `MCP_RESOURCE_URL` | Public URL of the MCP endpoint as clients reach it, e.g. `https://mcp.example.com/mcp`. Tokens must be issued for it (`aud`). | None | ✅ Yes (for OAuth mode) |
-| `OAUTH_ISSUER_URL` | Issuer of the authorization server. Must match the token's `iss` exactly. `https` unless loopback. | None | ✅ Yes (for OAuth mode) |
+| `OAUTH_ISSUER_URL` | Issuer of the external authorization server. Must match the token's `iss` exactly. `https` unless loopback. Unset selects the [built-in IBM i sign-on](#built-in-ibm-i-sign-on). | None | ✅ Yes (for an external authorization server) |
 | `OAUTH_JWKS_URI` | JWKS URL used to verify token signatures. `https` unless loopback. | Discovered from the issuer's metadata (`/.well-known/oauth-authorization-server`, then `/.well-known/openid-configuration`) | No |
 | `OAUTH_AUDIENCE` | Expected token audience, for authorization servers that do not put the resource URL in `aud` | `MCP_RESOURCE_URL` | No |
 | `OAUTH_REQUIRED_SCOPES` | Space-separated scopes every request must carry | None | No |
@@ -1498,6 +1513,64 @@ What the server does in this mode:
 Limits: JWT access tokens only (no opaque tokens, no RFC 7662 introspection), one issuer, no per-tool scopes, no clock-skew tolerance.
 
 Full guide: [docs/server-config/oauth.mdx](../../docs/server-config/oauth.mdx).
+
+### Built-in IBM i Sign-On
+
+Used when `MCP_AUTH_MODE=oauth` and `OAUTH_ISSUER_URL` is **not** set. The server is then its own OAuth 2.1 authorization server: a client is sent to a sign-in page this server serves, the user types an IBM i user profile and password there, and every tool (built-in and YAML) runs its SQL on a Mapepire connection signed on as that user. There is no service account in this mode.
+
+```bash
+MCP_TRANSPORT_TYPE=http
+MCP_AUTH_MODE=oauth
+MCP_RESOURCE_URL=https://mcp.example.com:3010/mcp   # public URL of the MCP endpoint
+MCP_HTTP_HOST=0.0.0.0
+MCP_ALLOWED_HOSTS=mcp.example.com
+MCP_TLS_CERT_FILE=/etc/ibmi-mcp/server.crt       # or MCP_HTTP_HOST=127.0.0.1 and MCP_TRUSTED_PROXIES=127.0.0.1 behind a TLS proxy on this host
+MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key
+DB2i_HOST=ibmi.example.com                       # no DB2i_USER, no DB2i_PASS
+DB2i_SERVER_CERT_FILE=/etc/ibmi-mcp/mapepire.crt # or DB2i_CA_FILE
+```
+
+How it works:
+
+- One sign-on is one Mapepire connection (one IBM i job) opened with the typed credentials. The password is kept only encrypted in server memory, and the key to it can be derived only from the client's refresh token. Nothing is written to disk; a restart signs everyone out.
+- The connection is closed after `OAUTH_IDLE_CLOSE_MINUTES` without a request. The next request is answered `401` (`connection closed, refresh`); the client's token refresh reopens the connection as the same user, on a new job. Access tokens live `OAUTH_IDLE_CLOSE_MINUTES` plus five minutes.
+- The authorization server's endpoints are under the issuer, which is `MCP_RESOURCE_URL` without its last path segment: `/oauth/authorize`, `/oauth/token`, `/oauth/revoke`, `/oauth/register`, and its metadata at `/.well-known/oauth-authorization-server`. Clients find it through the Protected Resource Metadata.
+- A client is identified by an id from `POST /oauth/register` or by an `https` URL, and is never verified: the sign-in page says so and shows where the sign-on result will be sent. That destination must be a loopback address or an exact entry of `OAUTH_REDIRECT_URIS`.
+- After `OAUTH_SIGNON_MAX_FAILURES` rejected sign-ons in a row a profile is blocked on this server (the IBM i profile is not disabled by this) until `ibmi-mcp-server --admin "unblock <profile>"` or a restart. Sign-ons whose result the server could not read (no answer, a dropped connection, an unrecognised error) block it at twice that number. That number is what this server forwards; the IBM i may count more than one failed attempt per rejected sign-on (suggested by the mapepire-server source, not confirmed on a system), so check the system values `QMAXSIGN` and `QMAXSGNACN`.
+- In a YAML tool file every tool runs on the signed-on user's connection, whatever source it names. A source's `user` and `password` are ignored; its `host` must be `DB2i_HOST` and it may not set `jdbc-options`. `${VAR}` is replaced only for `DB2i_HOST` and `DB2i_PORT`; any other variable in a tool file stops startup.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MCP_RESOURCE_URL` | Public URL of the MCP endpoint. `https`, or `http` on a loopback address. Required. | None |
+| `DB2i_HOST`, `DB2i_PORT` | The IBM i users sign on to, and its Mapepire port. `DB2i_HOST` is required and must be a host name or an IPv4 address. | port `8076` |
+| `DB2i_SERVER_CERT_FILE` / `DB2i_CA_FILE` | PEM file with exactly the certificate the Mapepire server presents (a pin), or with the CA that issued it. At most one; with neither, Node's trust store decides. | None |
+| `DB2i_IGNORE_UNAUTHORIZED` | `true` turns verification of the Mapepire certificate off: the passwords users type are sent to a server whose identity is not checked, and a warning is logged at startup. Only an explicit `true` counts in this mode. Not together with `DB2i_SERVER_CERT_FILE` or `DB2i_CA_FILE`. | unset: verified |
+| `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | TLS on the server's own listener. Required unless `MCP_HTTP_HOST` is a loopback address. | None |
+| `OAUTH_SIGNON_ALLOWED_CIDRS` | Addresses users may sign on from | loopback, private IPv4 ranges, IPv6 unique local |
+| `OAUTH_CODE_ADDRESS_BINDING` | `strict`: an authorization code sent to a loopback redirect must be redeemed from the address that signed on. `audit`: a mismatch is only logged. | `strict` |
+| `OAUTH_GRANT_MAX_HOURS` | Longest a sign-on lasts | `12` |
+| `OAUTH_IDLE_CLOSE_MINUTES` | Idle minutes after which a user's IBM i connection is closed | `10` |
+| `OAUTH_MAX_CONNECTIONS` | Most IBM i connections open at once | `50` |
+| `OAUTH_ALLOWED_PROFILES` | Profiles that may sign on: names or `PREFIX*`. A profile starting with `Q` must be named exactly. | every profile not starting with `Q` |
+| `OAUTH_ALLOW_PRIVILEGED_PROFILES` | Let profiles with `*ALLOBJ` or `*SECADM` sign on | `false` |
+| `OAUTH_SIGNON_MAX_FAILURES` | Rejected sign-ons in a row that block a profile on this server; sign-ons with an unreadable result block it at twice this number | `2` |
+| `OAUTH_ALLOW_LOOPBACK_REDIRECTS` | Accept loopback redirect URIs | `true` |
+| `OAUTH_REDIRECT_URIS` | Redirect URIs accepted besides loopback ones, matched exactly | None |
+| `OAUTH_ADMIN_SOCKET` | Path of a local admin socket (owner access only). `ibmi-mcp-server --admin "<command>"` sends it `status`, `unblock <profile>` or `revoke <profile\|grantId>`. | None |
+
+The server refuses to start in this mode with the stdio transport; with `DB2i_PASS` set; with `DB2i_IGNORE_UNAUTHORIZED=true` together with `DB2i_SERVER_CERT_FILE` or `DB2i_CA_FILE`; with `OAUTH_JWKS_URI` or `OAUTH_AUDIENCE` set; with `IBMI_HTTP_AUTH_ENABLED=true`; with a `DB2i_JDBC_OPTIONS` key other than `naming`, `libraries`, `date format`, `date separator`, `time format`, `time separator`, `decimal separator`, `transaction isolation` and `access` (the server adds `prompt=false` itself); with a certificate file it cannot read; with a non-loopback `MCP_HTTP_HOST` and no TLS listener; with a public `MCP_RESOURCE_URL`, a loopback `MCP_HTTP_HOST`, no TLS listener and no `MCP_TRUSTED_PROXIES` (a proxy on the same host is then in front and has to be named); with an `OAUTH_ADMIN_SOCKET` another server is listening on; and when the Node.js inspector is active. `OAUTH_REQUIRED_SCOPES` has no effect in this mode. `/healthz` reports `signOn: { grants, openConnections, maxConnections, blockedProfiles }` instead of `pools`.
+
+Mapepire: the mode works with mapepire-server 2.x and was checked against 2.3.2 and the 2.4 and 2.5 sources. No version is enforced. Run 2.3.2 or later (earlier 2.x builds let any connected client read other connections' trace output), and do not start Mapepire with `-Dcodeserver.jdbc.autoconnect=true`: according to its source, 2.3.2 to 2.4.x then sign on a second time with the same wrong password when the socket closes.
+
+Limits of this version: no multi-factor (TOTP) sign-on; one server process (sign-ons are held in memory and not shared between instances); a statement that does not return within 120 seconds is abandoned and its connection closed, which is not known to stop the work on the IBM i; while a user is connected, the Mapepire server on the IBM i holds that user's password in its own memory. Which MCP clients complete this sign-on, and whether they answer the `connection closed` `401` by refreshing, has been tested with the MCP TypeScript SDK client only. Against a real IBM i system only the Mapepire sign-on exchange was checked by hand (mapepire-server 2.3.2: a `connect` with technique `tcp`, and the text of a wrong-password rejection); this server has not been run end to end against one.
+
+More limits: profiles that hold `*ALLOBJ` or `*SECADM` are refused unless `OAUTH_ALLOW_PRIVILEGED_PROFILES=true`; a profile name that starts with a digit cannot sign on; a password that contains `:`, `%`, `;` or `"`, begins with `*`, ends in `\`, begins or ends with a space or has a non-ASCII character cannot be used; statements of one sign-on run one at a time; BLOB values cannot be downloaded; headless agents cannot sign on.
+
+Behind a reverse proxy, list the proxy in `MCP_TRUSTED_PROXIES` and have it set `X-Forwarded-For`: the sign-in page and the token endpoint refuse a request that carries forwarding headers from a peer that is not listed. A proxy that is not listed and sends no such header makes every user appear at the proxy's address; the server refuses to start in the one case where it can tell that such a proxy exists (public `MCP_RESOURCE_URL`, loopback `MCP_HTTP_HOST`, no TLS listener). Only a proxy on the same host may reach the server over plain HTTP (`MCP_HTTP_HOST=127.0.0.1`); a proxy on another host, an OpenShift Route included, must re-encrypt to the server's TLS listener.
+
+Delete the `DB2i_USER` and `DB2i_PASS` lines from the `.env` file for this mode; a line left blank (`DB2i_PASS=`) is rejected as an invalid value.
+
+Full guide, including what is stored where, what the design does not protect against, the sign-on budget, the admin socket, log events and the IBM i setup this mode requires: [docs/server-config/oauth.mdx](../../docs/server-config/oauth.mdx).
 
 ### IBM i HTTP Authentication
 
@@ -1538,7 +1611,7 @@ IBMI_AUTH_TOKEN_EXPIRY_SECONDS=7200  # 2 hours
 
 **⚠️ Security Notes:**
 - **Never** use `MCP_AUTH_MODE=none` in production
-- Serve the MCP endpoint over HTTPS in production (terminate TLS at a reverse proxy)
+- Serve the MCP endpoint over HTTPS in production: terminate TLS at a reverse proxy, or give the server its own listener with `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE`
 - With the deprecated IBM i mode, **always** use `IBMI_AUTH_ALLOW_HTTP=false` in production and rotate the RSA keypair regularly
 
 </details>
@@ -1591,7 +1664,7 @@ DB2i_IGNORE_UNAUTHORIZED=false
 - Store credentials securely (use secrets management in production)
 - Use read-only accounts when possible
 - Set `DB2i_IGNORE_UNAUTHORIZED=false` with valid SSL certificates in production
-- Consider using IBM i authentication mode for per-user connection pooling
+- For per-user IBM i authority, use the [built-in IBM i sign-on](#built-in-ibm-i-sign-on): no service account password is configured at all
 
 </details>
 
@@ -1952,9 +2025,10 @@ Breaking changes when upgrading from 0.6.x:
 | `MCP_SESSION_MODE`, `MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS` | Remove them. The HTTP server is always stateless and issues no `Mcp-Session-Id`. A leftover `MCP_SESSION_MODE` other than `stateless` prints a warning and is ignored. |
 | `MCP_AUTH_MODE=jwt`, `MCP_AUTH_SECRET_KEY`, `DEV_MCP_CLIENT_ID`, `DEV_MCP_SCOPES` | Removed; the server exits at startup with `MCP_AUTH_MODE=jwt`. Use `MCP_AUTH_MODE=oauth` with `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`. |
 | `MCP_AUTH_MODE=oauth` settings | `MCP_RESOURCE_URL` is new and required. `OAUTH_AUDIENCE` is now optional (default: `MCP_RESOURCE_URL`). With `OAUTH_JWKS_URI` unset, the JWKS is discovered from the issuer's metadata instead of assuming `<issuer>/.well-known/jwks.json`. The issuer and JWKS URLs must be `https` unless loopback. Tokens must use an asymmetric algorithm. |
+| `MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL` | No longer a configuration error: it selects the new [built-in IBM i sign-on](#built-in-ibm-i-sign-on), where users sign on with their IBM i user profile and SQL runs as that user. Keep `OAUTH_ISSUER_URL` set to stay with your authorization server. An existing external-issuer configuration is not affected. |
 | OAuth error responses | `401`/`403` in `oauth` mode are OAuth-shaped (`{"error":"invalid_token",...}` plus `WWW-Authenticate`), not JSON-RPC-shaped. |
 | Invalid environment variables | The server refuses to start when any environment variable fails validation, instead of running with every setting at its default. Fix the variables reported on stderr. |
-| IBM i HTTP token authentication | Deprecated, still works. Plan a move to `oauth`; note that under OAuth all SQL runs as the `DB2i_USER` service account, so per-user IBM i authority is lost. |
+| IBM i HTTP token authentication | Deprecated, still works. Plan a move to `oauth`. Its [built-in IBM i sign-on](#built-in-ibm-i-sign-on) keeps per-user IBM i authority; with an external authorization server all SQL runs as the `DB2i_USER` service account. |
 | `GET` / `DELETE` on the MCP endpoint | Both return `405`. The JSON info page a plain `GET /mcp` used to return is gone; use `GET /healthz` for health checks. |
 | Request validation | A non-JSON `Content-Type` returns `415`. |
 | `logging` capability | No longer advertised; `logging/setLevel` returns "Method not found". |
@@ -1981,7 +2055,8 @@ The server now runs on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`
 
 | Removed or changed | What to do |
 |--------------------|------------|
-| `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` | `X-Forwarded-For` (last entry) and `X-Forwarded-Proto` are ignored unless the new `MCP_TRUST_PROXY=true` is set; `X-Real-IP` is no longer read. Set `MCP_TRUST_PROXY=true` behind a reverse proxy; otherwise all clients share the proxy's address for rate limiting and `/api/v1/auth` refuses requests with `HTTPS/TLS is required for authentication endpoints`. |
+| `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` | `X-Forwarded-For` and `X-Forwarded-Proto` are ignored unless the request comes from a proxy listed in the new `MCP_TRUSTED_PROXIES` (IP addresses or CIDR ranges); `X-Real-IP` is no longer read. Set `MCP_TRUSTED_PROXIES` to your reverse proxy's address; otherwise all clients share the proxy's address for rate limiting and `/api/v1/auth` refuses requests with `HTTPS/TLS is required for authentication endpoints`. |
+| TLS | New, optional: with `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE` (PEM files) the server listens with HTTPS itself, in every auth mode. Health checks must then use `https`; the container image's built-in `HEALTHCHECK` uses `http` and reports such a container unhealthy, so run it with `--no-healthcheck`. |
 | Rate limiting with authentication enabled | Requests that authentication refuses now count against the client address; once an address has used up `MCP_RATE_LIMIT_MAX_REQUESTS`, further refused requests from it get `429`. Authenticated requests are still counted per token subject and are not affected. |
 | `/api/v1/auth` target host | The new `IBMI_AUTH_ALLOWED_HOSTS` (default: `DB2i_HOST`) lists the IBM i hosts users may sign on to; any other host gets `403` `Sign-on to this host is not allowed`. With IBM i authentication enabled and neither variable set, the server does not start. |
 | `/api/v1/auth` responses | A failed sign-on is `401` `Authentication failed` (was `500` with the driver's error text; the reason is in the server log). The endpoint is limited to 10 requests per minute per client address (`429`). |
@@ -2025,9 +2100,9 @@ The `ibmi` CLI changed too (exit codes, row limits, table output); see the [CLI 
 
 ## 🔐 IBM i HTTP Authentication (Deprecated)
 
-> **Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, `IBMI_AUTH_*`, `/api/v1/auth`, per-user pools) will be removed in a future major release. It works as described below; the server logs one deprecation warning at startup and `/api/v1/auth` responses carry a `Deprecation: true` header. Use [OAuth](#oauth-authentication) for multi-user remote deployments.
+> **Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, `IBMI_AUTH_*`, `/api/v1/auth`, per-user pools) will be removed in a future major release. It works as described below; the server logs one deprecation warning at startup and `/api/v1/auth` responses carry a `Deprecation: true` header. Use OAuth for multi-user remote deployments.
 >
-> **What moving to OAuth costs:** per-user IBM i authority. Here each user's SQL runs under their own IBM i profile. Under OAuth all SQL runs as the `DB2i_USER` service account, and the token only identifies the caller to the MCP server.
+> **Replacement:** the [built-in IBM i sign-on](#built-in-ibm-i-sign-on) (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`). Users sign on with their IBM i user profile at a page the server serves and their SQL runs under that profile, so per-user IBM i authority is kept. Clients use the standard MCP OAuth flow instead of `/api/v1/auth`, and no RSA key pair is needed. With an [external authorization server](#oauth-authentication) all SQL runs as the `DB2i_USER` service account instead.
 
 The server supports IBM i HTTP authentication that allows clients to obtain access tokens for authenticated SQL tool execution. This enables per-user connection pooling and secure access to IBM i resources.
 
@@ -2079,7 +2154,7 @@ DB2i_PASS=your-password
 
 The server signs on only to the hosts in `IBMI_AUTH_ALLOWED_HOSTS` (default: `DB2i_HOST`). With neither set, or with a key file that cannot be read, the server does not start.
 
-Behind a reverse proxy that terminates TLS, also set `MCP_TRUST_PROXY=true`: the server listens on plain HTTP and believes the proxy's `X-Forwarded-Proto: https` only with that setting.
+Behind a reverse proxy that terminates TLS, also set `MCP_TRUSTED_PROXIES` to the proxy's address: the server believes `X-Forwarded-Proto: https` only from a proxy in that list. Alternatively let the server terminate TLS itself with `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE`.
 
 
 ### Getting Access Tokens
@@ -2324,6 +2399,7 @@ Both transport modes support these command-line options:
 | `--list-toolsets`    |       | List available toolsets from YAML configuration                               | `--list-toolsets`                 |
 | `--builtin-tools`    |       | Enable built-in schema discovery tools (overrides `IBMI_ENABLE_DEFAULT_TOOLS`) | `--builtin-tools`                 |
 | `--execute-sql`      |       | Enable the `execute_sql` tool (overrides `IBMI_ENABLE_EXECUTE_SQL`)           | `--execute-sql`                   |
+| `--admin <command>`  |       | Send `status`, `unblock <profile>` or `revoke <profile\|grantId>` to the admin socket (`OAUTH_ADMIN_SOCKET`) of a running server and exit; the server is not started | `--admin "unblock MYUSER"`        |
 
 ### Common Development Scenarios
 

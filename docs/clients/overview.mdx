@@ -164,17 +164,19 @@ The IBM i MCP Server supports two transport protocols:
 
 ### OAuth Remote Setup
 
-OAuth is the recommended way to connect to a remote server. The server administrator configures it once; see [OAuth Authentication](/server-config/oauth).
+OAuth is the recommended way to connect to a remote server. The server administrator configures it once; see [OAuth Authentication](/server-config/oauth). Depending on that configuration you sign in with your IBM i user profile at a page the MCP server serves (built-in IBM i sign-on), or with your organization's identity provider (external authorization server).
 
 **Clients that implement MCP authorization** need only the server URL:
 
 1. Add the server URL (for example `https://mcp.example.com/mcp`) to the client. Do not configure an `Authorization` header.
-2. On the first request the server answers `401` with a challenge. The client reads the server's metadata, finds your identity provider, and opens a browser sign-in.
+2. On the first request the server answers `401` with a challenge. The client reads the server's metadata, finds the authorization server, and opens a browser sign-in.
 3. After sign-in the client sends the access token on every request and renews it as its implementation allows.
 
-Check your client's documentation for whether your version supports OAuth for remote MCP servers and which client registration methods it needs from the identity provider.
+Check your client's documentation for whether your version supports OAuth for remote MCP servers. With an external authorization server, also check which client registration methods it needs from the identity provider.
 
-**Clients without OAuth support** can still connect with a fixed header. Obtain an access token for the server from your identity provider and configure it as `Authorization: Bearer <token>`. The token expires and must then be replaced by hand.
+**With the built-in IBM i sign-on**, the page shows which application asked and where the result will be sent; continue only if you started the sign-in from that application yourself. The server closes your IBM i connection after an idle period; a client that then refreshes its token gets the connection reopened without your password being asked for again. You sign on again after 12 hours by default, and after the server restarts. This flow has been tested with the MCP TypeScript SDK client only; whether a particular client completes it, and whether it refreshes or sends you back to the sign-in page after an idle period, is not known.
+
+**Clients without OAuth support** can connect with a fixed header only when the server uses an external authorization server. Obtain an access token for the server from your identity provider and configure it as `Authorization: Bearer <token>`. The token expires and must then be replaced by hand. The built-in IBM i sign-on has no such fallback.
 
 ### IBM i Token Setup (Deprecated)
 
@@ -226,14 +228,17 @@ MCP_AUTH_MODE=none
 
 <Accordion title="OAuth (Recommended for Remote)">
 ```bash
+# Built-in IBM i sign-on: users sign on with their IBM i user profile
 MCP_AUTH_MODE=oauth
 MCP_RESOURCE_URL=https://mcp.example.com/mcp
-OAUTH_ISSUER_URL=https://auth.example.com
+
+# External authorization server: add the issuer of your identity provider
+# OAUTH_ISSUER_URL=https://auth.example.com
 ```
 
-**Use for**: Multi-user remote deployments with an identity provider
+**Use for**: Multi-user remote deployments
 
-All SQL runs as the server's `DB2i_USER` service account. See [OAuth Authentication](/server-config/oauth).
+With the built-in IBM i sign-on, SQL runs as the signed-on user. With `OAUTH_ISSUER_URL`, all SQL runs as the server's `DB2i_USER` service account. Both need further settings on the server; see [OAuth Authentication](/server-config/oauth).
 </Accordion>
 
 <Accordion title="IBM i HTTP Authentication (Deprecated)">
@@ -293,7 +298,8 @@ claude mcp add ibmi-mcp \
   --env DB2i_PASS=your-password \
   -- npx -y @ibm/ibmi-mcp-server@latest --tools /absolute/path/to/tools
 
-# Add remote HTTP server (OAuth: authenticate with /mcp inside Claude Code)
+# Add remote HTTP server (OAuth: authenticate with /mcp inside Claude Code;
+# the server's built-in IBM i sign-on has not been tested with Claude Code)
 claude mcp add --transport http ibmi-mcp https://mcp.example.com/mcp
 
 # Add remote HTTP server with a fixed bearer token

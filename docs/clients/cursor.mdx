@@ -54,7 +54,12 @@ For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/ser
 }
 ```
 
-If your version of Cursor supports OAuth for remote MCP servers, it opens a browser sign-in on first use. If it does not, add an `Authorization: Bearer <token>` header with an access token from your identity provider. See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
+If your version of Cursor supports OAuth for remote MCP servers, it opens a browser sign-in on first use. What else applies depends on how the server is configured:
+
+- **External authorization server** (`OAUTH_ISSUER_URL` set on the server): you sign in with your identity provider. If your version of Cursor does not run the OAuth flow, add an `Authorization: Bearer <token>` header with an access token from your identity provider.
+- **Built-in IBM i sign-on** (no `OAUTH_ISSUER_URL` on the server): you sign on with your IBM i user profile at a page the MCP server serves. That sign-on has not been tested with Cursor: only the MCP TypeScript SDK client is covered by the server's tests. There is no bearer-token fallback in that mode: tokens come only from the sign-in flow. The server sends the sign-on result only to a loopback address or to a redirect URI its administrator listed: a client that registers only an application-scheme callback (such as `cursor://anysphere.cursor-mcp/oauth/callback`) is refused until that exact URI is in the server's `OAUTH_REDIRECT_URIS`.
+
+See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
 
 ### With IBM i Tokens (Deprecated)
 
