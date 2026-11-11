@@ -19,6 +19,15 @@ import type { GrantManager } from "./contracts.js";
 
 /** No command is longer than this; a client that sends more is cut off. */
 const MAX_LINE_LENGTH = 256;
+/**
+ * The longest socket path in bytes (`sun_path` less its terminating NUL).
+ * Node.js 22 on Linux binds a longer path cut short, at another place than
+ * the one configured, instead of failing.
+ */
+const MAX_PATH_BYTES: Partial<Record<NodeJS.Platform, number>> = {
+  linux: 107,
+  darwin: 103,
+};
 /** How long `sendAdminCommand` waits for the reply. */
 const REPLY_TIMEOUT_MS = 5000;
 const USAGE =
@@ -89,6 +98,14 @@ export async function startAdminSocket(
   grants: AdminActions,
   path: string,
 ): Promise<{ close(): Promise<void> }> {
+  const limit = MAX_PATH_BYTES[process.platform];
+  const length = Buffer.byteLength(path);
+  if (limit !== undefined && length > limit) {
+    throw new McpError(
+      JsonRpcErrorCode.ConfigurationError,
+      `OAUTH_ADMIN_SOCKET: no socket can be created at ${path}: it is ${length} bytes long, and a socket path may be at most ${limit} bytes here.`,
+    );
+  }
   const existing = await lstat(path).catch(() => undefined);
   if (existing) {
     if (!existing.isSocket()) {

@@ -189,7 +189,9 @@ function audit(event: string, fields: Record<string, unknown>): void {
  *   cannot be read.
  */
 async function readBody(c: AppContext): Promise<Buffer | undefined> {
-  const body = Buffer.allocUnsafeSlow(MAX_BODY_BYTES);
+  // Zero-filled first: uninitialised memory can hold what an earlier request
+  // left in freed memory, and only this request's bytes are wiped below.
+  const body = Buffer.allocUnsafeSlow(MAX_BODY_BYTES).fill(0);
   let length = 0;
   try {
     const reader = c.req.raw.body?.getReader();
