@@ -86,6 +86,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  Buffer.poolSize = 8 * 1024;
   await running?.close();
   running = undefined;
   vi.useRealTimers();
@@ -154,16 +155,17 @@ async function postForm(path: string, body: Buffer<ArrayBuffer>) {
 }
 
 /**
- * Posts the sign-in form on a socket of its own and reads the answer as
- * bytes; `fetch` would make a string of the redirect. Returns the code of
- * the redirect, in a Buffer of its own.
+ * Posts a form body on a socket of its own, zero-fills it, and returns the
+ * whole answer, head and body, in one unpooled Buffer. `fetch` would put the
+ * answer in the Buffer pool or make a string of it.
  */
-async function signOnCode(port: number, body: Buffer<ArrayBuffer>) {
-  const socket = connect(port, "127.0.0.1");
+async function postRaw(path: string, body: Buffer<ArrayBuffer>) {
+  const { port } = new URL(base);
+  const socket = connect(Number(port), "127.0.0.1");
   await once(socket, "connect");
   socket.write(
     unpooled(
-      `POST /oauth/authorize HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nOrigin: ${base}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n`,
+      `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nOrigin: ${base}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n`,
       body,
     ),
   );
@@ -176,6 +178,12 @@ async function signOnCode(port: number, body: Buffer<ArrayBuffer>) {
   for (const chunk of chunks) {
     chunk.fill(0);
   }
+  return answer;
+}
+
+/** Posts the sign-in form. Returns the code of the redirect, in a Buffer of its own. */
+async function signOnCode(body: Buffer<ArrayBuffer>) {
+  const answer = await postRaw("/oauth/authorize", body);
   try {
     expect(answer.subarray(0, 12).toString("latin1")).toBe("HTTP/1.1 303");
     const start = answer.indexOf("?code=") + "?code=".length;
@@ -202,10 +210,9 @@ function member(json: Buffer, name: string): Buffer {
 
 /** Posts to the token endpoint; the tokens of the answer, as bytes. */
 async function tokens(body: Buffer<ArrayBuffer>) {
-  const response = await postForm("/oauth/token", body);
-  expect(response.status).toBe(200);
-  const json = Buffer.from(await response.arrayBuffer());
+  const json = await postRaw("/oauth/token", body);
   try {
+    expect(json.subarray(0, 12).toString("latin1")).toBe("HTTP/1.1 200");
     return {
       accessToken: member(json, "access_token"),
       refreshToken: member(json, "refresh_token"),
@@ -356,6 +363,11 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   // The access log: method, path and status.
   vi.spyOn(console, "log").mockImplementation(() => {});
 
+  // One slab for every pooled allocation from here on, so that the check
+  // at the end sees all of them: a 9000-byte allocation does not fit the
+  // current slab and starts the new one.
+  Buffer.poolSize = 64 * 1024 * 1024;
+  Buffer.allocUnsafe(9000);
   const poolBefore = Buffer.allocUnsafe(1).buffer;
   running = await initializeAndStartServer();
 
@@ -386,7 +398,6 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   expect(again).toContain("That is not a user profile name");
 
   const code = await signOnCode(
-    port,
     unpooled(
       `login_request=${loginRequestOf(again)}&profile=${PROFILE}&password=`,
       password(),
@@ -478,13 +489,12 @@ it("leaves no string with the password, the code or a refresh token in the heap,
   );
   expect(occurrences(snapshot, tokenNeedles(code))).toEqual(NONE);
 
-  // Nor are the bytes in the Buffer pool, the slab of the start or today's.
-  for (const slab of [poolBefore, Buffer.allocUnsafe(1).buffer]) {
-    const pool = Buffer.from(slab);
-    expect(pool.includes(password())).toBe(false);
-    expect(pool.includes(first.refreshToken)).toBe(false);
-    expect(pool.includes(second.refreshToken)).toBe(false);
-  }
+  // Nor are the bytes in the Buffer pool: the one slab of the whole test.
+  expect(Buffer.allocUnsafe(1).buffer).toBe(poolBefore);
+  const pool = Buffer.from(poolBefore);
+  expect(pool.includes(password())).toBe(false);
+  expect(pool.includes(first.refreshToken)).toBe(false);
+  expect(pool.includes(second.refreshToken)).toBe(false);
   // Kept reachable until here.
   expect(canary.length + longCanary.length).toBe(5048);
 }, 180_000);
