@@ -450,24 +450,16 @@ If you get permission errors:
 
 ## Pre-Release Versions
 
-To create beta, alpha, or release candidate versions:
+The release scripts do not make pre-releases (alpha, beta, release candidate). Do not run `standard-version --prerelease` directly: it commits and tags before `scripts/sync-workspace-versions.mjs` has copied the version into `packages/*/package.json`, so the tag would carry the old package versions and the publish workflow would skip them. To make one by hand, run the same three steps the scripts do, without their commit:
 
 ```bash
-
-# Create pre-release version
-standard-version --prerelease alpha
-# Creates: 0.2.0-alpha.0
-
-# Subsequent pre-releases
-standard-version --prerelease alpha
-# Creates: 0.2.0-alpha.1
-
-# Graduate to stable
-npm run release
-# Creates: 0.2.0
+npx standard-version --skip.commit --skip.tag --prerelease alpha   # 0.2.0-alpha.0
+node scripts/sync-workspace-versions.mjs
+git diff                                                           # review
+npm run release:finalize                                           # commit, tag, push
 ```
 
-Push with `git push --follow-tags origin main` as usual.
+The publish workflow runs on every `v*` tag, including pre-release tags, and publishes a version that contains `-` under the npm dist-tag `next` instead of `latest`. Install one with `npm install @ibm/ibmi-mcp-server@next`.
 
 ## Release Checklist
 

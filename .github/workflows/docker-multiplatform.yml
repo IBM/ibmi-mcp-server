@@ -158,9 +158,13 @@ jobs:
           # Platform-specific images
           IMAGES="${IMAGE}:amd64-${TAG} ${IMAGE}:arm64-${TAG} ${IMAGE}:ppc64le-${TAG}"
 
+          # A pre-release tag (v1.2.0-alpha.0) does not move `latest`.
+          LATEST=()
+          case "$TAG" in *-*) ;; *) LATEST=(--tag "${IMAGE}:latest") ;; esac
+
           docker buildx imagetools create \
             --tag "${IMAGE}:${TAG}" \
-            --tag "${IMAGE}:latest" \
+            "${LATEST[@]}" \
             $IMAGES
 
           echo "Manifest created successfully"
@@ -171,5 +175,10 @@ jobs:
           IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
           echo "Inspecting multiplatform manifest for tag: $TAG"
           docker buildx imagetools inspect "${IMAGE}:${TAG}"
-          echo "Inspecting latest tag..."
-          docker buildx imagetools inspect "${IMAGE}:latest"
+          case "$TAG" in
+            *-*) echo "Pre-release: latest not moved." ;;
+            *)
+              echo "Inspecting latest tag..."
+              docker buildx imagetools inspect "${IMAGE}:latest"
+              ;;
+          esac

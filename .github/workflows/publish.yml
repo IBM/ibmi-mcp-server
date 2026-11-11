@@ -49,10 +49,12 @@ jobs:
         working-directory: ./packages/server
         run: |
           V=$(node -p "require('./package.json').version")
+          # A pre-release (1.2.0-alpha.0) must not become `latest`.
+          case "$V" in *-*) TAG=next ;; *) TAG=latest ;; esac
           if npm view "@ibm/ibmi-mcp-server@$V" version >/dev/null 2>&1; then
             echo "@ibm/ibmi-mcp-server@$V already on registry — skipping publish."
           else
-            npm publish --access public --provenance
+            npm publish --access public --provenance --tag "$TAG"
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -78,10 +80,11 @@ jobs:
         working-directory: ./packages/cli
         run: |
           V=$(node -p "require('./package.json').version")
+          case "$V" in *-*) TAG=next ;; *) TAG=latest ;; esac
           if npm view "@ibm/ibmi-cli@$V" version >/dev/null 2>&1; then
             echo "@ibm/ibmi-cli@$V already on registry — skipping publish."
           else
-            npm publish --access public --provenance
+            npm publish --access public --provenance --tag "$TAG"
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
