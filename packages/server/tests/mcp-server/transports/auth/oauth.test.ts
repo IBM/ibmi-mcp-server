@@ -44,7 +44,7 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
-  mcpTrustProxy: config.mcpTrustProxy,
+  mcpTrustedProxies: config.mcpTrustedProxies,
   mcpResourceUrl: config.mcpResourceUrl,
   oauthIssuerUrl: config.oauthIssuerUrl,
   oauthJwksUri: config.oauthJwksUri,
@@ -156,7 +156,7 @@ beforeEach(async () => {
   config.rateLimit.enabled = false;
   config.ibmiHttpAuth.enabled = false;
   config.mcpAuthMode = "oauth";
-  config.mcpTrustProxy = false;
+  config.mcpTrustedProxies = [];
   config.mcpResourceUrl = RESOURCE;
   config.oauthIssuerUrl = ISSUER;
   config.oauthJwksUri = undefined;
@@ -173,7 +173,7 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
-  config.mcpTrustProxy = savedConfig.mcpTrustProxy;
+  config.mcpTrustedProxies = savedConfig.mcpTrustedProxies;
   config.mcpResourceUrl = savedConfig.mcpResourceUrl;
   config.oauthIssuerUrl = savedConfig.oauthIssuerUrl;
   config.oauthJwksUri = savedConfig.oauthJwksUri;
@@ -611,8 +611,9 @@ describe("OAuth: Protected Resource Metadata (RFC 9728)", () => {
   });
 
   it("does not let an unauthenticated caller use up a user's rate limit by claiming the user's name as its address", async () => {
-    // Behind a trusted proxy the claimed address is what requests are keyed on.
-    config.mcpTrustProxy = true;
+    // Behind a trusted proxy the address it reports is what requests are keyed
+    // on. Only an IP address can be one, so this user's name looks like one.
+    config.mcpTrustedProxies = ["10.1.1.1/32"];
     config.rateLimit.enabled = true;
     rateLimiter.reset();
     rateLimiter.configure({
@@ -626,12 +627,12 @@ describe("OAuth: Protected Resource Metadata (RFC 9728)", () => {
 
     const forged = await app.request(
       "/.well-known/oauth-protected-resource",
-      { headers: { host: HOST, "x-forwarded-for": "user-1" } },
+      { headers: { host: HOST, "x-forwarded-for": "203.0.113.7" } },
       env,
     );
     expect(forged.status).toBe(200);
 
-    // user-1's own bucket is untouched.
+    // The user's own bucket is untouched.
     const asUser1 = await app.request(
       "/mcp",
       {
@@ -640,7 +641,7 @@ describe("OAuth: Protected Resource Metadata (RFC 9728)", () => {
           host: HOST,
           "content-type": "application/json",
           accept: "application/json, text/event-stream",
-          authorization: `Bearer ${await authServer.token({ sub: "user-1" })}`,
+          authorization: `Bearer ${await authServer.token({ sub: "203.0.113.7" })}`,
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       },
@@ -772,11 +773,8 @@ describe("OAuth: misconfiguration stops startup", () => {
       () => (config.mcpResourceUrl = undefined),
       "MCP_RESOURCE_URL is required when MCP_AUTH_MODE=oauth.",
     ],
-    [
-      "OAUTH_ISSUER_URL is missing",
-      () => (config.oauthIssuerUrl = undefined),
-      "OAUTH_ISSUER_URL is required when MCP_AUTH_MODE=oauth.",
-    ],
+    // Without OAUTH_ISSUER_URL the server is its own authorization server:
+    // builtinOAuth.test.ts.
     [
       "MCP_RESOURCE_URL is not a URL",
       () => (config.mcpResourceUrl = "mcp.example.com/mcp"),

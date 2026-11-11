@@ -8,6 +8,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { load as yamlLoad } from "js-yaml";
+import { config as serverConfig } from "@/config/index.js";
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
   requestContextService,
@@ -113,11 +114,18 @@ export class ConfigParser {
         // instead of server-side environment variables
         const substituted = new Set<string>();
         const unset = new Set<string>();
+        const withheld = new Set<string>();
         const interpolated = this.interpolateEnvironmentVariables(
           parsedYaml,
           substituted,
           unset,
+          withheld,
         );
+        if (withheld.size > 0 && !allowUnsetVariables) {
+          fail([
+            `environment variable(s) a tool file cannot read with the built-in OAuth sign-on, where only \${DB2i_HOST} and \${DB2i_PORT} are substituted: ${[...withheld].join(", ")}`,
+          ]);
+        }
         if (unset.size > 0 && !allowUnsetVariables) {
           fail([`environment variable(s) not set: ${[...unset].join(", ")}`]);
         }
@@ -143,6 +151,10 @@ export class ConfigParser {
         // in YamlConfigBuilder to support cross-file tool references with YAML_MERGE_ARRAYS
 
         const errors = [
+          // Not for callers that never connect (`allowUnsetVariables`).
+          ...(serverConfig.oauth.builtin && !allowUnsetVariables
+            ? this.validateBuiltinOAuthSources(config)
+            : []),
           ...this.validateToolSourceReferences(config),
           ...this.validateParameterMarkers(config),
           ...this.validateSqlSecurity(config, operationContext),
@@ -197,9 +209,20 @@ export class ConfigParser {
   /**
    * Replace `${VAR_NAME}` in every string value of a parsed YAML document.
    * Keys and non-string values are left alone.
+   *
+   * In built-in OAuth mode only `DB2i_HOST` and `DB2i_PORT` are substituted,
+   * anywhere: what a tool file says reaches every signed-on user who calls
+   * the tool, so it must not be able to read the server's environment. A
+   * source's `user` and `password` are ignored in that mode (every statement
+   * runs on the caller's own IBM i sign-on), so another variable is left as
+   * written there (`DB2i_USER`, `DB2i_PASS` need not be set); anywhere else
+   * it is reported in `withheld`.
    * @param value - Parsed YAML value
    * @param substituted - Receives the names of the variables substituted
    * @param unset - Receives the names of referenced variables that are not set
+   * @param withheld - Receives the names of the variables built-in OAuth
+   *   mode does not substitute, other than in a source's `user` or `password`
+   * @param path - Keys from the document root to `value`
    * @returns The value with environment variables interpolated
    * @private
    */
@@ -207,9 +230,20 @@ export class ConfigParser {
     value: unknown,
     substituted: Set<string>,
     unset: Set<string>,
+    withheld: Set<string>,
+    path: string[] = [],
   ): unknown {
     if (typeof value === "string") {
+      const { builtin } = serverConfig.oauth;
+      const ignoredCredential =
+        path[0] === "sources" && (path[2] === "user" || path[2] === "password");
       return value.replace(/\$\{([^}]+)\}/g, (match, varName: string) => {
+        if (builtin && varName !== "DB2i_HOST" && varName !== "DB2i_PORT") {
+          if (!ignoredCredential) {
+            withheld.add(varName);
+          }
+          return match;
+        }
         const envValue = process.env[varName];
         if (envValue === undefined) {
           unset.add(varName);
@@ -220,19 +254,60 @@ export class ConfigParser {
       });
     }
     if (Array.isArray(value)) {
-      return value.map((item) =>
-        this.interpolateEnvironmentVariables(item, substituted, unset),
+      return value.map((item, index) =>
+        this.interpolateEnvironmentVariables(
+          item,
+          substituted,
+          unset,
+          withheld,
+          [...path, String(index)],
+        ),
       );
     }
     if (typeof value === "object" && value?.constructor === Object) {
       return Object.fromEntries(
         Object.entries(value).map(([key, item]) => [
           key,
-          this.interpolateEnvironmentVariables(item, substituted, unset),
+          this.interpolateEnvironmentVariables(
+            item,
+            substituted,
+            unset,
+            withheld,
+            [...path, key],
+          ),
         ]),
       );
     }
     return value;
+  }
+
+  /**
+   * Built-in OAuth mode has one IBM i, the one users sign on to (`DB2i_HOST`),
+   * and one set of JDBC options (`DB2i_JDBC_OPTIONS`). A source that says
+   * otherwise is refused, so that no tool runs somewhere, or with options,
+   * its author did not write.
+   * @param config - Parsed YAML configuration
+   * @returns Array of validation errors
+   * @private
+   */
+  private static validateBuiltinOAuthSources(config: SqlToolsConfig): string[] {
+    const host = serverConfig.oauth.mapepire.host;
+    const errors: string[] = [];
+
+    Object.entries(config.sources ?? {}).forEach(([sourceName, source]) => {
+      if (source.host.toLowerCase() !== host?.toLowerCase()) {
+        errors.push(
+          `Source '${sourceName}' names host '${source.host}'. With the built-in OAuth sign-on every tool runs on the IBM i users sign on to, DB2i_HOST (${host ?? "not set"}): use that host or \${DB2i_HOST}`,
+        );
+      }
+      if (source["jdbc-options"] !== undefined) {
+        errors.push(
+          `Source '${sourceName}' sets jdbc-options. With the built-in OAuth sign-on every connection uses DB2i_JDBC_OPTIONS: remove jdbc-options from the source`,
+        );
+      }
+    });
+
+    return errors;
   }
 
   /**

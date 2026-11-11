@@ -2,9 +2,12 @@
  * @fileoverview Tests for the server's command-line argument parser.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 
-import { parseCliArguments } from "../../../../src/ibmi-mcp-server/utils/cli/argumentParser.js";
+import {
+  parseCliArguments,
+  showHelp,
+} from "../../../../src/ibmi-mcp-server/utils/cli/argumentParser.js";
 
 describe("parseCliArguments", () => {
   const originalArgv = process.argv;
@@ -62,6 +65,31 @@ describe("parseCliArguments", () => {
     expect(parsed.help).toBe(true);
   });
 
+  it("takes the command of --admin as one value, spaces included", () => {
+    expect(parse("--admin", "unblock MYUSER").admin).toBe("unblock MYUSER");
+    expect(parse("--admin=status").admin).toBe("status");
+    expect(parse("--transport", "http").admin).toBeUndefined();
+  });
+
+  it("describes --admin and its commands in the help", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      showHelp();
+      const help = String(log.mock.calls[0]?.[0]);
+      expect(help).toContain("--admin <command>");
+      expect(help).toContain("OAUTH_ADMIN_SOCKET");
+      for (const command of [
+        "status",
+        "unblock <profile>",
+        "revoke <profile|grantId>",
+      ]) {
+        expect(help).toContain(command);
+      }
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("uses the last occurrence of a repeated flag", () => {
     expect(parse("--tools", "a.yaml", "--tools", "b.yaml").tools).toBe(
       "b.yaml",
@@ -72,6 +100,7 @@ describe("parseCliArguments", () => {
   it.each([
     ["an unknown flag", ["--verbose"], /--verbose/],
     ["a flag without its value", ["--tools"], /--tools/],
+    ["--admin without a command", ["--admin"], /--admin/],
     [
       "a flag followed by another flag instead of its value",
       ["--tools", "--list-toolsets"],

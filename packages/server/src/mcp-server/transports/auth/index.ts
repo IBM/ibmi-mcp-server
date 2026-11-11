@@ -8,3 +8,4 @@ export type { HttpAuth } from "./lib/authTypes.js";
 
 export { assertAuthModeSupported, createHttpAuth } from "./authFactory.js";
 export { createAuthMiddleware } from "./authMiddleware.js";
+export { createBuiltinMapepireClient } from "./builtinOAuth.js";

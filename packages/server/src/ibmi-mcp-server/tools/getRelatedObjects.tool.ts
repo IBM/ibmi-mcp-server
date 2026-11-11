@@ -15,7 +15,7 @@ import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
 import type { BindingValue } from "@ibm/mapepire-js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQueryWithPagination } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -137,7 +137,7 @@ export async function getRelatedObjectsLogic(
   try {
     // Paginate: a single fetch returns at most 100 rows (mapepire default),
     // which would silently drop dependent objects.
-    const result = await IBMiConnectionPool.executeQueryWithPagination(
+    const result = await executeQueryWithPagination(
       sql,
       bindParams,
       appContext,

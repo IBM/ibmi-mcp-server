@@ -56,7 +56,12 @@ export interface ToolProcessingResult {
  * Internally manages all dependencies and complexity, exposing only a simple API.
  */
 export class ToolProcessor {
-  private sourceManager: SourceManager;
+  /**
+   * The pools of the YAML sources. None in built-in OAuth mode: every
+   * statement runs on the caller's own IBM i sign-on, so no source is
+   * registered and no pool exists.
+   */
+  private sourceManager: SourceManager | undefined;
   private toolsetManager: ToolsetManager;
   private isInitialized: boolean = false;
   private yamlConfig: SqlToolsConfig | null = null;
@@ -81,7 +86,9 @@ export class ToolProcessor {
 
   constructor() {
     // Initialize internal dependencies
-    this.sourceManager = SourceManager.getInstance();
+    this.sourceManager = config.oauth.builtin
+      ? undefined
+      : SourceManager.getInstance();
     this.toolsetManager = ToolsetManager.getInstance();
   }
 
@@ -130,13 +137,19 @@ export class ToolProcessor {
         );
         await this.toolsetManager.initialize(this.yamlConfig, operationContext);
 
-        // Register sources with source manager
-        if (this.yamlConfig.sources) {
-          await this.registerSources(this.yamlConfig.sources, operationContext);
-        }
+        if (this.sourceManager) {
+          // Register sources with source manager
+          if (this.yamlConfig.sources) {
+            await this.registerSources(
+              this.sourceManager,
+              this.yamlConfig.sources,
+              operationContext,
+            );
+          }
 
-        // Initialize SQL executor
-        SQLToolFactory.initialize(this.sourceManager);
+          // Initialize SQL executor
+          SQLToolFactory.initialize(this.sourceManager);
+        }
 
         this.isInitialized = true;
         logger.info(
@@ -179,7 +192,8 @@ export class ToolProcessor {
           sourceCount: Object.keys(this.yamlConfig?.sources || {}).length,
           stats: {
             toolsProcessed: this.processedTools.length,
-            sourcesRegistered: this.sourceManager.getRegisteredSources().length,
+            sourcesRegistered:
+              this.sourceManager?.getRegisteredSources().length ?? 0,
             toolsetMappings: this.toolsetManager.getToolsetStats().totalTools,
           },
         };
@@ -297,22 +311,20 @@ export class ToolProcessor {
 
   /**
    * Register sources from YAML configuration
+   * @param sourceManager - Where the sources are registered
    * @param sources - Source configurations
    * @param context - Request context
    * @private
    */
   private async registerSources(
+    sourceManager: SourceManager,
     sources: Record<string, SourceConfig>,
     context: RequestContext,
   ): Promise<void> {
     logger.info(context, `Registering ${Object.keys(sources).length} sources`);
 
     for (const [sourceName, sourceConfig] of Object.entries(sources)) {
-      await this.sourceManager.registerSource(
-        sourceName,
-        sourceConfig,
-        context,
-      );
+      await sourceManager.registerSource(sourceName, sourceConfig, context);
     }
   }
 

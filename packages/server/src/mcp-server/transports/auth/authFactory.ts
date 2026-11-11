@@ -7,6 +7,8 @@ import { config } from "@/config/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { logger, type RequestContext } from "@/utils/index.js";
 import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
+import type { GrantManager } from "@/ibmi-mcp-server/oauth/contracts.js";
+import { createBuiltinOAuthAuth } from "./builtinOAuth.js";
 import { authenticateIbmiToken } from "./ibmiTokenAuth.js";
 import type { HttpAuth } from "./lib/authTypes.js";
 import { createOAuthAuth } from "./oauth.js";
@@ -31,11 +33,17 @@ export function assertAuthModeSupported(): void {
 /**
  * Builds the authentication for the HTTP transport.
  *
+ * `MCP_AUTH_MODE=oauth` verifies the tokens of the external authorization
+ * server `OAUTH_ISSUER_URL` names; without that setting the server is its
+ * own authorization server and tokens are looked up in `grants`.
+ *
+ * @param grants - The grant manager of the built-in IBM i sign-on.
  * @returns `null` when authentication is disabled (`MCP_AUTH_MODE=none`).
  * @throws {McpError} `ConfigurationError` if the mode is misconfigured.
  */
 export async function createHttpAuth(
   context: RequestContext,
+  grants?: Pick<GrantManager, "authenticate">,
 ): Promise<HttpAuth | null> {
   if (config.mcpAuthMode === "ibmi" || config.ibmiHttpAuth.enabled) {
     logger.warning(
@@ -66,7 +74,16 @@ export async function createHttpAuth(
     case "jwt":
       throw jwtModeRetired();
     case "oauth":
-      return createOAuthAuth(context);
+      if (!config.oauth.builtin) {
+        return createOAuthAuth(context);
+      }
+      if (!grants) {
+        throw new McpError(
+          JsonRpcErrorCode.ConfigurationError,
+          "MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL: the built-in IBM i sign-on was not started. Set OAUTH_ISSUER_URL to use an external authorization server.",
+        );
+      }
+      return createBuiltinOAuthAuth(grants, context);
     case "ibmi":
       return { authenticate: authenticateIbmiToken };
     case "none":

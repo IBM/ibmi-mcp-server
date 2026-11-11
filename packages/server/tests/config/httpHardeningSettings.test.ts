@@ -1,5 +1,5 @@
 /**
- * @fileoverview Tests for the HTTP hardening settings: MCP_TRUST_PROXY and
+ * @fileoverview Tests for the HTTP hardening settings: MCP_TRUSTED_PROXIES and
  * IBMI_AUTH_ALLOWED_HOSTS, and that the removed port-retry settings are
  * ignored.
  */
@@ -16,7 +16,7 @@ describe("HTTP hardening settings", () => {
   /** Imports the config module with only `env` set, and no .env file. */
   const loadConfig = async (env: Record<string, string>) => {
     for (const name of [
-      "MCP_TRUST_PROXY",
+      "MCP_TRUSTED_PROXIES",
       "IBMI_AUTH_ALLOWED_HOSTS",
       "DB2i_HOST",
       "MCP_SERVER_CONFIG",
@@ -40,11 +40,58 @@ describe("HTTP hardening settings", () => {
     vi.resetModules();
   });
 
-  it("does not trust proxy headers unless MCP_TRUST_PROXY is set", async () => {
-    expect((await loadConfig({})).config.mcpTrustProxy).toBe(false);
+  it("trusts no proxy unless MCP_TRUSTED_PROXIES names it", async () => {
+    expect((await loadConfig({})).config.mcpTrustedProxies).toEqual([]);
     expect(
-      (await loadConfig({ MCP_TRUST_PROXY: "true" })).config.mcpTrustProxy,
-    ).toBe(true);
+      (await loadConfig({ MCP_TRUSTED_PROXIES: " " })).config.mcpTrustedProxies,
+    ).toEqual([]);
+  });
+
+  it("reads MCP_TRUSTED_PROXIES as addresses and CIDR ranges", async () => {
+    const { config, environmentIsValid } = await loadConfig({
+      MCP_TRUSTED_PROXIES: "10.0.0.0/8, 192.168.1.5,fd00::/8 , ::1,",
+    });
+    expect(environmentIsValid).toBe(true);
+    expect(config.mcpTrustedProxies).toEqual([
+      "10.0.0.0/8",
+      "192.168.1.5/32",
+      "fd00::/8",
+      "::1/128",
+    ]);
+  });
+
+  it.each([
+    "true",
+    "10.0.0.0/33",
+    "fd00::/129",
+    "10.0.0.0/8/8",
+    "10.0.0.0/",
+    "10.0.0.0/-1",
+    "proxy.example.com",
+    "10.0.0.0/8, nonsense",
+  ])("refuses MCP_TRUSTED_PROXIES=%s", async (value) => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { config, environmentIsValid } = await loadConfig({
+      MCP_TRUSTED_PROXIES: value,
+    });
+
+    expect(environmentIsValid).toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid environment variables"),
+      expect.objectContaining({ MCP_TRUSTED_PROXIES: expect.any(Array) }),
+    );
+    // Nothing is trusted on the strength of a list that did not parse.
+    expect(config.mcpTrustedProxies).toEqual([]);
+  });
+
+  it("no longer reads the boolean MCP_TRUST_PROXY", async () => {
+    const { config, environmentIsValid } = await loadConfig({
+      MCP_TRUST_PROXY: "true",
+    });
+    expect(environmentIsValid).toBe(true);
+    expect(config).not.toHaveProperty("mcpTrustProxy");
+    expect(config.mcpTrustedProxies).toEqual([]);
   });
 
   it("reads the sign-on hosts from IBMI_AUTH_ALLOWED_HOSTS", async () => {

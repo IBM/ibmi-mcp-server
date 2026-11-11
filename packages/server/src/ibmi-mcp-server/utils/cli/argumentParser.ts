@@ -15,6 +15,8 @@ export interface CliArguments {
   listToolsets?: boolean;
   builtinTools?: boolean;
   executeSql?: boolean;
+  /** A command for the admin socket of a running server. */
+  admin?: string;
   help?: boolean;
 }
 
@@ -40,6 +42,7 @@ export function parseCliArguments(): CliArguments {
       "list-toolsets": { type: "boolean" },
       "builtin-tools": { type: "boolean" },
       "execute-sql": { type: "boolean" },
+      admin: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
     strict: true,
@@ -68,6 +71,7 @@ export function parseCliArguments(): CliArguments {
     listToolsets: values["list-toolsets"],
     builtinTools: values["builtin-tools"],
     executeSql: values["execute-sql"],
+    admin: values.admin,
     help: values.help,
   };
 }
@@ -95,8 +99,13 @@ Options:
                     validate_query)
   --execute-sql     Enable the execute_sql tool (combine with --builtin-tools
                     for the full text-to-SQL workflow)
+  --admin <command> Send one command to the admin socket (OAUTH_ADMIN_SOCKET)
+                    of a running server, print its reply and exit:
+                      - status
+                      - unblock <profile>
+                      - revoke <profile|grantId>
 
-  -h, --help        Show this help message
+  -h, --help       Show this help message
 
 Examples:
   npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql
@@ -105,6 +114,7 @@ Examples:
   npx @ibm/ibmi-mcp-server --tools tools
   npx @ibm/ibmi-mcp-server --toolsets performance,system
   npx @ibm/ibmi-mcp-server --list-toolsets --tools tools
+  npx @ibm/ibmi-mcp-server --admin "unblock MYUSER"
 
 Environment Variables:
   TOOLS_YAML_PATH              Path to YAML tools (CLI --tools takes precedence)

@@ -59,7 +59,8 @@ function hostnameOf(value: string): string | null {
   }
 }
 
-function isLoopback(hostname: string): boolean {
+/** Whether a lower-case host name or address (no brackets) is loopback. */
+export function isLoopback(hostname: string): boolean {
   return (
     LOOPBACK_HOSTNAMES.has(hostname) ||
     /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
@@ -81,7 +82,10 @@ export interface HostPolicy {
    * allowlist — loopback is always accepted and never listed here.
    */
   allowedHostnames: Set<string>;
-  /** MCP_ALLOWED_ORIGINS entries, matched exactly against the Origin header. */
+  /**
+   * MCP_ALLOWED_ORIGINS entries, matched exactly against the Origin header,
+   * and the origin of the built-in authorization server when there is one.
+   */
   allowedOrigins: string[];
 }
 
@@ -133,10 +137,17 @@ export function resolveHostPolicy(parentContext?: RequestContext): HostPolicy {
     );
   }
 
+  // The sign-in page of the built-in authorization server posts its form to
+  // this server, and a browser names the page's origin in Origin: the
+  // server's own public origin, which MCP_ALLOWED_HOSTS=* does not name.
+  const { issuer } = config.oauth;
   return {
     allowAnyHost,
     allowedHostnames,
-    allowedOrigins: config.mcpAllowedOrigins ?? [],
+    allowedOrigins: [
+      ...(config.mcpAllowedOrigins ?? []),
+      ...(issuer ? [new URL(issuer).origin] : []),
+    ],
   };
 }
 

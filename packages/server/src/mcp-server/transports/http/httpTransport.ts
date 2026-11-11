@@ -5,10 +5,13 @@
  * handler that answers protocol revision 2026-07-28 and 2025-era clients,
  * building a fresh server instance per request. This module adds what the
  * SDK leaves to the host: Host/Origin validation, CORS, authentication, rate
- * limiting, the health endpoint and port binding.
+ * limiting, the health endpoint, port binding (with TLS when
+ * `MCP_TLS_CERT_FILE` is set) and, when users sign on with their IBM i
+ * profile, the built-in authorization server.
  * @module src/mcp-server/transports/http/httpTransport
  */
 
+import { createServer as createHttpsServer } from "node:https";
 import { serve, ServerType } from "@hono/node-server";
 import {
   createMcpHandler,
@@ -22,6 +25,15 @@ import { secureHeaders } from "hono/secure-headers";
 import { config } from "@/config/index.js";
 import { handleAuthRequest, enforceTLS } from "@/ibmi-mcp-server/auth/index.js";
 import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
+import { startAdminSocket } from "@/ibmi-mcp-server/oauth/adminSocket.js";
+import { createAuthorizationServer } from "@/ibmi-mcp-server/oauth/authorizationServer.js";
+import type {
+  AuthorizationServer,
+  GrantManager,
+  MapepireClient,
+} from "@/ibmi-mcp-server/oauth/contracts.js";
+import { createGrantManager } from "@/ibmi-mcp-server/oauth/grantManager.js";
+import { setGrantQueryExecutor } from "@/ibmi-mcp-server/services/queryRouter.js";
 import { SourceManager } from "@/ibmi-mcp-server/services/sourceManager.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import {
@@ -45,6 +57,7 @@ import {
   createHostValidationMiddleware,
   resolveHostPolicy,
 } from "./hostValidation.js";
+import { readSettingFile } from "./settingFile.js";
 
 const MCP_ENDPOINT_PATH = config.mcpHttpEndpointPath;
 const HEALTH_ENDPOINT_PATH = "/healthz";
@@ -52,9 +65,13 @@ const HEALTH_ENDPOINT_PATH = "/healthz";
 const CLOSE_GRACE_MS = 5000;
 
 /**
- * Binds the HTTP server. A port that is already in use is a startup error:
- * clients, proxies and health checks are configured with this port, so the
- * server never moves to another one.
+ * Binds the HTTP server, with TLS when `MCP_TLS_CERT_FILE` and
+ * `MCP_TLS_KEY_FILE` are set. A port that is already in use is a startup
+ * error: clients, proxies and health checks are configured with this port,
+ * so the server never moves to another one.
+ *
+ * @throws {McpError} `ConfigurationError` when the port is in use, or when a
+ *   TLS file cannot be read or does not hold what its setting says.
  */
 function listen(
   app: Hono<HonoAppEnv>,
@@ -63,20 +80,46 @@ function listen(
   context: RequestContext,
 ): Promise<ServerType> {
   return new Promise((resolve, reject) => {
-    const server = serve(
-      { fetch: app.fetch, port, hostname: host },
-      (info: { address: string; port: number }) => {
-        const serverAddress = `http://${info.address}:${info.port}${MCP_ENDPOINT_PATH}`;
-        logger.info(
-          { ...context, address: serverAddress },
-          `HTTP transport listening at ${serverAddress}`,
+    const tls = config.mcpTlsCertFile &&
+      config.mcpTlsKeyFile && {
+        cert: readSettingFile("MCP_TLS_CERT_FILE", config.mcpTlsCertFile),
+        key: readSettingFile("MCP_TLS_KEY_FILE", config.mcpTlsKeyFile),
+      };
+    const listening = (info: { address: string; port: number }) => {
+      const serverAddress = `${tls ? "https" : "http"}://${info.address}:${info.port}${MCP_ENDPOINT_PATH}`;
+      logger.info(
+        { ...context, address: serverAddress },
+        `HTTP transport listening at ${serverAddress}`,
+      );
+      if (process.stdout.isTTY) {
+        console.log(`\n🚀 MCP Server running at: ${serverAddress}\n`);
+      }
+      resolve(server);
+    };
+    let server: ServerType;
+    if (tls) {
+      try {
+        server = serve(
+          {
+            fetch: app.fetch,
+            port,
+            hostname: host,
+            createServer: createHttpsServer,
+            serverOptions: tls,
+          },
+          listening,
         );
-        if (process.stdout.isTTY) {
-          console.log(`\n🚀 MCP Server running at: ${serverAddress}\n`);
-        }
-        resolve(server);
-      },
-    );
+      } catch (error) {
+        // Node refuses a certificate or key it cannot parse, and a key that
+        // is not the certificate's.
+        throw new McpError(
+          JsonRpcErrorCode.ConfigurationError,
+          `MCP_TLS_CERT_FILE and MCP_TLS_KEY_FILE must hold a PEM certificate and its private key (${error instanceof Error ? error.message : String(error)}).`,
+        );
+      }
+    } else {
+      server = serve({ fetch: app.fetch, port, hostname: host }, listening);
+    }
     server.once("error", (error: NodeJS.ErrnoException) =>
       reject(
         error.code === "EADDRINUSE"
@@ -92,6 +135,12 @@ function listen(
 
 type HonoAppEnv = { Bindings: HonoNodeBindings };
 
+/** The built-in IBM i sign-on, as the app serves it. */
+export interface BuiltinSignOn {
+  grants: Pick<GrantManager, "status">;
+  authorizationServer: AuthorizationServer;
+}
+
 /**
  * Builds the Hono app around an MCP handler.
  *
@@ -99,11 +148,14 @@ type HonoAppEnv = { Bindings: HonoNodeBindings };
  *   is used, so tests can pass a stub.
  * @param auth - From `createHttpAuth`; `null` leaves the MCP endpoint
  *   unauthenticated.
+ * @param signOn - The built-in authorization server and its grants, when
+ *   users sign on with their IBM i profile.
  */
 export function createHttpApp(
   mcpHandler: Pick<McpHttpHandler, "fetch">,
   parentContext: RequestContext,
   auth: HttpAuth | null,
+  signOn?: BuiltinSignOn,
 ): Hono<HonoAppEnv> {
   const app = new Hono<HonoAppEnv>();
   const transportContext = {
@@ -121,8 +173,14 @@ export function createHttpApp(
     c.req.path === HEALTH_ENDPOINT_PATH ? next() : accessLogger(c, next),
   );
 
-  // 2. Security Headers
-  app.use(secureHeaders());
+  // 2. Security Headers. Not on the sign-in page of the built-in
+  //    authorization server, which sets its own: these are written after the
+  //    route has answered and would replace them, and a form posted from a
+  //    page under their `Referrer-Policy: no-referrer` carries
+  //    `Origin: null`.
+  const secure = secureHeaders();
+  const signInPath = signOn?.authorizationServer.paths.authorize;
+  app.use((c, next) => (c.req.path === signInPath ? next() : secure(c, next)));
 
   // 3. DNS rebinding protection — Host/Origin allowlist. MUST precede CORS
   //    and all route handlers: CORS is a browser read-policy and provides no
@@ -222,6 +280,13 @@ export function createHttpApp(
   const metadata = auth?.protectedResourceMetadata;
   metadata?.paths.forEach((path) => app.use(path, limitAddress()));
 
+  // Neither are the routes of the built-in authorization server: a client
+  // has no token until it has been through them. Host validation and CORS
+  // above cover them like every other route.
+  Object.values(signOn?.authorizationServer.paths ?? {}).forEach((path) =>
+    app.use(path, limitAddress()),
+  );
+
   logger.info(
     transportContext,
     rateLimited
@@ -232,6 +297,17 @@ export function createHttpApp(
   app.onError(httpErrorHandler);
 
   app.get(HEALTH_ENDPOINT_PATH, (c) => {
+    if (signOn) {
+      // There is no service pool in this mode. Counts only: no profile and
+      // no grant id.
+      const { grants, openConnections, maxConnections, blockedProfiles } =
+        signOn.grants.status();
+      return c.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        signOn: { grants, openConnections, maxConnections, blockedProfiles },
+      });
+    }
     const pools = SourceManager.getInstance().getHealthSummary();
     const hasUnhealthy = Object.values(pools).some(
       (p) => p.healthStatus === "unhealthy",
@@ -246,6 +322,10 @@ export function createHttpApp(
   metadata?.paths.forEach((path) =>
     app.get(path, (c) => c.json(metadata.document)),
   );
+
+  if (signOn) {
+    app.route("/", signOn.authorizationServer.app);
+  }
 
   // IBM i HTTP Authentication endpoint (conditional, deprecated)
   if (config.ibmiHttpAuth.enabled) {
@@ -302,12 +382,17 @@ export function createHttpApp(
  * Starts the HTTP transport.
  *
  * @param createServerInstance - Factory the SDK calls once per request.
+ * @param mapepire - From `createBuiltinMapepireClient`, when users sign on
+ *   with their IBM i profile. The transport then runs the grant manager, the
+ *   built-in authorization server and the admin socket.
  * @returns The MCP handler (for list-changed notifications) and a `close`
- *   that stops the handler and the HTTP server.
+ *   that stops the handler and the HTTP server, then ends every sign-on,
+ *   which closes its IBM i job.
  */
 export async function startHttpTransport(
   createServerInstance: McpServerFactory,
   parentContext: RequestContext,
+  mapepire?: MapepireClient,
 ): Promise<{ handler: McpHttpHandler; close: () => Promise<void> }> {
   const transportContext = {
     ...parentContext,
@@ -322,18 +407,41 @@ export async function startHttpTransport(
         "MCP handler reported an error.",
       ),
   });
-  const app = createHttpApp(
-    handler,
-    transportContext,
-    await createHttpAuth(transportContext),
-  );
+  const grants = mapepire && createGrantManager({ mapepire });
+  let adminSocket: { close(): Promise<void> } | undefined;
+  const endSignOns = async (): Promise<void> => {
+    await adminSocket?.close();
+    await grants?.shutdown();
+  };
 
-  const server = await listen(
-    app,
-    config.mcpHttpPort,
-    config.mcpHttpHost,
-    transportContext,
-  );
+  let server: ServerType;
+  try {
+    const app = createHttpApp(
+      handler,
+      transportContext,
+      await createHttpAuth(transportContext, grants),
+      grants && {
+        grants,
+        authorizationServer: createAuthorizationServer(grants),
+      },
+    );
+    if (grants) {
+      setGrantQueryExecutor(grants);
+      grants.start();
+      if (config.oauth.adminSocket) {
+        adminSocket = await startAdminSocket(grants, config.oauth.adminSocket);
+      }
+    }
+    server = await listen(
+      app,
+      config.mcpHttpPort,
+      config.mcpHttpHost,
+      transportContext,
+    );
+  } catch (error) {
+    await endSignOns();
+    throw error;
+  }
 
   const close = async (): Promise<void> => {
     // server.close() waits for every open socket, including ones that never
@@ -344,11 +452,15 @@ export async function startHttpTransport(
         server.closeAllConnections();
       }
     }, CLOSE_GRACE_MS);
-    await handler.close();
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
-    });
-    clearTimeout(cutOff);
+    try {
+      await handler.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
+      clearTimeout(cutOff);
+    } finally {
+      await endSignOns();
+    }
   };
 
   logger.info(transportContext, "HTTP transport started successfully.");

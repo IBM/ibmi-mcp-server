@@ -44,7 +44,7 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
-  mcpTrustProxy: config.mcpTrustProxy,
+  mcpTrustedProxies: config.mcpTrustedProxies,
   rateLimitEnabled: config.rateLimit.enabled,
   rateLimitSkipInDevelopment: config.rateLimit.skipInDevelopment,
   ibmiHttpAuth: { ...config.ibmiHttpAuth },
@@ -97,7 +97,7 @@ beforeEach(() => {
   config.mcpAllowedOrigins = undefined;
   config.mcpHttpHost = "127.0.0.1";
   config.mcpAuthMode = "ibmi";
-  config.mcpTrustProxy = false;
+  config.mcpTrustedProxies = [];
   config.rateLimit.enabled = false;
   config.rateLimit.skipInDevelopment = false;
   Object.assign(config.ibmiHttpAuth, {
@@ -112,7 +112,7 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
-  config.mcpTrustProxy = savedConfig.mcpTrustProxy;
+  config.mcpTrustedProxies = savedConfig.mcpTrustedProxies;
   config.rateLimit.enabled = savedConfig.rateLimitEnabled;
   config.rateLimit.skipInDevelopment = savedConfig.rateLimitSkipInDevelopment;
   Object.assign(config.ibmiHttpAuth, savedConfig.ibmiHttpAuth);
@@ -190,7 +190,7 @@ describe("MCP_AUTH_MODE=ibmi (deprecated)", () => {
   });
 
   it("marks every /api/v1/auth response with a Deprecation header", async () => {
-    config.mcpTrustProxy = true;
+    config.mcpTrustedProxies = ["10.9.9.9/32"];
     const { app } = await buildApp();
 
     // Refused before the handler: plain HTTP is not allowed.
@@ -203,16 +203,24 @@ describe("MCP_AUTH_MODE=ibmi (deprecated)", () => {
     expect(overHttp.headers.get("deprecation")).toBe("true");
 
     // Answered by the handler: the envelope is incomplete.
-    const overHttps = await app.request("/api/v1/auth", {
-      method: "POST",
-      headers: {
-        host: HOST,
-        "content-type": "application/json",
-        "x-forwarded-proto": "https",
+    const overHttps = await app.request(
+      "/api/v1/auth",
+      {
+        method: "POST",
+        headers: {
+          host: HOST,
+          "content-type": "application/json",
+          "x-forwarded-proto": "https",
+        },
+        body: "{}",
       },
-      body: "{}",
-    });
+      { incoming: { socket: { remoteAddress: "10.9.9.9" } } },
+    );
     expect(overHttps.status).toBe(400);
+    expect(
+      ((await overHttps.json()) as { error: { message: string } }).error
+        .message,
+    ).toBe("Encrypted payload is missing required field: keyId");
     expect(overHttps.headers.get("deprecation")).toBe("true");
 
     const publicKey = await app.request("/api/v1/auth/public-key", {
@@ -276,8 +284,8 @@ describe("POST /api/v1/auth in front of the sign-on", () => {
     );
   });
 
-  it("takes a trusted proxy's word for it when MCP_TRUST_PROXY=true", async () => {
-    config.mcpTrustProxy = true;
+  it("takes the word of a proxy listed in MCP_TRUSTED_PROXIES for it", async () => {
+    config.mcpTrustedProxies = ["10.9.9.9/32"];
     const { app } = await buildApp();
 
     const res = await signOn(app, { "x-forwarded-proto": "https" });

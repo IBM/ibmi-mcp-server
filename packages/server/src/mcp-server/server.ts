@@ -17,7 +17,10 @@ import {
   logOperationSuccess,
 } from "@/utils/internal/logging-helpers.js";
 import { registerAllTools } from "@/mcp-server/tools/index.js";
-import { assertAuthModeSupported } from "@/mcp-server/transports/auth/index.js";
+import {
+  assertAuthModeSupported,
+  createBuiltinMapepireClient,
+} from "@/mcp-server/transports/auth/index.js";
 import { assertHttpSecurityPosture } from "@/mcp-server/transports/http/hostValidation.js";
 import { startHttpTransport } from "@/mcp-server/transports/http/index.js";
 import { startStdioTransport } from "@/mcp-server/transports/stdio/index.js";
@@ -115,6 +118,13 @@ export async function initializeAndStartServer(): Promise<RunningServer> {
     assertHttpSecurityPosture(context);
   }
 
+  // Users sign on with their IBM i profile (MCP_AUTH_MODE=oauth without
+  // OAUTH_ISSUER_URL): refuse what that mode cannot run with, stdio
+  // included, before anything is loaded.
+  const signOnClient = config.oauth.builtin
+    ? createBuiltinMapepireClient()
+    : undefined;
+
   await loadSQLTools();
   // Build one instance now, so that a registration error (two tools with the
   // same name, say) stops startup instead of failing every request.
@@ -125,6 +135,7 @@ export async function initializeAndStartServer(): Promise<RunningServer> {
     const { handler, close } = await startHttpTransport(
       ({ era }) => createMcpServerInstance(false, era === "modern"),
       context,
+      signOnClient,
     );
     // Requests after a reload already see the new tools (the factory reads
     // the cache); this tells clients holding a subscriptions/listen stream.

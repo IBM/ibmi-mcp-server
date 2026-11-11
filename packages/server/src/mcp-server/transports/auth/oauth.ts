@@ -1,11 +1,13 @@
 /**
  * @fileoverview OAuth 2.1 resource-server authentication for the HTTP
- * transport, as defined by the MCP authorization specification (2026-07-28).
+ * transport, as defined by the MCP authorization specification (2026-07-28),
+ * against an external authorization server (`OAUTH_ISSUER_URL`). Without
+ * that setting the server is its own authorization server: builtinOAuth.ts.
  *
- * The server only verifies access tokens; it never issues them and ships no
- * authorization server. Tokens are JWTs verified locally against the
- * issuer's JWKS. The SDK's `requireBearerAuth` turns the result into the
- * RFC 6750 answers (401 / 403 with a `WWW-Authenticate` challenge).
+ * Here the server only verifies access tokens; it never issues them. Tokens
+ * are JWTs verified locally against the issuer's JWKS. The SDK's
+ * `requireBearerAuth` turns the result into the RFC 6750 answers (401 / 403
+ * with a `WWW-Authenticate` challenge).
  *
  * A token identifies the caller only. It carries no IBM i credentials, is
  * never forwarded upstream, and SQL keeps running on the service-account
@@ -49,7 +51,7 @@ const TOKEN_ALGORITHMS = [
 ];
 const METADATA_TIMEOUT_MS = 5000;
 
-function configurationError(message: string): McpError {
+export function configurationError(message: string): McpError {
   return new McpError(JsonRpcErrorCode.ConfigurationError, message);
 }
 
@@ -149,6 +151,40 @@ async function discoverJwksUri(issuer: string): Promise<string> {
   throw configurationError(
     `No authorization server metadata found for OAUTH_ISSUER_URL "${issuer}". Tried ${tried.join(", ")}. Check the issuer, or set OAUTH_JWKS_URI.`,
   );
+}
+
+/**
+ * The RFC 9728 Protected Resource Metadata of the MCP endpoint and where it
+ * is served.
+ *
+ * @param resourceId - `MCP_RESOURCE_URL` as configured.
+ * @param resource - The same, parsed.
+ * @param issuer - The authorization server clients are sent to.
+ */
+export function protectedResourceMetadata(
+  resourceId: string,
+  resource: URL,
+  issuer: string,
+  requiredScopes: string[] = [],
+): NonNullable<HttpAuth["protectedResourceMetadata"]> {
+  return {
+    // RFC 9728: the root form, and the form carrying the endpoint path
+    // (as clients see it, and as this server routes it).
+    paths: [
+      ...new Set(
+        ["", resource.pathname, config.mcpHttpEndpointPath].map(
+          (path) =>
+            PROTECTED_RESOURCE_METADATA_PATH + withoutTrailingSlash(path),
+        ),
+      ),
+    ],
+    document: {
+      resource: resourceId,
+      authorization_servers: [issuer],
+      scopes_supported: requiredScopes.length > 0 ? requiredScopes : undefined,
+      bearer_methods_supported: ["header"],
+    },
+  };
 }
 
 /** Reads a `scope` (space-separated) or `scp` (array) claim. */
@@ -284,24 +320,11 @@ export async function createOAuthAuth(
       resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resource),
       expectedResource: resource,
     }),
-    protectedResourceMetadata: {
-      // RFC 9728: the root form, and the form carrying the endpoint path
-      // (as clients see it, and as this server routes it).
-      paths: [
-        ...new Set(
-          ["", resource.pathname, config.mcpHttpEndpointPath].map(
-            (path) =>
-              PROTECTED_RESOURCE_METADATA_PATH + withoutTrailingSlash(path),
-          ),
-        ),
-      ],
-      document: {
-        resource: resourceId,
-        authorization_servers: [issuer],
-        scopes_supported:
-          requiredScopes.length > 0 ? requiredScopes : undefined,
-        bearer_methods_supported: ["header"],
-      },
-    },
+    protectedResourceMetadata: protectedResourceMetadata(
+      resourceId,
+      resource,
+      issuer,
+      requiredScopes,
+    ),
   };
 }

@@ -1,12 +1,16 @@
 /**
  * @fileoverview SQL execution engine for YAML-defined tools
- * Processes SQL parameters and executes queries using SourceManager
+ * Processes SQL parameters and executes queries through the query router
  *
  * @module src/utils/yaml/yamlSqlExecutor
  */
 
+import { config } from "@/config/index.js";
 import { SourceManager } from "../../services/sourceManager.js";
-import { AuthenticatedPoolManager } from "../../services/authenticatedPoolManager.js";
+import {
+  executeQuery,
+  executeQueryWithPagination,
+} from "../../services/queryRouter.js";
 import {
   SqlToolParameter,
   SqlToolSecurityConfig,
@@ -19,9 +23,7 @@ import {
 } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { ParameterProcessor } from "../sql/parameterProcessor.js";
-import { authContext } from "@/mcp-server/transports/auth/index.js";
 import { QueryResult } from "@ibm/mapepire-js";
-import { SqlSecurityValidator } from "../security/sqlSecurityValidator.js";
 
 /**
  * SQL execution engine for YAML-defined tools
@@ -79,7 +81,9 @@ export class SQLToolFactory {
 
     return ErrorHandler.tryCatch(
       async () => {
-        if (!this.sourceManager) {
+        // Built-in OAuth mode has no source pools: every statement runs on
+        // the caller's own IBM i sign-on.
+        if (!this.sourceManager && !config.oauth.builtin) {
           throw new McpError(
             JsonRpcErrorCode.InternalError,
             "YAML SQL executor not initialized. Call YamlSqlExecutor.initialize() first.",
@@ -181,18 +185,9 @@ export class SQLToolFactory {
           );
         }
 
-        // Execute the query with auth-aware routing
-        // SECURITY: Always validate the *runtime* SQL before routing.
-        // The authenticated (IBMi token) execution path historically did not
-        // receive `securityConfig`, allowing bypass of YAML tool security.
-        if (securityConfig) {
-          SqlSecurityValidator.validateQuery(
-            processedSql,
-            securityConfig,
-            operationContext,
-          );
-        }
-
+        // SECURITY: the query router validates the *runtime* SQL against
+        // `securityConfig` before it routes it, whichever connection it
+        // then runs on.
         const result = await this.executeWithAuthRouting<T>(
           processedSql,
           bindingParameters,
@@ -256,11 +251,12 @@ export class SQLToolFactory {
   }
 
   /**
-   * Execute a query with auth-aware routing
-   * Routes to authenticated pools when IBM i tokens are present, otherwise uses source manager
+   * Execute a query through the query router, which decides the connection:
+   * the caller's own IBM i sign-on in built-in OAuth mode, otherwise the
+   * caller's authenticated pool (IBM i token) or the tool's source.
    * @param sql - Processed SQL statement
    * @param parameters - Binding parameters
-   * @param sourceName - Source name for fallback routing
+   * @param sourceName - Source the tool names
    * @param context - Request context
    * @param securityConfig - Optional security configuration
    * @returns Query execution result
@@ -275,8 +271,12 @@ export class SQLToolFactory {
     rowsToFetch?: number,
     fetchAllRows?: boolean,
   ): Promise<QueryResult<T>> {
-    // Check for IBM i authentication context
-    const authInfo = authContext.getStore()?.authInfo;
+    const route = {
+      source: sourceName,
+      securityConfig,
+      rowsToFetch,
+      sourceManager: this.sourceManager,
+    };
 
     // fetchAllRows is the pagination *policy* ("keep paging until done");
     // rowsToFetch (when set) is the per-fetch *size* in that mode. When
@@ -288,30 +288,18 @@ export class SQLToolFactory {
         {
           ...context,
           sourceName,
-          routingMode: authInfo?.ibmiToken ? "authenticated" : "environment",
           fetchMode: "paginated-all-rows",
           pageSize: rowsToFetch,
         },
         "Executing SQL with fetchAllRows via pagination path",
       );
 
-      const paginated = authInfo?.ibmiToken
-        ? await AuthenticatedPoolManager.getInstance().executeQueryWithPagination(
-            authInfo.ibmiToken,
-            sql,
-            parameters,
-            context,
-            rowsToFetch,
-            securityConfig,
-          )
-        : await this.sourceManager.executeQueryWithPagination(
-            sourceName,
-            sql,
-            parameters,
-            context,
-            rowsToFetch,
-            securityConfig,
-          );
+      const paginated = await executeQueryWithPagination(
+        sql,
+        parameters,
+        context,
+        route,
+      );
 
       // Adapt the paginated shape to QueryResult<T> so downstream
       // executeStatementWithParameters can read .data and .metadata uniformly.
@@ -329,66 +317,7 @@ export class SQLToolFactory {
       } as QueryResult<T>;
     }
 
-    if (authInfo?.ibmiToken) {
-      // Use authenticated pool manager when IBM i token is present
-      logger.debug(
-        {
-          ...context,
-          authClientId: authInfo.clientId,
-          ibmiHost: authInfo.ibmiHost,
-          routingMode: "authenticated",
-        },
-        "Executing SQL via authenticated pool",
-      );
-
-      const poolManager = AuthenticatedPoolManager.getInstance();
-      return poolManager.executeQuery<T>(
-        authInfo.ibmiToken,
-        sql,
-        parameters,
-        context,
-        securityConfig,
-        rowsToFetch,
-      );
-    } else {
-      // Fall back to regular source manager (environment credentials)
-      logger.debug(
-        {
-          ...context,
-          sourceName,
-          routingMode: "environment",
-          rowsToFetch,
-        },
-        "Executing SQL via source manager",
-      );
-
-      // Preserve the existing conditional call shape so downstream tests
-      // that assert exact arity keep passing. rowsToFetch/securityConfig are
-      // optional trailing args in sourceManager.executeQuery and safe to omit.
-      if (rowsToFetch !== undefined) {
-        return this.sourceManager.executeQuery<T>(
-          sourceName,
-          sql,
-          parameters,
-          context,
-          securityConfig,
-          rowsToFetch,
-        );
-      }
-      return securityConfig
-        ? this.sourceManager.executeQuery<T>(
-            sourceName,
-            sql,
-            parameters,
-            context,
-            securityConfig,
-          )
-        : this.sourceManager.executeQuery<T>(
-            sourceName,
-            sql,
-            parameters,
-            context,
-          );
-    }
+    logger.debug({ ...context, sourceName, rowsToFetch }, "Executing SQL");
+    return executeQuery<T>(sql, parameters, context, route);
   }
 }

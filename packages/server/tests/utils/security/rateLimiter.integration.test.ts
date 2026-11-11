@@ -98,7 +98,7 @@ describe("Rate Limiter Config Integration", () => {
       mcpAllowedOrigins: config.mcpAllowedOrigins,
       mcpHttpHost: config.mcpHttpHost,
       mcpAuthMode: config.mcpAuthMode,
-      mcpTrustProxy: config.mcpTrustProxy,
+      mcpTrustedProxies: config.mcpTrustedProxies,
       rateLimitEnabled: config.rateLimit.enabled,
       ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
     };
@@ -145,7 +145,7 @@ describe("Rate Limiter Config Integration", () => {
       config.mcpAllowedOrigins = undefined;
       config.mcpHttpHost = "127.0.0.1";
       config.mcpAuthMode = "none";
-      config.mcpTrustProxy = false;
+      config.mcpTrustedProxies = [];
       config.ibmiHttpAuth.enabled = false;
       config.rateLimit.enabled = true;
       rateLimiter.reset();
@@ -161,7 +161,7 @@ describe("Rate Limiter Config Integration", () => {
       config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
       config.mcpHttpHost = savedConfig.mcpHttpHost;
       config.mcpAuthMode = savedConfig.mcpAuthMode;
-      config.mcpTrustProxy = savedConfig.mcpTrustProxy;
+      config.mcpTrustedProxies = savedConfig.mcpTrustedProxies;
       config.rateLimit.enabled = savedConfig.rateLimitEnabled;
       config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
       rateLimiter.reset();
@@ -205,7 +205,7 @@ describe("Rate Limiter Config Integration", () => {
       },
     );
 
-    describe("when MCP_TRUST_PROXY=true", () => {
+    describe("behind a proxy listed in MCP_TRUSTED_PROXIES", () => {
       // Every request arrives from the proxy's address.
       const viaProxy = (
         app: ReturnType<typeof buildApp>["app"],
@@ -213,7 +213,7 @@ describe("Rate Limiter Config Integration", () => {
       ) => mcpPost(app, "10.0.0.1", headers);
 
       beforeEach(() => {
-        config.mcpTrustProxy = true;
+        config.mcpTrustedProxies = ["10.0.0.0/24"];
       });
 
       it("keys on the address the proxy wrote: the last X-Forwarded-For entry", async () => {

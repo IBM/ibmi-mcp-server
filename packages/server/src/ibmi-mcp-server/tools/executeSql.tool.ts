@@ -22,7 +22,10 @@ import {
   logOperationStart,
   logOperationSuccess,
 } from "../../utils/internal/logging-helpers.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import {
+  executeQuery,
+  executeQueryWithPagination,
+} from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 import { config } from "../../config/index.js";
@@ -226,12 +229,8 @@ async function validateWithParseStatement(
   `.trim();
 
   try {
-    // Execute PARSE_STATEMENT via connection pool
-    const result = await IBMiConnectionPool.executeQuery(
-      parseQuery,
-      [sql],
-      appContext,
-    );
+    // Execute PARSE_STATEMENT through the query router
+    const result = await executeQuery(parseQuery, [sql], appContext);
 
     // Empty result = syntax error (PARSE_STATEMENT returns no rows on parse failure)
     if (!result.data || result.data.length === 0) {
@@ -334,7 +333,7 @@ async function executeSqlLogic(
     // row cap are controlled by IBMI_PAGINATION_* env vars at the
     // service layer, so execute_sql inherits the same ceiling as any
     // YAML tool that paginates.
-    const result = await IBMiConnectionPool.executeQueryWithPagination(
+    const result = await executeQueryWithPagination(
       sanitizedSql,
       [],
       appContext,

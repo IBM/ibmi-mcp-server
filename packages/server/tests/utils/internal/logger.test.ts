@@ -87,6 +87,46 @@ describe("logger", () => {
     expect(logger.pino.level).toBe(level);
   });
 
+  it("should redact secrets in nested objects, not only at the top of a record", async () => {
+    const { logger } = await loadLogger();
+    logger.info("builds the pino instance");
+    const { redact } = pino.mock.lastCall![0] as unknown as {
+      redact: { paths: string[]; censor: string };
+    };
+    // The options the logger gave pino, in the real pino.
+    const { default: realPino } = await vi.importActual<{
+      default: typeof import("pino");
+    }>("pino");
+    const records: string[] = [];
+    const real = realPino(
+      { redact, serializers: { err: realPino.stdSerializers.err } },
+      { write: (record: string) => void records.push(record) },
+    );
+
+    real.info({
+      authorization: "Bearer TOP-LEVEL",
+      grant: { token: "ONE-DOWN", password: "ONE-DOWN", apiKey: "ONE-DOWN" },
+      request: { headers: { authorization: "TWO-DOWN", cookie: "TWO-DOWN" } },
+      err: Object.assign(new Error("failed"), {
+        secret: "ONE-DOWN",
+        config: { headers: { authorization: "THREE-DOWN" } },
+      }),
+      grantId: "kept",
+      profile: "KEPT",
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).not.toMatch(/TOP-LEVEL|ONE-DOWN|TWO-DOWN|THREE-DOWN/);
+    expect(JSON.parse(records[0]!)).toMatchObject({
+      authorization: "[REDACTED]",
+      grant: { token: "[REDACTED]" },
+      request: { headers: { authorization: "[REDACTED]" } },
+      err: { message: "failed", secret: "[REDACTED]" },
+      grantId: "kept",
+      profile: "KEPT",
+    });
+  });
+
   it("should not build a pino instance until something is logged", async () => {
     const logsPath = join(scratch, "not-created-on-import");
     const { logger } = await loadLogger({ logsPath });

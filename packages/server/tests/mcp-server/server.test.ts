@@ -32,6 +32,11 @@ import {
   initializeAndStartServer,
   type RunningServer,
 } from "../../src/mcp-server/server.js";
+import { JsonRpcErrorCode } from "../../src/types-global/errors.js";
+import {
+  startFakeMapepire,
+  type FakeMapepire,
+} from "../ibmi-mcp-server/oauth/fakeMapepire.js";
 
 const LEGACY: ClientOptions["versionNegotiation"] = { mode: "legacy" };
 const MODERN: ClientOptions["versionNegotiation"] = {
@@ -134,6 +139,108 @@ describe("initializeAndStartServer refuses to start", () => {
     await expect(initializeAndStartServer()).rejects.toThrow(
       /YAML tool 'list_schemas' has the same name as the built-in tool 'list_schemas'/,
     );
+  });
+});
+
+describe("initializeAndStartServer with the built-in IBM i sign-on (MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL)", () => {
+  const savedSignOn = {
+    mcpResourceUrl: config.mcpResourceUrl,
+    oauthIssuerUrl: config.oauthIssuerUrl,
+    mapepire: { ...config.oauth.mapepire },
+    ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
+    env: {
+      DB2i_PASS: process.env.DB2i_PASS,
+      DB2i_IGNORE_UNAUTHORIZED: process.env.DB2i_IGNORE_UNAUTHORIZED,
+      DB2i_JDBC_OPTIONS: process.env.DB2i_JDBC_OPTIONS,
+    },
+  };
+  let fake: FakeMapepire;
+
+  beforeEach(async () => {
+    fake = await startFakeMapepire();
+    const pinFile = join(tmpRoot, "mapepire-pin.pem");
+    writeFileSync(pinFile, fake.certPem);
+    config.mcpAuthMode = "oauth";
+    config.oauthIssuerUrl = undefined;
+    config.mcpResourceUrl = `http://127.0.0.1:${config.mcpHttpPort}/mcp`;
+    config.ibmiHttpAuth.enabled = false;
+    Object.assign(config.oauth.mapepire, {
+      host: "127.0.0.1",
+      port: fake.port,
+      serverCertFile: pinFile,
+      caFile: undefined,
+    });
+    // The tool file of this suite names another host than DB2i_HOST.
+    config.toolsYamlPath = undefined;
+    for (const name of Object.keys(savedSignOn.env)) {
+      delete process.env[name];
+    }
+  });
+
+  afterEach(async () => {
+    await fake.stop();
+    config.mcpResourceUrl = savedSignOn.mcpResourceUrl;
+    config.oauthIssuerUrl = savedSignOn.oauthIssuerUrl;
+    config.ibmiHttpAuth.enabled = savedSignOn.ibmiHttpAuthEnabled;
+    Object.assign(config.oauth.mapepire, savedSignOn.mapepire);
+    for (const [name, value] of Object.entries(savedSignOn.env)) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  });
+
+  it("starts over HTTP without contacting Mapepire, and /healthz counts sign-ons", async () => {
+    const running = await initializeAndStartServer();
+    try {
+      const health = await fetch(
+        `http://127.0.0.1:${config.mcpHttpPort}/healthz`,
+      );
+      expect(await health.json()).toMatchObject({
+        status: "ok",
+        signOn: { grants: 0, openConnections: 0 },
+      });
+      expect(fake.httpRequests).toBe(0);
+      expect(fake.upgrades).toBe(0);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("refuses the stdio transport", async () => {
+    config.mcpTransportType = "stdio";
+    await expect(initializeAndStartServer()).rejects.toMatchObject({
+      code: JsonRpcErrorCode.ConfigurationError,
+      message:
+        "MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL (users sign on with their IBM i profile) needs the HTTP transport: set MCP_TRANSPORT_TYPE=http.",
+    });
+  });
+
+  it("refuses a service password, before it loads any tool file", async () => {
+    process.env.DB2i_PASS = "dummy-service-Pw";
+    config.toolsYamlPath = join(tmpRoot, "no-such-tools.yaml");
+    await expect(initializeAndStartServer()).rejects.toThrow(
+      /^DB2i_PASS must not be set when users sign on with their IBM i profile/,
+    );
+  });
+
+  it("refuses DB2i_IGNORE_UNAUTHORIZED=true together with a certificate file", async () => {
+    process.env.DB2i_IGNORE_UNAUTHORIZED = "true";
+    await expect(initializeAndStartServer()).rejects.toMatchObject({
+      code: JsonRpcErrorCode.ConfigurationError,
+      message: expect.stringMatching(
+        /^DB2i_IGNORE_UNAUTHORIZED=true and DB2i_SERVER_CERT_FILE contradict each other/,
+      ),
+    });
+  });
+
+  it("starts with DB2i_IGNORE_UNAUTHORIZED=true and no certificate file", async () => {
+    process.env.DB2i_IGNORE_UNAUTHORIZED = "true";
+    config.oauth.mapepire.serverCertFile = undefined;
+    const running = await initializeAndStartServer();
+    await running.close();
   });
 });
 

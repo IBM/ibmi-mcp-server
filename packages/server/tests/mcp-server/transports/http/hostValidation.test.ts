@@ -20,7 +20,7 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
-  mcpTrustProxy: config.mcpTrustProxy,
+  mcpTrustedProxies: config.mcpTrustedProxies,
   rateLimitEnabled: config.rateLimit.enabled,
   ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
 };
@@ -74,7 +74,7 @@ beforeEach(() => {
   config.mcpAllowedOrigins = undefined;
   config.mcpHttpHost = "127.0.0.1";
   config.mcpAuthMode = "none";
-  config.mcpTrustProxy = false;
+  config.mcpTrustedProxies = [];
   config.rateLimit.enabled = false;
   config.ibmiHttpAuth.enabled = false;
 });
@@ -84,7 +84,7 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
-  config.mcpTrustProxy = savedConfig.mcpTrustProxy;
+  config.mcpTrustedProxies = savedConfig.mcpTrustedProxies;
   config.rateLimit.enabled = savedConfig.rateLimitEnabled;
   config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
 });
@@ -169,6 +169,24 @@ describe("Origin validation (three-state rule)", () => {
     });
     expect(res.status).toBe(403);
     expect(handleRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not take MCP_RESOURCE_URL for an allowed Origin when the server serves no sign-in page", async () => {
+    // Only the built-in authorization server has a page of its own.
+    const savedResourceUrl = config.mcpResourceUrl;
+    config.mcpResourceUrl = "https://mcp.example.com/mcp";
+    config.mcpAllowedHosts = ["*"];
+    try {
+      const { app, handleRequest } = buildApp();
+      const res = await mcpPost(app, {
+        host: "internal:3010",
+        origin: "https://mcp.example.com",
+      });
+      expect(res.status).toBe(403);
+      expect(handleRequest).not.toHaveBeenCalled();
+    } finally {
+      config.mcpResourceUrl = savedResourceUrl;
+    }
   });
 
   it("allows requests without an Origin (non-browser MCP clients)", async () => {
@@ -342,15 +360,16 @@ describe("rejection log attribution", () => {
 
     const ctx = warn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(ctx.clientIp).toBe("10.9.9.9");
-    // Without MCP_TRUST_PROXY the claimed addresses are not recorded at all.
+    // The peer is not in MCP_TRUSTED_PROXIES: the claimed addresses are not
+    // recorded at all.
     expect(JSON.stringify(ctx)).not.toContain("203.0.113.9");
     expect(JSON.stringify(ctx)).not.toContain("198.51.100.7");
 
     warn.mockRestore();
   });
 
-  it("logs the address a trusted proxy reports when MCP_TRUST_PROXY=true", async () => {
-    config.mcpTrustProxy = true;
+  it("logs the address a proxy listed in MCP_TRUSTED_PROXIES reports", async () => {
+    config.mcpTrustedProxies = ["10.9.9.9/32"];
     const warn = vi.spyOn(logger, "warning").mockImplementation(() => {});
     const { app } = buildApp();
 

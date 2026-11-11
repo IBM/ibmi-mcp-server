@@ -5,6 +5,8 @@
  * @module cli/program
  */
 
+// First: it has to run before any module of the server is loaded.
+import "./serverAuthMode.js";
 import { Command, Option } from "commander";
 import { readFileSync } from "fs";
 import path from "path";

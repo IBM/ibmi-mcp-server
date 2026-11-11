@@ -7,40 +7,97 @@
  * @module src/index
  */
 
-// First import: OTel facade (lazy-loads the SDK only when OTEL_ENABLED=true).
-import {
-  openTelemetryStartupError,
-  shutdownOpenTelemetry,
-} from "@/utils/telemetry/instrumentation.js";
-
-import { config, environment, environmentIsValid } from "@/config/index.js";
-import {
-  initializeAndStartServer,
-  type RunningServer,
-} from "@/mcp-server/server.js";
-import { requestContextService } from "@/utils/index.js";
-import type { RequestContext } from "@/utils/internal/requestContext.js";
-import {
-  logFatal,
-  logOperationError,
-  logOperationStart,
-  logOperationSuccess,
-} from "@/utils/internal/logging-helpers.js";
-import {
-  flushLogger,
-  logger,
-  reinitializeLogger,
-} from "@/utils/internal/logger.js";
-import { applyCliOverrides } from "./config/resolver.js";
+// The only static imports: the argument parser, which loads nothing else, and
+// types. The server is loaded further down, after the commands that answer
+// without it (--help, --admin).
 import {
   type CliArguments,
   parseCliArguments,
   showHelp,
 } from "./ibmi-mcp-server/utils/cli/argumentParser.js";
-import { ToolConfigBuilder } from "@/ibmi-mcp-server/utils/config/toolConfigBuilder.js";
-import { ToolProcessor } from "@/ibmi-mcp-server/utils/config/toolProcessor.js";
-import { BaseConnectionPool } from "@/ibmi-mcp-server/services/baseConnectionPool.js";
-import { GLOBAL_TOOLS } from "./ibmi-mcp-server/utils/config/toolsetManager.js";
+import type { RunningServer } from "@/mcp-server/server.js";
+import type { RequestContext } from "@/utils/internal/requestContext.js";
+
+// Parse CLI arguments and handle immediate responses. A problem with the
+// arguments goes straight to stderr (the logger has no console target in
+// stdio mode, the default) and comes before everything else, --list-toolsets
+// included.
+let cliArgs: CliArguments;
+try {
+  cliArgs = parseCliArguments();
+} catch (error) {
+  console.error(
+    `Invalid arguments: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  console.error("Run with --help for usage.");
+  process.exit(1);
+}
+
+// Handle help request immediately
+if (cliArgs.help) {
+  showHelp();
+  process.exit(0);
+}
+
+/**
+ * Sends one command to the admin socket of a running server and prints its
+ * one-line reply. Loads the configuration (for `OAUTH_ADMIN_SOCKET`) and the
+ * socket client, not the server.
+ *
+ * @returns The exit code: 0 when the server carried the command out.
+ */
+async function adminCommand(command: string): Promise<number> {
+  const { config } = await import("./config/index.js");
+  const { sendAdminCommand } =
+    await import("./ibmi-mcp-server/oauth/adminSocket.js");
+  const path = config.oauth.adminSocket;
+  if (!path) {
+    console.error(
+      "OAUTH_ADMIN_SOCKET is not set. Set it to the admin socket of the running server.",
+    );
+    return 1;
+  }
+  try {
+    const reply = await sendAdminCommand(path, command);
+    if (reply.startsWith("error:")) {
+      console.error(reply);
+      return 1;
+    }
+    console.log(reply);
+    return 0;
+  } catch (error) {
+    console.error(
+      `No answer from the admin socket ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return 1;
+  }
+}
+
+if (cliArgs.admin !== undefined) {
+  process.exit(await adminCommand(cliArgs.admin));
+}
+
+// From here on the server is loaded. First: the OTel facade (it lazy-loads
+// the SDK only when OTEL_ENABLED=true).
+const { openTelemetryStartupError, shutdownOpenTelemetry } =
+  await import("./utils/telemetry/instrumentation.js");
+const { config, environment, environmentIsValid } =
+  await import("./config/index.js");
+const { initializeAndStartServer } = await import("./mcp-server/server.js");
+const { requestContextService } = await import("./utils/index.js");
+const { logFatal, logOperationError, logOperationStart, logOperationSuccess } =
+  await import("./utils/internal/logging-helpers.js");
+const { flushLogger, logger, reinitializeLogger } =
+  await import("./utils/internal/logger.js");
+const { applyCliOverrides } = await import("./config/resolver.js");
+const { ToolConfigBuilder } =
+  await import("./ibmi-mcp-server/utils/config/toolConfigBuilder.js");
+const { ToolProcessor } =
+  await import("./ibmi-mcp-server/utils/config/toolProcessor.js");
+const { BaseConnectionPool } =
+  await import("./ibmi-mcp-server/services/baseConnectionPool.js");
+const { GLOBAL_TOOLS } =
+  await import("./ibmi-mcp-server/utils/config/toolsetManager.js");
 
 /**
  * List all available toolsets from YAML configuration and exit
@@ -150,27 +207,6 @@ async function listToolsetsCommand(): Promise<boolean> {
   }
 }
 
-// Parse CLI arguments and handle immediate responses. A problem with the
-// arguments goes straight to stderr (the logger has no console target in
-// stdio mode, the default) and comes before everything else, --list-toolsets
-// included.
-let cliArgs: CliArguments;
-try {
-  cliArgs = parseCliArguments();
-} catch (error) {
-  console.error(
-    `Invalid arguments: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  console.error("Run with --help for usage.");
-  process.exit(1);
-}
-
-// Handle help request immediately
-if (cliArgs.help) {
-  showHelp();
-  process.exit(0);
-}
-
 // Handle list toolsets request immediately
 if (cliArgs.listToolsets) {
   const listed = await listToolsetsCommand();
@@ -228,8 +264,9 @@ let runningServer: RunningServer | undefined;
 let shuttingDown = false;
 
 /**
- * The only place the running server exits the process. Closes the transport,
- * the connection pools, the YAML file watchers and telemetry, flushes the
+ * The only place the running server exits the process. Closes the transport
+ * (which also ends every IBM i profile sign-on and closes its job), the
+ * connection pools, the YAML file watchers and telemetry, flushes the
  * logger, then exits. A step that hangs is cut off by the deadline.
  *
  * @param signal - What triggered the shutdown, for the log.
@@ -290,10 +327,23 @@ process.on(
   "uncaughtException",
   (error) => void fail("Uncaught exception.", error),
 );
-process.on(
-  "unhandledRejection",
-  (reason) => void fail("Unhandled promise rejection.", reason),
-);
+process.on("unhandledRejection", (reason) => {
+  if (config.oauth.builtin) {
+    // Users are signed on with their IBM i profile and a restart signs every
+    // one of them out: one failed promise is logged and the server goes on.
+    // An uncaught exception still exits.
+    logOperationError(
+      requestContextService.createRequestContext({
+        operation: "UnhandledRejection",
+      }),
+      "Unhandled promise rejection.",
+      reason,
+      { event: "unhandled_rejection" },
+    );
+    return;
+  }
+  void fail("Unhandled promise rejection.", reason);
+});
 
 const startupContext = requestContextService.createRequestContext({
   operation: `ServerStartupSequence_${config.mcpTransportType}`,

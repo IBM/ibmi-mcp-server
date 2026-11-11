@@ -55,6 +55,27 @@ function logsDirProblem(dir: string): string | undefined {
   }
 }
 
+/** Keys whose value never reaches a log record. */
+const REDACTED_KEYS = [
+  "password",
+  "token",
+  "apiKey",
+  "secret",
+  "authorization",
+  "cookie",
+];
+/**
+ * Pino has no wildcard for "at any depth", so each key is named at the top
+ * level and up to three objects down: far enough for an error that carries a
+ * request (`err.config.headers.authorization`).
+ */
+const REDACTED_PATHS = REDACTED_KEYS.flatMap((key) => [
+  key,
+  `*.${key}`,
+  `*.*.${key}`,
+  `*.*.*.${key}`,
+]);
+
 let mainLogger: PinoLogger | undefined;
 let mainTransport: ReturnType<typeof pino.transport> | undefined;
 let warnedAboutLogsDir = false;
@@ -157,14 +178,7 @@ function createPinoLogger(): PinoLogger {
       level,
       timestamp: pino.stdTimeFunctions.isoTime,
       redact: {
-        paths: [
-          "password",
-          "token",
-          "apiKey",
-          "secret",
-          "authorization",
-          "cookie",
-        ],
+        paths: REDACTED_PATHS,
         censor: "[REDACTED]",
       },
       base: {

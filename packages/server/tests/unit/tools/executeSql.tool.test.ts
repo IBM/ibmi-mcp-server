@@ -56,6 +56,8 @@ vi.mock("../../../src/config/index.js", () => ({
     openTelemetry: {
       enabled: false,
     },
+    // Not the built-in OAuth sign-on: statements go to the service pool.
+    oauth: { builtin: false },
   },
 }));
 
