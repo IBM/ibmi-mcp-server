@@ -3,9 +3,11 @@
  * @module src/mcp-server/transports/http/httpTypes
  */
 
-import type { IncomingMessage } from "http";
+import type { IncomingMessage, ServerResponse } from "http";
 
-/** The raw Node.js request `@hono/node-server` puts on `c.env`. */
+/** The raw Node.js request and response `@hono/node-server` puts on `c.env`. */
 export type HonoNodeBindings = {
   incoming: IncomingMessage;
+  /** Absent for a request made in process (`app.request`). */
+  outgoing?: ServerResponse;
 };

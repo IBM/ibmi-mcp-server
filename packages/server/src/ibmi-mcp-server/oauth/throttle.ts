@@ -55,12 +55,14 @@ interface ProfileState {
  * budget alone would forward two of them every 30 minutes for ever.
  *
  * State is capped at `THROTTLE_MAX_PROFILES` profiles. At the cap, room is
- * made by forgetting the oldest profile that holds no rejection and no slot,
- * and failing that the oldest that is not blocked and holds no slot: a
- * table full of single rejections must not refuse every profile it does not
- * hold, reconnects included. A blocked profile is never forgotten. When
- * every entry is blocked or in flight, a sign-on for a profile that has no
- * entry is answered `busy`, because its result could not be counted.
+ * made only by forgetting a profile that holds nothing countable: no
+ * rejection, no result that is not known, no soft failure inside the window,
+ * no pause and no slot. Forgetting anything else would refill a budget. When
+ * no such entry is left, a profile that has signed on in this process (every
+ * profile that holds a grant has) still gets an entry, beyond the cap: those
+ * are bounded by the sign-ons that worked. A sign-on for any other profile
+ * without an entry is answered `busy`, because its result could not be
+ * counted.
  *
  * @param maxFailures - `OAUTH_SIGNON_MAX_FAILURES`.
  */
@@ -72,28 +74,29 @@ export const createSignOnThrottle: CreateSignOnThrottle = (maxFailures) => {
     state.rejected >= maxFailures ||
     state.rejected + state.unknown >= 2 * maxFailures;
 
-  const makeRoom = (): boolean => {
+  const holdsNothing = (state: ProfileState, now: number): boolean =>
+    !state.inFlight &&
+    state.rejected === 0 &&
+    state.unknown === 0 &&
+    now >= state.pausedUntil &&
+    state.softFailures.every((at) => now - at >= SOFT_BUDGET.windowMs);
+
+  const makeRoom = (now: number): boolean => {
     if (profiles.size < THROTTLE_MAX_PROFILES) {
       return true;
     }
-    let oldestRejected: string | undefined;
     for (const [key, state] of profiles) {
-      if (state.inFlight || isBlocked(state)) {
-        continue;
+      if (holdsNothing(state, now)) {
+        return profiles.delete(key);
       }
-      if (state.rejected === 0) {
-        profiles.delete(key);
-        return true;
-      }
-      oldestRejected ??= key;
     }
-    return oldestRejected !== undefined && profiles.delete(oldestRejected);
+    return false;
   };
 
   return {
     fingerprint,
 
-    begin(profile, now) {
+    begin(profile, now, signedOn = false) {
       const key = fingerprint(profile);
       let state = profiles.get(key);
       if (state) {
@@ -111,7 +114,7 @@ export const createSignOnThrottle: CreateSignOnThrottle = (maxFailures) => {
         return "busy";
       }
       if (!state) {
-        if (!makeRoom()) {
+        if (!makeRoom(now) && !signedOn) {
           return "busy";
         }
         state = {
@@ -167,6 +170,8 @@ export const createSignOnThrottle: CreateSignOnThrottle = (maxFailures) => {
       }
       state.rejected = 0;
       state.unknown = 0;
+      state.softFailures = [];
+      state.pausedUntil = 0;
       return true;
     },
 

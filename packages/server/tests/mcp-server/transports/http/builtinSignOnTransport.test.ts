@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { ServerResponse } from "node:http";
 import { createServer, type AddressInfo, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -621,6 +622,69 @@ describe("startHttpTransport with the built-in IBM i sign-on", () => {
     expect(fake.requests).toContainEqual(
       expect.objectContaining({ profile: FAKE_PROFILE, sql: SQL }),
     );
+  });
+
+  it("zero-fills the bytes Node.js writes for a token response, through every middleware of the transport", async () => {
+    // A browser client: CORS adds its headers to the token response.
+    config.mcpAllowedOrigins = ["https://app.example.com"];
+    await start();
+    const written: Uint8Array[] = [];
+    for (const method of ["write", "end"] as const) {
+      const original = ServerResponse.prototype[method] as (
+        this: ServerResponse,
+        ...args: unknown[]
+      ) => unknown;
+      vi.spyOn(ServerResponse.prototype, method).mockImplementation(function (
+        this: ServerResponse,
+        ...args: unknown[]
+      ) {
+        if (this.req.url === "/oauth/token" && args[0] instanceof Uint8Array) {
+          written.push(args[0]);
+        }
+        return original.apply(this, args) as ServerResponse;
+      });
+    }
+    const signedOn = await grants().signOn({
+      profile: Buffer.from(FAKE_PROFILE),
+      password: Buffer.from(FAKE_PASSWORD),
+      clientId: CLIENT_ID,
+      redirectUri: REDIRECT,
+      codeChallenge: CHALLENGE,
+      address: "127.0.0.1",
+    });
+    if (!signedOn.ok) throw new Error(`sign-on refused: ${signedOn.reason}`);
+
+    const response = await fetch(`${base}/oauth/token`, {
+      method: "POST",
+      headers: { origin: "https://app.example.com" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: signedOn.code,
+        code_verifier: VERIFIER,
+        client_id: CLIENT_ID,
+      }),
+    });
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "https://app.example.com",
+    );
+    const text = await response.text();
+    expect(response.status, text).toBe(200);
+    const { refresh_token: refreshToken } = JSON.parse(text) as {
+      refresh_token: string;
+    };
+
+    // The body went out as written chunks; each is wiped once written.
+    expect(written.reduce((sum, chunk) => sum + chunk.length, 0)).toBe(
+      Buffer.byteLength(text),
+    );
+    await vi.waitFor(() =>
+      expect(written.every((chunk) => chunk.every((byte) => byte === 0))).toBe(
+        true,
+      ),
+    );
+    expect(
+      written.some((chunk) => Buffer.from(chunk).includes(refreshToken)),
+    ).toBe(false);
   });
 
   it("close ends every sign-on: the IBM i connections are closed and no statement can run", async () => {

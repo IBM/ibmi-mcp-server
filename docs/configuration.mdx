@@ -432,7 +432,7 @@ Used when `MCP_AUTH_MODE=oauth`. `OAUTH_ISSUER_URL` selects the flavour.
 | `OAUTH_SIGNON_ALLOWED_CIDRS` | Client addresses that may reach the sign-in page | loopback, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7` | `10.20.0.0/16` |
 | `OAUTH_CODE_ADDRESS_BINDING` | `strict`: a code sent to a loopback redirect must be redeemed from the address that signed on. `audit`: a mismatch is only logged | `strict` | `audit` |
 | `OAUTH_GRANT_MAX_HOURS` | Longest a sign-on lasts, in hours | `12` | `8` |
-| `OAUTH_IDLE_CLOSE_MINUTES` | Idle minutes after which a user's IBM i connection is closed. Access tokens live this long plus five minutes | `10` | `30` |
+| `OAUTH_IDLE_CLOSE_MINUTES` | Idle minutes after which a user's IBM i connection is closed. The client's next request gets `401`, and the refresh that follows reopens it; a refresh alone does not. Access tokens live this long plus five minutes | `10` | `30` |
 | `OAUTH_MAX_CONNECTIONS` | Most IBM i connections open at once | `50` | `100` |
 | `OAUTH_ALLOWED_PROFILES` | Profiles that may sign on: names, or the start of a name followed by `*`. A profile starting with `Q` must be named exactly | every profile not starting with `Q` | `DEV*,JSMITH` |
 | `OAUTH_ALLOW_PRIVILEGED_PROFILES` | Let profiles holding `*ALLOBJ` or `*SECADM` sign on | `false` | `true` |
@@ -441,7 +441,7 @@ Used when `MCP_AUTH_MODE=oauth`. `OAUTH_ISSUER_URL` selects the flavour.
 | `OAUTH_REDIRECT_URIS` | Redirect URIs accepted besides loopback ones, separated by commas or spaces, matched exactly | (none) | `https://app.example.com/callback` |
 | `OAUTH_ADMIN_SOCKET` | Path of the local admin socket, used by `ibmi-mcp-server --admin "<command>"` (`status`, `unblock <profile>`, `revoke <profile\|grantId>`) | (none) | `/run/ibmi-mcp/admin.sock` |
 
-The built-in sign-on also needs `DB2i_HOST`, refuses `DB2i_PASS`, limits `DB2i_JDBC_OPTIONS` to a short list of keys, and needs the [TLS listener](#tls-listener) unless `MCP_HTTP_HOST` is a loopback address. It works with mapepire-server 2.x and requires no particular version.
+The built-in sign-on also needs `DB2i_HOST`, refuses `DB2i_PASS`, limits `DB2i_JDBC_OPTIONS` to a short list of keys, and needs the [TLS listener](#tls-listener) unless `MCP_HTTP_HOST` is a loopback address. With a loopback `MCP_HTTP_HOST` and a public `MCP_RESOURCE_URL`, `MCP_TRUSTED_PROXIES` must hold a loopback entry (`127.0.0.0/8` or `::1`) for the proxy on the same host, whether or not the server has a TLS listener. It works with mapepire-server 2.x and requires no particular version.
 
 <Card title="OAuth Authentication Guide →" icon="shield-check" href="/server-config/oauth">
   Both flavours in full: how the built-in sign-on works and what it stores, setup, the sign-on budget, IBM i setup, limitations, and the external authorization server.

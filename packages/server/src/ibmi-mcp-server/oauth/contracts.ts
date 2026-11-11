@@ -499,8 +499,9 @@ export type ThrottleDecision =
 /**
  * Per-profile sign-on budgets, shared by the sign-in page and reconnects.
  * State is keyed by `fingerprint`, never by the profile as typed, and capped
- * at `THROTTLE_MAX_PROFILES` entries: at the cap the oldest profile that is
- * not blocked is forgotten.
+ * at `THROTTLE_MAX_PROFILES` entries: at the cap only a profile that holds
+ * nothing countable is forgotten, and when there is none only a profile that
+ * has signed on in this process gets an entry beyond the cap.
  */
 export interface SignOnThrottle {
   /**
@@ -511,8 +512,11 @@ export interface SignOnThrottle {
   /**
    * Asks for the profile's one sign-on slot. `ok` takes it, and must be
    * followed by exactly one `end`.
+   *
+   * @param signedOn - Whether the profile has signed on in this process: it
+   *   is then never refused `busy` for want of room in the table.
    */
-  begin(profile: string, now: number): ThrottleDecision;
+  begin(profile: string, now: number, signedOn?: boolean): ThrottleDecision;
   /**
    * Gives the slot back and counts the outcome: `ok` clears the hard counts;
    * `rejected` without `detail` adds to the rejections (no time refill);
@@ -526,7 +530,10 @@ export interface SignOnThrottle {
     outcome: { class: SignOnClass; detail?: RejectionDetail },
     now: number,
   ): void;
-  /** Clears a profile's hard counts. Returns whether it was blocked. */
+  /**
+   * Clears a blocked profile's hard counts, its soft failures and its pause.
+   * Returns whether it was blocked.
+   */
   unblock(profile: string): boolean;
   /** Number of profiles that are blocked. */
   readonly blocked: number;
@@ -807,8 +814,9 @@ export interface GrantManager {
   /**
    * Rotates the refresh token, or replays the successor pair for the
    * previous one; a retired one ends its grant. Reopens the grant's
-   * connection when it has none, without delaying the answer. Never
-   * rejects.
+   * connection when it has none and `authenticate` answered
+   * `connection_closed` since it closed, without delaying the answer.
+   * Never rejects.
    */
   refresh(request: RefreshRequest): Promise<TokenResult>;
   /**
@@ -818,7 +826,8 @@ export interface GrantManager {
   revoke(token: Buffer): Promise<void>;
   /**
    * Resolves an access token from the `Authorization` header. Waits up to
-   * `RECONNECT_WAIT_MS` for a reconnect in flight. Never rejects.
+   * `RECONNECT_WAIT_MS` for a reconnect in flight. `connection_closed` lets
+   * the grant's next refresh reconnect. Never rejects.
    */
   authenticate(bearer: string): Promise<GrantIdentity | AuthRefusal>;
   /**

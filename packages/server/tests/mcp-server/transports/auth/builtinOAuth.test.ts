@@ -549,22 +549,73 @@ describe("built-in OAuth: what the server refuses to start with", () => {
     expect(start()).toBeUndefined();
   });
 
+  const proxyRefusal = (named: string, host: string) =>
+    refusal(
+      `MCP_RESOURCE_URL names ${named} while the server listens on the loopback address ${host}, so a proxy on this host is in front of it, and MCP_TRUSTED_PROXIES names no loopback address, which is where that proxy connects from: every user would appear at the proxy's address and pass OAUTH_SIGNON_ALLOWED_CIDRS. Set MCP_TRUSTED_PROXIES=127.0.0.1 (add ::1 if the proxy connects over IPv6) and have the proxy set X-Forwarded-For.`,
+    );
+
   it.each([
     ["https://mcp.example.com/mcp", "127.0.0.1", "mcp.example.com"],
     ["https://MCP.Example.com:8443/ibmi/mcp", "localhost", "mcp.example.com"],
     ["https://10.1.2.3/mcp", "::1", "10.1.2.3"],
     ["https://[2001:db8::1]/mcp", "127.0.0.1", "2001:db8::1"],
   ])(
-    "a public MCP_RESOURCE_URL=%s behind a listener on %s without TLS, when MCP_TRUSTED_PROXIES names no proxy",
+    "a public MCP_RESOURCE_URL=%s behind a listener on %s, when MCP_TRUSTED_PROXIES names no proxy",
     (resourceUrl, host, named) => {
       config.mcpResourceUrl = resourceUrl;
       config.mcpHttpHost = host;
       config.mcpTrustedProxies = [];
+      expect(start()).toMatchObject(proxyRefusal(named, host));
+    },
+  );
+
+  it.each([
+    [["10.0.0.5/32"]],
+    [["10.0.0.0/8", "2001:db8::1/128"]],
+    [["0.0.0.0/0"]],
+  ])(
+    "a public MCP_RESOURCE_URL behind a loopback listener, when MCP_TRUSTED_PROXIES=%j has no loopback entry",
+    (proxies) => {
+      config.mcpTrustedProxies = proxies;
       expect(start()).toMatchObject(
-        refusal(
-          `MCP_RESOURCE_URL names ${named} while the server listens on ${host} without TLS, so a proxy on this host is in front of it, and MCP_TRUSTED_PROXIES does not name that proxy: every user would appear at the proxy's address and pass OAUTH_SIGNON_ALLOWED_CIDRS. Set MCP_TRUSTED_PROXIES=127.0.0.1 (add ::1 if the proxy connects over IPv6) and have the proxy set X-Forwarded-For.`,
-        ),
+        proxyRefusal("mcp.example.com", "127.0.0.1"),
       );
+    },
+  );
+
+  it("a public MCP_RESOURCE_URL behind a loopback listener with its own TLS, when MCP_TRUSTED_PROXIES names no proxy", () => {
+    config.mcpTlsCertFile = "/etc/ssl/mcp.crt";
+    config.mcpTlsKeyFile = "/etc/ssl/mcp.key";
+    config.mcpTrustedProxies = [];
+    expect(start()).toMatchObject(proxyRefusal("mcp.example.com", "127.0.0.1"));
+  });
+
+  it.each(["0:0:0:0:0:0:0:1", "::ffff:7f00:1", "127.1"])(
+    "a public MCP_RESOURCE_URL behind a listener on the loopback address written %s, with or without its own TLS, when MCP_TRUSTED_PROXIES names no proxy",
+    (host) => {
+      config.mcpHttpHost = host;
+      config.mcpTrustedProxies = [];
+      expect(start()).toMatchObject(proxyRefusal("mcp.example.com", host));
+      config.mcpTlsCertFile = "/etc/ssl/mcp.crt";
+      config.mcpTlsKeyFile = "/etc/ssl/mcp.key";
+      expect(start()).toMatchObject(proxyRefusal("mcp.example.com", host));
+    },
+  );
+
+  it.each([
+    [["127.0.0.1/32"], "127.0.0.1"],
+    [["::1/128"], "::1"],
+    [["127.0.0.0/8"], "localhost"],
+    [["10.0.0.5/32", "127.0.0.2/32"], "127.0.0.1"],
+  ])(
+    "accepts a public MCP_RESOURCE_URL behind a loopback listener when MCP_TRUSTED_PROXIES=%j has a loopback entry",
+    (proxies, host) => {
+      config.mcpHttpHost = host;
+      config.mcpTrustedProxies = proxies;
+      expect(start()).toBeUndefined();
+      config.mcpTlsCertFile = "/etc/ssl/mcp.crt";
+      config.mcpTlsKeyFile = "/etc/ssl/mcp.key";
+      expect(start()).toBeUndefined();
     },
   );
 

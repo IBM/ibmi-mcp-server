@@ -5,8 +5,9 @@
  *
  * A grant is one sign-on with an IBM i profile. Its Mapepire connection is
  * opened with the typed password, closed when idle, and reopened only inside
- * a refresh, where the presented refresh token unwraps the key of the sealed
- * password. Nothing is written to disk.
+ * a refresh that follows a request refused because it was closed: the
+ * presented refresh token unwraps the key of the sealed password. Nothing is
+ * written to disk.
  *
  * Rules kept here:
  * - No string is made of a password, and every password Buffer this module
@@ -109,6 +110,12 @@ interface GrantState {
   lastStatement: Promise<void>;
   /** The reconnect in flight. It never rejects. */
   reconnect?: Promise<void>;
+  /**
+   * A request was refused `connection_closed` since the connection closed:
+   * the next refresh that can reopens it. Without one, a refresh signs
+   * nothing on, so a client that only refreshes keeps no connection open.
+   */
+  reopenAsked: boolean;
   /** No reconnect is started before this time. */
   retryAfter: number;
   lastPingAt: number;
@@ -419,6 +426,7 @@ export const createGrantManager: CreateGrantManager = ({
     states.set(grantId, {
       statements: 0,
       lastStatement: Promise.resolve(),
+      reopenAsked: false,
       retryAfter: 0,
       lastPingAt: at,
       missedPongs: 0,
@@ -470,7 +478,7 @@ export const createGrantManager: CreateGrantManager = ({
       return refuse("signon_refused_syntax", checked.reason, origin);
     }
 
-    const decision = throttle.begin(profile, now());
+    const decision = throttle.begin(profile, now(), signedOn.has(profile));
     if (decision !== "ok") {
       return refuse(
         decision === "blocked" ? "signon_blocked" : "signon_refused",
@@ -618,6 +626,10 @@ export const createGrantManager: CreateGrantManager = ({
         }
         grant.session = outcome.session;
         state.retryAfter = 0;
+        // A request refused while this connection was opening asked for
+        // it, not for the next one: after the next close, only a new
+        // refusal reopens.
+        state.reopenAsked = false;
         state.missedPongs = 0;
         state.lastPingAt = now();
         // A reopened connection gets a whole idle period: the grant's last
@@ -727,7 +739,8 @@ export const createGrantManager: CreateGrantManager = ({
       });
       return;
     }
-    const decision = throttle.begin(grant.profile, at);
+    // A grant's profile has signed on in this process.
+    const decision = throttle.begin(grant.profile, at, true);
     if (decision !== "ok") {
       zeroFill(password);
       audit("warning", "reconnect_unavailable", {
@@ -801,7 +814,8 @@ export const createGrantManager: CreateGrantManager = ({
       tokenHash: hash.slice(0, 8),
     };
     const open = grant.session?.isOpen === true;
-    const reopen = !open && !state.reconnect && at >= state.retryAfter;
+    const reopen =
+      !open && state.reopenAsked && !state.reconnect && at >= state.retryAfter;
     if (
       reopen &&
       openConnections() + connecting >= config.oauth.maxConnections
@@ -831,6 +845,7 @@ export const createGrantManager: CreateGrantManager = ({
         return INVALID_GRANT;
     }
     if (reopen) {
+      state.reopenAsked = false;
       startReconnect(grant, state, refreshToken, hash, at);
     } else if (open && rotation.status === "rotated") {
       void probe(grant);
@@ -855,14 +870,17 @@ export const createGrantManager: CreateGrantManager = ({
       return "invalid_token";
     }
     const { grant } = used;
-    const reconnecting = states.get(grant.grantId)?.reconnect;
-    if (!grant.session?.isOpen && reconnecting) {
-      await settledWithin(reconnecting, RECONNECT_WAIT_MS);
+    const state = states.get(grant.grantId);
+    if (!grant.session?.isOpen && state?.reconnect) {
+      await settledWithin(state.reconnect, RECONNECT_WAIT_MS);
     }
     if (store.get(grant.grantId) !== grant) {
       return "invalid_token";
     }
     if (!grant.session?.isOpen) {
+      if (state) {
+        state.reopenAsked = true;
+      }
       return "connection_closed";
     }
     grant.lastUsedAt = now();

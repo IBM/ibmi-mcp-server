@@ -207,6 +207,24 @@ describe("unblock", () => {
     expect(throttle.begin("TESTUSER", T0)).toBe("blocked");
   });
 
+  it("clears the pause of a profile blocked by results that are not known", () => {
+    const throttle = createSignOnThrottle(2);
+    attempt(throttle, "TESTUSER", "timeout", T0);
+    attempt(throttle, "TESTUSER", "timeout", T0);
+    const later = T0 + SOFT_BUDGET.pauseMs;
+    attempt(throttle, "TESTUSER", "timeout", later);
+    attempt(throttle, "TESTUSER", "other", later);
+    expect(throttle.begin("TESTUSER", later)).toBe("blocked");
+
+    expect(throttle.unblock("TESTUSER")).toBe(true);
+
+    expect(probe(throttle, "TESTUSER", later + MINUTE)).toBe("ok");
+    // The soft window starts again too: one more result not known does not
+    // pause the profile.
+    attempt(throttle, "TESTUSER", "timeout", later + MINUTE);
+    expect(probe(throttle, "TESTUSER", later + MINUTE)).toBe("ok");
+  });
+
   it("returns false and changes nothing for a profile that is not blocked", () => {
     const throttle = createSignOnThrottle(2);
     expect(throttle.unblock("TESTUSER")).toBe(false);
@@ -371,44 +389,70 @@ describe(`cap of ${THROTTLE_MAX_PROFILES} profiles`, () => {
     expect(throttle.begin("TESTUSER", T0)).toBe("paused");
   });
 
-  it("forgets the oldest profile that holds no rejection", () => {
+  it.each([
+    ["a rejection", "rejected"],
+    ["a result that is not known", "other"],
+  ] as const)(
+    "never forgets a profile that holds %s: a full table refuses a profile it has never seen",
+    (_name, outcome) => {
+      const throttle = createSignOnThrottle(2);
+      attempt(throttle, "VICTIM", "rejected");
+      fill(throttle, THROTTLE_MAX_PROFILES - 1, outcome);
+
+      expect(throttle.begin("NEWNAME", T0)).toBe("busy");
+      // Filling the table again, as often as anyone likes, forgets nothing:
+      // the next rejection of VICTIM is its second, which blocks it.
+      fill(throttle, THROTTLE_MAX_PROFILES, outcome);
+      expect(attempt(throttle, "VICTIM", "rejected")).toBe("ok");
+      expect(throttle.begin("VICTIM", T0)).toBe("blocked");
+      expect(throttle.begin("FILL0", T0)).not.toBe("ok");
+    },
+  );
+
+  it("never forgets a pause", () => {
     const throttle = createSignOnThrottle(2);
-    attempt(throttle, "VICTIM", "rejected");
-    fill(throttle, THROTTLE_MAX_PROFILES - 1, "other");
-
-    expect(attempt(throttle, "TESTUSER", "other")).toBe("ok");
-
-    // FILL0 was forgotten: a second OTHER inside the window does not pause it.
-    attempt(throttle, "FILL0", "other");
-    expect(probe(throttle, "FILL0")).toBe("ok");
-    // FILL2 was not (FILL1 made room for FILL0): its second OTHER pauses it.
-    attempt(throttle, "FILL2", "other");
-    expect(throttle.begin("FILL2", T0)).toBe("paused");
-    // The older rejection was kept: one more blocks the profile.
-    attempt(throttle, "VICTIM", "rejected");
-    expect(throttle.begin("VICTIM", T0)).toBe("blocked");
+    attempt(throttle, "SLOWUSER", "other");
+    attempt(throttle, "SLOWUSER", "timeout");
+    fill(throttle, THROTTLE_MAX_PROFILES - 1, "rejected");
+    expect(throttle.begin("NEWNAME", T0 + 1)).toBe("busy");
+    expect(throttle.begin("SLOWUSER", T0 + 1)).toBe("paused");
   });
 
-  it("a table full of single rejections refuses no one: the oldest that is not blocked is forgotten", () => {
+  it("makes room from an entry that holds nothing countable any more", () => {
     const throttle = createSignOnThrottle(2);
-    attempt(throttle, "BLOCKED", "rejected");
-    attempt(throttle, "BLOCKED", "rejected");
+    // A result not known, then a success: only the soft-window time is
+    // left, and it counts for 30 minutes.
+    attempt(throttle, "STALE", "other");
+    attempt(throttle, "STALE", "ok");
     fill(throttle, THROTTLE_MAX_PROFILES - 1, "rejected");
+    expect(throttle.begin("NEWNAME", T0 + SOFT_BUDGET.windowMs - 1)).toBe(
+      "busy",
+    );
+
+    expect(
+      attempt(throttle, "NEWNAME", "rejected", T0 + SOFT_BUDGET.windowMs),
+    ).toBe("ok");
+    expect(throttle.begin("ANOTHER", T0 + SOFT_BUDGET.windowMs)).toBe("busy");
+    // What the table held is still there.
+    expect(attempt(throttle, "FILL0", "rejected")).toBe("ok");
+    expect(throttle.begin("FILL0", T0)).toBe("blocked");
+    expect(attempt(throttle, "NEWNAME", "rejected")).toBe("ok");
+    expect(throttle.begin("NEWNAME", T0)).toBe("blocked");
+  });
+
+  it("admits a profile that signed on in this process beyond the cap, and counts it", () => {
+    const throttle = createSignOnThrottle(2);
+    fill(throttle, THROTTLE_MAX_PROFILES, "rejected");
+    expect(throttle.begin("TESTUSER", T0)).toBe("busy");
+
+    expect(throttle.begin("TESTUSER", T0, true)).toBe("ok");
+    throttle.end("TESTUSER", { class: "rejected" }, T0);
+    expect(attempt(throttle, "OTHERUSER", "ok")).toBe("busy");
+    // Its entry is kept beyond the cap: the next rejection blocks it.
+    expect(throttle.begin("TESTUSER", T0, true)).toBe("ok");
+    throttle.end("TESTUSER", { class: "rejected" }, T0);
+    expect(throttle.begin("TESTUSER", T0, true)).toBe("blocked");
     expect(throttle.blocked).toBe(1);
-
-    // A profile the table does not hold signs on, as does a second one.
-    expect(attempt(throttle, "TESTUSER", "ok")).toBe("ok");
-    expect(attempt(throttle, "OTHERUSER", "rejected")).toBe("ok");
-
-    // FILL0 made room: its rejection is forgotten, so it takes two more.
-    attempt(throttle, "FILL0", "rejected");
-    expect(probe(throttle, "FILL0")).toBe("ok");
-    // FILL2 was kept (FILL1 made room for FILL0): one more blocks it.
-    attempt(throttle, "FILL2", "rejected");
-    expect(throttle.begin("FILL2", T0)).toBe("blocked");
-    // The blocked profile, the oldest of all, was never forgotten.
-    expect(throttle.begin("BLOCKED", T0)).toBe("blocked");
-    expect(throttle.unblock("BLOCKED")).toBe(true);
   });
 
   it("never forgets a blocked profile: when every entry is blocked, an untracked profile is busy", () => {

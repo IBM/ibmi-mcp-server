@@ -141,6 +141,19 @@ export function messagePage(message: string): string {
 }
 
 /**
+ * The page for a sign-in form submitted again after its sign-on worked. It
+ * carries no code: the first answer had it.
+ */
+export function completedPage(): string {
+  return page(
+    "Signed on",
+    "",
+    `<h1>Signed on</h1>
+<p>This sign-on has already completed. You can close this window.</p>`,
+  );
+}
+
+/**
  * The page that sends the browser on to its client after a sign-on, for a
  * destination a redirect of the form post cannot reach.
  *

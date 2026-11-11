@@ -737,6 +737,49 @@ describe("built-in IBM i sign-on, end to end", () => {
     expectNoSecretLogged();
   });
 
+  it("a client that only refreshes after an idle close causes no sign-on; its next call is answered 401 and the refresh then reconnects", async () => {
+    config.oauth.idleCloseMinutes = 0.001;
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    running = await initializeAndStartServer();
+    const app = newTestClient();
+    const client = await signOn(app, FAKE_PROFILE, FAKE_PASSWORD);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
+    await vi.waitFor(() => expect(fake.openSockets).toBe(0));
+
+    // Refreshes by the clock, with no MCP request between them.
+    for (let n = 0; n < 3; n++) {
+      const refreshed = await fetch(`${base}/oauth/token`, {
+        method: "POST",
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: app.provider.tokens()!.refresh_token!,
+          client_id: app.provider.clientInformation()!.client_id,
+        }),
+      });
+      expect(refreshed.status).toBe(200);
+      app.provider.saveTokens((await refreshed.json()) as StoredOAuthTokens);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(jobsOf(FAKE_PROFILE)).toHaveLength(1);
+    expect(fake.upgrades).toBe(1);
+    expect(fake.openSockets).toBe(0);
+
+    app.trace.length = 0;
+    const result = await client.callTool({
+      name: "list_schemas",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    expect(app.trace).toEqual([
+      "POST /mcp 401",
+      "POST /oauth/token 200",
+      "POST /mcp 200",
+    ]);
+    expect(jobsOf(FAKE_PROFILE)).toHaveLength(2);
+    expectNoSecretLogged();
+  });
+
   it("two users signed on at once each run on their own connection", async () => {
     running = await initializeAndStartServer();
 

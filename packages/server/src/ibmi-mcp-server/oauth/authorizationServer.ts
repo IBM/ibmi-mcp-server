@@ -9,8 +9,13 @@
  * Rules kept here:
  * - A body that can hold a password, an authorization code or a token is
  *   read as bytes into an unpooled Buffer and parsed there, into Buffers
- *   from `secretBuffer`. No string is made of a password, a code or a
- *   refresh token, and each Buffer is zero-filled in a `finally` block.
+ *   from `secretBuffer`. No string is made of a password, or of a code or a
+ *   refresh token a client presents, and each Buffer is zero-filled in a
+ *   `finally` block. The token response is built in an unpooled Buffer that
+ *   is zero-filled once Node.js has written it.
+ * - The code the grant manager issues is a string only while the redirect
+ *   that carries it is built: nothing here keeps the sign-on's result, and a
+ *   repeated form submission is answered without the code.
  * - No function between reading such a body and the grant manager creates a
  *   closure, and nothing here uses AsyncLocalStorage: either would keep the
  *   bytes reachable after the request.
@@ -58,6 +63,7 @@ import {
 } from "./contracts.js";
 import { secretBuffer, zeroFill } from "./sealing.js";
 import {
+  completedPage,
   messagePage,
   pageHeaders,
   redirectPage,
@@ -75,7 +81,7 @@ const CODE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 const RETRY_AFTER_SECONDS = 5;
 /**
  * How long after a sign-on's result is known a second submission of the same
- * sign-in form is answered with that result.
+ * sign-in form is answered by it (without its code).
  */
 const REPEAT_ANSWER_MS = 5_000;
 
@@ -134,8 +140,13 @@ interface Submission {
   expiresAt: number;
   /** The client address it was submitted from. */
   address: string;
-  /** What its sign-on led to; absent when none was started. */
-  outcome?: Promise<SignOnResult>;
+  /** Its sign-on, while that runs. */
+  pending?: Promise<SignOnResult>;
+  /**
+   * What its sign-on led to, without the code: for `REPEAT_ANSWER_MS` after
+   * it became known.
+   */
+  settled?: "ok" | SignOnRefusal;
   /** When that became known. */
   settledAt?: number;
 }
@@ -352,7 +363,7 @@ function openLoginRequest(
  * @returns The submission to record the sign-on in. For a login request
  *   submitted before: `repeat`, the earlier submission whose answer this one
  *   gets (the form was sent twice from one address, as a double click does,
- *   and the first sign-on is under way or its result at most
+ *   and the first sign-on is under way or its result less than
  *   `REPEAT_ANSWER_MS` old), or `undefined` when it gets none.
  */
 function submission(
@@ -364,22 +375,35 @@ function submission(
   for (const [nonce, earlier] of server.submitted) {
     if (now >= earlier.expiresAt) {
       server.submitted.delete(nonce);
-    } else if (
-      earlier.settledAt !== undefined &&
-      now - earlier.settledAt >= REPEAT_ANSWER_MS
-    ) {
-      earlier.outcome = undefined;
     }
   }
   const earlier = server.submitted.get(login.nonce);
   if (earlier) {
-    return earlier.outcome && earlier.address === address
+    const answered =
+      earlier.pending !== undefined ||
+      (earlier.settledAt !== undefined &&
+        now - earlier.settledAt < REPEAT_ANSWER_MS);
+    return answered && earlier.address === address
       ? { repeat: earlier }
       : undefined;
   }
   const first: Submission = { expiresAt: login.expiresAt, address };
   server.submitted.set(login.nonce, first);
   return first;
+}
+
+/**
+ * Records what a submission's sign-on led to, and forgets it after
+ * `REPEAT_ANSWER_MS`. The login request stays used until it expires.
+ */
+function settle(submitted: Submission, result: SignOnResult): void {
+  submitted.pending = undefined;
+  submitted.settled = result.ok ? "ok" : result.reason;
+  submitted.settledAt = Date.now();
+  setTimeout(() => {
+    submitted.settled = undefined;
+    submitted.settledAt = undefined;
+  }, REPEAT_ANSWER_MS).unref();
 }
 
 function messageResponse(
@@ -593,10 +617,18 @@ async function postAuthorize(c: AppContext, server: Server): Promise<Response> {
     if ("repeat" in submitted) {
       // A browser shows the answer to the last submission of a form and
       // drops the earlier one: this one gets the answer of the sign-on the
-      // first started. What it carries is not looked at.
-      result = await submitted.repeat.outcome!;
+      // first started. What it carries is not looked at. Once that sign-on
+      // has answered, its code is no longer kept, and a repeat is told so.
+      const { pending, settled } = submitted.repeat;
+      if (pending) {
+        result = await pending;
+      } else if (settled === "ok") {
+        return c.html(completedPage(), 200, pageHeaders());
+      } else {
+        result = { ok: false, reason: settled! };
+      }
     } else {
-      submitted.outcome = server.grants.signOn({
+      submitted.pending = server.grants.signOn({
         profile,
         password,
         clientId: login.clientId,
@@ -604,8 +636,8 @@ async function postAuthorize(c: AppContext, server: Server): Promise<Response> {
         codeChallenge: login.codeChallenge,
         address,
       });
-      result = await submitted.outcome;
-      submitted.settledAt = Date.now();
+      result = await submitted.pending;
+      settle(submitted, result);
     }
     if (!result.ok) {
       return signInResponse(
@@ -677,6 +709,34 @@ function tokenResponseBody(
     offset += part.copy(body, offset);
   }
   return body;
+}
+
+/**
+ * The token response body as a stream of the one Buffer, zero-filled once
+ * Node.js has written it. A stream, not the Buffer: a middleware that adds
+ * a header after the route (hono/cors adds `Vary`) makes Hono rebuild the
+ * Response, which copies a Buffer body into bytes nothing wipes but hands a
+ * stream on as it is, so the chunk Node.js writes is this Buffer. A response
+ * that closed while the grant manager answered (the client went away) is
+ * never written: the Buffer is zero-filled at once. Without a Node.js
+ * response (a request made in process) nothing is wiped.
+ */
+function zeroFilledWhenWritten(
+  c: AppContext,
+  body: Buffer,
+): ReadableStream<Uint8Array> {
+  const outgoing = c.env.outgoing;
+  if (outgoing?.destroyed) {
+    zeroFill(body);
+  } else {
+    outgoing?.once("close", () => zeroFill(body));
+  }
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(body);
+      controller.close();
+    },
+  });
 }
 
 /** The grant manager's answer for the form's grant type; a `Response` for a request it never saw. */
@@ -791,8 +851,10 @@ async function postToken(c: AppContext, server: Server): Promise<Response> {
           );
     }
     try {
-      return c.body(tokenResponseBody(result, result.expiresInSeconds), 200, {
+      const body = tokenResponseBody(result, result.expiresInSeconds);
+      return c.body(zeroFilledWhenWritten(c, body), 200, {
         "Content-Type": "application/json",
+        "Content-Length": String(body.length),
         "Cache-Control": "no-store",
       });
     } finally {

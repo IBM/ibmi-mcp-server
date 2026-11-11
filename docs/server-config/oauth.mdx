@@ -50,9 +50,9 @@ sequenceDiagram
 ```
 
 - **One sign-on is one connection.** Submitting the form makes exactly one sign-on attempt on the IBM i. On success the open connection (one IBM i database server job) belongs to that sign-on. Nothing is retried.
-- **The password is not kept in clear.** Before the server drops the typed password it encrypts it. The key is never stored in clear either: it is kept only wrapped under a key derived from the authorization code and then from the client's current refresh token. The server alone cannot decrypt the password.
+- **The password is not kept in clear.** Before the server drops the typed password it encrypts it. The key is never stored in clear either: it is kept only wrapped under a key derived from the authorization code and then from the client's current refresh token. The server keeps neither the code nor a refresh token, so it alone cannot decrypt the password.
 - **Idle connections are closed.** After `OAUTH_IDLE_CLOSE_MINUTES` (default 10) without a request to the MCP endpoint, the server closes the connection and its IBM i job ends. A token refresh is not such a request: a client that only refreshes is closed as idle too. The sign-on itself stays.
-- **A token refresh reopens the connection.** The next request gets `401` with `error_description="connection closed, refresh"`. The client presents its refresh token at `/oauth/token`. That token unwraps the key, the server decrypts the password, makes one sign-on attempt, and erases the decrypted bytes. The user is not prompted. The new connection gets a full idle period. It is a new database server connection, but the IBM i may run it in a prestart `QZDASOINIT` job it used before, so the job name can repeat.
+- **The refresh after a refused request reopens the connection.** The first MCP request after an idle close gets `401` with `error_description="connection closed, refresh"`. The client then presents its refresh token at `/oauth/token`. That token unwraps the key, the server decrypts the password, makes one sign-on attempt, and erases the decrypted bytes. The user is not prompted. The new connection gets a full idle period. A refresh that no such `401` came before rotates the tokens and signs nothing on: a client that only refreshes keeps no connection open and causes no sign-on on the IBM i. It is a new database server connection, but the IBM i may run it in a prestart `QZDASOINIT` job it used before, so the job name can repeat.
 - **A sign-on lasts at most `OAUTH_GRANT_MAX_HOURS`** (default 12). After that the user signs on again.
 - **Nothing is written to disk.** A restart of the server signs everyone out.
 
@@ -66,16 +66,16 @@ Access tokens live `OAUTH_IDLE_CLOSE_MINUTES` plus five minutes (15 minutes by d
 |------|------|----------|
 | Password | AES-256-GCM ciphertext under a random key made for that sign-on | Until the sign-on ends, then overwritten with zeros |
 | That key | Only wrapped (AES-256-GCM) under a key derived with HKDF-SHA256 from the authorization code (60 seconds), then the current refresh token, and the previous refresh token until it is retired | In clear only while sealing, re-wrapping or reconnecting |
-| Authorization codes, access tokens, refresh tokens | SHA-256 hashes, plus the replay record below | Until they expire or the sign-on ends |
+| Authorization codes, access tokens, refresh tokens | SHA-256 hashes, plus the replay record below. The issued code exists as a string only while the redirect that carries it is built; a second submission of the form gets a page without it. | Until they expire or the sign-on ends |
 | Replay record of the last refresh | The new access token and the new refresh token, AES-256-GCM under a key derived with HKDF-SHA256 from the previous refresh token. The server alone cannot open it. | Until the previous refresh token is retired |
-| The open connection | A WebSocket to Mapepire. It holds no user name and no password. | While the user is active, plus the idle time |
+| The open connection | A WebSocket to Mapepire. It holds no user name and no password. | While the user's client sends MCP requests, plus the idle time. Refreshes alone neither keep it open nor reopen it. |
 | Sign-on failure counters | Keyed by an HMAC of the profile name under a random per-process key | Until a success, an unblock or a restart |
 
-The typed password exists in clear as bytes during the sign-on request and during each reconnect. The copies the server's own code makes are kept outside the JavaScript heap and outside Node.js's shared buffer pool, and are overwritten with zeros when the request finishes. Authorization codes and refresh tokens a client presents are handled the same way. Memory the server's own code does not hold is not overwritten:
+The typed password exists in clear as bytes during the sign-on request and during each reconnect. The copies the server's own code makes are kept outside the JavaScript heap and outside Node.js's shared buffer pool, and are overwritten with zeros when the request finishes. Authorization codes and refresh tokens a client presents are handled the same way, and so is the body of each token response, which is overwritten once Node.js has written it, or at once when the client went away before it was ready. Memory the server's own code does not hold is not overwritten:
 
 - **Node.js's HTTP read buffer.** Node.js reads every incoming request into one buffer that lives as long as the process and is reused without being cleared. The body of the last sign-in form, password included, stays in it until a later request at least as long overwrites it. The same holds for the body of the last token request, with its authorization code or refresh token. On a quiet server that is the password of the last user who signed on, for as long as the process runs. This was observed with the plain-HTTP listener (a proxy in front); the server's own TLS listener was not examined.
 - **Buffers inside Node.js's crypto and TLS code**, for example the copy a key derivation makes of a code or a refresh token, are freed or left to the garbage collector, not overwritten.
-- **One string.** The server builds the `Authorization` header of the WebSocket upgrade from the password. A string cannot be overwritten; nothing refers to it after the request is sent.
+- **Two strings.** The server builds the `Authorization` header of the WebSocket upgrade from the password, and the redirect to the client (its `Location` header, or the page that redirects) from the new authorization code. A string cannot be overwritten; nothing refers to either after the request or the response is sent.
 
 The server holds no service account password, no token-signing key and no encryption key at rest. When `MCP_TLS_KEY_FILE` is set it holds the private key of its own TLS listener.
 
@@ -88,7 +88,7 @@ The server holds no service account password, no token-signing key and no encryp
 **On the IBM i:**
 
 <Warning>
-**mapepire-server keeps each connected user's password in the memory of its Java job for as long as that user's connection is open.** This server cannot change that. It limits the time: a connection is open while the user is working, plus `OAUTH_IDLE_CLOSE_MINUTES`. Whoever can dump or control the Mapepire job on the IBM i can read the passwords of the users connected at that moment, without touching the MCP server.
+**mapepire-server keeps each connected user's password in the memory of its Java job for as long as that user's connection is open.** This server cannot change that. It limits the time: a connection is open while the user's client sends MCP requests, plus `OAUTH_IDLE_CLOSE_MINUTES`. Token refreshes alone do not reopen it. Whoever can dump or control the Mapepire job on the IBM i can read the passwords of the users connected at that moment, without touching the MCP server.
 
 This statement, and the IBM i setup below that follows from it, come from reading the mapepire-server 2.5.1 source and IBM documentation. They were not tested on an IBM i system for this release.
 </Warning>
@@ -110,7 +110,7 @@ After a user has signed on, recovering that user's password takes one of:
 - with `DB2i_IGNORE_UNAUTHORIZED=true`: a position on the network between the server and the IBM i, from which to answer in Mapepire's place;
 - the user's browser password store, if the user saved the password there.
 
-Not enough on their own: an access token; a refresh token, which opens the stored password only together with the server's memory; and the server's log files, its disk, a backup or its container image, which hold no password, ciphertext or key. A test in this repository (`packages/server/tests/ibmi-mcp-server/oauth/memory.test.ts`) takes a V8 heap snapshot after a sign-on, a tool call, an idle close and a refresh, and checks that no string in it contains the test password or a refresh token.
+Not enough on their own: an access token; a refresh token, which opens the stored password only together with the server's memory; and the server's log files, its disk, a backup or its container image, which hold no password, ciphertext or key. A test in this repository (`packages/server/tests/ibmi-mcp-server/oauth/memory.test.ts`) takes a V8 heap snapshot after a sign-on, a tool call, an idle close and a refresh, and checks that no string in it contains the test password, the authorization code or a refresh token.
 
 ### What It Does Not Protect Against
 
@@ -122,7 +122,8 @@ Not enough on their own: an access token; a refresh token, which opens the store
 - **A stolen access token** while the connection is open and the token is unexpired: SQL as that user. **A stolen refresh token**: SQL as that user until `OAUTH_GRANT_MAX_HOURS` or revocation.
 - **Hostile SQL in a YAML tool file.** It runs with the signed-on user's authority.
 - **Statements that keep running.** A statement abandoned after 120 seconds may continue on the IBM i.
-- **Someone inside the allowed network blocking sign-on for a named profile** by submitting wrong passwords (see [Sign-On Budget and Unblocking](#sign-on-budget-and-unblocking)). A restart refills the budget, so two rejected attempts, a restart and one more can add up to three failed sign-ons on the IBM i.
+- **Someone inside the allowed network blocking sign-on for a named profile** by submitting wrong passwords (see [Sign-On Budget and Unblocking](#sign-on-budget-and-unblocking)). Only an unblock or a restart refills the budget. A restart forgets every count, so two rejected attempts, a restart and one more can add up to three failed sign-ons on the IBM i.
+- **Someone inside the allowed network filling the table of sign-on counts** with 10,000 made-up profile names, each rejected once. Until a restart, a profile that has not signed on since the server started is then refused with "Another sign-on is in progress", and nothing is sent for it. Profiles that have signed on since the start, and so every sign-on that holds a grant, still sign on and reconnect, and no count is forgotten.
 - **More failed sign-ons than `OAUTH_SIGNON_MAX_FAILURES` when Mapepire's answers cannot be read.** While Mapepire answers a sign-on late, drops the connection or answers with a text the server does not recognise, the server forwards up to twice `OAUTH_SIGNON_MAX_FAILURES` attempts for a profile (4 by default) before it blocks the profile, and each may have been counted as failed on the IBM i.
 - **One failed sign-on on the IBM i when a password is changed** while no connection is open and the user has not signed on here again: the next reconnect uses the old password, is rejected, and ends the sign-ons of that profile that hold that password. If Mapepire does not answer that reconnect, or answers with a text the server does not recognise, the old password is sent a second time before those sign-ons end. A new sign-on with the new password ends the earlier sign-ons first, so nothing stale is sent.
 - **A look-alike sign-in page on another origin**, and passwords saved in a browser.
@@ -152,7 +153,7 @@ Not enough on their own: an access token; a refresh token, which opens the store
     MCP_TLS_KEY_FILE=/etc/ibmi-mcp/server.key
     ```
 
-    **A TLS-terminating proxy on the same host.** Keep `MCP_HTTP_HOST=127.0.0.1` (the default) so that only the proxy can reach the server, and list the proxy in `MCP_TRUSTED_PROXIES`. The server refuses to start without it: with a public `MCP_RESOURCE_URL`, a loopback `MCP_HTTP_HOST` and no TLS listener, a proxy is certainly in front.
+    **A TLS-terminating proxy on the same host.** Keep `MCP_HTTP_HOST=127.0.0.1` (the default) so that only the proxy can reach the server, and list the proxy's loopback address in `MCP_TRUSTED_PROXIES`. The server refuses to start without one: with a public `MCP_RESOURCE_URL` and a loopback `MCP_HTTP_HOST`, a proxy on this host is certainly in front, with or without a TLS listener on the server, and it connects from a loopback address. An entry counts when its address, or the network address of its range, is in `127.0.0.0/8` or is `::1`.
 
     ```bash
     MCP_HTTP_HOST=127.0.0.1
@@ -175,7 +176,7 @@ Not enough on their own: an access token; a refresh token, which opens the store
     <Warning>
     A proxy that is **not** listed and sends **no** forwarding header is invisible to the server: every user then appears at the proxy's address. The limits that depend on the address (`OAUTH_SIGNON_ALLOWED_CIDRS`, the code address binding, the per-address rate limit) stop telling users apart, and a proxy on the same host makes every user look like a local one, whom the default `OAUTH_SIGNON_ALLOWED_CIDRS` admits. Always have the proxy set `X-Forwarded-For` and list it.
 
-    The server detects a missing entry in one case only: a public `MCP_RESOURCE_URL` served from a loopback `MCP_HTTP_HOST` without a TLS listener, where it refuses to start until `MCP_TRUSTED_PROXIES` is set. It cannot detect a proxy on another host in front of its own TLS listener, or a container runtime that replaces client addresses (see [Docker](/deployment/docker#built-in-ibm-i-sign-on)).
+    The server detects a missing entry in one case only: a public `MCP_RESOURCE_URL` served from a loopback `MCP_HTTP_HOST`, with or without a TLS listener, where it refuses to start until `MCP_TRUSTED_PROXIES` holds a loopback entry. `MCP_HTTP_HOST` counts as loopback when it is `localhost` or an address in `127.0.0.0/8` or `::1`, however the address is written (`127.1`, `0:0:0:0:0:0:0:1`); a host name that resolves to such an address does not. It does not check that the entry is the address the proxy actually connects from (`127.0.0.1` or `::1`). It cannot detect a proxy on another host in front of its own TLS listener, or a container runtime that replaces client addresses (see [Docker](/deployment/docker#built-in-ibm-i-sign-on)).
     </Warning>
   </Step>
 
@@ -264,7 +265,7 @@ Every variable below applies to the built-in sign-on only, except where noted.
 | `DB2i_IGNORE_UNAUTHORIZED` | unset: the certificate is verified | `true` (or `1`) sends passwords to Mapepire without verifying its certificate, and logs a warning at startup. Not together with `DB2i_SERVER_CERT_FILE` or `DB2i_CA_FILE`. The default of `true` that applies to service-account connections does not apply here. |
 | `DB2i_JDBC_OPTIONS` | (none) | Connection options of every user's job. Only `naming`, `libraries`, `date format`, `date separator`, `time format`, `time separator`, `decimal separator`, `transaction isolation` and `access` are allowed; any other key stops startup. The server itself always sends `prompt=false` first; `prompt` cannot be set here. |
 | `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | (none) | PEM certificate (chain) and private key of the server's own HTTPS listener. Set both or neither. Required unless `MCP_HTTP_HOST` is a loopback address. Usable in every auth mode. |
-| `MCP_TRUSTED_PROXIES` | (none) | Addresses or CIDR ranges of the reverse proxies in front of the server. Required here when `MCP_RESOURCE_URL` is not a loopback URL, `MCP_HTTP_HOST` is a loopback address and there is no TLS listener. Applies to every auth mode; see [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy). |
+| `MCP_TRUSTED_PROXIES` | (none) | Addresses or CIDR ranges of the reverse proxies in front of the server. Must hold a loopback entry (`127.0.0.0/8` or `::1`) here when `MCP_RESOURCE_URL` is not a loopback URL and `MCP_HTTP_HOST` is a loopback address, with or without a TLS listener. Applies to every auth mode; see [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy). |
 | `OAUTH_SIGNON_ALLOWED_CIDRS` | `127.0.0.0/8`, `::1/128`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7` | Client addresses that may open and submit the sign-in page. Others get a `403` page. Setting it replaces the default list. Keep it to networks that may already reach the IBM i's own sign-on. |
 | `OAUTH_CODE_ADDRESS_BINDING` | `strict` | For a loopback redirect, the authorization code must be redeemed from the address that signed on. `strict`: a mismatch ends the sign-on. `audit`: a mismatch is only logged (`signon_source_mismatch`). All loopback addresses count as equal. |
 | `OAUTH_GRANT_MAX_HOURS` | `12` | Longest a sign-on lasts. Also the longest the encrypted password exists. |
@@ -282,7 +283,7 @@ Fixed values, not settings:
 | Value | |
 |-------|---|
 | Authorization code | 60 seconds, single use, PKCE `S256` only |
-| Sign-in page | Valid for 10 minutes, one sign-on. A second submission of the same form from the same address (a double click) gets the answer of the first, while that sign-on runs and for 5 seconds after; later ones are refused. |
+| Sign-in page | Valid for 10 minutes, one sign-on. A second submission of the same form from the same address (a double click) gets the answer of the first while that sign-on runs. For 5 seconds after that answer, a second submission gets the same refusal, or, when the sign-on worked, a page that says it has completed, without the code. Later ones are refused. |
 | Sign-ons per profile | 5; one more ends the least recently used one |
 | Sign-ons in total | 1,000 |
 | Statements per sign-on | One at a time, up to 8 waiting; a further one is refused |
@@ -299,7 +300,7 @@ In this mode the server exits with code 1 and a message naming the setting when:
 - `MCP_RESOURCE_URL` is missing, has a fragment, or is not `https` and not a loopback `http` URL;
 - the transport is stdio;
 - `MCP_HTTP_HOST` is not a loopback address and `MCP_TLS_CERT_FILE` / `MCP_TLS_KEY_FILE` are not set;
-- `MCP_RESOURCE_URL` is not a loopback URL, `MCP_HTTP_HOST` is a loopback address, no TLS listener is set and `MCP_TRUSTED_PROXIES` is empty: a proxy on the same host is then in front of the server and has to be named;
+- `MCP_RESOURCE_URL` is not a loopback URL, `MCP_HTTP_HOST` is a loopback address and `MCP_TRUSTED_PROXIES` has no loopback entry (an address or range whose network address is in `127.0.0.0/8` or is `::1`), whether or not a TLS listener is set: a proxy on the same host is then in front of the server and has to be named;
 - only one of `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE` is set, or the files do not hold a certificate and its key;
 - `DB2i_HOST` is not set;
 - `DB2i_PASS` is set;
@@ -331,15 +332,15 @@ The IBM i acts on a profile after `QMAXSIGN` failed sign-ons; what it does (disa
 | Profile or password has a shape that cannot sign on (see [Limitations](#limitations)) | No, nothing is sent | Says which rule |
 
 - **Hard budget.** After `OAUTH_SIGNON_MAX_FAILURES` (default 2) rejected attempts with no success between them, nothing more is sent to the IBM i for that profile. The count does not decay with time. Reconnects count too.
-- **Results the server could not read.** A sign-on that was sent and then not answered, dropped, or answered with an error the server does not recognise may have been counted as failed on the IBM i. These results are counted together with the rejections, also without decay: after twice `OAUTH_SIGNON_MAX_FAILURES` sign-ons (default 4) with no success between them the profile is blocked in the same way. With the defaults the server forwards at most 2 sign-ons that the IBM i rejected and at most 4 that it may have rejected, until the profile is unblocked or the server restarts. Where `QMAXSIGN` is 3 and 4 is too many, set `OAUTH_SIGNON_MAX_FAILURES=1`: the bounds are then 1 and 2.
+- **Results the server could not read.** A sign-on that was sent and then not answered, dropped, or answered with an error the server does not recognise may have been counted as failed on the IBM i. These results are counted together with the rejections, also without decay: after twice `OAUTH_SIGNON_MAX_FAILURES` sign-ons (default 4) with no success between them the profile is blocked in the same way. With the defaults the server forwards at most 2 sign-ons that the IBM i rejected and at most 4 that it may have rejected, until the profile is unblocked or the server restarts. No count is forgotten before then (see 10,000 profiles below). Where `QMAXSIGN` is 3 and 4 is too many, set `OAUTH_SIGNON_MAX_FAILURES=1`: the bounds are then 1 and 2.
 - **Soft budget.** Two soft-counted results in 30 minutes pause that profile for 30 minutes.
 - **Reconnects with a stored password.** Two reconnects of one profile in a row whose result the server could not read end the sign-ons of that profile that hold the same password, so that password is not sent a third time.
 - **One at a time.** One sign-on per profile and four in total may be in flight; another gets "Another sign-on is in progress".
-- **10,000 profiles.** The server keeps counts for at most 10,000 profiles. When it holds that many, the oldest one that is not blocked is forgotten to make room, so that sign-on attempts for made-up profile names cannot shut other users out. A blocked profile is never forgotten.
+- **10,000 profiles.** The server keeps counts for at most 10,000 profiles. When it holds that many, it makes room only by forgetting a profile that holds nothing that counts: no rejection, no result it could not read, no soft-counted result inside the 30-minute window, and no pause or block. When there is no such profile, a profile that has signed on successfully since the server started (every profile that holds a sign-on has) still gets an entry, beyond the 10,000; there can be no more of those than profiles that have signed on. Any other profile is then refused with "Another sign-on is in progress", and nothing is sent to the IBM i for it, until room is made or the server restarts. Reconnects of existing sign-ons are never refused for want of room.
 
 A blocked user sees: *Sign-on for this user profile is blocked on this server after sign-on attempts that were rejected or not answered. The IBM i profile is not disabled by this block. Sign on at a 5250 session first, then ask the operator of this server to unblock the profile.* Signing on at a 5250 session first resets the IBM i's own count.
 
-A block is cleared by `unblock` on the admin socket or by a restart of the server. Without `OAUTH_ADMIN_SOCKET`, only a restart clears it.
+A block is cleared by `unblock` on the admin socket or by a restart of the server. `unblock` also lifts the profile's pause and empties its 30-minute window. Without `OAUTH_ADMIN_SOCKET`, only a restart clears it.
 
 **The admin socket** is a Unix domain socket at the path in `OAUTH_ADMIN_SOCKET`, created with access for the owner only. That file permission is the authorization: there is no admin password and no HTTP route. The directory must exist and be writable by the server, and the path must be at most about 100 bytes long. Each server needs a path of its own: a server refuses to start when another one is listening on its `OAUTH_ADMIN_SOCKET`.
 
@@ -469,6 +470,7 @@ Refresh tokens rotate: every refresh returns a new access token and a new refres
 Tested in this repository, against an in-process stand-in for Mapepire and with the MCP TypeScript SDK client (`@modelcontextprotocol/client` 2.4.0):
 
 - the whole flow: challenge, metadata, registration, sign-in, code exchange, tool calls as the user, idle close, the `401`, refresh and reconnect, revocation;
+- a client that only refreshes after an idle close: no sign-on reaches the stand-in until its next call is answered `401`;
 - two users at once on separate connections; the sign-on budget; the server's own TLS listener;
 - a Mapepire that answers `404` to every HTTP request other than the WebSocket upgrade, as 2.3.2 does; a sign-on with `DB2i_IGNORE_UNAUTHORIZED=true` to a Mapepire whose certificate is self-signed and expired, and that nothing is sent to it without that setting;
 - both texts a rejected sign-on can have (`...:PROFILE)` and `...:USER:PROFILE CPFxxxx)`), each counted against the sign-on budget;
@@ -720,7 +722,7 @@ curl -s -X POST https://mcp.example.com/mcp \
   </Accordion>
 
   <Accordion title="Built-in: startup fails saying MCP_TRUSTED_PROXIES does not name the proxy">
-    `MCP_RESOURCE_URL` is a public `https` URL while the server listens on a loopback address without TLS, so a TLS proxy on the same host is in front of it. Set `MCP_TRUSTED_PROXIES=127.0.0.1` (add `::1` if the proxy connects over IPv6) and have the proxy set `X-Forwarded-For`. Without that every user would appear at the proxy's loopback address, which `OAUTH_SIGNON_ALLOWED_CIDRS` admits by default. For local testing without a proxy, use a loopback `MCP_RESOURCE_URL` such as `http://127.0.0.1:3010/mcp`.
+    `MCP_RESOURCE_URL` is a public `https` URL while the server listens on a loopback address, with or without TLS, so a proxy on the same host is in front of it, and `MCP_TRUSTED_PROXIES` has no loopback entry. Set `MCP_TRUSTED_PROXIES=127.0.0.1` (add `::1` if the proxy connects over IPv6) and have the proxy set `X-Forwarded-For`. Without that every user would appear at the proxy's loopback address, which `OAUTH_SIGNON_ALLOWED_CIDRS` admits by default. For local testing without a proxy, use a loopback `MCP_RESOURCE_URL` such as `http://127.0.0.1:3010/mcp`.
   </Accordion>
 
   <Accordion title="Built-in: startup fails naming an environment variable in a tool file">

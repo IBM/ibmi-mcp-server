@@ -31,10 +31,25 @@ import {
   requestContextService,
   type RequestContext,
 } from "@/utils/index.js";
+import { isLoopbackAddress } from "../http/clientAddress.js";
 import { isLoopback } from "../http/hostValidation.js";
 import { readSettingFile } from "../http/settingFile.js";
 import type { HttpAuth } from "./lib/authTypes.js";
 import { configurationError, protectedResourceMetadata } from "./oauth.js";
+
+/**
+ * Whether the server listens on a loopback address at `host`, however the
+ * address is written: the URL parser turns `127.1` into `127.0.0.1` as the
+ * system resolver does, and the address matcher knows every IPv6 spelling
+ * (`0:0:0:0:0:0:0:1`, `::ffff:7f00:1`).
+ */
+function isLoopbackBind(host: string): boolean {
+  const authority = `http://${host.includes(":") ? `[${host}]` : host}`;
+  const name = URL.canParse(authority)
+    ? new URL(authority).hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "")
+    : host.toLowerCase();
+  return isLoopback(name) || isLoopbackAddress(name);
+}
 
 /**
  * Checks what the built-in IBM i sign-on needs before anything else starts,
@@ -54,13 +69,15 @@ export function createBuiltinMapepireClient(): MapepireClient {
       "MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL (users sign on with their IBM i profile) needs the HTTP transport: set MCP_TRANSPORT_TYPE=http.",
     );
   }
-  if (!isLoopback(config.mcpHttpHost.toLowerCase()) && !config.mcpTlsCertFile) {
+  const loopbackBind = isLoopbackBind(config.mcpHttpHost);
+  if (!loopbackBind && !config.mcpTlsCertFile) {
     throw configurationError(
       `MCP_HTTP_HOST=${config.mcpHttpHost} is not a loopback address and users type their IBM i password into a page this server serves: set MCP_TLS_CERT_FILE and MCP_TLS_KEY_FILE, or set MCP_HTTP_HOST=127.0.0.1 and put a TLS proxy on this host in front.`,
     );
   }
-  // A public resource URL served from a loopback listener without TLS: a
-  // TLS proxy on this host is in front. Unless it is named, and so has to
+  // A public resource URL served from a loopback listener, with or without
+  // TLS: a proxy on this host is in front, and it connects from a loopback
+  // address. Unless such an address is trusted, and the proxy so has to
   // report the client, every user appears at its loopback address, which
   // the sign-in page admits.
   const resourceHost = URL.canParse(config.mcpResourceUrl ?? "")
@@ -69,13 +86,15 @@ export function createBuiltinMapepireClient(): MapepireClient {
         .toLowerCase()
     : undefined;
   if (
-    !config.mcpTlsCertFile &&
+    loopbackBind &&
     resourceHost !== undefined &&
     !isLoopback(resourceHost) &&
-    config.mcpTrustedProxies.length === 0
+    !config.mcpTrustedProxies.some((cidr) =>
+      isLoopbackAddress(cidr.split("/")[0]),
+    )
   ) {
     throw configurationError(
-      `MCP_RESOURCE_URL names ${resourceHost} while the server listens on ${config.mcpHttpHost} without TLS, so a proxy on this host is in front of it, and MCP_TRUSTED_PROXIES does not name that proxy: every user would appear at the proxy's address and pass OAUTH_SIGNON_ALLOWED_CIDRS. Set MCP_TRUSTED_PROXIES=127.0.0.1 (add ::1 if the proxy connects over IPv6) and have the proxy set X-Forwarded-For.`,
+      `MCP_RESOURCE_URL names ${resourceHost} while the server listens on the loopback address ${config.mcpHttpHost}, so a proxy on this host is in front of it, and MCP_TRUSTED_PROXIES names no loopback address, which is where that proxy connects from: every user would appear at the proxy's address and pass OAUTH_SIGNON_ALLOWED_CIDRS. Set MCP_TRUSTED_PROXIES=127.0.0.1 (add ::1 if the proxy connects over IPv6) and have the proxy set X-Forwarded-For.`,
     );
   }
   if (process.env.DB2i_PASS) {

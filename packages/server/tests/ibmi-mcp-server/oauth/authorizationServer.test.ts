@@ -11,7 +11,10 @@
 
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
+import type { ServerResponse } from "node:http";
+import { connect, type AddressInfo } from "node:net";
+import v8 from "node:v8";
+import { runInNewContext } from "node:vm";
 import { serve } from "@hono/node-server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../../../src/config/index.js";
@@ -23,6 +26,7 @@ import {
   type GrantManager,
   type SignOnRefusal,
   type SignOnRequest,
+  type TokenResult,
 } from "../../../src/ibmi-mcp-server/oauth/contracts.js";
 import { createGrantManager } from "../../../src/ibmi-mcp-server/oauth/grantManager.js";
 import { createMapepireClient } from "../../../src/ibmi-mcp-server/oauth/mapepireSession.js";
@@ -1276,11 +1280,14 @@ describe("POST /oauth/authorize", () => {
     expect(grants.status().blockedProfiles).toBe(0);
   });
 
-  it("gives a second submission the first's answer only from the same address, and only for 5 seconds after it is known", async () => {
+  it("tells a second submission after the sign-on worked that it is done, without the code, only from the same address and only for 5 seconds", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { loginRequest } = await signInPage();
     const first = await submit(loginRequest);
     expect(first.status).toBe(303);
+    const code = new URL(first.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
 
     const elsewhere = await submit(loginRequest, { address: "10.9.9.9" });
     expect(elsewhere.status).toBe(400);
@@ -1288,7 +1295,14 @@ describe("POST /oauth/authorize", () => {
 
     vi.setSystemTime(Date.now() + 4_999);
     const inTime = await submit(loginRequest);
-    expect(inTime.headers.get("location")).toBe(first.headers.get("location"));
+    expect(inTime.status).toBe(200);
+    expect(inTime.headers.get("location")).toBeNull();
+    const html = await inTime.text();
+    expect(html).toContain(
+      "This sign-on has already completed. You can close this window.",
+    );
+    expect(html).not.toContain(code);
+    expect(html).not.toContain("<form");
 
     vi.setSystemTime(Date.now() + 1);
     const late = await submit(loginRequest);
@@ -1296,11 +1310,32 @@ describe("POST /oauth/authorize", () => {
     expect(late.headers.get("location")).toBeNull();
     expect(messageOf(await late.text())).toContain("already used");
     expect(fake.signOns("TESTUSER")).toBe(1);
-    const code = new URL(first.headers.get("location")!).searchParams.get(
-      "code",
-    )!;
     codes.add(code);
     secrets.push(code);
+  });
+
+  it("keeps no reference to the result that holds the code once the sign-on is answered", async () => {
+    v8.setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc") as () => void;
+    let reachable: WeakRef<object> | undefined;
+    // Not a spy: a spy keeps every result it returned.
+    grants.signOn = async () => {
+      const result = { ok: true as const, code: "C".repeat(43), grantId: "g" };
+      reachable = new WeakRef(result);
+      return result;
+    };
+    const { loginRequest } = await signInPage();
+    expect((await submit(loginRequest)).status).toBe(303);
+
+    for (let i = 0; i < 3 && reachable?.deref(); i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+      gc();
+    }
+    expect(reachable).toBeDefined();
+    expect(reachable!.deref()).toBeUndefined();
+    // The repeat answer is still given.
+    const repeated = await submit(loginRequest);
+    expect(await repeated.text()).toContain("already completed");
   });
 
   it("validates the client and redirect URI of the login request again", async () => {
@@ -2246,6 +2281,118 @@ describe("through @hono/node-server", () => {
       });
       expect(revoked.status).toBe(200);
       expect(grants.status().grants).toBe(0);
+    } finally {
+      listener.close();
+    }
+  });
+
+  it("zero-fills the token response body once it is written", async () => {
+    const listener = serve({
+      fetch: (request, env) => server.app.fetch(request, env),
+      port: 0,
+      hostname: "127.0.0.1",
+    });
+    try {
+      await once(listener, "listening");
+      const { port } = listener.address() as AddressInfo;
+      start(`http://127.0.0.1:${port}/mcp`);
+      // Signed on in process from ADDRESS, redeemed over the socket.
+      config.oauth.codeAddressBinding = "audit";
+      const { code } = await signOnCode();
+      const allocated = unpooledBuffers();
+      const form = (parameters: Record<string, string>) =>
+        fetch(origin + server.paths.token, {
+          method: "POST",
+          body: new URLSearchParams(parameters),
+        });
+      const tokens = await tokensOf(
+        await form({
+          grant_type: "authorization_code",
+          code,
+          code_verifier: VERIFIER,
+          client_id: CLIENT_ID,
+        }),
+      );
+      const refreshed = await tokensOf(
+        await form({
+          grant_type: "refresh_token",
+          refresh_token: tokens.refresh_token,
+          client_id: CLIENT_ID,
+        }),
+      );
+      // The response bodies: the JSON the client parsed, byte for byte.
+      const lengths = new Set(
+        [tokens, refreshed].map((answer) => JSON.stringify(answer).length),
+      );
+      const responses = allocated.filter((buffer) =>
+        lengths.has(buffer.length),
+      );
+      expect(responses.length).toBeGreaterThanOrEqual(2);
+      await vi.waitFor(() =>
+        expect(responses.filter((buffer) => !isZeroed(buffer)).length).toBe(0),
+      );
+    } finally {
+      listener.close();
+    }
+  });
+
+  it("zero-fills the token response body when the client went away before the tokens were issued", async () => {
+    const listener = serve({
+      fetch: (request, env) => server.app.fetch(request, env),
+      port: 0,
+      hostname: "127.0.0.1",
+    });
+    try {
+      await once(listener, "listening");
+      const { port } = listener.address() as AddressInfo;
+      start(`http://127.0.0.1:${port}/mcp`);
+      config.oauth.codeAddressBinding = "audit";
+      const { code } = await signOnCode();
+      // The grant manager answers only after the response has closed.
+      const closed = new Promise<void>((resolve) =>
+        listener.once("request", (_request, response: ServerResponse) =>
+          response.once("close", () => resolve()),
+        ),
+      );
+      const exchangeCode = grants.exchangeCode.bind(grants);
+      let issued: TokenResult | undefined;
+      vi.spyOn(grants, "exchangeCode").mockImplementation(async (request) => {
+        await closed;
+        issued = await exchangeCode(request);
+        return issued;
+      });
+      const allocated = unpooledBuffers();
+      const form = new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        code_verifier: VERIFIER,
+        client_id: CLIENT_ID,
+      }).toString();
+      const socket = connect(port, "127.0.0.1");
+      socket.on("error", () => {});
+      await once(socket, "connect");
+      socket.write(
+        `POST ${server.paths.token} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n` +
+          `Content-Type: ${FORM}\r\nContent-Length: ${form.length}\r\n\r\n${form}`,
+      );
+      socket.destroy();
+
+      await vi.waitFor(() => expect(issued?.ok).toBe(true));
+      if (!issued?.ok) throw new Error("no tokens were issued");
+      // The body, built in an unpooled Buffer of exactly its length.
+      const length = JSON.stringify({
+        access_token: "a".repeat(issued.accessToken.length),
+        token_type: "Bearer",
+        expires_in: issued.expiresInSeconds,
+        scope: "offline_access",
+        refresh_token: "r".repeat(issued.refreshToken.length),
+      }).length;
+      const body = await vi.waitFor(() => {
+        const found = allocated.find((buffer) => buffer.length === length);
+        expect(found).toBeDefined();
+        return found!;
+      });
+      expect(isZeroed(body)).toBe(true);
     } finally {
       listener.close();
     }

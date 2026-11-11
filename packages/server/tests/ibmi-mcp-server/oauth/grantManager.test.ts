@@ -20,6 +20,7 @@ import {
   STATEMENT_QUEUE_DEPTH,
   STATEMENT_TIMEOUT_MS,
   SWEEP_INTERVAL_MS,
+  THROTTLE_MAX_PROFILES,
   type CodeExchangeRequest,
   type GrantManager,
   type MapepireClient,
@@ -291,12 +292,18 @@ async function until(condition: () => boolean): Promise<void> {
 /** Real time for something that must not happen to have had its chance. */
 const settle = () => new Promise((resolve) => realSetTimeout(resolve, 50));
 
-/** A grant whose connection the sweep has closed as idle. */
+/**
+ * A grant whose connection the sweep has closed as idle, and whose next
+ * request was refused for it: its next refresh reopens the connection.
+ */
 async function idleGrant(grants: GrantManager, fields: SignOnFields = {}) {
   grants.start();
   const signedOn = await grant(grants, fields);
   await sweepAfter(10 * MINUTE);
   await until(() => grants.status().openConnections === 0);
+  expect(await grants.authenticate(signedOn.accessToken)).toBe(
+    "connection_closed",
+  );
   return signedOn;
 }
 
@@ -821,6 +828,24 @@ describe("sign-ons whose result is not known", () => {
     expect(grants.status().blockedProfiles).toBe(0);
   });
 
+  it("lifts the pause too when the profile is unblocked", async () => {
+    fake.signOn.TESTUSER = "close";
+    const grants = manager();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt === 2) clock += SOFT_BUDGET.pauseMs + MINUTE;
+      expect(await signOn(grants)).toEqual({
+        ok: false,
+        reason: "unavailable",
+      });
+    }
+    expect(await signOn(grants)).toEqual({ ok: false, reason: "blocked" });
+
+    expect(grants.unblock("testuser")).toBe(true);
+    delete fake.signOn.TESTUSER;
+    clock += MINUTE;
+    expect((await signOn(grants)).ok).toBe(true);
+  });
+
   it("honours OAUTH_SIGNON_MAX_FAILURES=1: two of them block", async () => {
     fakeTimers();
     config.oauth.signOnMaxFailures = 1;
@@ -1256,6 +1281,85 @@ describe("idle close and reconnect", () => {
     expect(fake.signOns("TESTUSER")).toBe(1);
   });
 
+  it("reopens no connection for a client that only refreshes, until a request finds it closed", async () => {
+    fakeTimers();
+    const grants = manager();
+    grants.start();
+    const { grantId, accessToken, refreshToken } = await grant(grants);
+    await sweepAfter(10 * MINUTE);
+    await until(() => fake.openSockets === 0);
+
+    // Refreshes by the clock for an hour, with no request.
+    let current = { accessToken, refreshToken };
+    for (let n = 0; n < 6; n++) {
+      await sweepAfter(10 * MINUTE);
+      current = tokens(await refresh(grants, current.refreshToken));
+      await settle();
+    }
+    expect(fake.signOns("TESTUSER")).toBe(1);
+    expect(fake.upgrades).toBe(1);
+    expect(grants.status()).toMatchObject({ grants: 1, openConnections: 0 });
+
+    // The first request is refused; the refresh that follows reconnects.
+    expect(await grants.authenticate(current.accessToken)).toBe(
+      "connection_closed",
+    );
+    const next = tokens(await refresh(grants, current.refreshToken));
+    expect(await grants.authenticate(next.accessToken)).toMatchObject({
+      grantId,
+    });
+    expect(fake.signOns("TESTUSER")).toBe(2);
+    // That refusal is used up: after the next idle close, a refresh alone
+    // signs nothing on again.
+    await sweepAfter(10 * MINUTE);
+    await until(() => fake.openSockets === 0);
+    tokens(await refresh(grants, next.refreshToken));
+    await settle();
+    expect(fake.signOns("TESTUSER")).toBe(2);
+  });
+
+  it("forgets a request refused while a slow reconnect was opening once that connection is open", async () => {
+    fakeTimers();
+    const real = clientFor();
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const grants = manager({
+      ...real,
+      signOn: async (...args) => {
+        calls += 1;
+        if (calls === 2) {
+          // The reconnect takes longer than a request waits for it.
+          await new Promise<void>((resolve) => (release = resolve));
+        }
+        return real.signOn(...args);
+      },
+    });
+    const { grantId, refreshToken } = await idleGrant(grants);
+    const next = tokens(await refresh(grants, refreshToken));
+    await until(() => calls === 2);
+    let answer: unknown;
+    void grants.authenticate(next.accessToken).then((result) => {
+      answer = result;
+    });
+    await vi.advanceTimersByTimeAsync(RECONNECT_WAIT_MS);
+    await until(() => answer !== undefined);
+    expect(answer).toBe("connection_closed");
+    release!();
+    await until(() => grants.status().openConnections === 1);
+    expect(await grants.authenticate(next.accessToken)).toMatchObject({
+      grantId,
+    });
+    expect(fake.signOns("TESTUSER")).toBe(2);
+
+    // Idle close, then the client only refreshes: nothing signs on.
+    await sweepAfter(10 * MINUTE);
+    await until(() => grants.status().openConnections === 0);
+    tokens(await refresh(grants, next.refreshToken));
+    await settle();
+    expect(fake.signOns("TESTUSER")).toBe(2);
+    expect(grants.status().openConnections).toBe(0);
+  });
+
   it("gives a connection reopened by a refresh a whole idle period", async () => {
     fakeTimers();
     const grants = manager();
@@ -1535,6 +1639,9 @@ describe("reconnect outcomes", () => {
 
     await sweepAfter(10 * MINUTE);
     await until(() => grants.status().openConnections === 0);
+    expect(await grants.authenticate(worked.accessToken)).toBe(
+      "connection_closed",
+    );
     const again = await failedReconnect(
       grants,
       worked.refreshToken,
@@ -1607,13 +1714,15 @@ describe("reconnect outcomes", () => {
 
     fake.accounts.TESTUSER = CHANGED_PASSWORD;
     fake.signOn.TESTUSER = "no_reply";
-    // Every client refreshes every five minutes, for three hours.
+    // Every client sends a request and refreshes every five minutes, for
+    // three hours.
     for (let step = 0; step < 36; step++) {
       clock += 5 * MINUTE;
       for (const client of clients) {
+        await grants.authenticate(client.accessToken);
         const started = signOns;
         const answer = await refresh(grants, client.refreshToken);
-        if (answer.ok) client.refreshToken = tokens(answer).refreshToken;
+        if (answer.ok) Object.assign(client, tokens(answer));
         if (signOns > started) {
           const unavailable = logged("reconnect_unavailable").length;
           await until(() => fake.connects.length === signOns);
@@ -2147,11 +2256,61 @@ describe("caps", () => {
     });
     await sweepAfter(10 * MINUTE);
     await until(() => grants.status().openConnections === 0);
+    expect(await grants.authenticate(second.accessToken)).toBe(
+      "connection_closed",
+    );
     const third = tokens(await refresh(grants, second.refreshToken));
     expect(await grants.authenticate(third.accessToken)).toMatchObject({
       grantId,
     });
   });
+
+  it("keeps every count when made-up profiles fill the throttle, and refuses only profiles it has never seen signed on", async () => {
+    fakeTimers();
+    const real = clientFor();
+    // Stands for the IBM i rejecting the made-up profiles and VICTIM.
+    const grants = manager({
+      ...real,
+      signOn: (profile, ...rest) =>
+        profile.startsWith("ZZ") || profile === "VICTIM"
+          ? Promise.resolve({ class: "rejected" })
+          : real.signOn(profile, ...rest),
+    });
+    const { grantId, refreshToken } = await idleGrant(grants);
+    const victim = { profile: "VICTIM", password: WRONG_PASSWORD };
+    expect(await signOn(grants, victim)).toEqual({
+      ok: false,
+      reason: "rejected",
+    });
+    for (let i = 0; i < THROTTLE_MAX_PROFILES; i++) {
+      await signOn(grants, {
+        profile: `ZZ${i.toString(36)}`,
+        password: WRONG_PASSWORD,
+      });
+    }
+
+    // A profile never signed on here gets no entry, and nothing is sent.
+    expect(await signOn(grants, { profile: "otherusr" })).toEqual({
+      ok: false,
+      reason: "busy",
+    });
+    expect(fake.signOns("OTHERUSR")).toBe(0);
+    // VICTIM's rejection was kept: the next one blocks it.
+    expect(await signOn(grants, victim)).toEqual({
+      ok: false,
+      reason: "rejected",
+    });
+    expect(await signOn(grants, victim)).toEqual({
+      ok: false,
+      reason: "blocked",
+    });
+    // The grant reconnects, and its profile signs on again.
+    const next = tokens(await refresh(grants, refreshToken));
+    expect(await grants.authenticate(next.accessToken)).toMatchObject({
+      grantId,
+    });
+    expect((await signOn(grants)).ok).toBe(true);
+  }, 60_000);
 
   it("answers a refresh that needs a connection beyond OAUTH_MAX_CONNECTIONS with busy, rotating nothing", async () => {
     fakeTimers();

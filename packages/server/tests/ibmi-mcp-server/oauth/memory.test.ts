@@ -1,16 +1,17 @@
 /**
  * @fileoverview Memory test of the built-in IBM i sign-on: after a sign-on
  * and after a refresh that reopens the IBM i connection, no JavaScript
- * string in this process holds the password or a refresh token, and neither
- * is in the Buffer pool.
+ * string in this process holds the password, the authorization code or a
+ * refresh token, and the password and the refresh tokens are not in the
+ * Buffer pool.
  *
  * The server is started the way the binary starts it
  * (`initializeAndStartServer`) on a loopback port. What is searched is a V8
  * heap snapshot of this process, so nothing here may make a string of a
  * secret either:
  * - the fake Mapepire server runs in a worker thread (its own heap);
- * - the test is its own browser and OAuth client, and handles the password
- *   and the refresh tokens as bytes in unpooled Buffers only;
+ * - the test is its own browser and OAuth client, and handles the password,
+ *   the code and the refresh tokens as bytes in unpooled Buffers only;
  * - the secrets are computed, not written out: source text is in the heap.
  *
  * The snapshot is searched as bytes, with V8's truncation of long strings
@@ -20,8 +21,9 @@
  */
 
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type AddressInfo } from "node:net";
+import { connect, createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import v8 from "node:v8";
@@ -151,6 +153,38 @@ async function postForm(path: string, body: Buffer<ArrayBuffer>) {
   }
 }
 
+/**
+ * Posts the sign-in form on a socket of its own and reads the answer as
+ * bytes; `fetch` would make a string of the redirect. Returns the code of
+ * the redirect, in a Buffer of its own.
+ */
+async function signOnCode(port: number, body: Buffer<ArrayBuffer>) {
+  const socket = connect(port, "127.0.0.1");
+  await once(socket, "connect");
+  socket.write(
+    unpooled(
+      `POST /oauth/authorize HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nOrigin: ${base}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n`,
+      body,
+    ),
+  );
+  body.fill(0);
+  const chunks: Buffer[] = [];
+  for await (const chunk of socket) {
+    chunks.push(chunk as Buffer);
+  }
+  const answer = unpooled(...chunks);
+  for (const chunk of chunks) {
+    chunk.fill(0);
+  }
+  try {
+    expect(answer.subarray(0, 12).toString("latin1")).toBe("HTTP/1.1 303");
+    const start = answer.indexOf("?code=") + "?code=".length;
+    return unpooled(answer.subarray(start, answer.indexOf("&", start)));
+  } finally {
+    answer.fill(0);
+  }
+}
+
 /** The signed login request of a sign-in page. */
 function loginRequestOf(html: string): string {
   const marker = 'name="login_request" value="';
@@ -268,7 +302,7 @@ const tokenNeedles = (token: Buffer) => ({
 
 const NONE = { whole: 0, start: 0, end: 0 };
 
-it("leaves no string with the password or a refresh token in the heap, and neither in the Buffer pool", async () => {
+it("leaves no string with the password, the code or a refresh token in the heap, and neither in the Buffer pool", async () => {
   // Strings longer than 1024 characters are cut in a snapshot by default.
   v8.setFlagsFromString("--heap-snapshot-string-limit=10000000");
   isolated = await startIsolatedFakeMapepire({
@@ -351,26 +385,17 @@ it("leaves no string with the password or a refresh token in the heap, and neith
   const again = await swapped.text();
   expect(again).toContain("That is not a user profile name");
 
-  const signedOn = await postForm(
-    "/oauth/authorize",
+  const code = await signOnCode(
+    port,
     unpooled(
       `login_request=${loginRequestOf(again)}&profile=${PROFILE}&password=`,
       password(),
     ),
   );
-  expect(signedOn.status).toBe(303);
-  const code = new URL(signedOn.headers.get("location")!).searchParams.get(
-    "code",
-  )!;
   const first = await tokens(
     unpooled(
-      new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        code_verifier: VERIFIER,
-        client_id: CLIENT_ID,
-        redirect_uri: REDIRECT,
-      }).toString(),
+      `grant_type=authorization_code&code_verifier=${VERIFIER}&client_id=${encodeURIComponent(CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT)}&code=`,
+      code,
     ),
   );
   await listSchemas(first.accessToken);
@@ -402,6 +427,8 @@ it("leaves no string with the password or a refresh token in the heap, and neith
     base64Part: 0,
   });
   expect(occurrences(snapshot, tokenNeedles(first.refreshToken))).toEqual(NONE);
+  // Nor the code: it was a string only while its redirect was built.
+  expect(occurrences(snapshot, tokenNeedles(code))).toEqual(NONE);
 
   // --- Idle close, then a refresh that signs on again with the sealed password
   vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
@@ -410,6 +437,14 @@ it("leaves no string with the password or a refresh token in the heap, and neith
       expect.objectContaining({ profile: PROFILE, type: "exit" }),
     ),
   );
+  // The next request finds the connection closed; the refresh reopens it.
+  const refused = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${first.accessToken.toString("latin1")}`,
+    },
+  });
+  expect(refused.status).toBe(401);
   const second = await refresh(first.refreshToken);
   // The previous refresh token again: the same pair, from the replay record.
   const replayed = await refresh(first.refreshToken);
@@ -441,6 +476,7 @@ it("leaves no string with the password or a refresh token in the heap, and neith
   expect(occurrences(snapshot, tokenNeedles(second.refreshToken))).toEqual(
     NONE,
   );
+  expect(occurrences(snapshot, tokenNeedles(code))).toEqual(NONE);
 
   // Nor are the bytes in the Buffer pool, the slab of the start or today's.
   for (const slab of [poolBefore, Buffer.allocUnsafe(1).buffer]) {
