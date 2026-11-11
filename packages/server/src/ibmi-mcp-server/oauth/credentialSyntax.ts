@@ -77,7 +77,6 @@ function isPasswordShape(password: Buffer): boolean {
  *   digits, a different profile than the one typed.
  * - Password: 1 to 128 bytes, each 0x20 to 0x7E, no `;`, no `"`, no `:`, no
  *   `%`, no leading `*`, no trailing `\`, no leading or trailing space.
- * - A password equal to the profile, ignoring case, is refused.
  *
  * @returns The upper-case profile, or the first rule that failed.
  */
@@ -95,12 +94,6 @@ export function checkCredentials(
   }
   if (!isPasswordShape(password)) {
     return { ok: false, reason: "password_syntax" };
-  }
-  if (
-    password.length === profile.length &&
-    password.every((byte, i) => upperCase(byte) === upperCase(profile[i]!))
-  ) {
-    return { ok: false, reason: "password_is_profile" };
   }
   return { ok: true, profile: profile.toString("latin1").toUpperCase() };
 }

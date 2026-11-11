@@ -89,7 +89,6 @@ const PAGE_HEADERS = {
 const ALL_REFUSALS: SignOnRefusal[] = [
   "profile_syntax",
   "password_syntax",
-  "password_is_profile",
   "profile_not_allowed",
   "blocked",
   "paused",
@@ -1538,9 +1537,6 @@ describe("POST /oauth/authorize", () => {
       );
       expect(await failedSignOn({ password: "semi;colon" })).toContain(
         "semicolon",
-      );
-      expect(await failedSignOn({ password: "TestUser" })).toContain(
-        "same as the user profile name",
       );
       expect(await failedSignOn({ profile: "qsecofr" })).toContain(
         "not permitted to sign on through this server",

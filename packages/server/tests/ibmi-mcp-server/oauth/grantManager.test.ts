@@ -528,17 +528,6 @@ describe("checks before anything is forwarded", () => {
     expect(fake.upgrades).toBe(0);
   });
 
-  it("refuses a password equal to the profile before asking the throttle", async () => {
-    const grants = manager();
-    await signOn(grants, { password: WRONG_PASSWORD });
-    await signOn(grants, { password: WRONG_PASSWORD });
-    expect(await signOn(grants)).toEqual({ ok: false, reason: "blocked" });
-    expect(await signOn(grants, { password: "TestUser" })).toEqual({
-      ok: false,
-      reason: "password_is_profile",
-    });
-  });
-
   it("asks the throttle before judging the password's shape", async () => {
     const grants = manager();
     const unusable = "semi;colon-Pw";

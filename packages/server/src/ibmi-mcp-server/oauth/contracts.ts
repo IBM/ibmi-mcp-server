@@ -543,10 +543,7 @@ export interface SignOnThrottle {
 export type CreateSignOnThrottle = (maxFailures: number) => SignOnThrottle;
 
 /** Why typed credentials are not forwarded. Nothing typed is logged. */
-export type CredentialRefusal =
-  | "profile_syntax"
-  | "password_syntax"
-  | "password_is_profile";
+export type CredentialRefusal = "profile_syntax" | "password_syntax";
 
 /** `checkCredentials` and `isProfileAllowed` of oauth/credentialSyntax.ts. */
 export interface CredentialSyntaxApi {
@@ -561,7 +558,6 @@ export interface CredentialSyntaxApi {
    *   injection into the JDBC URL Mapepire builds. Also no `:` and no `%`
    *   (mapepire-server before 2.3.6 would sign on with a different
    *   password) and no leading `*` (a special value to jt400).
-   * - A password equal to the profile, ignoring case, is refused.
    *
    * @returns The upper-case profile, or the first rule that failed.
    */

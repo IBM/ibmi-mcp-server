@@ -103,8 +103,6 @@ const SIGN_ON_MESSAGES: Record<SignOnRefusal, string> = {
     "That is not a user profile name this server can sign on: 1 to 10 characters, letters, digits, #, $ and _ only, and not starting with a digit. Type national characters as # and $. Nothing was sent to the IBM i.",
   password_syntax:
     "This password cannot be used through this server: it must be 1 to 128 printable ASCII characters, without a colon, a percent sign, a semicolon, a double quote, an asterisk at the start, a backslash at the end, or a space at either end. Nothing was sent to the IBM i.",
-  password_is_profile:
-    "The password is the same as the user profile name. Nothing was sent to the IBM i.",
   profile_not_allowed:
     "This user profile is not permitted to sign on through this server.",
   blocked:

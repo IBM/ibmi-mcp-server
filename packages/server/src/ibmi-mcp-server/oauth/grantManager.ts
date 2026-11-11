@@ -460,7 +460,7 @@ export const createGrantManager: CreateGrantManager = ({
       destination: request.redirectUri,
       address: request.address,
     };
-    // The order is: profile filter, equal fields, throttle, syntax. The
+    // The order is: profile filter, throttle, syntax. The
     // syntax is judged first only to know what it will say.
     const checked = checkCredentials(request.profile, request.password);
     const profile = checked.ok
@@ -472,12 +472,6 @@ export const createGrantManager: CreateGrantManager = ({
         ...who(profile),
       });
     }
-    // Nothing typed is logged on a syntax refusal: the profile field may
-    // hold a mistyped password.
-    if (!checked.ok && checked.reason === "password_is_profile") {
-      return refuse("signon_refused_syntax", checked.reason, origin);
-    }
-
     const decision = throttle.begin(profile, now(), signedOn.has(profile));
     if (decision !== "ok") {
       return refuse(

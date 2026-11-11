@@ -167,20 +167,11 @@ describe("checkCredentials: password", () => {
 });
 
 describe("checkCredentials: password equal to the profile", () => {
+  // The IBM i decides whether such a password is allowed (QPWDRULES).
   it.each([
     ["TESTUSER", "TESTUSER"],
-    ["TESTUSER", "testuser"],
-    ["testuser", "TESTUSER"],
     ["TestUser", "tESTuSER"],
     ["A#$_09", "a#$_09"],
-  ])("refuses profile %j with password %j", (profile, password) => {
-    expect(check(profile, password)).toEqual({
-      ok: false,
-      reason: "password_is_profile",
-    });
-  });
-
-  it.each([
     ["TESTUSER", "TESTUSER1"],
     ["TESTUSER", "TESTUSE"],
     ["TESTUSER", "TESTUSEX"],
@@ -202,7 +193,6 @@ describe("checkCredentials: what it leaves behind", () => {
   it.each([
     ["USER@REALM", PASSWORD],
     ["TESTUSER", "bad;dummy-Pw"],
-    ["TESTUSER", "testuser"],
   ])("echoes nothing typed in a refusal (%j)", (profile, password) => {
     const result = check(profile, password);
     expect(Object.keys(result).sort()).toEqual(["ok", "reason"]);
