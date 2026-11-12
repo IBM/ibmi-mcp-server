@@ -18,7 +18,7 @@ import {
   requestContextService,
   RequestContext,
 } from "@/utils/internal/requestContext.js";
-import { JsonRpcErrorCode } from "@/types-global/errors.js";
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import {
   BaseConnectionPool,
   PoolConnectionConfig,
@@ -119,11 +119,35 @@ export class SourceManager extends BaseConnectionPool<string> {
         const yamlJdbc = sourceConfig["jdbc-options"] as
           | JDBCOptions
           | undefined;
-        const envJdbc = config.db2i?.jdbcOptions;
+        const envJdbc = config.db2iJdbcOptions;
         const mergedJdbc: JDBCOptions | undefined =
           yamlJdbc || envJdbc
             ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
             : undefined;
+
+        // With DB2i_TRANSPORT=ssh every YAML source is served over the shared
+        // SSH credentials from the environment (the source's host/user/port
+        // describe the Mapepire daemon and are not used).
+        const sshCreds =
+          config.db2iTransport === "ssh" ? config.db2iSsh : undefined;
+        if (config.db2iTransport === "ssh" && !sshCreds) {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            "DB2i_TRANSPORT=ssh but SSH configuration is incomplete. Set DB2i_HOST, DB2i_USER and DB2i_SSH_PRIVATE_KEY_PATH (or DB2i_PASS).",
+            { sourceName },
+          );
+        }
+        if (sshCreds) {
+          logger.info(
+            {
+              ...operationContext,
+              sourceName,
+              sshHost: sshCreds.host,
+              yamlHost: sourceConfig.host,
+            },
+            `Source '${sourceName}' will use the SSH transport (YAML host/port ignored)`,
+          );
+        }
 
         // Convert YAML source to pool connection config
         const poolConfig: PoolConnectionConfig = {
@@ -135,6 +159,7 @@ export class SourceManager extends BaseConnectionPool<string> {
           ...(mergedJdbc && Object.keys(mergedJdbc).length > 0
             ? { jdbcOptions: mergedJdbc }
             : {}),
+          ...(sshCreds ? { ssh: sshCreds } : {}),
         };
 
         const existing = this.pools.get(sourceName);
