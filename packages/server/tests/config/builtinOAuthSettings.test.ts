@@ -280,6 +280,7 @@ describe("built-in authorization server settings", () => {
         signOnMaxFailures: 2,
         allowLoopbackRedirects: true,
         redirectUris: [],
+        clientMetadataDocuments: true,
         adminSocket: undefined,
       });
     });
@@ -296,6 +297,7 @@ describe("built-in authorization server settings", () => {
         OAUTH_ALLOW_PRIVILEGED_PROFILES: "true",
         OAUTH_SIGNON_MAX_FAILURES: "1",
         OAUTH_ALLOW_LOOPBACK_REDIRECTS: "false",
+        OAUTH_CLIENT_METADATA_DOCUMENTS: "false",
         OAUTH_REDIRECT_URIS:
           "https://claude.ai/api/mcp/auth_callback, cursor://anysphere.cursor-mcp/oauth/callback\nhttps://vscode.dev/redirect",
         OAUTH_ADMIN_SOCKET: "/run/ibmi-mcp/admin.sock",
@@ -316,6 +318,7 @@ describe("built-in authorization server settings", () => {
           "cursor://anysphere.cursor-mcp/oauth/callback",
           "https://vscode.dev/redirect",
         ],
+        clientMetadataDocuments: false,
         adminSocket: "/run/ibmi-mcp/admin.sock",
       });
     });

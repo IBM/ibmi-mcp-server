@@ -415,11 +415,17 @@ describe("server entry point with the built-in IBM i sign-on (MCP_AUTH_MODE=oaut
   it("SIGTERM closes the IBM i connection of a signed-on user before the process exits", async () => {
     const { entry, health } = await startSignOnServer();
     const base = new URL(health).origin;
+    const redirectUri = "http://127.0.0.1:33418/callback";
     const authorize = new URL(`${base}/oauth/authorize`);
     authorize.search = new URLSearchParams({
       response_type: "code",
-      client_id: "https://client.example/oauth/metadata.json",
-      redirect_uri: "http://127.0.0.1:33418/callback",
+      // A registered client: its id holds its redirect URI.
+      client_id:
+        "self." +
+        Buffer.from(JSON.stringify({ redirect_uris: [redirectUri] })).toString(
+          "base64url",
+        ),
+      redirect_uri: redirectUri,
       code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
       code_challenge_method: "S256",
     }).toString();

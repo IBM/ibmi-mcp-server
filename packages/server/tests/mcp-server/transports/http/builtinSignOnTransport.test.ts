@@ -77,8 +77,13 @@ vi.mock(
 );
 
 const HOST = "localhost:3010";
-const CLIENT_ID = "https://client.example/oauth/metadata.json";
 const REDIRECT = "http://127.0.0.1:33418/callback";
+/** A registered client: its id holds its redirect URI, so nothing is fetched. */
+const CLIENT_ID =
+  "self." +
+  Buffer.from(JSON.stringify({ redirect_uris: [REDIRECT] })).toString(
+    "base64url",
+  );
 const VERIFIER = "pkce-verifier-".repeat(4);
 const CHALLENGE = createHash("sha256").update(VERIFIER).digest("base64url");
 const SQL = "SELECT 1 FROM SYSIBM.SYSDUMMY1";

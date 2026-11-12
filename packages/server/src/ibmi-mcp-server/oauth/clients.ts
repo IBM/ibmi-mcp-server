@@ -1,9 +1,10 @@
 /**
  * @fileoverview OAuth clients and where an authorization code may be sent.
- * Clients are public and known only by what their `client_id` says: nothing
- * is fetched, stored or verified here. The security boundary is the
- * destination rule, applied to URIs as the browser will read them (WHATWG
- * URL parsing), never to their text.
+ * Clients are public and nothing about them is stored. A client's own list
+ * of redirect URIs comes from its `self.` id or from its metadata document
+ * (clientMetadata.ts); either is only what the client says. The security
+ * boundary is the destination rule, applied to URIs as the browser will read
+ * them (WHATWG URL parsing), never to their text.
  * @module src/ibmi-mcp-server/oauth/clients
  */
 
@@ -85,9 +86,10 @@ export function isLoopbackRedirect(redirectUri: string): boolean {
 
 /**
  * Whether an authorization code may be sent to `redirectUri` for `client`:
- * the URI is an allowed destination, and for a `self` client it is also one
- * of the URIs in its id. A loopback URI matches one in the id whatever the
- * port: native clients listen on a port chosen at run time.
+ * the URI is an allowed destination, and it is one of the client's own URIs
+ * (those in a `self.` id, or in the document of a URL client). A loopback URI
+ * matches one of the client's whatever the port: native clients listen on a
+ * port chosen at run time.
  */
 export function isRedirectAllowed(
   client: OAuthClient,
@@ -98,10 +100,7 @@ export function isRedirectAllowed(
   if (!url || !isAllowedDestination(url, policy)) {
     return false;
   }
-  if (client.kind !== "self") {
-    return true;
-  }
-  return client.redirectUris.some((own) => {
+  return (client.redirectUris ?? []).some((own) => {
     const ownUrl = parseRedirect(own);
     return (
       ownUrl !== undefined &&
@@ -114,17 +113,38 @@ export function isRedirectAllowed(
 }
 
 /**
- * Reads a `client_id` of at most `MAX_CLIENT_ID_BYTES`: a `self.` id from
- * `registerClient`, or any `https://` URL, which is never fetched. The
- * redirect URIs of a `self.` id are not checked here but on every use, by
- * `isRedirectAllowed`: nothing signs the id, so anyone can write one.
+ * Whether a `client_id` has the form of a client metadata document URL:
+ * `https`, a path other than `/` without dot segments, no userinfo and no
+ * fragment.
  */
-export function parseClientId(clientId: string): OAuthClient | undefined {
+function isDocumentUrl(clientId: string): boolean {
+  const url = parseRedirect(clientId);
+  return (
+    url !== undefined &&
+    url.protocol === "https:" &&
+    url.username === "" &&
+    url.password === "" &&
+    url.pathname !== "/" &&
+    !/\/\.{1,2}(\/|\?|$)/.test(clientId)
+  );
+}
+
+/**
+ * Reads a `client_id` of at most `MAX_CLIENT_ID_BYTES`: a `self.` id from
+ * `registerClient`, or, with `OAUTH_CLIENT_METADATA_DOCUMENTS`, the URL of a
+ * client metadata document. The redirect URIs of a `self.` id are not checked
+ * here but on every use, by `isRedirectAllowed`: nothing signs the id, so
+ * anyone can write one.
+ */
+export function parseClientId(
+  clientId: string,
+  policy: RedirectPolicy,
+): OAuthClient | undefined {
   if (Buffer.byteLength(clientId) > MAX_CLIENT_ID_BYTES) {
     return undefined;
   }
   if (!clientId.startsWith(SELF_CLIENT_ID_PREFIX)) {
-    return URL.canParse(clientId) && new URL(clientId).protocol === "https:"
+    return policy.clientMetadataDocuments && isDocumentUrl(clientId)
       ? { kind: "url", clientId }
       : undefined;
   }
@@ -200,7 +220,8 @@ export interface ClientDisplay {
   /**
    * What the client calls itself: the name in a `self.` id, or a URL id as
    * parsed (a host name in another script shows as `xn--`). Never verified,
-   * and the page must say so. Absent when it gave no name.
+   * and the page must say so: a document at that URL names the redirect URI,
+   * but another program can present the same id. Absent when it gave no name.
    */
   unverifiedName?: string;
   /** Where the authorization code is sent: the redirect URI without its query. */

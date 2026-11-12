@@ -43,6 +43,10 @@ import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { logger } from "@/utils/internal/logger.js";
 import { requestContextService } from "@/utils/internal/requestContext.js";
 import {
+  createClientDocumentReader,
+  fetchClientDocument,
+} from "./clientMetadata.js";
+import {
   describeClient,
   isLoopbackRedirect,
   isRedirectAllowed,
@@ -164,6 +168,8 @@ interface Server {
   key: KeyObject;
   /** The login requests already submitted, by nonce. */
   submitted: Map<string, Submission>;
+  /** Completes a URL client with the redirect URIs of its document. */
+  readClientDocument: ReturnType<typeof createClientDocumentReader>;
 }
 
 function audit(event: string, fields: Record<string, unknown>): void {
@@ -517,7 +523,29 @@ function clientRedirect(
   return target;
 }
 
-function getAuthorize(c: AppContext, server: Server): Response {
+/**
+ * The client a `client_id` names. A URL client comes with the redirect URIs
+ * of its metadata document.
+ *
+ * @returns `undefined` for an id this server does not accept; an `Error` that
+ *   says why when the document of a URL client cannot be used.
+ */
+async function loadClient(
+  server: Server,
+  clientId: string,
+): Promise<OAuthClient | Error | undefined> {
+  const client = parseClientId(clientId, config.oauth);
+  if (client?.kind !== "url") {
+    return client;
+  }
+  try {
+    return await server.readClientDocument(client);
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+async function getAuthorize(c: AppContext, server: Server): Promise<Response> {
   const address = signInAddress(c, server);
   if (typeof address !== "string") {
     return address;
@@ -525,12 +553,29 @@ function getAuthorize(c: AppContext, server: Server): Response {
   // Until the client and its redirect URI are known to be valid, an error is
   // shown here and nothing is sent anywhere.
   const clientId = c.req.query("client_id") ?? "";
-  const client = parseClientId(clientId);
+  const client = await loadClient(server, clientId);
   if (!client) {
     return messageResponse(
       c,
       400,
-      `The application that sent you here is not known to this server. Its client_id is "${clientId}", which is neither registered here nor an https URL.`,
+      `The application that sent you here is not known to this server. Its client_id is "${clientId}", which is neither registered here nor ${
+        config.oauth.clientMetadataDocuments
+          ? "the https URL of a client metadata document"
+          : "a URL this server reads: OAUTH_CLIENT_METADATA_DOCUMENTS is false"
+      }.`,
+    );
+  }
+  if (client instanceof Error) {
+    audit("signon_refused", {
+      reason: "client_document_unusable",
+      address,
+      clientId,
+      detail: client.message,
+    });
+    return messageResponse(
+      c,
+      400,
+      `This server could not use the client metadata document of the application that sent you here, at "${clientId}": ${client.message}.`,
     );
   }
   const redirectUri = c.req.query("redirect_uri") ?? "";
@@ -538,7 +583,7 @@ function getAuthorize(c: AppContext, server: Server): Response {
     return messageResponse(
       c,
       400,
-      `The application asked for the sign-on result to be sent to "${redirectUri}", which this server does not allow. Allowed are loopback addresses, and the addresses the operator of this server listed in OAUTH_REDIRECT_URIS.`,
+      `The application asked for the sign-on result to be sent to "${redirectUri}", which this server does not allow. Allowed are loopback addresses, and the addresses the operator of this server listed in OAUTH_REDIRECT_URIS; the address must also be one the application registered.`,
     );
   }
   const given = c.req.query("state");
@@ -592,6 +637,9 @@ async function postAuthorize(c: AppContext, server: Server): Promise<Response> {
       );
     }
     const login = openLoginRequest(server, signed.toString("latin1"));
+    // Before `submission`: a second submission of the form must find the
+    // sign-on the first started, so nothing may wait between the two.
+    const client = login && (await loadClient(server, login.clientId));
     const submitted = login && submission(server, login, address);
     if (!login || !submitted) {
       audit("signon_refused", { reason: "login_request_invalid", address });
@@ -601,9 +649,9 @@ async function postAuthorize(c: AppContext, server: Server): Promise<Response> {
         "This sign-in page has expired or was already used. Start again from your application.",
       );
     }
-    const client = parseClientId(login.clientId);
     if (
       !client ||
+      client instanceof Error ||
       !isRedirectAllowed(client, login.redirectUri, config.oauth)
     ) {
       audit("signon_refused", { reason: "client_not_allowed", address });
@@ -766,12 +814,12 @@ async function tokenResult(
     );
   }
   const clientId = fields.get("client_id")?.toString();
-  if (clientId === undefined || !parseClientId(clientId)) {
+  if (clientId === undefined || !parseClientId(clientId, config.oauth)) {
     return oauthError(
       c,
       400,
       "invalid_client",
-      "client_id must be one this server registered, or an https URL.",
+      "client_id must be one this server registered, or the https URL of a client metadata document where this server reads them.",
     );
   }
   const resource = fields.get("resource")?.toString();
@@ -917,6 +965,7 @@ async function postRegister(c: AppContext): Promise<Response> {
  */
 export const createAuthorizationServer: CreateAuthorizationServer = (
   grants,
+  fetchDocument = fetchClientDocument,
 ) => {
   const { issuer } = config.oauth;
   if (!issuer) {
@@ -943,6 +992,7 @@ export const createAuthorizationServer: CreateAuthorizationServer = (
     signOnAllowed: cidrMatcher(config.oauth.signOnAllowedCidrs),
     key: createSecretKey(randomBytes(32)),
     submitted: new Map(),
+    readClientDocument: createClientDocumentReader(fetchDocument),
   };
   const metadata = {
     issuer,
@@ -955,7 +1005,7 @@ export const createAuthorizationServer: CreateAuthorizationServer = (
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
-    client_id_metadata_document_supported: true,
+    client_id_metadata_document_supported: config.oauth.clientMetadataDocuments,
     authorization_response_iss_parameter_supported: true,
     scopes_supported: ["offline_access"],
   };

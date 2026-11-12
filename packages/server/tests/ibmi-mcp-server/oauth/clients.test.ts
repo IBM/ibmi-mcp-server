@@ -23,22 +23,28 @@ import {
 const DEFAULT: RedirectPolicy = {
   allowLoopbackRedirects: true,
   redirectUris: [],
+  clientMetadataDocuments: true,
 };
 const NO_LOOPBACK: RedirectPolicy = {
   allowLoopbackRedirects: false,
   redirectUris: [],
+  clientMetadataDocuments: true,
 };
 const LISTED = "https://app.example.com/oauth/callback";
 const WITH_LISTED: RedirectPolicy = {
   allowLoopbackRedirects: true,
   redirectUris: [LISTED],
+  clientMetadataDocuments: true,
 };
 
-/** A client that is held to the destination rule alone. */
 const URL_CLIENT: OAuthClient = {
   kind: "url",
   clientId: "https://client.example.com/metadata.json",
 };
+
+/** Whether the destination rule alone allows a URI: the client lists exactly it. */
+const destinationAllowed = (uri: string, policy: RedirectPolicy): boolean =>
+  isRedirectAllowed({ ...URL_CLIENT, redirectUris: [uri] }, uri, policy);
 
 // Written as code points: in a string they could not be told apart or seen.
 const RIGHT_TO_LEFT_OVERRIDE = String.fromCodePoint(0x202e);
@@ -129,39 +135,30 @@ describe("isLoopbackRedirect", () => {
 
 describe("isRedirectAllowed: the destination rule", () => {
   it("allows loopback destinations by default and nothing else", () => {
-    expect(
-      isRedirectAllowed(URL_CLIENT, "http://127.0.0.1:5000/", DEFAULT),
-    ).toBe(true);
-    expect(isRedirectAllowed(URL_CLIENT, "http://localhost/cb", DEFAULT)).toBe(
-      true,
+    expect(destinationAllowed("http://127.0.0.1:5000/", DEFAULT)).toBe(true);
+    expect(destinationAllowed("http://localhost/cb", DEFAULT)).toBe(true);
+    expect(destinationAllowed("http://[::1]:1/cb", DEFAULT)).toBe(true);
+    expect(destinationAllowed(LISTED, DEFAULT)).toBe(false);
+    expect(destinationAllowed("https://vscode.dev/redirect", DEFAULT)).toBe(
+      false,
     );
-    expect(isRedirectAllowed(URL_CLIENT, "http://[::1]:1/cb", DEFAULT)).toBe(
-      true,
-    );
-    expect(isRedirectAllowed(URL_CLIENT, LISTED, DEFAULT)).toBe(false);
-    expect(
-      isRedirectAllowed(URL_CLIENT, "https://vscode.dev/redirect", DEFAULT),
-    ).toBe(false);
-    expect(
-      isRedirectAllowed(URL_CLIENT, "cursor://app/callback", DEFAULT),
-    ).toBe(false);
+    expect(destinationAllowed("cursor://app/callback", DEFAULT)).toBe(false);
   });
 
   it("refuses loopback destinations when OAUTH_ALLOW_LOOPBACK_REDIRECTS is off", () => {
-    expect(
-      isRedirectAllowed(URL_CLIENT, "http://127.0.0.1:5000/", NO_LOOPBACK),
-    ).toBe(false);
-    expect(
-      isRedirectAllowed(URL_CLIENT, "http://localhost/", NO_LOOPBACK),
-    ).toBe(false);
+    expect(destinationAllowed("http://127.0.0.1:5000/", NO_LOOPBACK)).toBe(
+      false,
+    );
+    expect(destinationAllowed("http://localhost/", NO_LOOPBACK)).toBe(false);
   });
 
   it("allows an exact entry of OAUTH_REDIRECT_URIS", () => {
-    expect(isRedirectAllowed(URL_CLIENT, LISTED, WITH_LISTED)).toBe(true);
+    expect(destinationAllowed(LISTED, WITH_LISTED)).toBe(true);
     expect(
-      isRedirectAllowed(URL_CLIENT, LISTED, {
+      destinationAllowed(LISTED, {
         allowLoopbackRedirects: false,
         redirectUris: ["https://other.example.com/cb", LISTED],
+        clientMetadataDocuments: true,
       }),
     ).toBe(true);
   });
@@ -173,31 +170,26 @@ describe("isRedirectAllowed: the destination rule", () => {
         "HTTPS://App.Example.com:443/oauth/callback",
         "https://bare.example.com",
       ],
+      clientMetadataDocuments: true,
     };
-    expect(isRedirectAllowed(URL_CLIENT, LISTED, policy)).toBe(true);
-    expect(
-      isRedirectAllowed(URL_CLIENT, "https://bare.example.com/", policy),
-    ).toBe(true);
+    expect(destinationAllowed(LISTED, policy)).toBe(true);
+    expect(destinationAllowed("https://bare.example.com/", policy)).toBe(true);
   });
 
   it("allows a custom-scheme entry", () => {
     const policy = {
       allowLoopbackRedirects: false,
       redirectUris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+      clientMetadataDocuments: true,
     };
     expect(
-      isRedirectAllowed(
-        URL_CLIENT,
+      destinationAllowed(
         "cursor://anysphere.cursor-mcp/oauth/callback",
         policy,
       ),
     ).toBe(true);
     expect(
-      isRedirectAllowed(
-        URL_CLIENT,
-        "cursor://anysphere.cursor-mcp/oauth/other",
-        policy,
-      ),
+      destinationAllowed("cursor://anysphere.cursor-mcp/oauth/other", policy),
     ).toBe(false);
   });
 
@@ -230,7 +222,7 @@ describe("isRedirectAllowed: the destination rule", () => {
     ["an encoded path character", "https://app.example.com/oauth/c%61llback"],
     ["not a URI", "app.example.com/oauth/callback"],
   ])("refuses a URI that differs from the entry by %s", (_what, uri) => {
-    expect(isRedirectAllowed(URL_CLIENT, uri, WITH_LISTED)).toBe(false);
+    expect(destinationAllowed(uri, WITH_LISTED)).toBe(false);
   });
 
   // The same URI in another spelling: a browser goes to the listed entry.
@@ -242,28 +234,26 @@ describe("isRedirectAllowed: the destination rule", () => {
       "https://app.example.com/oauth/x/../callback",
     ],
   ])("allows the entry written with %s", (_what, uri) => {
-    expect(isRedirectAllowed(URL_CLIENT, uri, WITH_LISTED)).toBe(true);
+    expect(destinationAllowed(uri, WITH_LISTED)).toBe(true);
   });
 
   it("allows a loopback URI that is listed exactly although loopback is off", () => {
     const policy = {
       allowLoopbackRedirects: false,
       redirectUris: ["http://127.0.0.1:33418/"],
+      clientMetadataDocuments: true,
     };
-    expect(
-      isRedirectAllowed(URL_CLIENT, "http://127.0.0.1:33418/", policy),
-    ).toBe(true);
-    expect(
-      isRedirectAllowed(URL_CLIENT, "http://127.0.0.1:33419/", policy),
-    ).toBe(false);
+    expect(destinationAllowed("http://127.0.0.1:33418/", policy)).toBe(true);
+    expect(destinationAllowed("http://127.0.0.1:33419/", policy)).toBe(false);
   });
 
   it("ignores a configured entry that is not a URI", () => {
     const policy = {
       allowLoopbackRedirects: false,
       redirectUris: ["nonsense"],
+      clientMetadataDocuments: true,
     };
-    expect(isRedirectAllowed(URL_CLIENT, "nonsense", policy)).toBe(false);
+    expect(destinationAllowed("nonsense", policy)).toBe(false);
   });
 });
 
@@ -294,8 +284,34 @@ describe("isRedirectAllowed: a self client's own list", () => {
     ["a query", "http://127.0.0.1:33418/?next=x"],
   ])("refuses a loopback URI that differs from the id by %s", (_what, uri) => {
     expect(isRedirectAllowed(vscode, uri, DEFAULT)).toBe(false);
-    // The destination itself is allowed: a URL client may use it.
-    expect(isRedirectAllowed(URL_CLIENT, uri, DEFAULT)).toBe(true);
+    // The destination itself is allowed: a client that lists it may use it.
+    expect(destinationAllowed(uri, DEFAULT)).toBe(true);
+  });
+
+  it("holds a URL client to the redirect URIs of its document, as a self client to its id", () => {
+    const client: OAuthClient = {
+      ...URL_CLIENT,
+      redirectUris: ["http://127.0.0.1/callback", LISTED],
+    };
+    expect(
+      isRedirectAllowed(client, "http://127.0.0.1:50123/callback", DEFAULT),
+    ).toBe(true);
+    expect(isRedirectAllowed(client, LISTED, WITH_LISTED)).toBe(true);
+    // In the document, but not a destination this server allows.
+    expect(isRedirectAllowed(client, LISTED, DEFAULT)).toBe(false);
+    // Allowed destinations the document does not list.
+    expect(
+      isRedirectAllowed(client, "http://127.0.0.1:50123/other", DEFAULT),
+    ).toBe(false);
+    expect(
+      isRedirectAllowed(client, "http://localhost/callback", DEFAULT),
+    ).toBe(false);
+  });
+
+  it("allows a URL client nothing before its document was read", () => {
+    expect(isRedirectAllowed(URL_CLIENT, "http://127.0.0.1/", DEFAULT)).toBe(
+      false,
+    );
   });
 
   it("refuses an allowed destination that is not in the id", () => {
@@ -308,6 +324,7 @@ describe("isRedirectAllowed: a self client's own list", () => {
     const policy = {
       allowLoopbackRedirects: true,
       redirectUris: [LISTED, "https://app.example.com:8443/oauth/callback"],
+      clientMetadataDocuments: true,
     };
     expect(
       isRedirectAllowed(
@@ -366,7 +383,7 @@ describe("registerClient", () => {
 
   it("issues an id that reads back as the client and admits its redirects", () => {
     const { client_id: clientId } = registered(VSCODE);
-    const client = parseClientId(clientId);
+    const client = parseClientId(clientId, DEFAULT);
     expect(client).toEqual({
       kind: "self",
       clientId,
@@ -389,6 +406,7 @@ describe("registerClient", () => {
     const policy = {
       allowLoopbackRedirects: true,
       redirectUris: ["https://vscode.dev/redirect"],
+      clientMetadataDocuments: true,
     };
     expect(registered(VSCODE, policy).redirect_uris).toEqual([
       "https://vscode.dev/redirect",
@@ -443,7 +461,7 @@ describe("registerClient", () => {
     expect(result.redirect_uris).toEqual(
       uris.slice(0, MAX_CLIENT_REDIRECT_URIS),
     );
-    expect(parseClientId(result.client_id)).toMatchObject({
+    expect(parseClientId(result.client_id, DEFAULT)).toMatchObject({
       redirectUris: uris.slice(0, MAX_CLIENT_REDIRECT_URIS),
     });
   });
@@ -491,7 +509,7 @@ describe("registerClient", () => {
     });
     expect(result.client_name).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("client_name");
-    expect(parseClientId(result.client_id)).toMatchObject({
+    expect(parseClientId(result.client_id, DEFAULT)).toMatchObject({
       kind: "self",
       name: undefined,
     });
@@ -503,7 +521,7 @@ describe("registerClient", () => {
       redirect_uris: ["http://127.0.0.1/"],
     });
     expect(result.client_name).toBe("Éditeur 編集");
-    expect(parseClientId(result.client_id)).toMatchObject({
+    expect(parseClientId(result.client_id, DEFAULT)).toMatchObject({
       name: "Éditeur 編集",
     });
   });
@@ -513,9 +531,9 @@ describe("parseClientId", () => {
   it.each([
     "https://claude.ai/oauth/claude-code-client-metadata",
     "https://client.example.com/metadata.json",
-    "https://client.example.com",
+    "https://client.example.com:8443/a/b.json?v=1",
   ])("reads the https URL %s as a URL client", (clientId) => {
-    expect(parseClientId(clientId)).toEqual({ kind: "url", clientId });
+    expect(parseClientId(clientId, DEFAULT)).toEqual({ kind: "url", clientId });
   });
 
   it.each([
@@ -526,14 +544,30 @@ describe("parseClientId", () => {
     ["a plain name", "my-client"],
     ["a UUID", "6f1b1d1e-2b7c-4a57-9d0a-3c1f5e7a9b10"],
     ["https without a host", "https://"],
+    ["an https URL without a path", "https://client.example.com"],
+    ["an https URL with the root path", "https://client.example.com/"],
+    ["an https URL with a fragment", "https://client.example.com/c.json#x"],
+    ["an https URL with userinfo", "https://user@client.example.com/c.json"],
+    ["an https URL with a dot segment", "https://client.example.com/a/../c"],
+    ["an https URL that ends in a dot segment", "https://client.example.com/."],
     ["nothing", ""],
   ])("refuses %s", (_what, clientId) => {
-    expect(parseClientId(clientId)).toBeUndefined();
+    expect(parseClientId(clientId, DEFAULT)).toBeUndefined();
+  });
+
+  it("refuses a URL when OAUTH_CLIENT_METADATA_DOCUMENTS is off, and still reads a self id", () => {
+    const off = { ...DEFAULT, clientMetadataDocuments: false };
+    expect(
+      parseClientId("https://client.example.com/metadata.json", off),
+    ).toBeUndefined();
+    expect(
+      parseClientId(selfId({ redirect_uris: ["http://127.0.0.1/"] }), off),
+    ).toMatchObject({ kind: "self" });
   });
 
   it("reads a self id without a name", () => {
     const clientId = selfId({ redirect_uris: ["http://127.0.0.1/"] });
-    expect(parseClientId(clientId)).toEqual({
+    expect(parseClientId(clientId, DEFAULT)).toEqual({
       kind: "self",
       clientId,
       redirectUris: ["http://127.0.0.1/"],
@@ -545,7 +579,7 @@ describe("parseClientId", () => {
       name: `IBM${RIGHT_TO_LEFT_OVERRIDE} Sign-on`,
       redirect_uris: ["http://127.0.0.1/"],
     });
-    expect(parseClientId(clientId)).toEqual({
+    expect(parseClientId(clientId, DEFAULT)).toEqual({
       kind: "self",
       clientId,
       redirectUris: ["http://127.0.0.1/"],
@@ -577,7 +611,7 @@ describe("parseClientId", () => {
       "SELF." + selfId({ redirect_uris: ["http://x/"] }).slice(5),
     ],
   ])("refuses a self id with %s", (_what, clientId) => {
-    expect(parseClientId(clientId)).toBeUndefined();
+    expect(parseClientId(clientId, DEFAULT)).toBeUndefined();
   });
 
   it("refuses a self id whose payload is base64 in another spelling", () => {
@@ -588,34 +622,38 @@ describe("parseClientId", () => {
     const standard = Buffer.from(json).toString("base64");
     const urlSafe = Buffer.from(json).toString("base64url");
     expect(standard).toMatch(/[+/]/);
-    expect(parseClientId(`self.${urlSafe}`)).toMatchObject({ kind: "self" });
-    expect(parseClientId(`self.${standard}`)).toBeUndefined();
-    expect(parseClientId(`self.${urlSafe}==`)).toBeUndefined();
-    expect(parseClientId(`self.${urlSafe}\n`)).toBeUndefined();
+    expect(parseClientId(`self.${urlSafe}`, DEFAULT)).toMatchObject({
+      kind: "self",
+    });
+    expect(parseClientId(`self.${standard}`, DEFAULT)).toBeUndefined();
+    expect(parseClientId(`self.${urlSafe}==`, DEFAULT)).toBeUndefined();
+    expect(parseClientId(`self.${urlSafe}\n`, DEFAULT)).toBeUndefined();
     expect(
-      parseClientId(`self.${urlSafe.slice(0, 8)} ${urlSafe.slice(8)}`),
+      parseClientId(`self.${urlSafe.slice(0, 8)} ${urlSafe.slice(8)}`, DEFAULT),
     ).toBeUndefined();
   });
 
   it(`accepts ${MAX_CLIENT_ID_BYTES} bytes and refuses one more`, () => {
     const url = (length: number) =>
       "https://client.example.com/".padEnd(length, "x");
-    expect(parseClientId(url(MAX_CLIENT_ID_BYTES))).toMatchObject({
+    expect(parseClientId(url(MAX_CLIENT_ID_BYTES), DEFAULT)).toMatchObject({
       kind: "url",
     });
-    expect(parseClientId(url(MAX_CLIENT_ID_BYTES + 1))).toBeUndefined();
+    expect(
+      parseClientId(url(MAX_CLIENT_ID_BYTES + 1), DEFAULT),
+    ).toBeUndefined();
 
     // Bytes, not characters.
     const wide = "https://client.example.com/".padEnd(
       MAX_CLIENT_ID_BYTES - 1,
       "x",
     );
-    expect(parseClientId(wide + "é")).toBeUndefined();
+    expect(parseClientId(wide + "é", DEFAULT)).toBeUndefined();
 
     const long = selfId({
       redirect_uris: ["http://127.0.0.1/" + "x".repeat(MAX_CLIENT_ID_BYTES)],
     });
-    expect(parseClientId(long)).toBeUndefined();
+    expect(parseClientId(long, DEFAULT)).toBeUndefined();
   });
 });
 
@@ -623,6 +661,7 @@ describe("describeClient", () => {
   it("shows a self client by the name it gave, and the destination", () => {
     const client = parseClientId(
       selfId({ name: "MCP Inspector", redirect_uris: ["http://localhost/cb"] }),
+      DEFAULT,
     )!;
     expect(describeClient(client, "http://localhost:6274/cb")).toEqual({
       unverifiedName: "MCP Inspector",

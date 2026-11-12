@@ -72,6 +72,22 @@ Each connection runs in a database server job under the user's own profile. No s
 
 **In the user's browser:** nothing from this server. The browser may offer to save the password for the sign-in page's origin.
 
+## Clients and Where a Code Is Sent
+
+A client is not authenticated and nothing about it is stored. It identifies itself in one of two ways:
+
+- **An id from `POST /oauth/register`.** The id encodes the redirect URIs the client registered. Nothing signs it.
+- **The `https` URL of a Client ID Metadata Document** (`OAUTH_CLIENT_METADATA_DOCUMENTS`, on by default). The server fetches the document, requires its `client_id` to be exactly that URL, and takes the client's redirect URIs from it.
+
+An authorization code is sent to a redirect URI only when both hold:
+
+1. it is one of the client's own redirect URIs (any port for a loopback URI);
+2. it is a loopback address (`OAUTH_ALLOW_LOOPBACK_REDIRECTS`) or an exact entry of `OAUTH_REDIRECT_URIS`.
+
+The second rule is the security boundary. The first only holds a client to what it said about itself: anyone can register, and anyone can publish a document.
+
+**The fetch.** The URL comes from an unauthenticated request to the sign-in page, so the fetch is limited: `https` only, never to a private, loopback, link-local or otherwise reserved address (the connection goes to the address that was checked), no redirect followed, `200` only, at most 5 KB, 5 seconds, at most 8 fetches at once. A document that was read is kept for 5 minutes; a failure is not kept. The server needs direct outbound HTTPS for this; fetching through an HTTP proxy is not supported. Where outbound HTTPS is blocked, set `OAUTH_CLIENT_METADATA_DOCUMENTS=false`: the server then says so in its metadata and clients register instead.
+
 ## What an Attacker Needs to Recover a Password
 
 After a user has signed on, recovering that user's password takes one of:
@@ -92,6 +108,8 @@ Not enough on their own: an access token; a refresh token, which opens the store
 - **Anyone who can impersonate the Mapepire server, when `DB2i_IGNORE_UNAUTHORIZED=true`.** The server then sends each password, at sign-on and at every reconnect, to whatever answers at `DB2i_HOST`, without checking its certificate. Someone on the network path, or who controls name resolution or routing for that host, receives the passwords in clear.
 - **A full memory image or core dump of the server.** It can hold the password of the last user who signed on, however long ago that was (see Node.js's HTTP read buffer under What Is Stored Where), and what it takes to decrypt the stored password of a user who signed on or refreshed recently. Disable core dumps for the service or container.
 - **A sign-in link built by an attacker who shares the victim's network address** (same machine, same NAT or VPN address) or who runs a program on the victim's machine. For other attackers the code exchange is bound to the address that signed on; that binding does not apply when you set `OAUTH_CODE_ADDRESS_BINDING=audit` or list a non-loopback redirect URI.
+- **A program on the user's machine that presents another client's id** with a loopback redirect URI. The sign-in page shows the client as not verified and shows the destination; it cannot tell which local program is listening there.
+- **Someone inside the allowed network making the server fetch public URLs** by requesting the sign-in page with made-up client URLs. The limits are under Clients and Where a Code Is Sent.
 - **A stolen access token** while the connection is open and the token is unexpired: SQL as that user. **A stolen refresh token**: SQL as that user until `OAUTH_GRANT_MAX_HOURS` or revocation.
 - **Hostile SQL in a YAML tool file.** It runs with the signed-on user's authority.
 - **Statements that keep running.** A statement abandoned after 120 seconds may continue on the IBM i.
@@ -160,7 +178,8 @@ Tested in this repository, against an in-process stand-in for Mapepire and with 
 - two users at once on separate connections; the sign-on budget; the server's own TLS listener;
 - a Mapepire that answers `404` to every HTTP request other than the WebSocket upgrade, as 2.3.2 does; a sign-on with `DB2i_IGNORE_UNAUTHORIZED=true` to a Mapepire whose certificate is self-signed and expired, and that nothing is sent to it without that setting;
 - both texts a rejected sign-on can have (`...:PROFILE)` and `...:USER:PROFILE CPFxxxx)`), each counted against the sign-on budget;
-- that a registration with the redirect URIs VS Code sends is answered with its two loopback URIs. This tests the server's answer, not VS Code.
+- that a registration with the redirect URIs VS Code sends is answered with its two loopback URIs. This tests the server's answer, not VS Code;
+- client metadata documents, with the fetch replaced by a stand-in: the redirect check against the document, every way a document is refused, that a failure is not kept, and the setting that turns them off. Which addresses a fetch may go to is tested without a network.
 
 Run by hand end to end against one IBM i system (IBM i 7.4, mapepire-server 2.3.2 with an expired certificate and `DB2i_IGNORE_UNAUTHORIZED=true`, the SDK client, outside this repository's tests):
 
@@ -170,7 +189,11 @@ Run by hand end to end against one IBM i system (IBM i 7.4, mapepire-server 2.3.
 
 Also checked on that system: a wrong password is answered with the `...:PROFILE)` text. The 2.4 and 2.5 behaviour comes from reading their sources.
 
+Run by hand once, from a development machine: the real fetch read the redirect URIs of Claude Code's published document, and refused a `404`, a `406`, a body over 5 KB and a host name that resolves to `127.0.0.1`.
+
 Not tested:
+
+- **A client that identifies itself with a metadata document, end to end.** The fetch through a corporate proxy or firewall is not tested either.
 
 - **Failure paths on a real IBM i system.** The sign-on result classes other than a wrong password (in particular on a Mapepire job that does not run in English, with other `jt400` levels, and the `...:USER:PROFILE CPFxxxx)` text, which was not observed on a system), how many failed sign-ons the IBM i counts per rejected attempt (see Sign-On Budget and Unblocking), what `-Dcodeserver.jdbc.autoconnect=true` does to that count, whether an ordinary user can read their own row in `QSYS2.USER_INFO_BASIC` (if not, every sign-on is refused as privileged until `OAUTH_ALLOW_PRIVILEGED_PROFILES=true`), expired passwords and disabled profiles, and whether a JVM dump of the Mapepire job shows passwords.
 - **Any MCP client other than the SDK client**: Claude Code, Claude Desktop, VS Code, Cursor, MCP Inspector and others. Whether each completes the sign-on, and whether it answers the `connection closed` `401` by refreshing, is not known.

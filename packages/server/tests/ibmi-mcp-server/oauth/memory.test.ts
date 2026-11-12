@@ -55,8 +55,13 @@ import {
 // Eight characters, so that "HEAPUSER:" is nine bytes and the Base64 of the
 // password is a substring of the Base64 of the Basic credentials.
 const PROFILE = "HEAPUSER";
-const CLIENT_ID = "https://client.example/oauth/metadata.json";
 const REDIRECT = "http://127.0.0.1:33418/callback";
+/** A registered client: its id holds its redirect URI, so nothing is fetched. */
+const CLIENT_ID =
+  "self." +
+  Buffer.from(JSON.stringify({ redirect_uris: [REDIRECT] })).toString(
+    "base64url",
+  );
 const VERIFIER = "pkce-verifier-".repeat(4);
 const CHALLENGE = createHash("sha256").update(VERIFIER).digest("base64url");
 

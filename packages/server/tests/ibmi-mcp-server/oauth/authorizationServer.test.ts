@@ -114,6 +114,7 @@ const OAUTH_SETTINGS = {
   signOnMaxFailures: 2,
   allowLoopbackRedirects: true,
   redirectUris: [],
+  clientMetadataDocuments: true,
 } satisfies Partial<typeof config.oauth>;
 
 const saved = {
@@ -136,6 +137,12 @@ let managers: GrantManager[];
 let server: AuthorizationServer;
 /** Origin of the issuer: where requests are sent, and the form's `Origin`. */
 let origin: string;
+/** The redirect URIs in the document of every URL client. */
+let documentRedirects: string[];
+/** The document every URL client has, unless a test replaces it: JSON, or a string as the body. */
+let clientDocument: (url: URL) => unknown;
+/** The URLs client documents were fetched from. */
+let fetched: string[];
 /** Every log call, as JSON. */
 let lines: string[];
 /** Every response body, with the path that answered. */
@@ -154,7 +161,13 @@ function start(resourceUrl: string = RESOURCE): void {
     }),
   });
   managers.push(grants);
-  server = createAuthorizationServer(grants);
+  server = createAuthorizationServer(grants, async (url) => {
+    fetched.push(url.href);
+    const document = clientDocument(url);
+    return Buffer.from(
+      typeof document === "string" ? document : JSON.stringify(document),
+    );
+  });
   origin = new URL(resourceUrl).origin;
 }
 
@@ -165,6 +178,13 @@ beforeEach(async () => {
   Object.assign(config.oauth, OAUTH_SETTINGS);
   config.oauth.mapepire.host = "IBMI.EXAMPLE";
   managers = [];
+  fetched = [];
+  documentRedirects = [REDIRECT, IPV6_REDIRECT, HTTPS_REDIRECT, APP_REDIRECT];
+  clientDocument = (url) => ({
+    client_id: url.href,
+    client_name: "Test client",
+    redirect_uris: documentRedirects,
+  });
   lines = [];
   bodies = [];
   secrets = [];
@@ -673,6 +693,148 @@ describe("GET /oauth/authorize", () => {
     });
   });
 
+  it("holds a URL client to the redirect URIs of the document at its client_id", async () => {
+    documentRedirects = ["http://127.0.0.1/own", HTTPS_REDIRECT];
+
+    // A loopback URI of the document, on the port the client chose.
+    await signInPage({ redirect_uri: "http://127.0.0.1:50123/own" });
+    expect(fetched).toEqual([CLIENT_ID]);
+
+    // An allowed destination the document does not list.
+    const unlisted = await send(authorizeUrl());
+    expect(unlisted.status).toBe(400);
+    expect(unlisted.headers.get("location")).toBeNull();
+    expect(messageOf(await unlisted.text())).toContain(
+      "must also be one the application registered",
+    );
+
+    // In the document, but not a destination this server allows.
+    const notAllowed = await send(
+      authorizeUrl({ redirect_uri: HTTPS_REDIRECT }),
+    );
+    expect(notAllowed.status).toBe(400);
+  });
+
+  it("fetches the document of a client once for the page and its form", async () => {
+    const other = "https://client.example/other.json";
+    await signOnCode();
+    await signOnCode();
+    await signInPage({ client_id: other });
+    expect(fetched).toEqual([CLIENT_ID, other]);
+  });
+
+  it.each([
+    [
+      "that cannot be fetched",
+      () => {
+        throw new Error("the answer was HTTP 404");
+      },
+      "the answer was HTTP 404",
+    ],
+    ["that is not JSON", () => "<!doctype html>", "it is not JSON"],
+    [
+      "with another client_id",
+      () => ({
+        client_id: "https://client.example/oauth/other.json",
+        client_name: "Test client",
+        redirect_uris: [REDIRECT],
+      }),
+      "its client_id is not the URL it was fetched from",
+    ],
+    [
+      "without redirect_uris",
+      (url: URL) => ({ client_id: url.href, client_name: "Test client" }),
+      "it needs client_id, client_name and redirect_uris",
+    ],
+    [
+      "with no redirect URI",
+      (url: URL) => ({
+        client_id: url.href,
+        client_name: "Test client",
+        redirect_uris: [],
+      }),
+      "it needs client_id, client_name and redirect_uris",
+    ],
+    [
+      "without client_name",
+      (url: URL) => ({ client_id: url.href, redirect_uris: [REDIRECT] }),
+      "it needs client_id, client_name and redirect_uris",
+    ],
+    [
+      "that asks for client authentication",
+      (url: URL) => ({
+        client_id: url.href,
+        client_name: "Test client",
+        redirect_uris: [REDIRECT],
+        token_endpoint_auth_method: "private_key_jwt",
+      }),
+      "no client authentication",
+    ],
+  ])(
+    "answers a URL client with a document %s with a page and no redirect, and fetches again the next time",
+    async (_what, document: (url: URL) => unknown, reason) => {
+      const working = clientDocument;
+      clientDocument = document;
+      // Every other parameter is wrong too: nothing is sent to the client.
+      const response = await send(authorizeUrl({ response_type: "token" }));
+      const html = await response.text();
+      expect(response.status).toBe(400);
+      expect(response.headers.get("location")).toBeNull();
+      expect(html).not.toContain("<form");
+      expect(messageOf(html)).toContain(
+        "client metadata document of the application",
+      );
+      expect(messageOf(html)).toContain(reason);
+      expect(logged("client_document_unusable")).toBe(true);
+
+      // A failure is not remembered.
+      clientDocument = working;
+      await signInPage();
+      expect(fetched).toEqual([CLIENT_ID, CLIENT_ID]);
+    },
+  );
+
+  it("refuses the form when the client's document no longer lists the redirect URI", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { loginRequest } = await signInPage();
+    // Past the time a document is kept, within the life of the page.
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+    documentRedirects = ["http://127.0.0.1/elsewhere"];
+
+    const response = await submit(loginRequest);
+    expect(response.status).toBe(400);
+    expect(messageOf(await response.text())).toContain("no longer allowed");
+    expect(logged("client_not_allowed")).toBe(true);
+    expect(fetched).toEqual([CLIENT_ID, CLIENT_ID]);
+    expect(fake.signOns("TESTUSER")).toBe(0);
+  });
+
+  it("with OAUTH_CLIENT_METADATA_DOCUMENTS off, says so in its metadata, fetches nothing and accepts registered clients only", async () => {
+    config.oauth.clientMetadataDocuments = false;
+    start();
+    const metadata = (await (
+      await send(server.paths.metadata)
+    ).json()) as Record<string, unknown>;
+    expect(metadata.client_id_metadata_document_supported).toBe(false);
+    expect(metadata.registration_endpoint).toBe(
+      "https://mcp.example/oauth/register",
+    );
+
+    const page = await send(authorizeUrl());
+    expect(page.status).toBe(400);
+    expect(messageOf(await page.text())).toContain(
+      "OAUTH_CLIENT_METADATA_DOCUMENTS is false",
+    );
+    expect(await oauthError(await exchange("no-such-code"))).toEqual({
+      status: 400,
+      error: "invalid_client",
+    });
+    expect(fetched).toEqual([]);
+
+    const client = await register({ redirect_uris: [REDIRECT] });
+    await signInPage({ client_id: client.client_id });
+  });
+
   it("refuses loopback redirects when OAUTH_ALLOW_LOOPBACK_REDIRECTS is off", async () => {
     config.oauth.allowLoopbackRedirects = false;
     expect((await send(authorizeUrl())).status).toBe(400);
@@ -761,6 +923,7 @@ describe("GET /oauth/authorize", () => {
   });
 
   it("keeps the query of the redirect URI in an error redirect", async () => {
+    documentRedirects.push(`${REDIRECT}?session=7`);
     const response = await send(
       authorizeUrl({
         redirect_uri: `${REDIRECT}?session=7`,
@@ -933,6 +1096,7 @@ describe("POST /oauth/authorize", () => {
   });
 
   it("leaves state out when the request had none, and keeps the query of the redirect URI", async () => {
+    documentRedirects.push(`${REDIRECT}?session=7`);
     const { location } = await signOnCode({
       state: undefined,
       redirect_uri: `${REDIRECT}?session=7`,
@@ -2171,9 +2335,9 @@ describe("markup in request values", () => {
   });
 
   it("escapes the redirect URI it shows and puts it into the policy as an origin only", async () => {
-    const { html, response } = await signInPage({
-      redirect_uri: `http://127.0.0.1:33418/cb'onmouseover='x/${SCRIPT}?q=${SCRIPT}`,
-    });
+    const redirectUri = `http://127.0.0.1:33418/cb'onmouseover='x/${SCRIPT}?q=${SCRIPT}`;
+    documentRedirects.push(redirectUri);
+    const { html, response } = await signInPage({ redirect_uri: redirectUri });
     expect(html).not.toContain("<script");
     expect(html).not.toContain("cb'onmouseover");
     expect(html).toContain("/cb&#39;onmouseover=&#39;x/");

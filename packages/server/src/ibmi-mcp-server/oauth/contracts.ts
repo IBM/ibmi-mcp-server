@@ -578,23 +578,34 @@ export interface CredentialSyntaxApi {
   ): boolean;
 }
 
-/** Where an authorization code may be sent: `config.oauth`. */
+/** Which clients are accepted and where a code may be sent: `config.oauth`. */
 export interface RedirectPolicy {
   /** `OAUTH_ALLOW_LOOPBACK_REDIRECTS`. */
   allowLoopbackRedirects: boolean;
   /** `OAUTH_REDIRECT_URIS`. */
   redirectUris: readonly string[];
+  /** `OAUTH_CLIENT_METADATA_DOCUMENTS`. */
+  clientMetadataDocuments: boolean;
 }
 
 /**
- * A public client, known only by what its `client_id` says. Never fetched,
- * never stored, never verified: the sign-in page shows it as unverified.
+ * A public client. Never stored, and never verified: any program can present
+ * another's `client_id`, so the sign-in page shows it as unverified.
  */
 export type OAuthClient =
   /** `self.<base64url of {name, redirect_uris}>`, from registration. */
   | { kind: "self"; clientId: string; name?: string; redirectUris: string[] }
-  /** Any `https://` URL (Client ID Metadata Document style). */
-  | { kind: "url"; clientId: string };
+  /**
+   * The URL of a Client ID Metadata Document. `redirectUris` is the list in
+   * that document, absent until it was fetched: no redirect is allowed then.
+   */
+  | { kind: "url"; clientId: string; redirectUris?: string[] };
+
+/**
+ * Fetches the body of a client metadata document. Rejects with an `Error`
+ * whose message says why it could not be fetched.
+ */
+export type FetchClientDocument = (url: URL) => Promise<Buffer>;
 
 /** The RFC 7591 response to a registration. */
 export interface ClientRegistration {
@@ -613,8 +624,14 @@ export interface ClientRegistration {
  * `describeClient`: what the sign-in page shows of a client.
  */
 export interface ClientsApi {
-  /** Reads a `client_id` in one of the two accepted forms. */
-  parseClientId(clientId: string): OAuthClient | undefined;
+  /**
+   * Reads a `client_id` in one of the two accepted forms. A URL is accepted
+   * only with `policy.clientMetadataDocuments`.
+   */
+  parseClientId(
+    clientId: string,
+    policy: RedirectPolicy,
+  ): OAuthClient | undefined;
   /**
    * Whether a URI is a loopback destination: scheme `http`, host exactly
    * `localhost`, `127.0.0.1` or `[::1]`, any port, any path, no userinfo, no
@@ -904,6 +921,8 @@ export interface AuthorizationServer {
  */
 export type CreateAuthorizationServer = (
   grants: GrantManager,
+  /** How client metadata documents are fetched. Tests replace it. */
+  fetchClientDocument?: FetchClientDocument,
 ) => AuthorizationServer;
 
 // ---------------------------------------------------------------------------

@@ -339,6 +339,16 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true" || val === "1"),
   /**
+   * Accept the https URL of a Client ID Metadata Document as a client_id, and
+   * fetch that document to learn the client's redirect URIs. Needs outbound
+   * HTTPS from this server. Default: true.
+   */
+  OAUTH_CLIENT_METADATA_DOCUMENTS: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
+  /**
    * Redirect URIs accepted besides loopback ones, separated by commas or
    * white space. Each is matched exactly.
    */
@@ -789,6 +799,7 @@ export const config = {
     signOnMaxFailures: env.OAUTH_SIGNON_MAX_FAILURES,
     allowLoopbackRedirects: env.OAUTH_ALLOW_LOOPBACK_REDIRECTS,
     redirectUris: env.OAUTH_REDIRECT_URIS,
+    clientMetadataDocuments: env.OAUTH_CLIENT_METADATA_DOCUMENTS,
     adminSocket: env.OAUTH_ADMIN_SOCKET,
   },
   openTelemetry: {
