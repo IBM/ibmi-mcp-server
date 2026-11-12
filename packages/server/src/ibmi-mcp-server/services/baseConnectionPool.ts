@@ -193,7 +193,16 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       poolState.pool = null;
       poolState.isInitialized = false;
       poolState.healthStatus = "unknown";
-      await Promise.resolve(deadPool.end()).catch(() => undefined);
+      // end() is called now, so a dead SSH session is released before a new
+      // one is acquired below, but its result is not awaited: yielding here,
+      // before the initialization promise is registered, lets a concurrent
+      // caller start its own initialization, and one of the two leases is then
+      // overwritten without being ended.
+      try {
+        void Promise.resolve(deadPool.end()).catch(() => undefined);
+      } catch {
+        // best-effort
+      }
     }
 
     // Check if already initialized
