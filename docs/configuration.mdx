@@ -592,7 +592,7 @@ With the [SSH transport](#ssh-transport), a timed-out query closes the shared SS
 |----------|-------------|---------|---------|
 | `DB2i_TRANSPORT` | `websocket` (Mapepire daemon) or `ssh` | `websocket` | `ssh` |
 | `DB2i_HOST` / `DB2i_USER` | SSH host and user (reused from the connection settings above) | (none) | `my-ibmi.company.com` / `MYUSER` |
-| `DB2i_SSH_PRIVATE_KEY_PATH` | Absolute path to a private key (see [supported key formats](#ssh-key-setup)). When set, the key is the only credential tried; `DB2i_PASS` is not used as a fallback. `~` is not expanded. | (none) | `/home/me/.ssh/id_ed25519` |
+| `DB2i_SSH_PRIVATE_KEY_PATH` | Path to a private key, absolute or starting with `~/` (see [supported key formats](#ssh-key-setup)). When set, the key is the only credential tried; `DB2i_PASS` is not used as a fallback. | (none) | `/home/me/.ssh/id_ed25519` |
 | `DB2i_SSH_PASSPHRASE` | Passphrase for an encrypted private key | (none) | |
 | `DB2i_PASS` | SSH password, used only when no private key is set. With a key, set it to any non-empty dummy value so [YAML tools still load](#ssh-yaml-password). | (none) | |
 | `DB2i_SSH_HOST_KEY_SHA256` | Expected host key fingerprint (`SHA256:<base64>` from `ssh-keygen -lf`, or 64 hex chars). The connection is refused on mismatch. | (none, host key **not** verified) | `SHA256:AbC...` |

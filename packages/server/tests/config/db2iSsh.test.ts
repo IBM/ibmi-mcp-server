@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { config } from "../../src/config/index.js";
 
@@ -51,6 +51,17 @@ describe("config.db2iSsh", () => {
     });
     expect(ssh?.privateKey?.toString()).toBe("fake-private-key");
     expect(ssh?.password).toBeUndefined();
+  });
+
+  it("expands a leading ~ in the private key path", () => {
+    // .env files and MCP client JSON configs do not expand ~ as a shell does.
+    // The file does not exist; the error shows which path was opened.
+    const name = `db2i-ssh-test-${process.pid}-missing`;
+    process.env.DB2i_HOST = "h";
+    process.env.DB2i_USER = "u";
+    process.env.DB2i_SSH_PRIVATE_KEY_PATH = `~/${name}`;
+
+    expect(() => config.db2iSsh).toThrow(path.join(homedir(), name));
   });
 
   it("prefers the key over DB2i_PASS when both are set", () => {

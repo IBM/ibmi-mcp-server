@@ -293,7 +293,7 @@ const EnvSchema = z.object({
    * From `DB2i_TRANSPORT`.
    */
   DB2i_TRANSPORT: z.enum(["websocket", "ssh"]).default("websocket"),
-  /** Path to the SSH private key (OpenSSH, RSA-PEM) used when `DB2i_TRANSPORT=ssh`. From `DB2i_SSH_PRIVATE_KEY_PATH`. */
+  /** Path to the SSH private key (OpenSSH, RSA-PEM) used when `DB2i_TRANSPORT=ssh`. A leading `~` is expanded. From `DB2i_SSH_PRIVATE_KEY_PATH`. */
   DB2i_SSH_PRIVATE_KEY_PATH: z.string().min(1).optional(),
   /** Passphrase for an encrypted SSH private key. From `DB2i_SSH_PASSPHRASE`. */
   DB2i_SSH_PASSPHRASE: z.string().optional(),
@@ -620,7 +620,7 @@ function getCachedPrivateKey(keyPath: string): Buffer {
   if (cachedPrivateKeyPath === keyPath && cachedPrivateKeyBuffer) {
     return cachedPrivateKeyBuffer;
   }
-  const buf = readFileSync(keyPath);
+  const buf = readFileSync(expandTilde(keyPath));
   cachedPrivateKeyPath = keyPath;
   cachedPrivateKeyBuffer = buf;
   return buf;
