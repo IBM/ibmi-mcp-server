@@ -8,7 +8,8 @@
  */
 
 import dotenv from "dotenv";
-import { existsSync, mkdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { isIP } from "net";
 import { homedir } from "os";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -20,55 +21,24 @@ import {
 } from "@/ibmi-mcp-server/schemas/common.js";
 
 export { DEFAULT_MAPEPIRE_PORT };
-// Load .env from multiple possible locations for monorepo flexibility
-// Priority order:
-// 1. MCP_SERVER_CONFIG environment variable (explicit override)
-// 2. Current working directory (for production/user deployment)
-// 3. Parent directory (for monorepo development)
-let envLoaded = false;
+// .env: the file named by MCP_SERVER_CONFIG, otherwise <cwd>/.env.
+let envPath = path.resolve(process.cwd(), ".env");
 
-// Check for explicit config path via MCP_SERVER_CONFIG
 if (process.env.MCP_SERVER_CONFIG) {
   const configPath = path.resolve(process.env.MCP_SERVER_CONFIG);
   if (existsSync(configPath)) {
-    dotenv.config({ path: configPath });
-    envLoaded = true;
-    if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-      console.error(`Loaded .env from MCP_SERVER_CONFIG: ${configPath}`);
-    }
+    envPath = configPath;
   } else {
-    if (process.stdout.isTTY) {
-      console.error(
-        `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to default search.`,
-      );
-    }
+    console.error(
+      `Warning: MCP_SERVER_CONFIG is set to "${configPath}" but file does not exist. Falling back to ${envPath}.`,
+    );
   }
 }
 
-// If no explicit config or it failed, try default locations
-if (!envLoaded) {
-  const envLocations = [
-    // 1. Current working directory (for production/user deployment)
-    path.resolve(process.cwd(), ".env"),
-    // 2. Parent directory (for monorepo development)
-    path.resolve(process.cwd(), "../.env"),
-  ];
-
-  // Load from first location that exists
-  for (const envPath of envLocations) {
-    if (existsSync(envPath)) {
-      dotenv.config({ path: envPath });
-      envLoaded = true;
-      if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
-        console.error(`Loaded .env from: ${envPath}`);
-      }
-      break;
-    }
-  }
-
-  // Fallback: try default dotenv behavior (looks in cwd)
-  if (!envLoaded) {
-    dotenv.config();
+if (existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  if (process.stdout.isTTY && process.env.MCP_LOG_LEVEL === "debug") {
+    console.error(`Loaded .env from: ${envPath}`);
   }
 }
 
@@ -151,31 +121,122 @@ const pkg = loadPackageJson();
 /** Shared schema for `DB2i_PORT` (startup env + runtime `config.db2i` getter). */
 const Db2iPortSchema = MapepirePortEnvSchema;
 
+/** Splits a list setting on commas, dropping blank entries. */
+const splitList = (value: string | undefined): string[] =>
+  (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+/** An optional setting; blank counts as unset. */
+const optionalSetting = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() || undefined);
+
+/**
+ * Reads one entry of a CIDR list as `address/prefix`. A bare address is the
+ * single host (`/32`, `/128`).
+ *
+ * @returns `undefined` when the entry is not an IP address or range.
+ */
+function parseCidr(entry: string): string | undefined {
+  const [address = "", prefix, ...rest] = entry.split("/");
+  const family = isIP(address);
+  if (
+    family === 0 ||
+    rest.length > 0 ||
+    (prefix !== undefined && !/^\d{1,3}$/.test(prefix))
+  ) {
+    return undefined;
+  }
+  const maxPrefix = family === 4 ? 32 : 128;
+  const bits = prefix === undefined ? maxPrefix : Number(prefix);
+  return bits <= maxPrefix ? `${address}/${bits}` : undefined;
+}
+
+/**
+ * A comma-separated list of IP addresses and CIDR ranges, each normalised to
+ * `address/prefix`. Unset or blank gives `defaults`.
+ */
+const cidrList = (defaults: string[] = []) =>
+  z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      const entries = splitList(value);
+      if (entries.length === 0) {
+        return defaults;
+      }
+      return entries.map((entry) => {
+        const cidr = parseCidr(entry);
+        if (!cidr) {
+          ctx.addIssue({
+            code: "custom",
+            message: `"${entry}" is not an IP address or a CIDR range such as 10.0.0.0/8.`,
+          });
+        }
+        return cidr ?? entry;
+      });
+    });
+
+/**
+ * Who may reach the built-in sign-in page by default: loopback, the RFC 1918
+ * private ranges and IPv6 unique-local addresses.
+ */
+const DEFAULT_SIGNON_ALLOWED_CIDRS = [
+  "127.0.0.0/8",
+  "::1/128",
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "fc00::/7",
+];
+
+/** An IBM i user profile name, or the leading part of one followed by `*`. */
+const PROFILE_PATTERN = /^(?:[A-Z0-9#$_]{1,10}|[A-Z0-9#$_]{1,9}\*)$/;
+
+/** Host names of `MCP_RESOURCE_URL` that may use plain http. */
+const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
+
+/**
+ * The issuer of the built-in authorization server: `MCP_RESOURCE_URL` without
+ * its last path segment (`https://h/mcp` gives `https://h`,
+ * `https://h/ibmi/mcp` gives `https://h/ibmi`).
+ */
+function builtinIssuer(resourceUrl: string | undefined): string | undefined {
+  if (!resourceUrl || !URL.canParse(resourceUrl)) {
+    return undefined;
+  }
+  const url = new URL(resourceUrl);
+  return url.origin + url.pathname.replace(/\/$/, "").replace(/\/[^/]*$/, "");
+}
+
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
   MCP_SERVER_VERSION: z.string().optional(),
-  MCP_LOG_LEVEL: z.string().default("debug"),
+  MCP_LOG_LEVEL: z
+    .enum([
+      "debug",
+      "info",
+      "notice",
+      "warning",
+      "warn",
+      "error",
+      "crit",
+      "alert",
+      "emerg",
+    ])
+    .default("debug"),
   LOGS_DIR: z
     .string()
     .default(path.join(homedir(), ".ibmi-mcp-server", "logs")),
   NODE_ENV: z.string().default("development"),
   MCP_TRANSPORT_TYPE: z.enum(["stdio", "http"]).default("stdio"),
-  MCP_SESSION_MODE: z.enum(["stateless", "stateful", "auto"]).default("auto"),
   MCP_HTTP_PORT: z.coerce.number().int().positive().default(3010),
   MCP_HTTP_HOST: z.string().default("127.0.0.1"),
   MCP_HTTP_ENDPOINT_PATH: z.string().default("/mcp"),
-  MCP_HTTP_MAX_PORT_RETRIES: z.coerce.number().int().nonnegative().default(15),
-  MCP_HTTP_PORT_RETRY_DELAY_MS: z.coerce
-    .number()
-    .int()
-    .nonnegative()
-    .default(50),
-  MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(1_800_000),
   MCP_ALLOWED_ORIGINS: z.string().optional(),
   MCP_ALLOWED_HOSTS: z.string().optional(),
   MCP_ALLOW_UNAUTHENTICATED_HTTP: z
@@ -183,55 +244,132 @@ const EnvSchema = z.object({
     .optional()
     .default("false")
     .transform((val) => val === "true" || val === "1"),
-  MCP_AUTH_SECRET_KEY: z
-    .string()
-    .min(
-      32,
-      "MCP_AUTH_SECRET_KEY must be at least 32 characters long for security reasons.",
-    )
-    .optional(),
-  MCP_AUTH_MODE: z.enum(["jwt", "oauth", "ibmi", "none"]).default("none"),
-  OAUTH_ISSUER_URL: z.string().url().optional(),
-  OAUTH_JWKS_URI: z.string().url().optional(),
+  /**
+   * Addresses of the reverse proxies in front of the server, as a
+   * comma-separated list of IP addresses and CIDR ranges. X-Forwarded-For and
+   * X-Forwarded-Proto are believed only when the TCP peer is inside this
+   * list. Default: none.
+   */
+  MCP_TRUSTED_PROXIES: cidrList(),
+  /**
+   * PEM certificate (chain) and private key files. When both are set the
+   * HTTP server listens with TLS.
+   */
+  MCP_TLS_CERT_FILE: optionalSetting,
+  MCP_TLS_KEY_FILE: optionalSetting,
+  /**
+   * HTTP authentication mode. `oauth` makes the server an OAuth 2.1 resource
+   * server as defined by the MCP authorization specification; `ibmi` is the
+   * deprecated IBM i token scheme; `none` disables authentication. The
+   * retired `jwt` passes validation only so that it cannot invalidate the
+   * rest of the environment; the server refuses to start with it.
+   */
+  MCP_AUTH_MODE: z.enum(["none", "oauth", "ibmi", "jwt"]).default("none"),
+  // The OAuth settings are plain strings here and are validated when the HTTP
+  // transport starts (transports/auth/oauth.ts), so a bad value stops the
+  // server with a message naming the variable.
+  /**
+   * Canonical public URL of the MCP endpoint (RFC 8707 resource identifier),
+   * e.g. `https://mcp.example.com/mcp`. Required when `MCP_AUTH_MODE=oauth`.
+   */
+  MCP_RESOURCE_URL: z.string().optional(),
+  /**
+   * Issuer of an external authorization server. With `MCP_AUTH_MODE=oauth`
+   * and this unset, the server is its own authorization server and users
+   * sign on with their IBM i profile.
+   */
+  OAUTH_ISSUER_URL: z.string().optional(),
+  /** JWKS URL of the issuer. Default: discovered from the issuer's metadata. */
+  OAUTH_JWKS_URI: z.string().optional(),
+  /** Expected token audience. Default: `MCP_RESOURCE_URL`. */
   OAUTH_AUDIENCE: z.string().optional(),
-  DEV_MCP_CLIENT_ID: z.string().optional(),
-  DEV_MCP_SCOPES: z.string().optional(),
-  OPENROUTER_APP_URL: z
+  /** Space-separated scopes every request to the MCP endpoint must carry. */
+  OAUTH_REQUIRED_SCOPES: z.string().optional(),
+
+  // --- START: Built-in authorization server (MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL) ---
+  /** Client addresses that may reach the sign-in page. */
+  OAUTH_SIGNON_ALLOWED_CIDRS: cidrList(DEFAULT_SIGNON_ALLOWED_CIDRS),
+  /**
+   * Whether an authorization code sent to a loopback redirect must be
+   * redeemed from the address that signed on (`strict`), or a mismatch is
+   * only audited (`audit`).
+   */
+  OAUTH_CODE_ADDRESS_BINDING: z.enum(["strict", "audit"]).default("strict"),
+  /** Longest a sign-on lasts, in hours. Default: 12. */
+  OAUTH_GRANT_MAX_HOURS: z.coerce.number().int().positive().default(12),
+  /** Idle minutes after which a user's IBM i connection is closed. Default: 10. */
+  OAUTH_IDLE_CLOSE_MINUTES: z.coerce.number().int().positive().default(10),
+  /** Most IBM i connections open at once. Default: 50. */
+  OAUTH_MAX_CONNECTIONS: z.coerce.number().int().positive().default(50),
+  /**
+   * Comma-separated profiles that may sign on: exact names, or the leading
+   * part of a name followed by `*`. Default: every profile not starting
+   * with Q.
+   */
+  OAUTH_ALLOWED_PROFILES: z
     .string()
-    .url("OPENROUTER_APP_URL must be a valid URL (e.g., http://localhost:3000)")
-    .optional(),
-  OPENROUTER_APP_NAME: z.string().optional(),
-  OPENROUTER_API_KEY: z.string().optional(),
-  LLM_DEFAULT_MODEL: z.string().default("google/gemini-2.5-flash"),
-  LLM_DEFAULT_TEMPERATURE: z.coerce.number().min(0).max(2).optional(),
-  LLM_DEFAULT_TOP_P: z.coerce.number().min(0).max(1).optional(),
-  LLM_DEFAULT_MAX_TOKENS: z.coerce.number().int().positive().optional(),
-  LLM_DEFAULT_TOP_K: z.coerce.number().int().nonnegative().optional(),
-  LLM_DEFAULT_MIN_P: z.coerce.number().min(0).max(1).optional(),
-  OAUTH_PROXY_AUTHORIZATION_URL: z
+    .optional()
+    .transform((value, ctx) =>
+      splitList(value).map((entry) => {
+        const profile = entry.toUpperCase();
+        if (!PROFILE_PATTERN.test(profile)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `"${entry}" is not a profile name (up to 10 of A-Z 0-9 # $ _) or the start of one followed by *.`,
+          });
+        }
+        return profile;
+      }),
+    ),
+  /** Let profiles holding *ALLOBJ or *SECADM sign on. Default: false. */
+  OAUTH_ALLOW_PRIVILEGED_PROFILES: z
     .string()
-    .url("OAUTH_PROXY_AUTHORIZATION_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_TOKEN_URL: z
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
+  /**
+   * Rejected sign-ons after which a profile is blocked on this server.
+   * Default: 2. Keep it below the system's QMAXSIGN.
+   */
+  OAUTH_SIGNON_MAX_FAILURES: z.coerce.number().int().min(1).default(2),
+  /** Accept `http://localhost`, `127.0.0.1` and `[::1]` redirects. Default: true. */
+  OAUTH_ALLOW_LOOPBACK_REDIRECTS: z
     .string()
-    .url("OAUTH_PROXY_TOKEN_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_REVOCATION_URL: z
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
+  /**
+   * Accept the https URL of a Client ID Metadata Document as a client_id, and
+   * fetch that document to learn the client's redirect URIs. Needs outbound
+   * HTTPS from this server. Default: true.
+   */
+  OAUTH_CLIENT_METADATA_DOCUMENTS: z
     .string()
-    .url("OAUTH_PROXY_REVOCATION_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_ISSUER_URL: z
+    .optional()
+    .default("true")
+    .transform((val) => val === "true" || val === "1"),
+  /**
+   * Redirect URIs accepted besides loopback ones, separated by commas or
+   * white space. Each is matched exactly.
+   */
+  OAUTH_REDIRECT_URIS: z
     .string()
-    .url("OAUTH_PROXY_ISSUER_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_SERVICE_DOCUMENTATION_URL: z
-    .string()
-    .url("OAUTH_PROXY_SERVICE_DOCUMENTATION_URL must be a valid URL.")
-    .optional(),
-  OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS: z.string().optional(),
-  SUPABASE_URL: z.string().url("SUPABASE_URL must be a valid URL.").optional(),
-  SUPABASE_ANON_KEY: z.string().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+    .optional()
+    .transform((value, ctx) => {
+      const uris = (value ?? "").split(/[\s,]+/).filter(Boolean);
+      for (const uri of uris) {
+        if (!URL.canParse(uri) || new URL(uri).hash) {
+          ctx.addIssue({
+            code: "custom",
+            message: `"${uri}" is not an absolute URI without a fragment.`,
+          });
+        }
+      }
+      return uris;
+    }),
+  /** Path of the local admin socket (created with mode 0600). Default: none. */
+  OAUTH_ADMIN_SOCKET: optionalSetting,
+  // --- END: Built-in authorization server ---
 
   // --- START: OpenTelemetry Configuration ---
   /** If 'true', OpenTelemetry will be initialized and enabled. Default: 'false'. */
@@ -281,6 +419,17 @@ const EnvSchema = z.object({
     .transform((val) => val === "true" || val === "1"),
 
   /**
+   * How the built-in authorization server verifies the Mapepire server's
+   * certificate: the PEM of that exact certificate (`DB2i_SERVER_CERT_FILE`,
+   * host name not checked) or a PEM CA bundle (`DB2i_CA_FILE`, host name
+   * checked). With neither, Node's trust store is used, unless
+   * `DB2i_IGNORE_UNAUTHORIZED=true` is set: that turns verification off and
+   * cannot be combined with either file.
+   */
+  DB2i_SERVER_CERT_FILE: optionalSetting,
+  DB2i_CA_FILE: optionalSetting,
+
+  /**
    * Mapepire JDBC connection options. Semicolon-separated key=value pairs
    * modeled on DB2 JDBC URL syntax. From `DB2i_JDBC_OPTIONS`.
    * Example: `naming=system;date format=iso;libraries=MYLIB,DEVDATA`
@@ -315,7 +464,12 @@ const EnvSchema = z.object({
     .default("true")
     .transform((val) => val === "true"),
 
-  /** IBM i HTTP Authentication configuration. From `IBMI_AUTH_*` environment variables. */
+  /**
+   * IBM i HTTP token authentication. From `IBMI_HTTP_AUTH_ENABLED` and the
+   * `IBMI_AUTH_*` environment variables below.
+   * @deprecated IBM i HTTP token authentication will be removed in a future
+   * major release. Use `MCP_AUTH_MODE=oauth`.
+   */
   IBMI_HTTP_AUTH_ENABLED: z
     .string()
     .optional()
@@ -344,6 +498,11 @@ const EnvSchema = z.object({
   IBMI_AUTH_PRIVATE_KEY_PATH: z.string().min(1).optional(),
   IBMI_AUTH_PUBLIC_KEY_PATH: z.string().min(1).optional(),
   IBMI_AUTH_KEY_ID: z.string().min(1).optional(),
+  /**
+   * Comma-separated IBM i host names `/api/v1/auth` may sign on to.
+   * Default: `DB2i_HOST`.
+   */
+  IBMI_AUTH_ALLOWED_HOSTS: z.string().optional(),
 
   /** Enable automatic reloading of YAML tools when configuration files change. From `YAML_AUTO_RELOAD`. Default: true. */
   YAML_AUTO_RELOAD: z
@@ -435,18 +594,84 @@ const EnvSchema = z.object({
   // --- END: Pagination Configuration ---
 });
 
-const parsedEnv = EnvSchema.safeParse(process.env);
+/**
+ * Settings that contradict each other. The other startup checks of the
+ * built-in authorization server need more than the environment (the
+ * transport after CLI overrides, readable files, the inspector) and run when
+ * the server starts.
+ */
+const CheckedEnvSchema = EnvSchema.superRefine((env, ctx) => {
+  const refuse = (name: string, message: string) =>
+    ctx.addIssue({ code: "custom", path: [name], message });
 
-if (!parsedEnv.success) {
-  if (process.stdout.isTTY) {
-    console.error(
-      "❌ Invalid environment variables found:",
-      parsedEnv.error.flatten().fieldErrors,
+  if (!env.MCP_TLS_CERT_FILE !== !env.MCP_TLS_KEY_FILE) {
+    refuse(
+      env.MCP_TLS_CERT_FILE ? "MCP_TLS_KEY_FILE" : "MCP_TLS_CERT_FILE",
+      "MCP_TLS_CERT_FILE and MCP_TLS_KEY_FILE must be set together.",
     );
   }
+  if (env.DB2i_SERVER_CERT_FILE && env.DB2i_CA_FILE) {
+    refuse(
+      "DB2i_CA_FILE",
+      "Set DB2i_SERVER_CERT_FILE (the exact certificate) or DB2i_CA_FILE (a CA bundle), not both.",
+    );
+  }
+
+  if (env.MCP_AUTH_MODE !== "oauth" || env.OAUTH_ISSUER_URL) {
+    return;
+  }
+  // From here on: the built-in authorization server.
+  for (const name of ["OAUTH_JWKS_URI", "OAUTH_AUDIENCE"] as const) {
+    if (env[name]) {
+      refuse(
+        name,
+        `${name} applies to an external authorization server: set OAUTH_ISSUER_URL as well, or remove ${name} to use the built-in IBM i sign-on.`,
+      );
+    }
+  }
+  const resource = env.MCP_RESOURCE_URL;
+  if (!resource) {
+    refuse(
+      "MCP_RESOURCE_URL",
+      "MCP_RESOURCE_URL is required when MCP_AUTH_MODE=oauth.",
+    );
+  } else if (!URL.canParse(resource) || new URL(resource).hash) {
+    refuse(
+      "MCP_RESOURCE_URL",
+      "MCP_RESOURCE_URL must be a URL without a fragment.",
+    );
+  } else {
+    const url = new URL(resource);
+    if (
+      url.protocol !== "https:" &&
+      !(url.protocol === "http:" && LOOPBACK_HOSTNAMES.includes(url.hostname))
+    ) {
+      refuse(
+        "MCP_RESOURCE_URL",
+        "MCP_RESOURCE_URL must use https unless it is a loopback address: without OAUTH_ISSUER_URL users type their IBM i password into a page served from it.",
+      );
+    }
+  }
+});
+
+const parsedEnv = CheckedEnvSchema.safeParse(process.env);
+
+if (!parsedEnv.success) {
+  // Always report this (stderr is safe under the stdio transport): on failure
+  // every environment-derived setting below falls back to its default.
+  console.error(
+    "❌ Invalid environment variables found; ALL environment-derived settings fall back to their defaults:",
+    parsedEnv.error.flatten().fieldErrors,
+  );
 }
 
 const env = parsedEnv.success ? parsedEnv.data : EnvSchema.parse({});
+
+/**
+ * Whether the environment passed validation. When it did not, every setting
+ * has its default; the server refuses to start in that state.
+ */
+export const environmentIsValid = parsedEnv.success;
 
 /**
  * Expands tilde (~) to user's home directory
@@ -459,89 +684,6 @@ const expandTilde = (filePath: string): string => {
   }
   return filePath;
 };
-
-/**
- * Ensures a directory exists, creating it if necessary.
- * Handles absolute paths, relative paths, and tilde (~) expansion.
- *
- * @param dirPath - Directory path (absolute, relative, or with ~)
- * @param baseDir - Base directory for resolving relative paths (typically process.cwd())
- * @param dirName - Human-readable name for logging
- * @returns Resolved absolute path to the directory, or null if creation failed
- */
-const ensureDirectory = (
-  dirPath: string,
-  baseDir: string,
-  dirName: string,
-): string | null => {
-  // Expand ~ to home directory first
-  const expandedPath = expandTilde(dirPath);
-
-  // Resolve path: absolute paths used as-is, relative paths resolved from baseDir
-  const resolvedDirPath = path.isAbsolute(expandedPath)
-    ? expandedPath
-    : path.resolve(baseDir, expandedPath);
-
-  // Try to create directory if it doesn't exist
-  if (!existsSync(resolvedDirPath)) {
-    try {
-      mkdirSync(resolvedDirPath, { recursive: true });
-      if (process.stdout.isTTY) {
-        console.error(`Created ${dirName} directory: ${resolvedDirPath}`);
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      if (process.stdout.isTTY) {
-        console.error(
-          `Error creating ${dirName} directory at ${resolvedDirPath}: ${errorMessage}`,
-        );
-      }
-      return null;
-    }
-  } else {
-    // Verify existing path is actually a directory
-    try {
-      const stats = statSync(resolvedDirPath);
-      if (!stats.isDirectory()) {
-        if (process.stdout.isTTY) {
-          console.error(
-            `Error: ${dirName} path ${resolvedDirPath} exists but is not a directory.`,
-          );
-        }
-        return null;
-      }
-    } catch (statError: unknown) {
-      if (process.stdout.isTTY) {
-        const statErrorMessage =
-          statError instanceof Error ? statError.message : String(statError);
-        console.error(
-          `Error accessing ${dirName} path ${resolvedDirPath}: ${statErrorMessage}`,
-        );
-      }
-      return null;
-    }
-  }
-  return resolvedDirPath;
-};
-
-// Ensure logs directory exists
-// Supports multiple path formats:
-// - Absolute: /var/log/ibmi-mcp
-// - Relative: ./logs (resolved from process.cwd())
-// - Tilde: ~/my-logs (expanded to home directory)
-const validatedLogsPath: string | null = ensureDirectory(
-  env.LOGS_DIR,
-  process.cwd(),
-  "logs",
-);
-
-if (!validatedLogsPath) {
-  if (process.stdout.isTTY) {
-    console.warn(
-      `Warning: Could not create logs directory at '${env.LOGS_DIR}'. File logging will be disabled.`,
-    );
-  }
-}
 
 /**
  * Parse DB2i_JDBC_OPTIONS env var: a semicolon-separated list of key=value
@@ -574,9 +716,7 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
     const key = pair.slice(0, eqIdx).trim();
     const value = pair.slice(eqIdx + 1).trim();
     if (!key) {
-      throw new Error(
-        `Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`,
-      );
+      throw new Error(`Invalid DB2i_JDBC_OPTIONS: empty key in pair "${pair}"`);
     }
     if (key === "libraries") {
       result[key] = value
@@ -587,26 +727,23 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
       result[key] = value;
     }
   }
-  return Object.keys(result).length > 0
-    ? (result as JDBCOptions)
-    : undefined;
+  return Object.keys(result).length > 0 ? (result as JDBCOptions) : undefined;
 }
 
 export const config = {
-  pkg,
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
   mcpServerVersion: env.MCP_SERVER_VERSION || pkg.version,
   logLevel: env.MCP_LOG_LEVEL,
-  logsPath: validatedLogsPath,
+  /**
+   * Absolute path of `LOGS_DIR` (`~` expanded, relative paths resolved from
+   * the working directory). The logger creates it on first use.
+   */
+  logsPath: path.resolve(expandTilde(env.LOGS_DIR)),
   environment: env.NODE_ENV,
   mcpTransportType: env.MCP_TRANSPORT_TYPE,
-  mcpSessionMode: env.MCP_SESSION_MODE,
   mcpHttpPort: env.MCP_HTTP_PORT,
   mcpHttpHost: env.MCP_HTTP_HOST,
   mcpHttpEndpointPath: env.MCP_HTTP_ENDPOINT_PATH,
-  mcpHttpMaxPortRetries: env.MCP_HTTP_MAX_PORT_RETRIES,
-  mcpHttpPortRetryDelayMs: env.MCP_HTTP_PORT_RETRY_DELAY_MS,
-  mcpStatefulSessionStaleTimeoutMs: env.MCP_STATEFUL_SESSION_STALE_TIMEOUT_MS,
   mcpAllowedOrigins: env.MCP_ALLOWED_ORIGINS?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
@@ -614,49 +751,57 @@ export const config = {
     .map((host) => host.trim())
     .filter(Boolean),
   mcpAllowUnauthenticatedHttp: env.MCP_ALLOW_UNAUTHENTICATED_HTTP,
-  mcpAuthSecretKey: env.MCP_AUTH_SECRET_KEY,
+  /** `MCP_TRUSTED_PROXIES` as `address/prefix` entries. */
+  mcpTrustedProxies: env.MCP_TRUSTED_PROXIES,
+  mcpTlsCertFile: env.MCP_TLS_CERT_FILE,
+  mcpTlsKeyFile: env.MCP_TLS_KEY_FILE,
   mcpAuthMode: env.MCP_AUTH_MODE,
+  mcpResourceUrl: env.MCP_RESOURCE_URL,
   oauthIssuerUrl: env.OAUTH_ISSUER_URL,
   oauthJwksUri: env.OAUTH_JWKS_URI,
   oauthAudience: env.OAUTH_AUDIENCE,
-  devMcpClientId: env.DEV_MCP_CLIENT_ID,
-  devMcpScopes: env.DEV_MCP_SCOPES?.split(",").map((s) => s.trim()),
-  openrouterAppUrl: env.OPENROUTER_APP_URL || "http://localhost:3000",
-  openrouterAppName: env.OPENROUTER_APP_NAME || pkg.name || "ibmi-mcp-server",
-  openrouterApiKey: env.OPENROUTER_API_KEY,
-  llmDefaultModel: env.LLM_DEFAULT_MODEL,
-  llmDefaultTemperature: env.LLM_DEFAULT_TEMPERATURE,
-  llmDefaultTopP: env.LLM_DEFAULT_TOP_P,
-  llmDefaultMaxTokens: env.LLM_DEFAULT_MAX_TOKENS,
-  llmDefaultTopK: env.LLM_DEFAULT_TOP_K,
-  llmDefaultMinP: env.LLM_DEFAULT_MIN_P,
-  oauthProxy:
-    env.OAUTH_PROXY_AUTHORIZATION_URL ||
-    env.OAUTH_PROXY_TOKEN_URL ||
-    env.OAUTH_PROXY_REVOCATION_URL ||
-    env.OAUTH_PROXY_ISSUER_URL ||
-    env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL ||
-    env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS
-      ? {
-          authorizationUrl: env.OAUTH_PROXY_AUTHORIZATION_URL,
-          tokenUrl: env.OAUTH_PROXY_TOKEN_URL,
-          revocationUrl: env.OAUTH_PROXY_REVOCATION_URL,
-          issuerUrl: env.OAUTH_PROXY_ISSUER_URL,
-          serviceDocumentationUrl: env.OAUTH_PROXY_SERVICE_DOCUMENTATION_URL,
-          defaultClientRedirectUris:
-            env.OAUTH_PROXY_DEFAULT_CLIENT_REDIRECT_URIS?.split(",")
-              .map((uri) => uri.trim())
-              .filter(Boolean),
-        }
-      : undefined,
-  supabase:
-    env.SUPABASE_URL && env.SUPABASE_ANON_KEY
-      ? {
-          url: env.SUPABASE_URL,
-          anonKey: env.SUPABASE_ANON_KEY,
-          serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-        }
-      : undefined,
+  oauthRequiredScopes: env.OAUTH_REQUIRED_SCOPES?.split(/\s+/).filter(Boolean),
+  /**
+   * The built-in authorization server: users sign on with their IBM i
+   * profile and SQL runs as that profile.
+   */
+  oauth: {
+    /**
+     * Whether the server is its own authorization server:
+     * `MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`.
+     */
+    get builtin(): boolean {
+      return config.mcpAuthMode === "oauth" && !config.oauthIssuerUrl;
+    },
+    /**
+     * Issuer of the built-in authorization server, derived from
+     * `MCP_RESOURCE_URL`. Undefined unless `builtin`.
+     */
+    get issuer(): string | undefined {
+      return this.builtin ? builtinIssuer(config.mcpResourceUrl) : undefined;
+    },
+    /** The Mapepire server users sign on to, and how it is verified. */
+    mapepire: {
+      host: env.DB2i_HOST,
+      port: env.DB2i_PORT,
+      serverCertFile: env.DB2i_SERVER_CERT_FILE,
+      caFile: env.DB2i_CA_FILE,
+    },
+    /** `address/prefix` entries. */
+    signOnAllowedCidrs: env.OAUTH_SIGNON_ALLOWED_CIDRS,
+    codeAddressBinding: env.OAUTH_CODE_ADDRESS_BINDING,
+    grantMaxHours: env.OAUTH_GRANT_MAX_HOURS,
+    idleCloseMinutes: env.OAUTH_IDLE_CLOSE_MINUTES,
+    maxConnections: env.OAUTH_MAX_CONNECTIONS,
+    /** Upper-case names and `PREFIX*` patterns; empty when unset. */
+    allowedProfiles: env.OAUTH_ALLOWED_PROFILES,
+    allowPrivilegedProfiles: env.OAUTH_ALLOW_PRIVILEGED_PROFILES,
+    signOnMaxFailures: env.OAUTH_SIGNON_MAX_FAILURES,
+    allowLoopbackRedirects: env.OAUTH_ALLOW_LOOPBACK_REDIRECTS,
+    redirectUris: env.OAUTH_REDIRECT_URIS,
+    clientMetadataDocuments: env.OAUTH_CLIENT_METADATA_DOCUMENTS,
+    adminSocket: env.OAUTH_ADMIN_SOCKET,
+  },
   openTelemetry: {
     enabled: env.OTEL_ENABLED,
     serviceName: env.OTEL_SERVICE_NAME || env.MCP_SERVER_NAME || pkg.name,
@@ -722,7 +867,12 @@ export const config = {
     validateMerged: env.YAML_VALIDATE_MERGED,
   },
 
-  /** IBM i HTTP Authentication configuration. From `IBMI_AUTH_*` environment variables. */
+  /**
+   * IBM i HTTP token authentication. From `IBMI_HTTP_AUTH_ENABLED` and the
+   * `IBMI_AUTH_*` environment variables.
+   * @deprecated IBM i HTTP token authentication will be removed in a future
+   * major release. Use `MCP_AUTH_MODE=oauth`.
+   */
   ibmiHttpAuth: {
     enabled: env.IBMI_HTTP_AUTH_ENABLED,
     allowHttp: env.IBMI_AUTH_ALLOW_HTTP,
@@ -732,6 +882,11 @@ export const config = {
     privateKeyPath: env.IBMI_AUTH_PRIVATE_KEY_PATH,
     publicKeyPath: env.IBMI_AUTH_PUBLIC_KEY_PATH,
     keyId: env.IBMI_AUTH_KEY_ID,
+    /** Lower-case host names `/api/v1/auth` may sign on to. */
+    allowedHosts: (env.IBMI_AUTH_ALLOWED_HOSTS || env.DB2i_HOST || "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
   },
 
   /** Enable automatic reloading of YAML tools when configuration files change. From `YAML_AUTO_RELOAD`. Default: true. */
@@ -785,7 +940,6 @@ if (config.ibmiHttpAuth.enabled) {
   }
 }
 
-export const logLevel: string = config.logLevel;
 export const environment: string = config.environment;
 
 /**

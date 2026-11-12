@@ -21,6 +21,7 @@ import {
   RequestContext,
   requestContextService,
 } from "@/utils/index.js";
+import { clientAddress } from "./clientAddress.js";
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "::1"]);
 const WILDCARD_BINDS = new Set(["0.0.0.0", "::", ""]);
@@ -58,43 +59,13 @@ function hostnameOf(value: string): string | null {
   }
 }
 
-function isLoopback(hostname: string): boolean {
+/** Whether a lower-case host name or address (no brackets) is loopback. */
+export function isLoopback(hostname: string): boolean {
   return (
     LOOPBACK_HOSTNAMES.has(hostname) ||
     /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
     /^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
   );
-}
-
-/**
- * Source attribution for a rejected request.
- *
- * `clientIp` is the TCP peer address, which the caller cannot forge.
- * `forwardedFor` and `realIp` are proxy headers: authoritative only behind a
- * trusted proxy, and freely attacker-written otherwise.
- *
- * They are kept as separate, explicitly-claimed fields rather than collapsed
- * into `clientIp`. A rejection record is detection signal — if the field an
- * operator reads as "where did this come from" were sourced from a request
- * header, an attacker could attribute their own traffic to any address they
- * liked, or defeat per-source correlation by rotating it. Tolerates test
- * environments where no Node socket is attached.
- */
-function requestSource(c: Context): {
-  clientIp: string;
-  forwardedFor?: string;
-  realIp?: string;
-} {
-  const socketAddress = (
-    c.env as
-      | { incoming?: { socket?: { remoteAddress?: string } } }
-      | undefined
-  )?.incoming?.socket?.remoteAddress;
-  return {
-    clientIp: socketAddress || "unknown_ip",
-    forwardedFor: c.req.header("x-forwarded-for"),
-    realIp: c.req.header("x-real-ip"),
-  };
 }
 
 /**
@@ -111,7 +82,10 @@ export interface HostPolicy {
    * allowlist — loopback is always accepted and never listed here.
    */
   allowedHostnames: Set<string>;
-  /** MCP_ALLOWED_ORIGINS entries, matched exactly against the Origin header. */
+  /**
+   * MCP_ALLOWED_ORIGINS entries, matched exactly against the Origin header,
+   * and the origin of the built-in authorization server when there is one.
+   */
   allowedOrigins: string[];
 }
 
@@ -163,10 +137,17 @@ export function resolveHostPolicy(parentContext?: RequestContext): HostPolicy {
     );
   }
 
+  // The sign-in page of the built-in authorization server posts its form to
+  // this server, and a browser names the page's origin in Origin: the
+  // server's own public origin, which MCP_ALLOWED_HOSTS=* does not name.
+  const { issuer } = config.oauth;
   return {
     allowAnyHost,
     allowedHostnames,
-    allowedOrigins: config.mcpAllowedOrigins ?? [],
+    allowedOrigins: [
+      ...(config.mcpAllowedOrigins ?? []),
+      ...(issuer ? [new URL(issuer).origin] : []),
+    ],
   };
 }
 
@@ -195,7 +176,7 @@ export function createHostValidationMiddleware(policy: HostPolicy) {
         method: c.req.method,
         hostHeader: c.req.header("host"),
         originHeader: c.req.header("origin"),
-        ...requestSource(c),
+        clientIp: clientAddress(c),
         reason,
       });
       logger.warning(context, `Request rejected by host validation: ${reason}`);
@@ -261,25 +242,9 @@ export function createHostValidationMiddleware(policy: HostPolicy) {
 }
 
 /**
- * Reports whether the configured auth mode actually enforces authentication.
- *
- * `MCP_AUTH_MODE=jwt` does NOT imply enforcement: outside production a missing
- * `MCP_AUTH_SECRET_KEY` puts `JwtStrategy` into a dev bypass where `verify()`
- * returns a synthetic AuthInfo for any bearer token
- * (`strategies/jwtStrategy.ts`). Since `MCP_AUTH_SECRET_KEY` is optional and
- * `NODE_ENV` defaults to "development", that state is reachable with no
- * deliberate misconfiguration — so the posture guard must not treat "an auth
- * mode is named" as "requests are authenticated".
- */
-function isAuthenticationEnforced(): boolean {
-  if (config.mcpAuthMode === "none") return false;
-  if (config.mcpAuthMode === "jwt" && !config.mcpAuthSecretKey) return false;
-  return true;
-}
-
-/**
  * Startup guard: refuses to start when ALL of — transport is `http`,
- * authentication is not actually enforced, the bind host is non-loopback, and
+ * authentication is disabled (`MCP_AUTH_MODE=none`; `oauth` and `ibmi` both
+ * verify every request), the bind host is non-loopback, and
  * the process holds IBM i credentials. "Holds credentials" means `config.db2i`
  * is set OR a tools YAML is configured: YAML `sources:` carry their own
  * credentials (possibly literals or arbitrary env vars), so gating on DB2i_*
@@ -293,20 +258,15 @@ export function assertHttpSecurityPosture(parentContext: RequestContext): void {
   };
 
   if (config.mcpTransportType !== "http") return;
-  if (isAuthenticationEnforced()) return;
+  if (config.mcpAuthMode !== "none") return;
 
   const hasIbmiCredentials =
     Boolean(config.db2i) || Boolean(config.toolsYamlPath);
   if (!hasIbmiCredentials) return;
 
-  // Name the actual reason auth is not enforced, so the operator is not sent
-  // looking at MCP_AUTH_MODE when the real problem is a missing secret key.
   // ASCII only: this text passes through arbitrary log pipelines, and non-ASCII
   // punctuation survives some serializers as escape sequences.
-  const authGap =
-    config.mcpAuthMode === "none"
-      ? "none - authentication is disabled"
-      : `${config.mcpAuthMode} - MCP_AUTH_SECRET_KEY is unset, so no token is verified`;
+  const authGap = "none - authentication is disabled";
 
   const credentialSources = [
     config.db2i ? "DB2i_* environment variables" : null,
@@ -361,7 +321,7 @@ export function assertHttpSecurityPosture(parentContext: RequestContext): void {
       "IBM i credentials.",
       "",
       "Resolve with one of:",
-      "  Enable authentication   set MCP_AUTH_MODE, plus MCP_AUTH_SECRET_KEY when using jwt",
+      "  Enable authentication   set MCP_AUTH_MODE=oauth",
       "  Restrict to this host   set MCP_HTTP_HOST=127.0.0.1",
       "  Accept the risk         set MCP_ALLOW_UNAUTHENTICATED_HTTP=true",
       "",

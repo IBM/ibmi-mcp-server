@@ -22,16 +22,8 @@ import { JsonRpcErrorCode } from "@/types-global/errors.js";
 import {
   BaseConnectionPool,
   PoolConnectionConfig,
-  PoolHealth,
   PoolHealthStatus,
 } from "./baseConnectionPool.js";
-
-/**
- * Source health information
- */
-export interface SourceHealth extends PoolHealth {
-  sourceName: string;
-}
 
 /**
  * Multi-source connection manager
@@ -119,7 +111,7 @@ export class SourceManager extends BaseConnectionPool<string> {
         const yamlJdbc = sourceConfig["jdbc-options"] as
           | JDBCOptions
           | undefined;
-        const envJdbc = config.db2i?.jdbcOptions;
+        const envJdbc = config.db2iJdbcOptions;
         const mergedJdbc: JDBCOptions | undefined =
           yamlJdbc || envJdbc
             ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
@@ -170,6 +162,7 @@ export class SourceManager extends BaseConnectionPool<string> {
           healthStatus: "unknown",
           config: poolConfig,
           lastActivityAt: new Date(),
+          inFlight: new Set(),
         });
 
         logger.info(
@@ -213,7 +206,7 @@ export class SourceManager extends BaseConnectionPool<string> {
   /**
    * Execute a SQL query with automatic pagination on a specific source
    * Fetches all available rows via repeated fetchMore calls (bounded by
-   * the base pool's internal safety cap, ~30k rows).
+   * the base pool's safety cap, IBMI_PAGINATION_MAX_ROWS).
    * @param sourceName - Name of the source to query
    * @param query - SQL query string
    * @param params - Query parameters
@@ -236,54 +229,6 @@ export class SourceManager extends BaseConnectionPool<string> {
       fetchSize,
       securityConfig,
     );
-  }
-
-  /**
-   * Check the health of a specific source
-   * @param sourceName - Name of the source to check
-   * @param context - Request context for logging
-   */
-  async checkSourceHealth(
-    sourceName: string,
-    context?: RequestContext,
-  ): Promise<SourceHealth> {
-    const baseHealth = await super.checkPoolHealth(sourceName, context);
-    return {
-      sourceName,
-      ...baseHealth,
-    };
-  }
-
-  /**
-   * Get health status for all registered sources
-   * @param context - Request context for logging
-   */
-  async getAllSourcesHealth(context?: RequestContext): Promise<SourceHealth[]> {
-    const operationContext =
-      context ||
-      requestContextService.createRequestContext({
-        operation: "GetAllSourcesHealth",
-      });
-
-    const healthPromises = Array.from(this.getRegisteredPools()).map(
-      (sourceName) => this.checkSourceHealth(sourceName, operationContext),
-    );
-
-    return Promise.all(healthPromises);
-  }
-
-  /**
-   * Close a specific source's connection pool
-   * @param sourceName - Name of the source to close
-   * @param context - Request context for logging
-   */
-  async closeSource(
-    sourceName: string,
-    context?: RequestContext,
-  ): Promise<void> {
-    await super.closePool(sourceName, context);
-    // Also clean up the source config
-    this.sourceConfigs.delete(sourceName);
   }
 
   /**
@@ -344,13 +289,5 @@ export class SourceManager extends BaseConnectionPool<string> {
     }
 
     return summary;
-  }
-
-  /**
-   * Clear all registered sources (for testing)
-   */
-  clearAllSources(): void {
-    this.clearAllPools();
-    this.sourceConfigs.clear();
   }
 }

@@ -17,6 +17,8 @@ export interface MultiSystemResult {
   data: Record<string, unknown>[];
   rowCount: number;
   elapsedMs: number;
+  /** True when this system had more rows than were returned. */
+  hasMore?: boolean;
   error?: string;
 }
 
@@ -30,7 +32,9 @@ export async function executeMultiSystem(
   systems: ResolvedSystem[],
   action: (
     sourceName: string,
-    mgr: InstanceType<typeof import("@ibm/ibmi-mcp-server/services").SourceManager>,
+    mgr: InstanceType<
+      typeof import("@ibm/ibmi-mcp-server/services").SourceManager
+    >,
     ctx: RequestContext,
   ) => Promise<CommandResult>,
 ): Promise<MultiSystemResult[]> {
@@ -76,6 +80,7 @@ export async function executeMultiSystem(
           data: result.data,
           rowCount: result.data.length,
           elapsedMs: Date.now() - startTime,
+          hasMore: result.meta?.hasMore === true,
         } satisfies MultiSystemResult;
       }),
     );

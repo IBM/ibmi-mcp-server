@@ -75,6 +75,12 @@ The manifests deploy the IBM i MCP Server alongside the optional MCP Context For
 
     <Warning>
     Edit the `.env` file with your actual IBM i credentials before deploying. The file should contain `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS`, and other required variables.
+
+    The pod must bind all interfaces, so also set `MCP_HTTP_HOST=0.0.0.0`, set `MCP_ALLOWED_HOSTS` to the Route hostname, and enable authentication with `MCP_AUTH_MODE=oauth`. Without authentication the server refuses to start unless `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` is set.
+
+    The manifests as shipped fit an [external authorization server](/server-config/oauth-provider) (`MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; SQL runs as the `DB2i_USER` service account). For users signing on with their IBM i user profile, follow [Built-in IBM i Sign-On](#built-in-ibm-i-sign-on) below: it needs three changes to the manifests.
+
+    The Route terminates TLS in front of the pod, so the server sees the router's address unless that address is listed in `MCP_TRUSTED_PROXIES` (see [Finding the router's address](#finding-the-routers-address)). The server then uses the right-most `X-Forwarded-For` entry that is not itself a listed proxy, which is the one the router writes under its default `append` policy and under `replace`. Do not set the Route annotation `haproxy.router.openshift.io/set-forwarded-headers` to `never` or `if-none`: both pass a client's own header through. See [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy).
     </Warning>
   </Step>
 
@@ -119,6 +125,125 @@ The manifests deploy the IBM i MCP Server alongside the optional MCP Context For
 
 ---
 
+## Built-in IBM i Sign-On
+
+With the [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) users type their IBM i password into a page the server serves. The server therefore does not accept plain HTTP on a pod interface, and the shipped Route, which terminates TLS at the router (`edge`) and forwards plain HTTP to the pod, cannot be used. The router is a proxy on another host: it must **re-encrypt**, and the pod must listen with TLS.
+
+<Warning>
+The steps below were written from the server's requirements and OpenShift's documented behaviour. They were not run on a cluster for this release. Check each step on yours.
+</Warning>
+
+<Steps>
+  <Step title="Give the pod a certificate">
+    Let OpenShift's service CA issue one. Add the annotation to `ibmi-mcp-server/ibmi-mcp-server-service.yaml`:
+
+    ```yaml
+    metadata:
+      name: ibmi-mcp-server
+      annotations:
+        service.beta.openshift.io/serving-cert-secret-name: ibmi-mcp-server-tls
+    ```
+
+    OpenShift then creates the Secret `ibmi-mcp-server-tls` with `tls.crt` and `tls.key`.
+  </Step>
+
+  <Step title="Mount it and probe over HTTPS">
+    In `ibmi-mcp-server/ibmi-mcp-server-deployment.yaml`, add the volume and its mount, and `scheme: HTTPS` to both probes:
+
+    ```yaml
+              readinessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 3010
+                  scheme: HTTPS
+              # ...the same for livenessProbe
+              volumeMounts:
+                - name: tls
+                  mountPath: /app/tls
+                  readOnly: true
+          volumes:
+            - name: tls
+              secret:
+                secretName: ibmi-mcp-server-tls
+                defaultMode: 0400
+    ```
+  </Step>
+
+  <Step title="Make the Route re-encrypt">
+    In `ibmi-mcp-server/ibmi-mcp-server-route.yaml`:
+
+    ```yaml
+      tls:
+        termination: reencrypt
+        insecureEdgeTerminationPolicy: Redirect
+    ```
+
+    With no `destinationCACertificate`, the router verifies the pod against the service CA that issued the certificate above. Do not use `passthrough`: the router then adds no `X-Forwarded-For`, and every user appears at the router's address.
+  </Step>
+
+  <Step title="Provide the Mapepire certificate">
+    Put the certificate the server pins (or the CA that issued it) next to the key files, for example `ibmi-mcp-server/secrets/mapepire.crt`, and add it to the `ibmi-mcp-secrets` generator in `ibmi-mcp-server/kustomization.yaml`:
+
+    ```yaml
+      - name: ibmi-mcp-secrets
+        files:
+          - secrets/private.pem
+          - secrets/public.pem
+          - secrets/mapepire.crt
+    ```
+
+    It is then mounted at `/app/secrets/mapepire.crt`.
+  </Step>
+
+  <Step title="Set the environment">
+    In `ibmi-mcp-server/.env`:
+
+    ```bash
+    MCP_HTTP_HOST=0.0.0.0
+    MCP_ALLOWED_HOSTS=ibmi-mcp-server.apps.example.com
+    MCP_TLS_CERT_FILE=/app/tls/tls.crt
+    MCP_TLS_KEY_FILE=/app/tls/tls.key
+    MCP_TRUSTED_PROXIES=10.128.0.0/14   # where the router's connections come from; see below
+
+    MCP_AUTH_MODE=oauth
+    MCP_RESOURCE_URL=https://ibmi-mcp-server.apps.example.com/mcp
+    OAUTH_ADMIN_SOCKET=/tmp/ibmi-mcp-admin.sock
+
+    DB2i_HOST=ibmi.example.com
+    DB2i_SERVER_CERT_FILE=/app/secrets/mapepire.crt
+    ```
+
+    Remove `OAUTH_ISSUER_URL`, `DB2i_USER`, `DB2i_PASS` and `DB2i_IGNORE_UNAUTHORIZED`. `DB2i_PASS` stops startup in this mode, and so does `DB2i_IGNORE_UNAUTHORIZED=true` together with `DB2i_SERVER_CERT_FILE`; without a certificate file it turns verification of the Mapepire certificate off.
+  </Step>
+</Steps>
+
+### Finding the router's address
+
+`MCP_TRUSTED_PROXIES` must cover the source address of the router's connections as the pod sees it. With it unset or wrong, the sign-in page answers that the proxy does not match `MCP_TRUSTED_PROXIES`, because the router sends `X-Forwarded-For`.
+
+```bash
+oc get pods -n openshift-ingress -o wide
+```
+
+lists the router pods and their addresses. When the router runs on the host network, the source address is a node address instead. To see what the server sees, start it once with `MCP_LOG_LEVEL=debug` and `MCP_TRUSTED_PROXIES` unset, request `/.well-known/oauth-protected-resource` through the Route, and read the `rateLimitKey` field (`ip:<address>`) of the `Rate limit check passed.` log record.
+
+Router pod addresses change when the pods are replaced, so a range is more practical than single addresses. Every pod inside a listed range can then write `X-Forwarded-For` to this server; restrict which pods may connect to it with a NetworkPolicy.
+
+### What else changes
+
+- **Who may sign on.** `OAUTH_SIGNON_ALLOWED_CIDRS` is compared with the user's address as the router reports it. Its default covers private address ranges only.
+- **One replica.** The Deployment already runs one. Sign-ons live in that pod's memory: every new rollout, and every pod restart, signs all users out and clears sign-on blocks.
+- **Admin commands** run inside the pod:
+
+  ```bash
+  oc exec deploy/ibmi-mcp-server -- node packages/server/dist/index.js --admin "status"
+  oc exec deploy/ibmi-mcp-server -- node packages/server/dist/index.js --admin "unblock MYUSER"
+  ```
+
+- **Other pods** that call the server directly, such as the MCP Context Forge gateway, must use `https://ibmi-mcp-server.<namespace>.svc:3010` (add that name to `MCP_ALLOWED_HOSTS`) and trust the service CA. A gateway cannot sign on as a person; give unattended callers a separate instance with an external authorization server.
+
+---
+
 ## What Gets Deployed
 
 The Kustomize manifests create the following OpenShift resources:
@@ -131,7 +256,7 @@ The Kustomize manifests create the following OpenShift resources:
 | **ImageStream** | Tracks built images, triggers redeployment |
 | **Deployment** | Runs the MCP server pod |
 | **Service** | Internal cluster networking (port 3010) |
-| **Route** | External TLS-terminated access |
+| **Route** | External access; TLS terminated at the router (`edge`) |
 
 ### Optional Components
 

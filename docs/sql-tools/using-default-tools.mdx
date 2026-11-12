@@ -55,9 +55,6 @@ This command shows all toolsets with descriptions and tool counts.
 Load every YAML file in the `tools/` directory and all subdirectories:
 
 ```bash
-# Set environment variable to allow duplicate sources
-export YAML_ALLOW_DUPLICATE_SOURCES=true
-
 # HTTP transport (recommended for testing)
 npx @ibm/ibmi-mcp-server --transport http --tools ./tools
 
@@ -65,9 +62,9 @@ npx @ibm/ibmi-mcp-server --transport http --tools ./tools
 npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools
 ```
 
-<Warning>
-**Important**: When loading all tools from the directory, you **must** set `YAML_ALLOW_DUPLICATE_SOURCES=true`. Multiple YAML files define the same database sources (e.g., `ibmi-system`), and this setting allows the server to merge them instead of failing with a duplicate source error.
-</Warning>
+<Note>
+Several of these files define the same `ibmi-system` source. The definitions are identical, so the server merges them; `YAML_ALLOW_DUPLICATE_SOURCES` is not needed. `DB2i_HOST`, `DB2i_USER` and `DB2i_PASS` must be set, because the files reference them and an unset variable fails the load.
+</Note>
 
 **Alternative: Use .env file**
 
@@ -75,7 +72,6 @@ Create a `.env` file in your working directory:
 
 ```bash
 # .env
-YAML_ALLOW_DUPLICATE_SOURCES=true
 DB2i_HOST=your-ibmi-system.local
 DB2i_USER=YOURUSERID
 DB2i_PASS=YourPassword
@@ -91,11 +87,11 @@ npx @ibm/ibmi-mcp-server --transport http --tools ./tools
 - Recursively scans `tools/` for all `.yaml` files
 - Loads all tools from all categories
 - Makes every toolset available to AI agents
-- Merges sources, tools, and toolsets across files
-- Allows duplicate source definitions (e.g., `ibmi-system` appears in multiple files)
+- Merges sources, tools, and toolsets across files, in sorted path order
+- Stops if any file fails to parse or validate, naming the file
 
 <Note>
-**Why Duplicate Sources?** Each YAML file is designed to be self-contained with its own source definitions. When loading multiple files, the same database connection (like `ibmi-system`) appears in multiple files. The `YAML_ALLOW_DUPLICATE_SOURCES=true` setting intelligently merges these duplicate definitions.
+**Duplicate sources.** Each YAML file is self-contained with its own source definitions, so the same source (like `ibmi-system`) appears in several files. Identical definitions merge. If two files define one source name **differently**, the load fails and names both files; make them identical, or set `YAML_ALLOW_DUPLICATE_SOURCES=true` to use the last one.
 </Note>
 
 ---
@@ -152,7 +148,6 @@ Target a single YAML file for focused operations:
 - **Clear scope** - Agent sees only relevant tools for the task
 - **Easy debugging** - Isolated tool configuration
 - **Production ready** - Minimal resource usage
-- **No duplicate sources** - Single file = single source definition
 
 ---
 
@@ -173,20 +168,16 @@ This shows toolset names, descriptions, and tool counts to help you choose which
 <Tabs>
   <Tab title="Performance Only">
     ```bash
-    export YAML_ALLOW_DUPLICATE_SOURCES=true
-
     npx @ibm/ibmi-mcp-server \
       --transport http \
       --tools ./tools \
-      --toolsets performance_monitoring
+      --toolsets performance
     ```
 
-    **Result**: Only tools tagged with `performance_monitoring` toolset are loaded, even though all YAML files are scanned.
+    **Result**: Only tools tagged with `performance` toolset are loaded, even though all YAML files are scanned.
   </Tab>
   <Tab title="Security Only">
     ```bash
-    export YAML_ALLOW_DUPLICATE_SOURCES=true
-
     npx @ibm/ibmi-mcp-server \
       --transport http \
       --tools ./tools \
@@ -202,30 +193,27 @@ This shows toolset names, descriptions, and tool counts to help you choose which
 Combine related toolsets for comprehensive operations:
 
 ```bash
-# Required when loading from directory
-export YAML_ALLOW_DUPLICATE_SOURCES=true
-
 # System administration and monitoring
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets performance_monitoring,system_admin
+  --toolsets performance,sysadmin_discovery
 
 # Development workflow
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets developer_tools,sample_data
+  --toolsets developer_tools,employee_information
 
 # Security and compliance
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets security_audit,system_admin
+  --toolsets security_audit,sysadmin_discovery
 ```
 
 <Note>
-**Toolset Names**: Use the exact toolset identifiers from the YAML configurations. Run `--list-toolsets` to see available names.
+**Toolset Names**: Use the exact toolset identifiers from the YAML configurations. Run `--list-toolsets` to see available names. A name that no file defines stops the server at startup with `Unknown toolsets requested: ...`.
 </Note>
 
 ---
@@ -260,22 +248,23 @@ export MCP_HTTP_HOST="127.0.0.1"   # loopback-only; see note below before using 
 export MCP_LOG_LEVEL=debug  # debug | info | warning | error
 
 # Pre-select toolsets at startup
-export SELECTED_TOOLSETS="performance_monitoring,security_audit"
+export SELECTED_TOOLSETS="performance,security_audit"
 
-# YAML configuration (important when loading all tools)
-export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required when loading tools/ directory
+# YAML configuration
 export YAML_ALLOW_DUPLICATE_TOOLS=false   # Prevent accidental tool name conflicts
 ```
 
 <Warning>
 **Binding beyond loopback requires authentication.** The server refuses to start when it is bound to a non-loopback address (`MCP_HTTP_HOST=0.0.0.0`) with IBM i credentials configured and authentication not enforced — otherwise anyone with network reach could execute these SQL tools with your credentials.
 
-To expose the server on a network, set `MCP_AUTH_MODE` (note that `jwt` also needs `MCP_AUTH_SECRET_KEY`, or verification is bypassed) and allowlist the hostname clients use:
+To expose the server on a network, enable [OAuth](/server-config/oauth) and allowlist the hostname clients use:
 
 ```bash
 export MCP_HTTP_HOST="0.0.0.0"
 export MCP_ALLOWED_HOSTS="mcp.mycompany.local"
-export MCP_AUTH_MODE=ibmi
+export MCP_AUTH_MODE=oauth
+export MCP_RESOURCE_URL="https://mcp.mycompany.local/mcp"
+export OAUTH_ISSUER_URL="https://auth.mycompany.local"
 ```
 
 To accept the risk on a trusted network instead, set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` explicitly.
@@ -291,14 +280,11 @@ export DB2i_PASS="DevPassword123"
 export MCP_LOG_LEVEL=debug
 export MCP_HTTP_PORT=3010
 
-# Required when loading all tools from directory
-export YAML_ALLOW_DUPLICATE_SOURCES=true
-
 # Start server with specific toolsets
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets performance_monitoring,developer_tools
+  --toolsets performance,developer_tools
 ```
 
 <Tip>
@@ -309,9 +295,8 @@ DB2i_HOST=ibmi-dev.mycompany.local
 DB2i_USER=DEVUSER
 DB2i_PASS=DevPassword123
 MCP_LOG_LEVEL=debug
-YAML_ALLOW_DUPLICATE_SOURCES=true
 ```
-The server automatically loads environment variables from `.env` files in the current directory.
+The server automatically loads `.env` from the current directory (or the file named by `MCP_SERVER_CONFIG`).
 </Tip>
 
 ---
@@ -365,25 +350,19 @@ npx @ibm/ibmi-mcp-server \
 
 **Start the server:**
 ```bash
-# Allow duplicate sources when loading multiple toolsets
-export YAML_ALLOW_DUPLICATE_SOURCES=true
-
 # Load security and system admin tools
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets security_audit,system_admin
+  --toolsets security_audit,sysadmin_discovery
 ```
 
 <Tabs>
   <Tab title="Test with MCP Inspector">
     ```bash
-    # Set environment variable first
-    export YAML_ALLOW_DUPLICATE_SOURCES=true
-
     # Open MCP Inspector
     npx @modelcontextprotocol/inspector \
-      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets security_audit,system_admin
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets security_audit,sysadmin_discovery
     ```
 
     **In Inspector**: Explore security tools like library list analysis and authority checks.
@@ -407,25 +386,19 @@ npx @ibm/ibmi-mcp-server \
 
 **Start the server:**
 ```bash
-# Allow duplicate sources when loading multiple toolsets
-export YAML_ALLOW_DUPLICATE_SOURCES=true
-
 # Load developer tools and sample data
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets developer_tools,sample_data
+  --toolsets developer_tools,employee_information
 ```
 
 <Tabs>
   <Tab title="Test with MCP Inspector">
     ```bash
-    # Set environment variable first
-    export YAML_ALLOW_DUPLICATE_SOURCES=true
-
     # Open MCP Inspector
     npx @modelcontextprotocol/inspector \
-      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets developer_tools,sample_data
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets developer_tools,employee_information
     ```
 
     **In Inspector**: Test developer tools for object statistics and dependency tracking.
@@ -453,25 +426,23 @@ npx @ibm/ibmi-mcp-server \
 export MCP_LOG_LEVEL=info
 export MCP_HTTP_PORT=8080
 export DB2i_IGNORE_UNAUTHORIZED=false  # Enforce SSL in production
-export YAML_ALLOW_DUPLICATE_SOURCES=true  # Required for directory loading
 
 # Start with performance monitoring only
 npx @ibm/ibmi-mcp-server \
   --transport http \
   --tools ./tools \
-  --toolsets performance_monitoring
+  --toolsets performance
 ```
 
 <Tabs>
   <Tab title="Test with MCP Inspector">
     ```bash
     # Set environment variables
-    export YAML_ALLOW_DUPLICATE_SOURCES=true
     export MCP_LOG_LEVEL=info
 
     # Open MCP Inspector
     npx @modelcontextprotocol/inspector \
-      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets performance_monitoring
+      npx @ibm/ibmi-mcp-server --transport stdio --tools ./tools --toolsets performance
     ```
 
     **In Inspector**: Monitor real-time system performance metrics.
@@ -497,7 +468,7 @@ npx @ibm/ibmi-mcp-server \
 | Option | Alias | Description | Example |
 |--------|-------|-------------|---------|
 | `--tools <path>` | - | Path to YAML tools (file, directory, or glob pattern) | `--tools tools/performance/performance.yaml` |
-| `--toolsets <list>` | `-ts` | Comma-separated list of toolsets to load | `--toolsets performance_monitoring,security_audit` |
+| `--toolsets <list>` | `-ts` | Comma-separated list of toolsets to load | `--toolsets performance,security_audit` |
 | `--transport <type>` | `-t` | Transport protocol: `stdio` or `http` | `--transport http` |
 | `--list-toolsets` | - | Show all available toolsets and exit | `--list-toolsets --tools tools` |
 | `--help` | `-h` | Display help message and exit | `--help` |
@@ -539,7 +510,7 @@ The `--tools` argument accepts multiple formats:
 
 ### No Tools Loaded
 
-**Symptom**: Server starts but no tools are available.
+**Symptom**: Server does not start, or starts with no tools. A tools path that does not exist, a directory without YAML files, an invalid file and an unset `${VAR}` all stop startup with an error that names the path or file.
 
 **Solutions**:
 1. **Verify path exists**:
@@ -556,14 +527,11 @@ The `--tools` argument accepts multiple formats:
    npx @ibm/ibmi-mcp-server --tools /full/path/to/tools
    ```
 
-3. **Check for duplicate source errors**:
-   ```bash
-   # If loading from directory, ensure this is set
-   export YAML_ALLOW_DUPLICATE_SOURCES=true
-   ```
+3. **Check for source errors**:
+   `Source '<name>' is defined differently in <fileA> and <fileB>` means two files disagree about one source. Make the definitions identical, or set `YAML_ALLOW_DUPLICATE_SOURCES=true` to use the last one.
 
 4. **Review server logs**:
-   The server outputs to console when using `--transport http`. Look for YAML parsing errors in the startup output.
+   The startup error is printed on stderr (`Startup failed. Invalid tool configuration in <file>: ...`). With `--transport http` the server also logs to the console.
 
 ---
 
@@ -595,7 +563,7 @@ The `--tools` argument accepts multiple formats:
 
 ### Toolset Not Found
 
-**Symptom**: `--toolsets` specified but tools don't load.
+**Symptom**: The server exits at startup with `Unknown toolsets requested: <names>. Available toolsets: <names>`.
 
 **Solutions**:
 1. **List available toolsets**:
@@ -607,7 +575,7 @@ The `--tools` argument accepts multiple formats:
 
 2. **Check exact toolset names**:
    - Toolset names are case-sensitive
-   - Use underscores, not spaces: `performance_monitoring` not `performance monitoring`
+   - Use underscores, not spaces: `security_audit` not `security audit`
 
 3. **Verify toolset exists in YAML**:
    ```bash
@@ -625,14 +593,12 @@ The `--tools` argument accepts multiple formats:
     - Load all tools: `--tools ./tools` (no toolset filter)
     - Enable debug logging: `MCP_LOG_LEVEL=debug`
     - Allow SSL bypass: `DB2i_IGNORE_UNAUTHORIZED=true`
-    - Set `YAML_ALLOW_DUPLICATE_SOURCES=true` in `.env`
 
     **Production:**
     - Use `--transport stdio` for MCP client integration
-    - Load specific toolsets: `--toolsets performance_monitoring`
+    - Load specific toolsets: `--toolsets performance`
     - Use info logging: `MCP_LOG_LEVEL=info`
     - Enforce SSL: `DB2i_IGNORE_UNAUTHORIZED=false`
-    - Still need `YAML_ALLOW_DUPLICATE_SOURCES=true` if loading from directory
   </Accordion>
 
   <Accordion title="Organize by Access Level">
@@ -640,10 +606,10 @@ The `--tools` argument accepts multiple formats:
 
     ```bash
     # Developer access
-    --toolsets developer_tools,sample_data,system_admin
+    --toolsets developer_tools,employee_information,sysadmin_discovery
 
     # DBA access
-    --toolsets performance_monitoring,security_audit,system_admin
+    --toolsets performance,security_audit,sysadmin_discovery
 
     # Auditor access (read-only)
     --toolsets security_audit

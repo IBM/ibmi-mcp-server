@@ -6,13 +6,12 @@
  * @module src/ibmi-mcp-server/utils/yaml/yamlToolProcessor
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createHash } from "crypto";
-import { watch, FSWatcher, existsSync, statSync, readFileSync } from "fs";
-import { readFile } from "fs/promises";
-import { resolve } from "path";
+import { watch, FSWatcher, readFileSync } from "fs";
+import { dirname, resolve } from "path";
 import { config } from "@/config/index.js";
 import { SourceManager } from "../../services/sourceManager.js";
+import { getAllToolDefinitions } from "../../tools/index.js";
 import { SQLToolFactory } from "./toolFactory.js";
 import { ToolsetManager } from "./toolsetManager.js";
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
@@ -21,16 +20,10 @@ import {
   RequestContext,
 } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
-import {
-  ProcessedSQLTool,
-  CachedToolConfig,
-  ConfigSource,
-  ConfigBuildResult,
-} from "./types.js";
+import { ProcessedSQLTool, CachedToolConfig } from "./types.js";
 import { SqlToolsConfig } from "../../schemas/index.js";
 import { SourceConfig } from "../../schemas/index.js";
 import { ToolConfigBuilder } from "./toolConfigBuilder.js";
-import { createHandlerFromDefinition } from "./toolDefinitions.js";
 
 /**
  * Result of tool processing operation
@@ -63,31 +56,39 @@ export interface ToolProcessingResult {
  * Internally manages all dependencies and complexity, exposing only a simple API.
  */
 export class ToolProcessor {
-  private sourceManager: SourceManager;
+  /**
+   * The pools of the YAML sources. None in built-in OAuth mode: every
+   * statement runs on the caller's own IBM i sign-on, so no source is
+   * registered and no pool exists.
+   */
+  private sourceManager: SourceManager | undefined;
   private toolsetManager: ToolsetManager;
   private isInitialized: boolean = false;
   private yamlConfig: SqlToolsConfig | null = null;
   private processedTools: ProcessedSQLTool[] = [];
+  /** The processed tools that will be registered. */
+  private selectedTools: ProcessedSQLTool[] = [];
   private toolConfigs: CachedToolConfig[] = [];
 
   // File watching capabilities
-  private static changeCallbacks: Map<
-    string,
-    (filePath: string, eventType: string, context?: RequestContext) => void
-  > = new Map();
+  private static changeCallbacks: Map<string, () => unknown> = new Map();
   private static nextCallbackId = 1;
+  /** One watcher per watched directory. */
   private static watchers: Map<string, FSWatcher> = new Map();
-  private static watchedPaths: Set<string> = new Set();
-  /** Debounce timers keyed by watched file path (editors often emit multiple events). */
-  private static reloadDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
-  /** SHA-256 of last observed file content; used to skip no-op reloads. */
-  private static watchedFileHashes: Map<string, string> = new Map();
+  /** The one debounce timer: a burst of file events is one reload. */
+  private static reloadDebounceTimer: NodeJS.Timeout | undefined;
+  /** Reloads run one after another, never concurrently. */
+  private static reloadQueue: Promise<void> = Promise.resolve();
+  /** Hash of the tool files as last loaded; used to skip no-op reloads. */
+  private static loadedFingerprint: string | undefined;
   /** Settle window before hashing/reloading after a filesystem event. */
   private static readonly RELOAD_DEBOUNCE_MS = 300;
 
   constructor() {
     // Initialize internal dependencies
-    this.sourceManager = SourceManager.getInstance();
+    this.sourceManager = config.oauth.builtin
+      ? undefined
+      : SourceManager.getInstance();
     this.toolsetManager = ToolsetManager.getInstance();
   }
 
@@ -120,19 +121,35 @@ export class ToolProcessor {
           );
         }
 
-        // Parse YAML configuration
+        // Parse and check everything before touching the source and toolset
+        // managers: a configuration that is rejected (at startup or on a
+        // reload) must leave the previous one in place. Building the tool
+        // configurations is a check too (an invalid `pattern` fails there),
+        // and the toolset manager checks its references before it replaces
+        // anything.
         this.yamlConfig = await this.parseYamlConfig(operationContext);
-
-        // Register sources with source manager
-        if (this.yamlConfig.sources) {
-          await this.registerSources(this.yamlConfig.sources, operationContext);
-        }
-
-        // Initialize SQL executor
-        SQLToolFactory.initialize(this.sourceManager);
-
-        // Initialize toolset manager
+        this.processedTools = this.processYamlTools(operationContext);
+        this.selectedTools = this.selectTools(operationContext);
+        this.assertNoBuiltinToolNames();
+        this.toolConfigs = await this.createToolConfigurations(
+          this.selectedTools,
+          operationContext,
+        );
         await this.toolsetManager.initialize(this.yamlConfig, operationContext);
+
+        if (this.sourceManager) {
+          // Register sources with source manager
+          if (this.yamlConfig.sources) {
+            await this.registerSources(
+              this.sourceManager,
+              this.yamlConfig.sources,
+              operationContext,
+            );
+          }
+
+          // Initialize SQL executor
+          SQLToolFactory.initialize(this.sourceManager);
+        }
 
         this.isInitialized = true;
         logger.info(
@@ -149,7 +166,7 @@ export class ToolProcessor {
   }
 
   /**
-   * Process YAML tools into standardized configurations
+   * Summarize and log the tool configurations that initialize() built
    * @param context - Request context for logging
    * @returns Tool processing result
    */
@@ -169,41 +186,6 @@ export class ToolProcessor {
           );
         }
 
-        logger.info(
-          operationContext,
-          "Processing YAML tools into configurations",
-        );
-
-        // Process tools from YAML config
-        this.processedTools = await this.processYamlTools(operationContext);
-
-        // Apply toolsets filtering if specified
-        let filteredTools = this.processedTools;
-
-        const selectedToolsets = config.selectedToolsets;
-        if (
-          selectedToolsets &&
-          Array.isArray(selectedToolsets) &&
-          selectedToolsets.length > 0
-        ) {
-          const configBuilder = ToolConfigBuilder.getInstance();
-          filteredTools = configBuilder.filterToolsByToolsets(
-            this.processedTools,
-            selectedToolsets,
-          );
-
-          logger.info(
-            operationContext,
-            `Filtered tools by toolsets [${selectedToolsets.join(", ")}]: ${filteredTools.length}/${this.processedTools.length} tools selected`,
-          );
-        }
-
-        // Create tool configurations
-        this.toolConfigs = await this.createToolConfigurations(
-          filteredTools,
-          operationContext,
-        );
-
         const result: ToolProcessingResult = {
           success: true,
           toolCount: this.toolConfigs.length,
@@ -211,7 +193,7 @@ export class ToolProcessor {
           stats: {
             toolsProcessed: this.processedTools.length,
             sourcesRegistered:
-              this.sourceManager.getRegisteredSources().length,
+              this.sourceManager?.getRegisteredSources().length ?? 0,
             toolsetMappings: this.toolsetManager.getToolsetStats().totalTools,
           },
         };
@@ -232,146 +214,11 @@ export class ToolProcessor {
   }
 
   /**
-   * Register processed tools with MCP server
-   * @param server - MCP server instance
-   * @param context - Request context for logging
-   */
-  async registerWithServer(
-    server: McpServer,
-    context?: RequestContext,
-  ): Promise<void> {
-    const operationContext =
-      context ||
-      requestContextService.createRequestContext({
-        operation: "ToolProcessor.registerWithServer",
-      });
-
-    return ErrorHandler.tryCatch(
-      async () => {
-        // Register YAML-generated tools
-        if (this.toolConfigs.length > 0) {
-          logger.info(
-            operationContext,
-            `Registering ${this.toolConfigs.length} YAML-generated tools with MCP server`,
-          );
-
-          let yamlRegisteredCount = 0;
-          for (const config of this.toolConfigs) {
-            try {
-              const handler = createHandlerFromDefinition(config);
-              server.registerTool(
-                config.name,
-                {
-                  title: config.title,
-                  description: config.description,
-                  inputSchema: config.inputSchema.shape,
-                  outputSchema: config.outputSchema.shape,
-                  annotations: config.annotations,
-                },
-                handler,
-              );
-              yamlRegisteredCount++;
-            } catch (error) {
-              logger.error(
-                operationContext,
-                `Failed to register YAML tool ${config.name}: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
-          }
-
-          logger.info(
-            operationContext,
-            `Successfully registered ${yamlRegisteredCount} YAML-generated tools`,
-          );
-        }
-
-        logger.info(
-          operationContext,
-          `Total tools registered with MCP server: ${this.toolConfigs.length}`,
-        );
-      },
-      {
-        operation: "ToolProcessor.registerWithServer",
-        context: operationContext,
-        errorCode: JsonRpcErrorCode.InternalError,
-      },
-    );
-  }
-
-  /**
    * Get processed tool configurations (for caching)
    * @returns Array of cached tool configurations
    */
   getToolConfigurations(): CachedToolConfig[] {
     return [...this.toolConfigs];
-  }
-
-  /**
-   * Get the YAML configuration
-   * @returns The parsed YAML configuration
-   */
-  getYamlConfig(): SqlToolsConfig | null {
-    return this.yamlConfig;
-  }
-
-  /**
-   * Check if a tool should be registered based on toolsets filtering
-   * @param toolName - Name of the tool to check
-   * @returns Whether the tool should be registered
-   */
-  public shouldRegisterToolPublic(toolName: string): boolean {
-    return this.shouldRegisterTool(toolName);
-  }
-
-  /**
-   * Check if a tool should be registered based on toolsets filtering
-   * @param toolName - Name of the tool to check
-   * @returns Whether the tool should be registered
-   * @private
-   */
-  private shouldRegisterTool(toolName: string): boolean {
-    const selectedToolsets = config.selectedToolsets;
-
-    // If no toolsets filter is applied, register all tools
-    if (!selectedToolsets || selectedToolsets.length === 0) {
-      return true;
-    }
-
-    // Find which toolsets contain this tool
-    if (!this.yamlConfig?.toolsets) {
-      return false;
-    }
-
-    for (const [toolsetName, toolsetConfig] of Object.entries(
-      this.yamlConfig.toolsets,
-    )) {
-      if (
-        toolsetConfig.tools.includes(toolName) &&
-        selectedToolsets.includes(toolsetName)
-      ) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Get processing statistics
-   * @returns Processing statistics
-   */
-  getStats(): {
-    initialized: boolean;
-    toolCount: number;
-    sourceCount: number;
-    toolsetCount: number;
-  } {
-    return {
-      initialized: this.isInitialized,
-      toolCount: this.toolConfigs.length,
-      sourceCount: Object.keys(this.yamlConfig?.sources || {}).length,
-      toolsetCount: Object.keys(this.toolsetManager.getSummary()).length,
-    };
   }
 
   /**
@@ -383,103 +230,111 @@ export class ToolProcessor {
   private async parseYamlConfig(
     context: RequestContext,
   ): Promise<SqlToolsConfig> {
-    const configBuilder = ToolConfigBuilder.getInstance();
-
-    // Configure sources based on configured path
-    const sources = this.buildConfigSources(config.toolsYamlPath!, context);
-
-    // Build configuration using ToolConfigBuilder
-    const configResult = await configBuilder.buildFromSources(
-      sources,
-      undefined,
+    const configResult = await ToolConfigBuilder.fromPath(
+      config.toolsYamlPath!,
       context,
     );
 
-    if (!configResult.success || !configResult.config) {
-      const errorMessage = configResult.errors
-        ? configResult.errors.join(", ")
-        : "Unknown build error";
-      throw new McpError(
-        JsonRpcErrorCode.InvalidParams,
-        `Failed to build YAML configuration: ${errorMessage}`,
-        {
-          toolsYamlPath: config.toolsYamlPath,
-          errors: configResult.errors,
-        },
-      );
-    }
-
-    if (configResult.resolvedFilePaths?.length) {
-      ToolProcessor.startWatching(configResult.resolvedFilePaths, context);
-    }
+    ToolProcessor.startWatching(
+      config.toolsYamlPath!,
+      configResult.resolvedFilePaths,
+    );
 
     return configResult.config;
   }
 
   /**
-   * Build configuration sources based on YAML tools path type
-   * @param yamlToolsPath - Path to YAML tools
+   * Narrow the processed tools to the selected toolsets (`--toolsets`,
+   * `SELECTED_TOOLSETS`), when there is a selection.
    * @param context - Request context
+   * @throws {McpError} when a selected toolset does not exist
    * @private
    */
-  private buildConfigSources(
-    yamlToolsPath: string | string[],
-    context: RequestContext,
-  ): ConfigSource[] {
-    if (Array.isArray(yamlToolsPath)) {
-      return yamlToolsPath.map((path) => ({
-        type: "file" as const,
-        path,
-        required: true,
-      }));
+  private selectTools(context: RequestContext): ProcessedSQLTool[] {
+    const selectedToolsets = config.selectedToolsets;
+    if (!selectedToolsets || selectedToolsets.length === 0) {
+      return this.processedTools;
     }
 
-    const resolvedPath = resolve(yamlToolsPath);
-    if (existsSync(resolvedPath)) {
-      const stats = statSync(resolvedPath);
-      if (stats.isDirectory()) {
-        logger.debug(context, `Detected directory path: ${yamlToolsPath}`);
-        return [{ type: "directory", path: yamlToolsPath, required: true }];
-      } else {
-        logger.debug(context, `Detected file path: ${yamlToolsPath}`);
-        return [{ type: "file", path: yamlToolsPath, required: true }];
-      }
-    } else {
-      // Path doesn't exist, treat as file (ToolConfigBuilder will validate appropriately)
-      return [{ type: "file", path: yamlToolsPath, required: true }];
+    const availableToolsets = Object.keys(this.yamlConfig?.toolsets || {});
+    const unknownToolsets = selectedToolsets.filter(
+      (name) => !availableToolsets.includes(name),
+    );
+    if (unknownToolsets.length > 0) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        `Unknown toolsets requested: ${unknownToolsets.join(", ")}. Available toolsets: ${availableToolsets.join(", ")}`,
+      );
+    }
+
+    const selectedTools = ToolConfigBuilder.getInstance().filterToolsByToolsets(
+      this.processedTools,
+      selectedToolsets,
+    );
+
+    logger.info(
+      context,
+      `Filtered tools by toolsets [${selectedToolsets.join(", ")}]: ${selectedTools.length}/${this.processedTools.length} tools selected`,
+    );
+
+    return selectedTools;
+  }
+
+  /**
+   * A YAML tool must not take the name of a built-in tool that is registered
+   * with the current settings.
+   * @throws {McpError} naming the tools at fault
+   * @private
+   */
+  private assertNoBuiltinToolNames(): void {
+    const builtinNames = getAllToolDefinitions()
+      .filter(({ enabled = true }) =>
+        typeof enabled === "function" ? enabled() : enabled,
+      )
+      .map((tool) => tool.name);
+    const collisions = this.selectedTools
+      .map((tool) => tool.name)
+      .filter((name) => builtinNames.includes(name));
+
+    if (collisions.length > 0) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        collisions
+          .map(
+            (name) =>
+              `YAML tool '${name}' has the same name as the built-in tool '${name}'.`,
+          )
+          .join(" ") + " Rename the YAML tool or leave the built-in tool off.",
+      );
     }
   }
 
   /**
    * Register sources from YAML configuration
+   * @param sourceManager - Where the sources are registered
    * @param sources - Source configurations
    * @param context - Request context
    * @private
    */
   private async registerSources(
+    sourceManager: SourceManager,
     sources: Record<string, SourceConfig>,
     context: RequestContext,
   ): Promise<void> {
     logger.info(context, `Registering ${Object.keys(sources).length} sources`);
 
     for (const [sourceName, sourceConfig] of Object.entries(sources)) {
-      await this.sourceManager.registerSource(
-        sourceName,
-        sourceConfig,
-        context,
-      );
+      await sourceManager.registerSource(sourceName, sourceConfig, context);
     }
   }
 
   /**
    * Process tools from YAML configuration
-   * @param _context - Request context
+   * @param context - Request context
    * @returns Array of processed tools
    * @private
    */
-  private async processYamlTools(
-    _context: RequestContext,
-  ): Promise<ProcessedSQLTool[]> {
+  private processYamlTools(context: RequestContext): ProcessedSQLTool[] {
     const processedTools: ProcessedSQLTool[] = [];
 
     if (!this.yamlConfig?.tools) {
@@ -489,6 +344,11 @@ export class ToolProcessor {
     for (const [toolName, toolConfig] of Object.entries(
       this.yamlConfig.tools,
     )) {
+      if (toolConfig.enabled === false) {
+        logger.debug(context, `Skipping disabled tool: ${toolName}`);
+        continue;
+      }
+
       const sourceConfig = this.yamlConfig.sources?.[toolConfig.source];
       if (!sourceConfig) {
         throw new McpError(
@@ -538,7 +398,6 @@ export class ToolProcessor {
     processedTools: ProcessedSQLTool[],
     context: RequestContext,
   ): Promise<CachedToolConfig[]> {
-    const { ToolConfigBuilder } = await import("./toolConfigBuilder.js");
     const configBuilder = ToolConfigBuilder.getInstance();
 
     const toolConfigs: CachedToolConfig[] = [];
@@ -557,99 +416,67 @@ export class ToolProcessor {
     return toolConfigs;
   }
 
-  /**
-   * Clear all data and reset (for testing)
-   */
-  clearAll(): void {
-    this.sourceManager.clearAllSources();
-    this.toolsetManager.clearAll();
-    this.isInitialized = false;
-    this.yamlConfig = null;
-    this.processedTools = [];
-    this.toolConfigs = [];
-  }
-
   // ============================================================================
-  // Simplified File Watching (moved from YamlConfigBuilder)
+  // File watching
+  //
+  // Directories are watched, not files: a directory watcher survives atomic
+  // saves (write a temp file, rename it over the original) and reports files
+  // that are added or removed.
   // ============================================================================
 
   /**
-   * Register a callback to be called when YAML configuration files change
-   * @param callback - Function to call when files change
+   * Register a callback to be called when the YAML tool files have changed
+   * @param callback - Function to call; the next reload waits for it to settle
    * @returns Callback ID for unregistering
    */
-  static registerChangeCallback(
-    callback: (
-      filePath: string,
-      eventType: string,
-      context?: RequestContext,
-    ) => void,
-  ): string {
+  static registerChangeCallback(callback: () => unknown): string {
     const id = `callback_${ToolProcessor.nextCallbackId++}`;
     ToolProcessor.changeCallbacks.set(id, callback);
     return id;
   }
 
-  /**
-   * Unregister a change callback
-   * @param callbackId - ID returned from registerChangeCallback
-   * @returns True if callback was found and removed
-   */
-  static unregisterChangeCallback(callbackId: string): boolean {
-    return ToolProcessor.changeCallbacks.delete(callbackId);
+  /** SHA-256 over the paths and contents of the tool files. */
+  private static fingerprint(filePaths: string[]): string {
+    const hash = createHash("sha256");
+    for (const filePath of filePaths) {
+      hash.update(filePath).update("\0").update(readFileSync(filePath));
+    }
+    return hash.digest("hex");
   }
 
   /**
-   * Get the number of registered change callbacks
-   * @returns Number of registered callbacks
+   * Run the change callbacks, unless the tools path still resolves to the
+   * same files with the same content.
    */
-  static getCallbackCount(): number {
-    return ToolProcessor.changeCallbacks.size;
-  }
-
-  /** SHA-256 hash of YAML file contents for change detection. */
-  private static hashFileContent(content: Buffer | string): string {
-    return createHash("sha256").update(content).digest("hex");
-  }
-
-  /**
-   * After debounce, skip reload when file content is unchanged; otherwise notify.
-   */
-  private static async handleWatchedFileChange(
-    filePath: string,
-    eventType: string,
-    context?: RequestContext,
-  ): Promise<void> {
-    const logContext = context || {};
-
+  private static async reloadIfChanged(toolsPath: string): Promise<void> {
+    let fingerprint: string | undefined;
     try {
-      const content = await readFile(filePath);
-      const hash = ToolProcessor.hashFileContent(content);
-      const previous = ToolProcessor.watchedFileHashes.get(filePath);
-      if (previous === hash) {
-        logger.debug(
-          logContext,
-          `YAML file unchanged (content hash match), skipping reload: ${filePath}`,
-        );
-        return;
-      }
-      ToolProcessor.watchedFileHashes.set(filePath, hash);
-    } catch (error) {
-      logger.warning(
-        logContext,
-        `Could not hash YAML file for change detection: ${filePath}. ${error instanceof Error ? error.message : String(error)}`,
+      fingerprint = ToolProcessor.fingerprint(
+        ToolConfigBuilder.getInstance().resolveToolsPath(toolsPath),
       );
+    } catch {
+      // The path no longer resolves (its file was removed, say). That is a
+      // change; the reload reports what is wrong.
+    }
+    // Nothing is logged for a no-op: the log may be in a watched directory.
+    if (fingerprint === ToolProcessor.loadedFingerprint) {
       return;
     }
+    ToolProcessor.loadedFingerprint = fingerprint;
 
-    logger.info(logContext, `YAML file changed (${eventType}): ${filePath}`);
+    // Each reload is its own operation in the log.
+    const context = requestContextService.createRequestContext({
+      operation: "YamlToolFilesChanged",
+      toolsPath,
+    });
+    logger.info(context, `YAML tool files changed: ${toolsPath}`);
 
     for (const callback of ToolProcessor.changeCallbacks.values()) {
       try {
-        callback(filePath, eventType, context);
+        await callback();
       } catch (error) {
         logger.error(
-          logContext,
+          context,
           `Error in YAML change callback: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
@@ -657,59 +484,72 @@ export class ToolProcessor {
   }
 
   /**
-   * Start watching YAML configuration files for changes
-   * @param filePaths - Array of file paths to watch
-   * @param context - Request context for logging
+   * Watch the directories that hold the YAML tool files. Called after every
+   * successful load, so the watched directories follow the loaded files.
+   * @param toolsPath - The configured tools path (file, directory or glob)
+   * @param filePaths - The files it resolved to
    */
-  static startWatching(filePaths: string[], context?: RequestContext): void {
+  static startWatching(toolsPath: string, filePaths: string[]): void {
     if (!config.yamlAutoReload) {
       return;
     }
 
-    for (const filePath of filePaths) {
-      if (ToolProcessor.watchedPaths.has(filePath)) {
-        continue; // Already watching this path
+    try {
+      ToolProcessor.loadedFingerprint = ToolProcessor.fingerprint(filePaths);
+    } catch {
+      // Best-effort; the first event establishes the baseline.
+    }
+
+    // A directory source is watched as a whole, so that files added anywhere
+    // under it are seen. For a file or a glob, the directories of its files.
+    const recursive =
+      ToolConfigBuilder.sourceForPath(toolsPath).type === "directory";
+    const directories = new Set(
+      recursive ? [resolve(toolsPath)] : filePaths.map((file) => dirname(file)),
+    );
+
+    for (const [directory, watcher] of ToolProcessor.watchers) {
+      if (!directories.has(directory)) {
+        watcher.close();
+        ToolProcessor.watchers.delete(directory);
+      }
+    }
+
+    for (const directory of directories) {
+      if (ToolProcessor.watchers.has(directory)) {
+        continue;
       }
 
       try {
-        // Seed hash so the first no-op save after watch starts is skipped.
-        try {
-          const initial = readFileSync(filePath);
-          ToolProcessor.watchedFileHashes.set(
-            filePath,
-            ToolProcessor.hashFileContent(initial),
+        const watcher = watch(
+          directory,
+          { persistent: false, recursive },
+          () => {
+            clearTimeout(ToolProcessor.reloadDebounceTimer);
+            ToolProcessor.reloadDebounceTimer = setTimeout(() => {
+              ToolProcessor.reloadQueue = ToolProcessor.reloadQueue.then(() =>
+                ToolProcessor.reloadIfChanged(toolsPath),
+              );
+            }, ToolProcessor.RELOAD_DEBOUNCE_MS);
+          },
+        );
+        // Without a listener, a watcher error (the directory was removed)
+        // would be an uncaught exception.
+        watcher.on("error", (error) => {
+          logger.warning(
+            {},
+            `Stopped watching YAML directory: ${directory}. ${error.message}`,
           );
-        } catch {
-          // Best-effort; first readable event establishes the baseline.
-        }
-
-        const watcher = watch(filePath, { persistent: false }, (eventType) => {
-          const existingTimer =
-            ToolProcessor.reloadDebounceTimers.get(filePath);
-          if (existingTimer) {
-            clearTimeout(existingTimer);
-          }
-
-          const timer = setTimeout(() => {
-            ToolProcessor.reloadDebounceTimers.delete(filePath);
-            void ToolProcessor.handleWatchedFileChange(
-              filePath,
-              eventType,
-              context,
-            );
-          }, ToolProcessor.RELOAD_DEBOUNCE_MS);
-
-          ToolProcessor.reloadDebounceTimers.set(filePath, timer);
+          watcher.close();
+          ToolProcessor.watchers.delete(directory);
         });
+        ToolProcessor.watchers.set(directory, watcher);
 
-        ToolProcessor.watchers.set(filePath, watcher);
-        ToolProcessor.watchedPaths.add(filePath);
-
-        logger.debug(context || {}, `Started watching YAML file: ${filePath}`);
+        logger.debug({}, `Started watching YAML directory: ${directory}`);
       } catch (error) {
         logger.warning(
-          context || {},
-          `Failed to watch YAML file: ${filePath}. ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          `Failed to watch YAML directory: ${directory}. ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -719,11 +559,8 @@ export class ToolProcessor {
    * Stop watching all files and clear watchers
    */
   static clearWatchers(): void {
-    for (const timer of ToolProcessor.reloadDebounceTimers.values()) {
-      clearTimeout(timer);
-    }
-    ToolProcessor.reloadDebounceTimers.clear();
-    ToolProcessor.watchedFileHashes.clear();
+    clearTimeout(ToolProcessor.reloadDebounceTimer);
+    ToolProcessor.loadedFingerprint = undefined;
 
     for (const watcher of ToolProcessor.watchers.values()) {
       try {
@@ -733,37 +570,6 @@ export class ToolProcessor {
       }
     }
     ToolProcessor.watchers.clear();
-    ToolProcessor.watchedPaths.clear();
     ToolProcessor.changeCallbacks.clear();
-  }
-
-  // Static factory methods for convenience (replaces YamlConfigBuilder static methods)
-  static async fromFile(
-    filePath: string,
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    return ToolConfigBuilder.fromFile(filePath, context);
-  }
-
-  static async fromFiles(
-    filePaths: string[],
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    return ToolConfigBuilder.fromFiles(filePaths, context);
-  }
-
-  static async fromDirectory(
-    directoryPath: string,
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    return ToolConfigBuilder.fromDirectory(directoryPath, context);
-  }
-
-  static async fromGlob(
-    pattern: string,
-    baseDir?: string,
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    return ToolConfigBuilder.fromGlob(pattern, baseDir, context);
   }
 }

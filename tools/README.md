@@ -82,7 +82,7 @@ This directory contains pre-built tool configurations organized by category:
 | [**performance/**](performance/) | Performance Monitoring | System performance metrics and resource utilization | System status, active jobs, memory pools, HTTP server stats |
 | [**developer/**](developer/) | Development Tools | Object statistics and dependency analysis for developers | Recently used objects, stale object detection, dependency tracking |
 
-> **💡 Quick Start:** Use `--list-toolsets` to see all available toolsets:
+> **💡 Quick Start:** Use `--list-toolsets` to see all available toolsets. The files in this directory share one identical `ibmi-system` source definition, which the server merges. Listing needs no connection settings; to start the server with these files, `DB2i_HOST`, `DB2i_USER` and `DB2i_PASS` must be set, because the files reference them:
 > ```bash
 > npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools
 > ```
@@ -98,7 +98,15 @@ The `sources` section defines database connection details. Each source includes:
 - `port`: Database port (default: 8076)
 - `ignore-unauthorized`: Whether to ignore SSL certificate errors
 
-> `host`, `user`, and `password` are REQUIRED for each source.
+> `host`, `user`, and `password` are REQUIRED for each source. Besides the keys above a source accepts only `jdbc-options`; any other key is an error.
+
+Rules the server applies when it loads tool files:
+
+- **`${VAR}`** is replaced after the YAML is parsed, inside string values only (not in keys or comments). There is no default-value syntax. A referenced variable that is not set fails the load: `environment variable(s) not set: DB2i_HOST` (`--list-toolsets` lists without it). Because the result is always a string, `ignore-unauthorized` must be written as `true` or `false`, not as `${VAR}`.
+- **Unknown keys are errors** in the root, `sources`, `tools`, `parameters`, `security` and `toolsets` (for example `Unrecognized key: "prot"`). `jdbc-options`, `annotations` and `metadata` accept extra keys.
+- **The same source in several files** merges when the definitions are identical. Different definitions are an error naming both files, unless `YAML_ALLOW_DUPLICATE_SOURCES=true` (the last file in sorted path order then wins).
+- **Loading is all-or-nothing.** One file that fails to parse or validate stops the server (`Invalid tool configuration in <file>: <problems>`). On auto-reload the error is logged and the previous tools stay.
+- **`--tools` / `TOOLS_YAML_PATH`** take a file, a directory (searched recursively) or a glob pattern such as `'tools/**/*.yaml'`.
 
 Example:
 ```yaml
@@ -117,10 +125,10 @@ sources:
 The `tools` section defines the actions that your agent can take. you can configure what system that the tool runs against, the SQL query to execute, parameters, security settings, etc.
 
 Each tools requires:
-- `name`: Unique tool name
+- `name`: Unique tool name. It must not be the name of an enabled built-in tool (`describe_sql_object`; `execute_sql` with `--execute-sql`; `list_schemas`, `list_tables_in_schema`, `get_table_columns`, `get_related_objects`, `validate_query` with `--builtin-tools`), or the server refuses to start
 - `source`: Source to use for database connection
 - `description`: Description of the tool's purpose
-- `statement`: SQL statement to execute
+- `statement`: SQL statement to execute. Required and must not be blank
 
 Optional fields:
 - `enabled`: Whether the tool should be registered (default: `true`)
@@ -265,7 +273,7 @@ parameters:
     maxLength: 10
 ```
 
-**Example 4: String with Enum Values** *(from object-statistics-dev.yaml)*
+**Example 4: String with Enum Values**
 ```yaml
 parameters:
   - name: sql_object_type
@@ -530,6 +538,12 @@ statement: |
   ORDER BY library_name
 ```
 
+**Binding rules:**
+- An omitted optional parameter without a `default` binds SQL `NULL`, so the pattern above works. A parameter with a `default` is never `NULL`.
+- Use named markers (`:name`) only. A statement that mixes `:name` and `?` is rejected when the file is loaded.
+- A `:name` in the statement that has no value is an error: `No value for parameter ':<name>'`.
+- An array parameter must contain at least one value. Each occurrence expands to one marker per element, so use it only inside `IN (...)`; `:list IS NULL` does not work for arrays.
+
 **Using Default Values:**
 ```yaml
 parameters:
@@ -546,7 +560,7 @@ parameters:
 
 ### Complete Parameter Examples
 
-#### Example 1: Recently Used Objects *(from object-statistics-dev.yaml)*
+#### Example 1: Recently Used Objects
 
 ```yaml
 tools:
@@ -661,7 +675,7 @@ SQL tools support configurable output formatting to optimize readability and con
 
 The output formatting system provides:
 - **Multiple table styles** for different display contexts
-- **Type-aware column alignment** (numeric right-aligned, text left-aligned)
+- **Column type indicators** in the headers
 - **NULL value handling** with configurable replacements
 - **Row truncation** with clear truncation indicators
 - **Metadata display** including execution time, row counts, and NULL statistics
@@ -771,17 +785,17 @@ GitHub-flavored markdown table format with column type indicators. Best for docu
 
 **Characteristics:**
 - Uses `|` for column separators
-- Includes `---` header separator with alignment indicators
+- Includes a `---` header separator
 - Column headers include type information: `EMPLOYEE_ID (INTEGER)`
-- Numeric columns automatically right-aligned
+- All columns are left-aligned
 - Most readable in markdown renderers
 
 **Example:**
 ```markdown
 | EMPLOYEE_ID (INTEGER) | FIRST_NAME (VARCHAR) | SALARY (DECIMAL) |
-|----------------------:|:---------------------|------------------:|
-|                000010 | John                 |         75000.00 |
-|                000020 | Alice                |         82500.00 |
+| --------------------- | -------------------- | ---------------- |
+| 000010                | John                 | 75000.00         |
+| 000020                | Alice                | 82500.00         |
 ```
 
 **Use Cases:**
@@ -996,18 +1010,14 @@ tools:
 
 #### Column Type Awareness
 
-Columns are automatically aligned based on database types:
-- **Right-aligned:** INTEGER, DECIMAL, FLOAT, NUMERIC (all numeric types)
-- **Left-aligned:** VARCHAR, CHAR, DATE, TIME, TIMESTAMP (text and temporal types)
-
-Column headers include type information: `SALARY (DECIMAL)`
+Column headers include type information: `SALARY (DECIMAL)`. All columns are left-aligned.
 
 **Example Output:**
 
 ```markdown
-| EMPNO (INTEGER) | FIRSTNME (VARCHAR) |  SALARY (DECIMAL) |
-|----------------:|:-------------------|------------------:|
-|          000010 | John               |          75000.00 |
+| EMPNO (INTEGER) | FIRSTNME (VARCHAR) | SALARY (DECIMAL) |
+| --------------- | ------------------ | ---------------- |
+| 000010          | John               | 75000.00         |
 ```
 
 #### NULL Value Handling

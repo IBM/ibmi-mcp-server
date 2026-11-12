@@ -2,6 +2,8 @@
  * @fileoverview Token management system for IBM i HTTP authentication.
  * Handles secure token generation, validation, and lifecycle management.
  *
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  * @module src/ibmi-mcp-server/auth/tokenManager
  */
 

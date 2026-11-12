@@ -4,10 +4,10 @@
  * and logic in a consistent, self-contained format, aligned with MCP specifications.
  * @module src/mcp-server/tools/utils/toolDefinition
  */
-import {
+import type {
   CallToolResult,
-  type ContentBlock,
-} from "@modelcontextprotocol/sdk/types.js";
+  ContentBlock,
+} from "@modelcontextprotocol/server";
 import { z, type ZodObject, type ZodRawShape } from "zod";
 
 import type { RequestContext } from "@/utils/index.js";
@@ -31,7 +31,6 @@ import {
 import {
   markdown,
   tableFormatter,
-  buildColumnAlignmentMap,
   formatColumnHeader,
   type TableStyle,
 } from "@/utils/formatting/index.js";
@@ -247,9 +246,6 @@ export function sqlResponseFormatter(
     formatColumnHeader(col.label || col.name, col.type),
   );
 
-  // Build column alignment map based on types
-  const alignment = buildColumnAlignmentMap(allColumns);
-
   // Convert data rows to string arrays
   const rows = displayRows.map((row) =>
     allColumns.map((col) => {
@@ -262,7 +258,6 @@ export function sqlResponseFormatter(
   // Format table with metadata tracking
   const tableResult = tableFormatter.formatRawWithMetadata(headers, rows, {
     style: tableFormat,
-    alignment,
     nullReplacement: "-",
     maxWidth: 50,
     truncate: true,
@@ -341,12 +336,8 @@ export function createHandlerFromDefinition<
   TInputSchema extends ZodObject<ZodRawShape>,
   TOutputSchema extends ZodObject<ZodRawShape>,
 >(definition: ToolDefinition<TInputSchema, TOutputSchema>) {
-  return async (
-    rawParams: unknown,
-    mcpContext: Record<string, unknown>,
-  ): Promise<CallToolResult> => {
+  return async (rawParams: unknown): Promise<CallToolResult> => {
     const handlerContext = requestContextService.createRequestContext({
-      parentContext: mcpContext,
       operation: `tool:${definition.name}`,
       toolName: definition.name,
     });

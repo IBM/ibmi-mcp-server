@@ -8,11 +8,11 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQueryWithPagination } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -103,7 +103,9 @@ export async function getTableColumnsLogic(
   `.trim();
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // Paginate: a single fetch returns at most 100 rows (mapepire default),
+    // which would silently drop columns of wide tables.
+    const result = await executeQueryWithPagination(
       sql,
       [params.schema_name, params.table_name],
       appContext,

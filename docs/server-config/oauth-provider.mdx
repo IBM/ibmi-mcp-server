@@ -1,0 +1,95 @@
+---
+title: "Use Your Identity Provider"
+description: "Accept access tokens from your OAuth or OpenID Connect provider. All SQL runs as one service account."
+---
+
+Let's connect the MCP server to the identity provider your company already uses, so people sign in with their company login. The server only checks the tokens. Your provider runs the sign-in.
+
+In this example the provider's issuer is `https://auth.example.com`, the server is `https://mcp.example.com/mcp`, and the service account is `MCPSVC`.
+
+<Warning>
+Every person's SQL runs as the `DB2i_USER` service account. The token says who is calling, but it never reaches the IBM i. Give `MCPSVC` only the authority that everyone who can sign in may use. To run SQL as each person, use [IBM i sign-on](/server-config/oauth-ibmi-signon) instead.
+</Warning>
+
+## What you need
+
+- An OAuth 2.1 or OpenID Connect provider that issues **JWT** access tokens signed with an asymmetric algorithm (RS256, ES256, EdDSA, …).
+- A service account profile on the IBM i.
+- HTTPS in front of the server: a reverse proxy, or the server's own certificate (`MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE`).
+
+## Register the server with your provider
+
+In your provider's admin console:
+
+- Register an API (resource) with the identifier `https://mcp.example.com/mcp`, so tokens carry it in their `aud` claim.
+- Optionally create a scope such as `mcp:tools` and grant it to the people allowed to use the server.
+- Turn on a client registration method your assistants support: dynamic client registration, or Client ID Metadata Documents.
+
+## Find the issuer
+
+The server compares the issuer character for character. Read it from the provider's metadata:
+
+```bash
+curl -s https://auth.example.com/.well-known/openid-configuration | jq .issuer
+```
+
+Copy the value exactly, including any trailing slash.
+
+## Configure the server
+
+Create `.env`:
+
+```bash .env
+MCP_TRANSPORT_TYPE=http
+MCP_AUTH_MODE=oauth
+MCP_RESOURCE_URL=https://mcp.example.com/mcp
+MCP_ALLOWED_HOSTS=mcp.example.com
+OAUTH_ISSUER_URL=https://auth.example.com
+OAUTH_REQUIRED_SCOPES=mcp:tools
+
+DB2i_HOST=ibmi.example.com
+DB2i_USER=MCPSVC
+DB2i_PASS=...
+```
+
+Behind a proxy, also set `MCP_TRUSTED_PROXIES` to the proxy's address. If your provider can't put the resource URL in `aud`, set `OAUTH_AUDIENCE` to the value it uses.
+
+Start the server:
+
+```bash
+npx -y @ibm/ibmi-mcp-server@latest
+```
+
+The log shows `OAuth authentication enabled.`
+
+## Check it works
+
+Call the server without a token:
+
+```bash
+curl -i -X POST https://mcp.example.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+You get `401 Unauthorized` with a `WWW-Authenticate: Bearer … resource_metadata="…"` header. That header is what tells assistants where to sign in.
+
+Now add `https://mcp.example.com/mcp` to an [assistant](/clients/overview). It opens your provider's sign-in page on first use.
+
+## Good to know
+
+- **JWT access tokens only.** Opaque tokens and token introspection aren't supported.
+- **One provider per server.** Scopes apply to the whole server, not per tool.
+- **Clocks must agree.** The server allows no clock skew when it checks a token's expiry.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Reference" icon="list" href="/server-config/oauth-reference#identity-provider-settings">
+    Every setting and the token rules.
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/server-config/oauth-troubleshooting">
+    Token and startup errors.
+  </Card>
+</CardGroup>

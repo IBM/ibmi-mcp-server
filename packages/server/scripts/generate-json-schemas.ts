@@ -9,66 +9,71 @@
  * @see {@link https://github.com/redhat-developer/vscode-yaml} YAML Language Server
  */
 
-import { writeFileSync } from "fs";
+import { realpathSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import type { ZodSchema } from "zod";
+import { fileURLToPath, pathToFileURL } from "url";
+import { z } from "zod";
 import { SqlToolsConfigSchema } from "../src/ibmi-mcp-server/schemas/config.js";
 
 // Get current directory for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Define output directory
-const OUTPUT_DIR = join(
-  __dirname,
-  "..",
-  "src",
-  "ibmi-mcp-server",
-  "schemas",
-  "json",
-);
+// Output directories: the server's schema folder and the tool-builder skill's
+// bundled copy, which must stay identical.
+const OUTPUT_DIRS = [
+  join(__dirname, "..", "src", "ibmi-mcp-server", "schemas", "json"),
+  join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "skills",
+    "ibmi-mcp-tool-builder",
+    "assets",
+  ),
+];
+
+/**
+ * Converts a Zod schema to the JSON Schema document written to disk
+ * @param zodSchema - The Zod schema to convert
+ * @param fileName - Output file name (without extension), used in the `$id`
+ */
+export function buildJsonSchema(
+  zodSchema: z.ZodType,
+  fileName: string,
+): Record<string, unknown> {
+  // Convert Zod schema to JSON Schema (draft-07, as YAML is authored)
+  const jsonSchema = z.toJSONSchema(zodSchema, {
+    target: "draft-7",
+    io: "input",
+  });
+
+  // Add schema metadata for YAML Language Server
+  return {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    $id: `https://github.com/IBM/ibmi-mcp-server.git/src/ibmi-mcp-server/schemas/json/${fileName}.json`,
+    ...jsonSchema,
+  };
+}
 
 /**
  * Generates JSON schema from Zod schema and writes to file
  * @param zodSchema - The Zod schema to convert
  * @param fileName - Output file name (without extension)
- * @param title - Schema title for JSON Schema metadata
- * @param description - Schema description for JSON Schema metadata
  */
-function generateJsonSchema(
-  zodSchema: ZodSchema,
-  fileName: string,
-  title: string,
-  _description: string,
-): void {
+function generateJsonSchema(zodSchema: z.ZodType, fileName: string): void {
   console.log(`Generating JSON schema for ${fileName}...`);
 
   try {
-    // Convert Zod schema to JSON Schema
-    const jsonSchema = zodToJsonSchema(zodSchema, {
-      name: title,
-      $refStrategy: "root",
-      target: "jsonSchema7",
-      strictUnions: true,
-      definitions: {},
-    });
+    const content =
+      JSON.stringify(buildJsonSchema(zodSchema, fileName), null, 2) + "\n";
 
-    // Add schema metadata for YAML Language Server
-    // NOTE: We don't add additionalProperties or type at root level when there's a $ref
-    // because those constraints should be in the referenced definition, not at the root
-    const enhancedSchema = {
-      $schema: "http://json-schema.org/draft-07/schema#",
-      $id: `https://github.com/IBM/ibmi-mcp-server.git/src/ibmi-mcp-server/schemas/json/${fileName}.json`,
-      ...jsonSchema,
-    };
-
-    // Write to file
-    const outputPath = join(OUTPUT_DIR, `${fileName}.json`);
-    writeFileSync(outputPath, JSON.stringify(enhancedSchema, null, 2), "utf8");
-
-    console.log(`✓ Generated: ${outputPath}`);
+    for (const outputDir of OUTPUT_DIRS) {
+      const outputPath = join(outputDir, `${fileName}.json`);
+      writeFileSync(outputPath, content, "utf8");
+      console.log(`✓ Generated: ${outputPath}`);
+    }
   } catch (error) {
     console.error(`✗ Failed to generate ${fileName}:`, error);
     process.exit(1);
@@ -82,12 +87,7 @@ function main(): void {
   console.log("Starting JSON schema generation...\n");
 
   // Generate schema for YAML tool configuration files
-  generateJsonSchema(
-    SqlToolsConfigSchema,
-    "sql-tools-config",
-    "IBM i MCP Server SQL Tools Configuration",
-    "JSON Schema for IBM i MCP Server YAML configuration files defining SQL tools, sources, and toolsets",
-  );
+  generateJsonSchema(SqlToolsConfigSchema, "sql-tools-config");
 
   console.log("\n✓ All JSON schemas generated successfully!");
   console.log("\nTo associate these schemas with YAML files in VS Code:");
@@ -95,7 +95,7 @@ function main(): void {
   console.log("2. Add to your VS Code settings.json:");
   console.log(`{
   "yaml.schemas": {
-    "./src/ibmi-mcp-server/schemas/json/sql-tools-config.json": [
+    "./packages/server/src/ibmi-mcp-server/schemas/json/sql-tools-config.json": [
       "tools/*.yaml",
       "tools/*.yml",
       "configs/*.yaml",
@@ -105,7 +105,11 @@ function main(): void {
 }`);
 }
 
-// Execute the script
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Execute only when run as a script (not when imported by tests).
+// import.meta.url is percent-encoded and symlink-resolved; argv[1] is neither.
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
   main();
 }

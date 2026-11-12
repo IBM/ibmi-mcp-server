@@ -31,7 +31,7 @@ ibmi system add dev --host myhost.com --user MYUSER --password '${DB2i_PASS}'
 ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE FETCH FIRST 5 ROWS ONLY"
 
 # Run a YAML-defined tool
-ibmi tool system_status --tools ../tools/work-management.yaml
+ibmi tool system_status --tools ../../tools/performance/performance.yaml
 ```
 
 ---
@@ -45,9 +45,9 @@ These apply to every command:
 | `--system <name>` | Target a specific configured system |
 | `--format <type>` | `table`, `json`, `csv`, or `markdown` |
 | `--raw` | Shorthand for `--format json` |
-| `--stream` | NDJSON output (one JSON object per line) |
-| `--output <path>` | Write output to a file instead of stdout |
-| `--watch <seconds>` | Re-run command at interval (Ctrl+C to stop) |
+| `--stream` | NDJSON output (one JSON object per line); implies JSON unless `--format` is given |
+| `--output <path>` | Write output to a file instead of stdout (commands that query a system: `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe`, `validate`) |
+| `--watch <seconds>` | Re-run command at interval (Ctrl+C to stop); same commands as `--output`. With `--output`, the file is rewritten after every run |
 | `--tools <path>` | Path to YAML tool file(s), comma-separated |
 | `--no-color` | Disable colored output |
 
@@ -78,8 +78,11 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --watch 5
 | `--limit <n>` | Max rows returned | system `maxRows` (5000) |
 | `--read-only` / `--no-read-only` | Enforce or disable read-only mode | `--read-only` |
 | `--dry-run` | Print SQL without executing (no connection needed) | — |
+| `--yes` | Skip the prompt for systems with `confirm: true` | — |
 
 SQL source priority: positional argument > `--file` > piped stdin.
+
+**Row limit.** The limit is `--limit`, otherwise the system's `maxRows`. For a `SELECT`, `WITH` or `VALUES` statement the CLI appends `FETCH FIRST n ROWS ONLY`, unless the statement contains a comment, already has `FETCH FIRST`/`LIMIT`/`OFFSET`, or ends in a clause such as `FOR READ ONLY` or `WITH UR`. In every case the returned rows are cut to the limit. When rows were dropped, `meta.hasMore` is `true` and the table footer says `(limited to N rows — raise --limit for more)`.
 
 #### Multi-system execution
 
@@ -91,7 +94,9 @@ ibmi sql "SELECT JOB_NAME FROM TABLE(QSYS2.ACTIVE_JOB_INFO())" --system dev,prod
 ibmi sql "SELECT * FROM QSYS2.SYSTEM_STATUS_INFO" --system dev,prod --stream
 ```
 
-Each row includes a `SYSTEM` column. JSON output includes a `systems` array with per-system row counts, timing, and errors. If one system is unreachable, its results appear as an error row without affecting the others. `--watch` is not supported with multiple systems.
+Each row includes a `SYSTEM` column. JSON output includes a `systems` array with per-system row counts, timing, and errors. If one system is unreachable, its results appear as an error row without affecting the others, and the command exits with code `1`. A system whose result was cut at the row limit has `"hasMore": true` in its `systems` entry and `(truncated)` in the table footer. `--watch` is not supported with multiple systems.
+
+If any target system has `confirm: true`, the CLI asks once for all of them (`Execute on [dev, prod]? (y/N)`). Without a terminal it does not run: pass `--yes`, or the command fails with exit code `2`.
 
 ### `ibmi describe <objects>` — Generate DDL
 
@@ -108,17 +113,17 @@ ibmi describe "SYSCOLUMNS" --type VIEW          # defaults library to QSYS2
 |--------|-------------|---------|
 | `--type <type>` | Object type (`TABLE`, `VIEW`, `INDEX`, `PROCEDURE`, `FUNCTION`, etc.) | `TABLE` |
 
-Objects are specified as `LIBRARY.OBJECT` or just `OBJECT` (defaults to `QSYS2`). When describing multiple objects, each is queried independently — a failure on one produces an `ERROR:` row without crashing.
+Objects are specified as `LIBRARY.OBJECT` or just `OBJECT` (defaults to `QSYS2`). When describing multiple objects, each is queried independently — a failure on one produces an `ERROR:` row without crashing. The command exits with code `3` only when every object failed.
 
 ### `ibmi tool <name>` — Run a YAML Tool
 
 ```bash
-ibmi tool system_status --tools ../tools/work-management.yaml
-ibmi tool get_table_data --schema SAMPLE --table EMPLOYEE --tools ../tools/custom.yaml
-ibmi tool list_jobs --dry-run --tools ../tools/work-management.yaml
+ibmi tool system_status --tools ../../tools/performance/performance.yaml
+ibmi tool get_table_data --schema SAMPLE --table EMPLOYEE --tools ./custom.yaml
+ibmi tool active_job_info --dry-run --tools ../../tools/performance/performance.yaml
 ```
 
-Each YAML tool's parameters become CLI flags automatically (`snake_case` → `--kebab-case`).
+Each YAML tool's parameters become CLI flags automatically (`snake_case` → `--kebab-case`). A flag the tool does not define, a flag missing its value, or a value of the wrong type is rejected with exit code `2` (usage error) before any connection is made.
 
 | Option | Description |
 |--------|-------------|
@@ -129,15 +134,15 @@ Requires `--tools` to specify the YAML file(s).
 ### `ibmi tools` — List Available Tools
 
 ```bash
-ibmi tools --tools ../tools/                          # list all tools
-ibmi tools --toolset work_management --tools ../tools/ # filter by toolset
-ibmi tools show system_status --tools ../tools/        # show tool details
+ibmi tools --tools ../../tools/                          # list all tools
+ibmi tools --toolset performance --tools ../../tools/     # filter by toolset
+ibmi tools show system_status --tools ../../tools/        # show tool details
 ```
 
 ### `ibmi toolsets` — List Toolsets
 
 ```bash
-ibmi toolsets --tools ../tools/
+ibmi toolsets --tools ../../tools/
 ```
 
 ### `ibmi system` — Manage Connections
@@ -146,11 +151,20 @@ ibmi toolsets --tools ../tools/
 ibmi system list                          # list all configured systems
 ibmi system show dev                      # show system details
 ibmi system add dev --host h --user u     # add (prompts for missing fields)
+ibmi system add prod --host h --user u --verify-tls   # verify the TLS certificate
 ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity (live)
 ibmi system test --all                    # test all systems
 ibmi system config-path                   # show config file locations
+```
+
+`system add` does not verify the server's TLS certificate unless `--verify-tls` is given (it stores `ignoreUnauthorized: false`). `system show` reports this as `verifyTls`, and `system list` as the `VERIFY_TLS` column.
+
+### `ibmi config show` — Inspect Configuration
+
+```bash
+ibmi config show                          # merged config with the origin of each setting
 ```
 
 ### `ibmi schemas` — List Schemas
@@ -186,6 +200,8 @@ ibmi related SAMPLE EMPLOYEE --type INDEX
 ```bash
 ibmi validate "SELECT * FROM SAMPLE.EMPLOYEE"
 ```
+
+Exits with code `3` when the syntax or table check is `FAIL`.
 
 ### `ibmi completion [shell]` — Shell Completions
 
@@ -239,6 +255,8 @@ systems:
 
 `${VAR}` references are expanded from environment variables at load time.
 
+The CLI writes the user config file `~/.ibmi/config.yaml` with mode `0600` (owner read/write only), because it can hold plaintext passwords.
+
 ### System Resolution Order
 
 When a command needs a system connection, the CLI resolves it in this order:
@@ -270,6 +288,8 @@ When a command needs a system connection, the CLI resolves it in this order:
 [dev] myhost.com · 1 row · 0.25s
 ```
 
+Columns are as wide as their longest value; cell values are not truncated. For wide results use `--format json` or `--format csv`.
+
 ### JSON (default for pipes)
 
 ```json
@@ -297,6 +317,8 @@ SCHEMA_NAME,TYPE
 MYLIB,USER
 ```
 
+Object and array values are written as JSON text.
+
 ### JSON Error
 
 ```json
@@ -318,6 +340,33 @@ MYLIB,USER
 | `3` | QUERY | SQL execution error |
 | `4` | SECURITY | Read-only violation, forbidden operation |
 | `5` | AUTH | Authentication failure |
+
+How the code is chosen, in order: a usage error is always `2`; a network or TLS failure (`ECONNREFUSED`, a certificate error, ...) is `1` `CONNECTION_ERROR`; then the SQLSTATE the database reports decides (class `08` is a connection error, class `28` is `5`, any other is `3`); then the server's error code (read-only and forbidden-statement violations are `4`). The message text is only a fallback. A SQL error that merely mentions a word such as `AUTHORS` or `PASSWORD_HASH` is `3`, not `5`.
+
+Commands that report instead of failing still set an exit code:
+
+- `ibmi validate` exits `3` when a check is `FAIL`. The report is still printed, with `"ok": true` in JSON.
+- `ibmi describe` exits `3` when DDL generation failed for every object. A partial failure exits `0`.
+- `ibmi sql --system a,b` exits `1` when any system failed.
+
+---
+
+## Upgrading
+
+Changes in behaviour since 0.6.x:
+
+| Changed | What to do |
+|---------|------------|
+| Node.js | Node.js 22.17 or later is required. |
+| Exit codes | Derived from the SQLSTATE or error code before the message text. SQL errors that mention words like `AUTHORS` or "not authorized" now exit `3` instead of `5`; read-only violations exit `4` instead of `1`. |
+| `ibmi validate`, `ibmi describe` | `validate` exits `3` on a `FAIL` check, and `describe` exits `3` when every object failed (both were `0`). A malformed object reference in `describe` exits `2`. |
+| Multi-system `ibmi sql` | Exits `1` when any system fails (was `0`). Honours `confirm: true`: it asks once, and without a terminal it needs `--yes`. |
+| Row limit | `--limit` / `maxRows` is always applied to the returned rows. `FETCH FIRST` is no longer appended to statements where it would be invalid. |
+| `--watch` with `--output` | The file is rewritten after every run instead of being written once on Ctrl+C. |
+| `ibmi tool` | Honours `--watch`; `--dry-run` honours `--output`. |
+| Tables | Cell values are no longer truncated at 50 characters. |
+| CSV | Object and array values are written as JSON instead of `[object Object]`. |
+| `.env` lookup | Only `.env` in the working directory (or the file named by `MCP_SERVER_CONFIG`) is loaded; `../.env` is not. |
 
 ---
 
@@ -373,6 +422,8 @@ ibmi tool my_report --schema SAMPLE --dry-run --tools ./tools.yaml
 ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output /tmp/employees.csv
 ```
 
+With `--watch`, the file is rewritten after every run.
+
 ### Watch for Monitoring
 
 ```bash
@@ -385,13 +436,15 @@ ibmi sql "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS = 'RUN'"
 
 ```
 packages/cli/src/
-├── index.ts                   # Program setup, global options, command registration
+├── index.ts                   # Executable entry point (the `ibmi` bin): parses argv
+├── program.ts                 # Program setup, global options, command registration
 ├── commands/
 │   ├── sql.ts                 # ibmi sql — direct SQL execution (+ multi-system)
 │   ├── describe.ts            # ibmi describe — DDL generation
 │   ├── tool.ts                # ibmi tool — YAML tool execution
 │   ├── tools-list.ts          # ibmi tools / toolsets — tool discovery
 │   ├── system.ts              # ibmi system — connection management
+│   ├── config.ts              # ibmi config show — active configuration with origins
 │   ├── schemas.ts             # ibmi schemas
 │   ├── tables.ts              # ibmi tables
 │   ├── columns.ts             # ibmi columns

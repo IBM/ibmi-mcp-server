@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program.js";
 
 describe("ibmi schemas command", () => {
   afterEach(() => {
@@ -18,29 +18,21 @@ describe("ibmi schemas command", () => {
   it("should have --filter option", () => {
     const program = createProgram();
     const schemas = program.commands.find((c) => c.name() === "schemas");
-    const filterOpt = schemas?.options.find(
-      (o) => o.long === "--filter",
-    );
+    const filterOpt = schemas?.options.find((o) => o.long === "--filter");
     expect(filterOpt).toBeDefined();
   });
 
   it("should have --system-schemas option", () => {
     const program = createProgram();
     const schemas = program.commands.find((c) => c.name() === "schemas");
-    const sysOpt = schemas?.options.find(
-      (o) => o.long === "--system-schemas",
-    );
+    const sysOpt = schemas?.options.find((o) => o.long === "--system-schemas");
     expect(sysOpt).toBeDefined();
   });
 
   it("should have --limit and --offset options", () => {
     const program = createProgram();
     const schemas = program.commands.find((c) => c.name() === "schemas");
-    expect(
-      schemas?.options.find((o) => o.long === "--limit"),
-    ).toBeDefined();
-    expect(
-      schemas?.options.find((o) => o.long === "--offset"),
-    ).toBeDefined();
+    expect(schemas?.options.find((o) => o.long === "--limit")).toBeDefined();
+    expect(schemas?.options.find((o) => o.long === "--offset")).toBeDefined();
   });
 });

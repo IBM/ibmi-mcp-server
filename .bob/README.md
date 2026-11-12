@@ -20,7 +20,8 @@ Or create a file named `mcp.json` in this `.bob/` directory with the following s
     "ibmi-mcp-server": {
       "command": "npx",
       "args": [
-        "ibmi-mcp-server"
+        "-y",
+        "@ibm/ibmi-mcp-server@latest"
       ],
       "cwd": "${workspaceFolder}",
       "env": {
@@ -63,15 +64,9 @@ export DB2i_PORT="8076"
 
 **Security Note**: Environment variables keep credentials out of configuration files. The `mcp.json` file is gitignored to avoid committing sensitive data.
 
-### 3. Install the Server Package (If Using npx)
+### 3. Server Package
 
-The template uses `npx @ibm/ibmi-mcp-server` which requires the package to be installed:
-
-```bash
-cd ibmi-mcp-server
-npm install
-npm run build
-```
+The template uses `npx -y @ibm/ibmi-mcp-server@latest`, which downloads the published package from npm on first run. No local build is required.
 
 ## Using Bob to Create Tools
 
@@ -96,7 +91,7 @@ The `mcp.json` includes two MCP servers:
 1. **`ibmi-mcp-server`**: Your local development server
    - Executes SQL queries against your IBM i system
    - Loads tools from `TOOLS_YAML_PATH` (default: `.bob/tools/services-tools.yaml`)
-   - Uses `npx @ibm/ibmi-mcp-server` to run the server
+   - Uses `npx -y @ibm/ibmi-mcp-server@latest` to run the server
    - Set `"disabled": false` to enable (or `true` to disable)
 
 2. **`ibmi-mcp-docs`**: Live documentation server (experimental)

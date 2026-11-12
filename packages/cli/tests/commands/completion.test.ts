@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program.js";
 
 describe("ibmi completion command", () => {
   it("should register the completion command", () => {
@@ -47,6 +47,8 @@ describe("ibmi completion command", () => {
       const output = writes.join("");
       expect(output).toContain("#compdef ibmi");
       expect(output).toContain("_ibmi");
+      // Registers itself when sourced via eval "$(ibmi completion zsh)"
+      expect(output).toContain("compdef _ibmi ibmi");
     } finally {
       process.stdout.write = original;
     }
@@ -82,12 +84,7 @@ describe("ibmi completion command", () => {
     try {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync([
-        "node",
-        "ibmi",
-        "completion",
-        "powershell",
-      ]);
+      await program.parseAsync(["node", "ibmi", "completion", "powershell"]);
       expect(stderrWrites.join("")).toContain("Unknown shell");
     } finally {
       process.stderr.write = original;

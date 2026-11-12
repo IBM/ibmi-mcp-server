@@ -34,8 +34,7 @@ function buildLegacySystemConfig(): SystemConfig | null {
     confirm: false,
     timeout: 60,
     maxRows: 5000,
-    ignoreUnauthorized:
-      process.env["DB2i_IGNORE_UNAUTHORIZED"] !== "false",
+    ignoreUnauthorized: process.env["DB2i_IGNORE_UNAUTHORIZED"] !== "false",
   };
 }
 
@@ -135,7 +134,5 @@ export function resolveSystems(
     return [resolveSystem(systemFlag, config)];
   }
   const cfg = config ?? loadConfig();
-  return systemFlag
-    .split(",")
-    .map((name) => resolveSystem(name.trim(), cfg));
+  return systemFlag.split(",").map((name) => resolveSystem(name.trim(), cfg));
 }

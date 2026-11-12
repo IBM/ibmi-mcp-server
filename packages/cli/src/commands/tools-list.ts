@@ -26,7 +26,7 @@ import { ExitCode } from "../utils/exit-codes.js";
 
 /**
  * Resolve the --tools paths from command options.
- * Falls back to the default tools/ directory relative to the package root.
+ * Returns an empty list when --tools is not set (there is no default path).
  */
 function resolveToolsPaths(cmd: Command): string[] {
   const opts = cmd.optsWithGlobals();
@@ -87,7 +87,10 @@ export function registerToolsCommand(program: Command): void {
           TOOLSET: toolsets.join(", ") || "-",
           DESCRIPTION: tool.description,
           PARAMS: tool.parameters.length,
-          READ_ONLY: tool.security?.readOnly ?? tool.annotations?.["readOnlyHint"] ?? true,
+          READ_ONLY:
+            tool.security?.readOnly ??
+            tool.annotations?.["readOnlyHint"] ??
+            true,
         });
       }
 
@@ -103,10 +106,7 @@ export function registerToolsCommand(program: Command): void {
 
       renderOutput(rows, format, { rowCount: rows.length });
     } catch (err) {
-      renderError(
-        err instanceof Error ? err : new Error(String(err)),
-        format,
-      );
+      renderError(err instanceof Error ? err : new Error(String(err)), format);
       process.exitCode = ExitCode.GENERAL;
     }
   });
@@ -208,7 +208,8 @@ function formatParameter(p: YamlToolParameter): string {
   parts.push(`(${p.type})`);
 
   if (p.required) parts.push("[required]");
-  if (p.default !== undefined) parts.push(`default: ${JSON.stringify(p.default)}`);
+  if (p.default !== undefined)
+    parts.push(`default: ${JSON.stringify(p.default)}`);
   if (p.enum && p.enum.length > 0) {
     parts.push(`choices: ${p.enum.join(", ")}`);
   }

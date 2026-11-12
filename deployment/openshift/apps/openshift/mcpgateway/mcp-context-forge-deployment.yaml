@@ -19,7 +19,7 @@ spec:
           ports:
             - containerPort: 4444
           envFrom:
-            - configMapRef:
+            - secretRef:
                 name: mcp-context-forge-env
           readinessProbe:
             httpGet:

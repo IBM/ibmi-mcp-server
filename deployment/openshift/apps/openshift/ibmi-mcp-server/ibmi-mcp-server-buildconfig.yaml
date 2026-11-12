@@ -10,11 +10,15 @@ spec:
       name: 'ibmi-mcp-server:latest'
   strategy:
     type: Docker
+    dockerStrategy:
+      # The build context is the repo root (npm workspaces share the root
+      # package-lock.json); the Dockerfile lives in the server package.
+      dockerfilePath: packages/server/Dockerfile
   source:
     type: Git
     git:
       uri: "https://github.com/IBM/ibmi-mcp-server.git"
       ref: main
-    contextDir: server
+    contextDir: /
   triggers:
     - type: ConfigChange

@@ -4,7 +4,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
-    globals: true,
     environment: "node",
     setupFiles: ["./tests/setup.ts"],
     testTimeout: 15000,
@@ -12,15 +11,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json", "html"],
       include: ["src/**/*.ts"],
-      exclude: [
-        "src/index.ts",
-        "src/agent/cli/boot.ts",
-        "src/types-global/**",
-        "**/*.d.ts",
-        "**/index.ts",
-        "src/mcp-server/resources/**",
-        "src/mcp-client/client-config/mcp-config.json.example",
-      ],
+      exclude: ["src/index.ts", "src/types-global/**", "**/*.d.ts"],
     },
     dir: "tests",
   },

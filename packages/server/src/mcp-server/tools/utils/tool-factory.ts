@@ -9,11 +9,11 @@
  */
 
 import { z, ZodObject } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
+  McpServer,
   CallToolResult,
   ContentBlock,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../../types-global/errors.js";
 import {
   ErrorHandler,
@@ -21,10 +21,6 @@ import {
   measureToolExecution,
   type RequestContext,
 } from "../../../utils/index.js";
-import {
-  logOperationStart,
-  logOperationSuccess,
-} from "../../../utils/internal/logging-helpers.js";
 import type {
   ToolDefinition,
   ToolAnnotations,
@@ -108,24 +104,15 @@ export function createHandler<TInput, TOutput>(
     sdkContext: SdkContext,
   ) => Promise<TOutput>,
   responseFormatter: ResponseFormatter<TOutput> = defaultResponseFormatter as ResponseFormatter<TOutput>,
-): (input: TInput, extra: unknown) => Promise<CallToolResult> {
+): (input: TInput, sdkContext: SdkContext) => Promise<CallToolResult> {
   return async (
     input: TInput,
-    callContext: unknown,
+    sdkContext: SdkContext,
   ): Promise<CallToolResult> => {
-    // Cast the SDK context to our specific SdkContext type
-    const sdkContext = callContext as SdkContext;
-
-    const sessionId =
-      typeof sdkContext?.sessionId === "string"
-        ? sdkContext.sessionId
-        : undefined;
-
     // Create the application's internal logger/tracing context
     const appContext = requestContextService.createRequestContext({
-      parentContext: sdkContext,
       operation: "HandleToolRequest",
-      additionalContext: { toolName, sessionId, input },
+      additionalContext: { toolName, input },
     });
 
     try {
@@ -135,9 +122,15 @@ export function createHandler<TInput, TOutput>(
         input,
       );
 
+      // The built-in tools report a failure in their result
+      // ({ success: false, error }) instead of throwing.
+      const failed =
+        (result as { success?: unknown } | null)?.success === false;
+
       return {
         structuredContent: result as Record<string, unknown>,
         content: responseFormatter(result),
+        ...(failed && { isError: true }),
       };
     } catch (error: unknown) {
       const mcpError = ErrorHandler.handleError(error, {
@@ -198,8 +191,6 @@ export async function registerToolFromDefinition(
     toolName: toolDef.name,
   });
 
-  logOperationStart(registrationContext, `Registering tool: '${toolDef.name}'`);
-
   await ErrorHandler.tryCatch(
     async () => {
       // Check if tool is enabled
@@ -211,10 +202,6 @@ export async function registerToolFromDefinition(
             : toolDef.enabled;
 
       if (!enabled) {
-        logOperationSuccess(
-          registrationContext,
-          `Tool '${toolDef.name}' is disabled, skipping registration`,
-        );
         return;
       }
 
@@ -232,34 +219,20 @@ export async function registerToolFromDefinition(
         openWorldHint: toolDef.annotations?.openWorldHint ?? false,
       };
 
-      // Use custom formatter or default
-      const responseFormatter =
-        toolDef.responseFormatter || defaultResponseFormatter;
-
-      // Create handler using the factory
-      const handler = createHandler(
-        toolDef.name,
-        toolDef.logic,
-        responseFormatter,
-      );
-
-      // Register with MCP server
-      // Use .shape to extract raw schema like YAML tools do
       server.registerTool(
         toolDef.name,
         {
           title,
           description: toolDef.description,
-          inputSchema: toolDef.inputSchema.shape,
-          outputSchema: toolDef.outputSchema.shape,
+          inputSchema: toolDef.inputSchema,
+          outputSchema: toolDef.outputSchema,
           annotations,
         },
-        handler,
-      );
-
-      logOperationSuccess(
-        registrationContext,
-        `Tool '${toolDef.name}' registered successfully`,
+        createHandler(
+          toolDef.name,
+          toolDef.logic,
+          toolDef.responseFormatter || defaultResponseFormatter,
+        ),
       );
     },
     {

@@ -5,14 +5,9 @@
 
 import type { IncomingMessage, ServerResponse } from "http";
 
-/**
- * Extends Hono's Bindings to include the raw Node.js request and response objects.
- * This is necessary for integrating with libraries like the MCP SDK that
- * need to write directly to the response stream.
- *
- * As per `@hono/node-server`, the response object is available on `c.env.outgoing`.
- */
+/** The raw Node.js request and response `@hono/node-server` puts on `c.env`. */
 export type HonoNodeBindings = {
   incoming: IncomingMessage;
-  outgoing: ServerResponse;
+  /** Absent for a request made in process (`app.request`). */
+  outgoing?: ServerResponse;
 };

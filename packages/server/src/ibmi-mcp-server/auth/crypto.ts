@@ -1,5 +1,7 @@
 /**
  * @fileoverview Helpers for decrypting IBM i auth envelopes and exposing server key metadata.
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  */
 
 import { readFileSync } from "fs";
@@ -110,10 +112,12 @@ function decryptPayload(
       );
     }
 
+    // Pin the tag length: without it Node accepts truncated GCM tags.
     const decipher = createDecipheriv(
       "aes-256-gcm",
       sessionKey,
       Buffer.from(iv, "base64"),
+      { authTagLength: 16 },
     );
     decipher.setAuthTag(Buffer.from(authTag, "base64"));
 

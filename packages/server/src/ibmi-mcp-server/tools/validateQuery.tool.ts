@@ -10,11 +10,11 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQueryWithPagination } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -211,7 +211,7 @@ async function validateTables(
 
   const sql = `SELECT TABLE_SCHEMA, TABLE_NAME FROM QSYS2.SYSTABLES WHERE (TABLE_SCHEMA, TABLE_NAME) IN (VALUES ${valuesPlaceholders})`;
 
-  const result = await IBMiConnectionPool.executeQuery(sql, params, context);
+  const result = await executeQueryWithPagination(sql, params, context);
   const rows = (result.data as Record<string, unknown>[]) ?? [];
 
   const existingSet = new Set(
@@ -260,7 +260,7 @@ async function validateColumns(
   // and table-function-backed views like QSYS2.OBJECT_PRIVILEGES
   const sql = `SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM QSYS2.SYSCOLUMNS WHERE (TABLE_SCHEMA, TABLE_NAME) IN (VALUES ${tableValuesPlaceholders}) AND COLUMN_NAME IN (${columnPlaceholders})`;
 
-  const result = await IBMiConnectionPool.executeQuery(sql, params, context);
+  const result = await executeQueryWithPagination(sql, params, context);
   const rows = (result.data as Record<string, unknown>[]) ?? [];
 
   // Build lookup: column name → set of "SCHEMA.TABLE" where it exists
@@ -327,7 +327,7 @@ async function validateRoutines(
   // Use DISTINCT because a routine name may have multiple overloads in SYSROUTINES
   const sql = `SELECT DISTINCT ROUTINE_SCHEMA, ROUTINE_NAME FROM QSYS2.SYSROUTINES WHERE (ROUTINE_SCHEMA, ROUTINE_NAME) IN (VALUES ${valuesPlaceholders})`;
 
-  const result = await IBMiConnectionPool.executeQuery(sql, params, context);
+  const result = await executeQueryWithPagination(sql, params, context);
   const rows = (result.data as Record<string, unknown>[]) ?? [];
 
   const existingSet = new Set(
@@ -378,7 +378,10 @@ export async function validateQueryLogic(
   `.trim();
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // All catalog/parse queries in this tool paginate: a single fetch returns
+    // at most 100 rows (mapepire default), which would silently drop
+    // references in statements that name many objects.
+    const result = await executeQueryWithPagination(
       sql,
       [params.sql_statement],
       appContext,
@@ -419,9 +422,7 @@ export async function validateQueryLogic(
               (c) => !c.schema || !c.tableName,
             );
             if (skipped.length > 0) {
-              skippedColumns = [
-                ...new Set(skipped.map((c) => c.columnName)),
-              ];
+              skippedColumns = [...new Set(skipped.map((c) => c.columnName))];
             }
           }
 

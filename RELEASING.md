@@ -450,24 +450,16 @@ If you get permission errors:
 
 ## Pre-Release Versions
 
-To create beta, alpha, or release candidate versions:
+The release scripts do not make pre-releases (alpha, beta, release candidate). Do not run `standard-version --prerelease` directly: it commits and tags before `scripts/sync-workspace-versions.mjs` has copied the version into `packages/*/package.json`, so the tag would carry the old package versions and the publish workflow would skip them. To make one by hand, run the same three steps the scripts do, without their commit:
 
 ```bash
-
-# Create pre-release version
-standard-version --prerelease alpha
-# Creates: 0.2.0-alpha.0
-
-# Subsequent pre-releases
-standard-version --prerelease alpha
-# Creates: 0.2.0-alpha.1
-
-# Graduate to stable
-npm run release
-# Creates: 0.2.0
+npx standard-version --skip.commit --skip.tag --prerelease alpha   # 0.2.0-alpha.0
+node scripts/sync-workspace-versions.mjs
+git diff                                                           # review
+npm run release:finalize                                           # commit, tag, push
 ```
 
-Push with `git push --follow-tags origin main` as usual.
+The publish workflow runs on every `v*` tag, including pre-release tags, and publishes a version that contains `-` under the npm dist-tag `next` instead of `latest`. Install one with `npm install @ibm/ibmi-mcp-server@next`.
 
 ## Release Checklist
 
@@ -509,11 +501,7 @@ Push with `git push --follow-tags origin main` as usual.
 The initial release (v0.1.0) uses a special command:
 
 ```bash
-# From root directory (recommended)
-npm run release:first
-
-# OR from server directory
-
+# From root directory
 npm run release:first
 ```
 
@@ -574,7 +562,7 @@ GitHub releases are created **manually** after npm publishing completes. This gi
 
 **Important:** Do **NOT** run `npm publish` manually. Publishing happens automatically via GitHub Actions when you push a release tag.
 
-The workflow (`npm run release` → `git push --follow-tags`) triggers GitHub Actions, which:
+The workflow (`npm run release:prepare` → `npm run release:finalize`, which pushes the release commit and tag) triggers GitHub Actions, which:
 1. Runs all validation (typecheck, lint, test)
 2. Builds the package
 3. **Publishes to npm automatically**

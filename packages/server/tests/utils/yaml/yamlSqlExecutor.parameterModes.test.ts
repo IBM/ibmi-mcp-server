@@ -8,11 +8,6 @@ import { describe, it, expect, beforeEach, vi, Mock } from "vitest";
 // Mock the SourceManager BEFORE importing anything that depends on it
 vi.mock("../../../src/ibmi-mcp-server/services/sourceManager.js");
 
-// Mock the scheduling module to prevent scheduler instantiation
-vi.mock("../../../src/utils/scheduling/index.js", () => ({
-  schedulerService: vi.fn(),
-}));
-
 import { SQLToolFactory } from "../../../src/ibmi-mcp-server/utils/config/toolFactory.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
 import { SqlToolParameter } from "../../../src/ibmi-mcp-server/schemas/index.js";
@@ -374,7 +369,7 @@ describe("SQLToolFactory - Parameter Binding", () => {
 
       // Verify all parameters are properly bound
       const [, processedSql, bindingParams] =
-        mockSourceManager.executeQuery.mock.calls[0];
+        mockSourceManager.executeQuery.mock.calls[0]!;
       expect(processedSql).toContain("WHERE entry_timestamp >= ?");
       expect(processedSql).toContain("AND entry_timestamp <= ?");
       expect(processedSql).toContain("AND user_name = ?");
@@ -455,38 +450,29 @@ describe("SQLToolFactory - Parameter Binding", () => {
   });
 
   describe("Hybrid Parameter Mode", () => {
-    it("should handle mix of named and positional parameters", async () => {
-      // This would be a malformed query in real usage, but tests the hybrid mode detection
+    it("should reject a mix of named and positional parameters", async () => {
       const sql =
         "SELECT * FROM users WHERE name = :username AND age > ? AND active = :active";
       const parameters = {
         username: "john_doe",
         active: true,
-        // Missing positional parameter should be handled gracefully
       };
       const parameterDefinitions: SqlToolParameter[] = [
         { name: "username", type: "string", required: true },
         { name: "active", type: "boolean", required: true },
       ];
 
-      const result = await SQLToolFactory.executeStatementWithParameters(
-        "hybrid_test",
-        "test_source",
-        sql,
-        parameters,
-        parameterDefinitions,
-        testContext,
-      );
-
-      expect(result.data).toBeDefined();
-
-      // Verify named parameters were converted to positional
-      const [, processedSql, bindingParams] =
-        mockSourceManager.executeQuery.mock.calls[0];
-      expect(processedSql).toContain(
-        "WHERE name = ? AND age > ? AND active = ?",
-      );
-      expect(bindingParams).toEqual(["john_doe", 1]); // Only the named params that were available
+      await expect(
+        SQLToolFactory.executeStatementWithParameters(
+          "hybrid_test",
+          "test_source",
+          sql,
+          parameters,
+          parameterDefinitions,
+          testContext,
+        ),
+      ).rejects.toThrow(/mixes named \(:name\) and positional \(\?\)/);
+      expect(mockSourceManager.executeQuery).not.toHaveBeenCalled();
     });
 
     it("should handle hybrid mode with template detection", async () => {
@@ -591,7 +577,7 @@ describe("SQLToolFactory - Parameter Binding", () => {
 
       // Should only replace actual parameters, not quoted strings
       const [, processedSql, bindingParams] =
-        mockSourceManager.executeQuery.mock.calls[0];
+        mockSourceManager.executeQuery.mock.calls[0]!;
       expect(processedSql).toBe(
         "SELECT * FROM users WHERE name = ? AND description LIKE '%:not_a_param%'",
       );
@@ -621,7 +607,7 @@ describe("SQLToolFactory - Parameter Binding", () => {
 
       // Should replace both instances with the same value
       const [, processedSql, bindingParams] =
-        mockSourceManager.executeQuery.mock.calls[0];
+        mockSourceManager.executeQuery.mock.calls[0]!;
       expect(processedSql).toBe(
         "SELECT * FROM users WHERE name = ? OR email = ?",
       );

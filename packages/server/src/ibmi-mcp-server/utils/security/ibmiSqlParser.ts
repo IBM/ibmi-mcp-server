@@ -194,6 +194,3 @@ export class IbmiSqlParser {
     return !readOnlyTypes.includes(type);
   }
 }
-
-// Re-export StatementType for convenience
-export { StatementType } from "@/ibmi-mcp-server/utils/language/types.js";

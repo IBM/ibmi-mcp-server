@@ -58,22 +58,8 @@ export function logOperationError(
 }
 
 /**
- * Logs a warning.
- * @param context - The request context.
- * @param message - The warning message.
- * @param payload - Additional structured data.
- */
-export function logWarning(
-  context: RequestContext,
-  message: string,
-  payload?: OperationPayload,
-): void {
-  logger.warning({ ...context, ...payload }, message);
-}
-
-/**
- * Logs a fatal error and terminates the process.
- * This should be used for unrecoverable errors during critical phases like startup.
+ * Logs a fatal error. It does not exit: the entry point's shutdown routine
+ * owns process exit.
  * @param context - The request context.
  * @param message - The fatal error message.
  * @param error - The error object.
@@ -84,8 +70,5 @@ export function logFatal(
   error: unknown,
 ): void {
   const err = error instanceof Error ? error : new Error(String(error));
-  // The logger's uncaughtException handler will exit, but we call fatal here for consistency.
   logger.fatal({ err, ...context }, message);
-  // Ensure process exits if not already handled by uncaughtException handler
-  setTimeout(() => process.exit(1), 10);
 }

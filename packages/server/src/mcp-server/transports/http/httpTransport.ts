@@ -1,277 +1,161 @@
 /**
  * @fileoverview Configures and starts the HTTP MCP transport using Hono.
- * This file has been refactored to correctly integrate Hono's streaming
- * capabilities with the Model Context Protocol SDK's transport layer.
+ *
+ * The MCP endpoint is served by the SDK's `createMcpHandler`: one stateless
+ * handler that answers protocol revision 2026-07-28 and 2025-era clients,
+ * building a fresh server instance per request. This module adds what the
+ * SDK leaves to the host: Host/Origin validation, CORS, authentication, rate
+ * limiting, the health endpoint, port binding (with TLS when
+ * `MCP_TLS_CERT_FILE` is set) and, when users sign on with their IBM i
+ * profile, the built-in authorization server.
  * @module src/mcp-server/transports/http/httpTransport
  */
 
+import { createServer as createHttpsServer } from "node:https";
 import { serve, ServerType } from "@hono/node-server";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  createMcpHandler,
+  type McpHttpHandler,
+  type McpServerFactory,
+} from "@modelcontextprotocol/server";
 import { Context, Hono, Next } from "hono";
 import { cors } from "hono/cors";
 import { logger as honoLogger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
-import { stream } from "hono/streaming";
-import http from "http";
 import { config } from "@/config/index.js";
 import { handleAuthRequest, enforceTLS } from "@/ibmi-mcp-server/auth/index.js";
 import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
-import { JsonRpcErrorCode, McpError } from "../../../types-global/errors.js";
+import { startAdminSocket } from "@/ibmi-mcp-server/oauth/adminSocket.js";
+import { createAuthorizationServer } from "@/ibmi-mcp-server/oauth/authorizationServer.js";
+import type {
+  AuthorizationServer,
+  GrantManager,
+  MapepireClient,
+} from "@/ibmi-mcp-server/oauth/contracts.js";
+import { createGrantManager } from "@/ibmi-mcp-server/oauth/grantManager.js";
+import { setGrantQueryExecutor } from "@/ibmi-mcp-server/services/queryRouter.js";
 import { SourceManager } from "@/ibmi-mcp-server/services/sourceManager.js";
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import {
   logger,
+  RateLimiter,
   rateLimiter,
   RequestContext,
   requestContextService,
+  withRequestContext,
 } from "@/utils/index.js";
 import {
   authContext,
   createAuthMiddleware,
-  createAuthStrategy,
+  createHttpAuth,
+  type HttpAuth,
 } from "../auth/index.js";
-import { AutoTransportManager } from "../core/autoTransportManager.js";
-import { StatelessTransportManager } from "../core/statelessTransportManager.js";
-import { TransportManager, TransportResponse } from "../core/transportTypes.js";
-import { StatefulTransportManager } from "./../core/statefulTransportManager.js";
-import { setServerReplacementCallback } from "@/ibmi-mcp-server/index.js";
+import { clientAddress } from "./clientAddress.js";
 import { httpErrorHandler } from "./httpErrorHandler.js";
 import { HonoNodeBindings } from "./httpTypes.js";
 import {
-  assertHttpSecurityPosture,
   createHostValidationMiddleware,
   resolveHostPolicy,
 } from "./hostValidation.js";
-import { mcpTransportMiddleware } from "./mcpTransportMiddleware.js";
+import { readSettingFile } from "./settingFile.js";
 
-const HTTP_PORT = config.mcpHttpPort;
-const HTTP_HOST = config.mcpHttpHost;
 const MCP_ENDPOINT_PATH = config.mcpHttpEndpointPath;
 const HEALTH_ENDPOINT_PATH = "/healthz";
+/** How long in-flight requests get to finish when the transport closes. */
+const CLOSE_GRACE_MS = 5000;
 
 /**
- * Extracts the client IP address from the request, prioritizing common proxy headers.
- * @param c - The Hono context object.
- * @returns The client's IP address or a default string if not found.
+ * Binds the HTTP server, with TLS when `MCP_TLS_CERT_FILE` and
+ * `MCP_TLS_KEY_FILE` are set. A port that is already in use is a startup
+ * error: clients, proxies and health checks are configured with this port,
+ * so the server never moves to another one.
+ *
+ * @throws {McpError} `ConfigurationError` when the port is in use, or when a
+ *   TLS file cannot be read or does not hold what its setting says.
  */
-function getClientIp(c: Context<{ Bindings: HonoNodeBindings }>): string {
-  const forwardedFor = c.req.header("x-forwarded-for");
-  return (
-    (forwardedFor?.split(",")[0] ?? "").trim() ||
-    c.req.header("x-real-ip") ||
-    c.env.incoming.socket?.remoteAddress ||
-    "unknown_ip"
-  );
-}
-
-/**
- * Converts a Fetch API Headers object to Node.js IncomingHttpHeaders.
- * Hono uses Fetch API Headers, but the underlying transport managers expect
- * Node's native IncomingHttpHeaders.
- * @param headers - The Headers object to convert.
- * @returns An object compatible with IncomingHttpHeaders.
- */
-
-async function isPortInUse(
+function listen(
+  app: Hono<HonoAppEnv>,
   port: number,
   host: string,
-  parentContext: RequestContext,
-): Promise<boolean> {
-  const context = { ...parentContext, operation: "isPortInUse", port, host };
-  logger.debug(context, `Checking if port ${port} is in use...`);
-  return new Promise((resolve) => {
-    const tempServer = http.createServer();
-    tempServer
-      .once("error", (err: NodeJS.ErrnoException) => {
-        const inUse = err.code === "EADDRINUSE";
-        logger.debug(
-          context,
-          `Port check resulted in error: ${err.code}. Port in use: ${inUse}`,
-        );
-        resolve(inUse);
-      })
-      .once("listening", () => {
-        logger.debug(
-          context,
-          `Successfully bound to port ${port} temporarily. Port is not in use.`,
-        );
-        tempServer.close(() => resolve(false));
-      })
-      .listen(port, host);
-  });
-}
-
-function startHttpServerWithRetry(
-  app: Hono<HonoAppEnv>,
-  initialPort: number,
-  host: string,
-  maxRetries: number,
-  parentContext: RequestContext,
-): Promise<ServerType> {
-  const startContext = {
-    ...parentContext,
-    operation: "startHttpServerWithRetry",
-  };
-  logger.info(
-    startContext,
-    `Attempting to start HTTP server on port ${initialPort} with ${maxRetries} retries.`,
-  );
-
-  return new Promise((resolve, reject) => {
-    const tryBind = (port: number, attempt: number) => {
-      const attemptContext = { ...startContext, port, attempt };
-      if (attempt > maxRetries + 1) {
-        const error = new Error(
-          `Failed to bind to any port after ${maxRetries} retries.`,
-        );
-        logger.fatal(attemptContext, error.message);
-        return reject(error);
-      }
-
-      isPortInUse(port, host, attemptContext)
-        .then((inUse) => {
-          if (inUse) {
-            logger.warning(
-              attemptContext,
-              `Port ${port} is in use, retrying on port ${port + 1}...`,
-            );
-            setTimeout(
-              () => tryBind(port + 1, attempt + 1),
-              config.mcpHttpPortRetryDelayMs,
-            );
-            return;
-          }
-
-          try {
-            const serverInstance = serve(
-              { fetch: app.fetch, port, hostname: host },
-              (info: { address: string; port: number }) => {
-                const serverAddress = `http://${info.address}:${info.port}${MCP_ENDPOINT_PATH}`;
-                logger.info(
-                  {
-                    ...attemptContext,
-                    address: serverAddress,
-                    sessionMode: config.mcpSessionMode,
-                  },
-                  `HTTP transport listening at ${serverAddress}`,
-                );
-                if (process.stdout.isTTY) {
-                  console.log(`\n🚀 MCP Server running at: ${serverAddress}`);
-                  console.log(`   Session Mode: ${config.mcpSessionMode}\n`);
-                }
-              },
-            );
-            resolve(serverInstance);
-          } catch (err: unknown) {
-            if (
-              err &&
-              typeof err === "object" &&
-              "code" in err &&
-              (err as { code: string }).code !== "EADDRINUSE"
-            ) {
-              const errorToLog =
-                err instanceof Error ? err : new Error(String(err));
-              logger.error(
-                { error: errorToLog, ...attemptContext },
-                "An unexpected error occurred while starting the server.",
-              );
-              return reject(err);
-            }
-            logger.warning(
-              attemptContext,
-              `Encountered EADDRINUSE race condition on port ${port}, retrying...`,
-            );
-            setTimeout(
-              () => tryBind(port + 1, attempt + 1),
-              config.mcpHttpPortRetryDelayMs,
-            );
-          }
-        })
-        .catch((err) => {
-          const error = err instanceof Error ? err : new Error(String(err));
-          logger.fatal(
-            {
-              error,
-              ...attemptContext,
-            },
-            "Failed to check if port is in use.",
-          );
-          reject(err);
-        });
-    };
-
-    tryBind(initialPort, 1);
-  });
-}
-
-function createTransportManager(
-  createServerInstanceFn: () => Promise<McpServer>,
-  sessionMode: string,
   context: RequestContext,
-): TransportManager {
-  const opContext = {
-    ...context,
-    operation: "createTransportManager",
-    sessionMode,
-  };
-  logger.info(
-    opContext,
-    `Creating transport manager for session mode: ${sessionMode}`,
-  );
-
-  const statefulOptions = {
-    staleSessionTimeoutMs: config.mcpStatefulSessionStaleTimeoutMs,
-    mcpHttpEndpointPath: config.mcpHttpEndpointPath,
-  };
-
-  switch (sessionMode) {
-    case "stateless":
-      return new StatelessTransportManager(createServerInstanceFn);
-    case "stateful":
-      return new StatefulTransportManager(
-        createServerInstanceFn,
-        statefulOptions,
+): Promise<ServerType> {
+  return new Promise((resolve, reject) => {
+    const tls = config.mcpTlsCertFile &&
+      config.mcpTlsKeyFile && {
+        cert: readSettingFile("MCP_TLS_CERT_FILE", config.mcpTlsCertFile),
+        key: readSettingFile("MCP_TLS_KEY_FILE", config.mcpTlsKeyFile),
+      };
+    const listening = (info: { address: string; port: number }) => {
+      const serverAddress = `${tls ? "https" : "http"}://${info.address}:${info.port}${MCP_ENDPOINT_PATH}`;
+      logger.info(
+        { ...context, address: serverAddress },
+        `HTTP transport listening at ${serverAddress}`,
       );
-    case "auto":
-    default:
-      logger.info(opContext, "Using 'auto' mode manager.");
-      return new AutoTransportManager(createServerInstanceFn, statefulOptions);
-  }
+      if (process.stdout.isTTY) {
+        console.log(`\n🚀 MCP Server running at: ${serverAddress}\n`);
+      }
+      resolve(server);
+    };
+    let server: ServerType;
+    if (tls) {
+      try {
+        server = serve(
+          {
+            fetch: app.fetch,
+            port,
+            hostname: host,
+            createServer: createHttpsServer,
+            serverOptions: tls,
+          },
+          listening,
+        );
+      } catch (error) {
+        // Node refuses a certificate or key it cannot parse, and a key that
+        // is not the certificate's.
+        throw new McpError(
+          JsonRpcErrorCode.ConfigurationError,
+          `MCP_TLS_CERT_FILE and MCP_TLS_KEY_FILE must hold a PEM certificate and its private key (${error instanceof Error ? error.message : String(error)}).`,
+        );
+      }
+    } else {
+      server = serve({ fetch: app.fetch, port, hostname: host }, listening);
+    }
+    server.once("error", (error: NodeJS.ErrnoException) =>
+      reject(
+        error.code === "EADDRINUSE"
+          ? new McpError(
+              JsonRpcErrorCode.ConfigurationError,
+              `Port ${port} on ${host} is already in use. Stop the process using it, or set MCP_HTTP_PORT to a free port.`,
+            )
+          : error,
+      ),
+    );
+  });
+}
+
+type HonoAppEnv = { Bindings: HonoNodeBindings };
+
+/** The built-in IBM i sign-on, as the app serves it. */
+export interface BuiltinSignOn {
+  grants: Pick<GrantManager, "status">;
+  authorizationServer: AuthorizationServer;
 }
 
 /**
- * Middleware to enforce 'application/json' content type for POST requests.
+ * Builds the Hono app around an MCP handler.
+ *
+ * @param mcpHandler - The SDK handler serving the MCP endpoint. Only `fetch`
+ *   is used, so tests can pass a stub.
+ * @param auth - From `createHttpAuth`; `null` leaves the MCP endpoint
+ *   unauthenticated.
+ * @param signOn - The built-in authorization server and its grants, when
+ *   users sign on with their IBM i profile.
  */
-const enforceJsonContentType = async (c: Context, next: Next) => {
-  if (c.req.method === "POST") {
-    const contentType = c.req.header("content-type");
-    if (!contentType || !contentType.startsWith("application/json")) {
-      // Use the request context if available
-      const context = requestContextService.createRequestContext({
-        operation: "enforceJsonContentType",
-      });
-      throw new McpError(
-        JsonRpcErrorCode.InvalidRequest,
-        "Unsupported Media Type: Content-Type must be 'application/json'.",
-        context,
-      );
-    }
-  }
-  await next();
-};
-
-// Define the Hono app's environment to include custom variables
-type HonoAppEnv = {
-  Bindings: HonoNodeBindings;
-  Variables: {
-    mcpResponse?: TransportResponse;
-    requestId?: string | number | null;
-  };
-};
-
 export function createHttpApp(
-  transportManager: TransportManager,
-  createServerInstanceFn: () => Promise<McpServer>,
+  mcpHandler: Pick<McpHttpHandler, "fetch">,
   parentContext: RequestContext,
+  auth: HttpAuth | null,
+  signOn?: BuiltinSignOn,
 ): Hono<HonoAppEnv> {
   const app = new Hono<HonoAppEnv>();
   const transportContext = {
@@ -280,14 +164,23 @@ export function createHttpApp(
   };
   logger.info(transportContext, "Creating Hono HTTP application.");
 
-  // 1. HTTP Access Logging
-  const accessLogger = honoLogger();
+  // 1. HTTP Access Logging. The query string is left out: it can carry
+  //    credentials (RFC 6750 `access_token`), which must never be logged.
+  const accessLogger = honoLogger((line, ...rest) =>
+    console.log(line.replace(/\?\S*/, ""), ...rest),
+  );
   app.use((c, next) =>
     c.req.path === HEALTH_ENDPOINT_PATH ? next() : accessLogger(c, next),
   );
 
-  // 2. Security Headers
-  app.use(secureHeaders());
+  // 2. Security Headers. Not on the sign-in page of the built-in
+  //    authorization server, which sets its own: these are written after the
+  //    route has answered and would replace them, and a form posted from a
+  //    page under their `Referrer-Policy: no-referrer` carries
+  //    `Origin: null`.
+  const secure = secureHeaders();
+  const signInPath = signOn?.authorizationServer.paths.authorize;
+  app.use((c, next) => (c.req.path === signInPath ? next() : secure(c, next)));
 
   // 3. DNS rebinding protection — Host/Origin allowlist. MUST precede CORS
   //    and all route handlers: CORS is a browser read-policy and provides no
@@ -299,6 +192,12 @@ export function createHttpApp(
 
   // 4. CORS. Origins must be allowlisted explicitly via MCP_ALLOWED_ORIGINS;
   //    an empty list emits no Access-Control-Allow-Origin header at all.
+  //    The allowed headers are the ones a browser client sends on a
+  //    Streamable HTTP POST: the 2026-07-28 request-metadata headers
+  //    (MCP-Protocol-Version, Mcp-Method, Mcp-Name) plus Content-Type and
+  //    Authorization. No tool here declares `x-mcp-header`, so no
+  //    Mcp-Param-* header exists to allow. WWW-Authenticate is exposed so a
+  //    browser client can read the OAuth challenge on a 401 or 403.
   app.use(
     "*",
     cors({
@@ -306,53 +205,38 @@ export function createHttpApp(
         config.mcpAllowedOrigins && config.mcpAllowedOrigins.length > 0
           ? config.mcpAllowedOrigins
           : [],
-      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: [
         "Content-Type",
-        "Mcp-Session-Id",
-        "Last-Event-ID",
         "Authorization",
+        "MCP-Protocol-Version",
+        "Mcp-Method",
+        "Mcp-Name",
       ],
+      exposeHeaders: ["WWW-Authenticate"],
       credentials: true,
     }),
   );
 
-  // 5. Content Type Enforcement (Specific to MCP endpoint)
-  app.use(MCP_ENDPOINT_PATH, enforceJsonContentType);
-
-  // 6. Authentication and Advanced Rate Limiting (Order Matters)
-
-  const authStrategy = createAuthStrategy();
-
-  // Define the rate limiting logic as a reusable middleware
-  const rateLimitHandler = async (
-    c: Context<{ Bindings: HonoNodeBindings }>,
-    next: Next,
-  ) => {
-    const clientIp = getClientIp(c);
-    let key: string;
-    let clientId: string | undefined;
-
-    if (authStrategy) {
-      // If auth is enabled, authContext should be populated by the preceding authMiddleware.
-      const store = authContext.getStore();
-      clientId = store?.authInfo.clientId;
-      // Key should be clientId if authenticated, otherwise fallback to IP.
-      key = clientId || clientIp;
-    } else {
-      // If auth is disabled, key is always IP.
-      key = clientIp;
+  // 5. Authentication and rate limiting (order matters). A request that
+  //    authentication refuses counts against its client address, and is
+  //    answered 429 instead once that budget is used up. An authenticated
+  //    request counts against the caller's identity only, so users behind one
+  //    address do not share a budget and refused requests from that address
+  //    cannot lock them out. The prefixes keep the key spaces apart: an
+  //    address can never name the bucket of an identity.
+  const rateLimited = config.rateLimit.enabled;
+  const addressKey = (c: Context) => `ip:${clientAddress(c)}`;
+  const limit = (key: string, limiter = rateLimiter): void => {
+    if (!rateLimited) {
+      return;
     }
-
     const context = requestContextService.createRequestContext({
       operation: "httpRateLimitCheck",
       rateLimitKey: key,
-      ipAddress: clientIp,
-      clientId: clientId,
     });
-
     try {
-      rateLimiter.check(key, context);
+      limiter.check(key, context);
       logger.debug(context, "Rate limit check passed.");
     } catch (error) {
       logger.warning(
@@ -361,40 +245,69 @@ export function createHttpApp(
       );
       throw error;
     }
-    await next();
   };
+  /** Counts every request against its client address. */
+  const limitAddress =
+    (limiter = rateLimiter) =>
+    async (c: Context, next: Next) => {
+      limit(addressKey(c), limiter);
+      await next();
+    };
 
-  if (authStrategy) {
-    logger.info(
-      transportContext,
-      "Authentication strategy found, enabling auth middleware.",
+  if (auth) {
+    app.use(
+      MCP_ENDPOINT_PATH,
+      createAuthMiddleware(auth, (c) => limit(addressKey(c))),
     );
-    // Auth Middleware first
-    app.use(MCP_ENDPOINT_PATH, createAuthMiddleware(authStrategy));
+    app.use(MCP_ENDPOINT_PATH, async (_c, next) => {
+      // The subject comes before the client id: under OAuth one client
+      // application (one client id) serves many users.
+      const authInfo = authContext.getStore()?.authInfo;
+      const subject = authInfo?.extra?.subject;
+      limit(
+        typeof subject === "string" && subject
+          ? `sub:${subject}`
+          : `client:${authInfo?.clientId}`,
+      );
+      await next();
+    });
   } else {
-    logger.info(
-      transportContext,
-      "No authentication strategy found, auth middleware disabled.",
-    );
+    app.use(MCP_ENDPOINT_PATH, limitAddress());
   }
 
-  // Rate Limiting second (can now leverage auth context if available)
-  if (config.rateLimit.enabled) {
-    app.use(MCP_ENDPOINT_PATH, rateLimitHandler);
-    logger.info(
-      transportContext,
-      `Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms window.`,
-    );
-  } else {
-    logger.info(
-      transportContext,
-      "Rate limiting disabled via MCP_RATE_LIMIT_ENABLED=false.",
-    );
-  }
+  // The OAuth Protected Resource Metadata is how an unauthenticated client
+  // finds the authorization server, so it is not behind the auth middleware.
+  const metadata = auth?.protectedResourceMetadata;
+  metadata?.paths.forEach((path) => app.use(path, limitAddress()));
+
+  // Neither are the routes of the built-in authorization server: a client
+  // has no token until it has been through them. Host validation and CORS
+  // above cover them like every other route.
+  Object.values(signOn?.authorizationServer.paths ?? {}).forEach((path) =>
+    app.use(path, limitAddress()),
+  );
+
+  logger.info(
+    transportContext,
+    rateLimited
+      ? `Rate limiting enabled: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs}ms window.`
+      : "Rate limiting disabled via MCP_RATE_LIMIT_ENABLED=false.",
+  );
 
   app.onError(httpErrorHandler);
 
   app.get(HEALTH_ENDPOINT_PATH, (c) => {
+    if (signOn) {
+      // There is no service pool in this mode. Counts only: no profile and
+      // no grant id.
+      const { grants, openConnections, maxConnections, blockedProfiles } =
+        signOn.grants.status();
+      return c.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        signOn: { grants, openConnections, maxConnections, blockedProfiles },
+      });
+    }
     const pools = SourceManager.getInstance().getHealthSummary();
     const hasUnhealthy = Object.values(pools).some(
       (p) => p.healthStatus === "unhealthy",
@@ -406,9 +319,33 @@ export function createHttpApp(
     });
   });
 
-  // IBM i HTTP Authentication endpoint (conditional)
+  metadata?.paths.forEach((path) =>
+    app.get(path, (c) => c.json(metadata.document)),
+  );
+
+  if (signOn) {
+    app.route("/", signOn.authorizationServer.app);
+  }
+
+  // IBM i HTTP Authentication endpoint (conditional, deprecated)
   if (config.ibmiHttpAuth.enabled) {
-    app.post("/api/v1/auth", enforceTLS, handleAuthRequest);
+    app.use("/api/v1/auth/*", async (c, next) => {
+      c.header("Deprecation", "true");
+      await next();
+    });
+    // Every sign-on is a password attempt against an IBM i profile, so the
+    // endpoint has its own, much smaller budget per client address.
+    const signOnLimiter = new RateLimiter({
+      windowMs: 60_000,
+      maxRequests: 10,
+      skipInDevelopment: config.rateLimit.skipInDevelopment,
+    });
+    app.post(
+      "/api/v1/auth",
+      limitAddress(signOnLimiter),
+      enforceTLS,
+      handleAuthRequest,
+    );
     app.get("/api/v1/auth/public-key", (c) => {
       const { keyId, publicKey } = getPublicKeyMetadata();
       return c.json({ keyId, publicKey });
@@ -419,253 +356,113 @@ export function createHttpApp(
     );
   }
 
-  app.get(
-    MCP_ENDPOINT_PATH,
-    async (c: Context<{ Bindings: HonoNodeBindings }>) => {
-      const sessionId = c.req.header("mcp-session-id");
-      if (sessionId) {
-        return c.text(
-          "GET requests to existing sessions are not supported.",
-          405,
-        );
-      }
-
-      // Since this is a stateless endpoint, we create a temporary instance
-      // to report on the server's configuration.
-      const serverInstance = await createServerInstanceFn();
-      await serverInstance.close(); // ensure cleanup
-      return c.json({
-        status: "ok",
-        server: {
-          name: config.mcpServerName,
-          version: config.mcpServerVersion,
-          description:
-            (config.pkg as { description?: string })?.description ||
-            "No description provided.",
-          nodeVersion: process.version,
-          environment: config.environment,
-        },
-        sessionMode: config.mcpSessionMode,
-        message:
-          "Server is running. POST to this endpoint to execute a tool call.",
-      });
-    },
-  );
-
-  app.post(MCP_ENDPOINT_PATH, mcpTransportMiddleware(transportManager), (c) => {
-    const response = c.get("mcpResponse");
-
-    if (!response) {
-      // This case should ideally not be reached if middleware runs correctly
-      return c.json(
-        {
-          jsonrpc: "2.0",
-          error: {
-            code: JsonRpcErrorCode.InternalError,
-            message: "Middleware failed to produce a response.",
-          },
-          id: c.get("requestId") ?? null,
-        },
-        500,
-      );
-    }
-
-    if (response.sessionId) {
-      c.header("Mcp-Session-Id", response.sessionId);
-    }
-    response.headers.forEach((value: string, key: string) => {
-      c.header(key, value);
-    });
-
-    c.status(response.statusCode);
-
-    if (response.type === "stream") {
-      return stream(c, async (s) => {
-        await s.pipe(response.stream);
-      });
-    } else {
-      const body =
-        typeof response.body === "object" && response.body !== null
-          ? response.body
-          : { body: response.body };
-      return c.json(body);
-    }
-  });
-
-  app.delete(
-    MCP_ENDPOINT_PATH,
-    async (c: Context<{ Bindings: HonoNodeBindings }>) => {
-      const sessionId = c.req.header("mcp-session-id");
-      const context = requestContextService.createRequestContext({
-        ...transportContext,
-        operation: "handleDeleteRequest",
-        sessionId,
-      });
-
-      if (sessionId) {
-        // Type-safe check for the optional method
-        if (transportManager.handleDeleteRequest) {
-          const response = await transportManager.handleDeleteRequest(
-            sessionId,
-            context,
-          );
-          if (response.type === "buffered") {
-            const body =
-              typeof response.body === "object" && response.body !== null
-                ? response.body
-                : { body: response.body };
-            return c.json(body, response.statusCode);
-          }
-          // Fallback for unexpected stream response on DELETE
-          return c.body(null, response.statusCode);
-        } else {
-          return c.json(
-            {
-              error: "Method Not Allowed",
-              message: "DELETE operations are not supported in this mode.",
-            },
-            405,
-          );
-        }
-      } else {
-        return c.json({
-          status: "stateless_mode",
-          message: "No sessions to delete in stateless mode",
-        });
-      }
-    },
+  // The SDK handler owns the whole MCP endpoint: POST for both protocol
+  // eras, 405 for GET and DELETE (there are no sessions and no standalone
+  // SSE stream), 415 for a non-JSON body. Its Response is returned as-is.
+  app.all(MCP_ENDPOINT_PATH, (c) =>
+    withRequestContext(
+      requestContextService.createRequestContext({
+        operation: "handleMcpRequest",
+        transport: "http",
+      }),
+      () =>
+        mcpHandler.fetch(c.req.raw, {
+          // Handlers read this as ctx.http.authInfo. The AsyncLocalStorage
+          // authContext set by the auth middleware stays in effect too.
+          authInfo: authContext.getStore()?.authInfo,
+        }),
+    ),
   );
 
   logger.info(transportContext, "Hono application setup complete.");
   return app;
 }
 
+/**
+ * Starts the HTTP transport.
+ *
+ * @param createServerInstance - Factory the SDK calls once per request.
+ * @param mapepire - From `createBuiltinMapepireClient`, when users sign on
+ *   with their IBM i profile. The transport then runs the grant manager, the
+ *   built-in authorization server and the admin socket.
+ * @returns The MCP handler (for list-changed notifications) and a `close`
+ *   that stops the handler and the HTTP server, then ends every sign-on,
+ *   which closes its IBM i job.
+ */
 export async function startHttpTransport(
-  createServerInstanceFn: () => Promise<McpServer>,
+  createServerInstance: McpServerFactory,
   parentContext: RequestContext,
-): Promise<{
-  app: Hono<HonoAppEnv>;
-  server: ServerType;
-  transportManager: TransportManager;
-}> {
+  mapepire?: MapepireClient,
+): Promise<{ handler: McpHttpHandler; close: () => Promise<void> }> {
   const transportContext = {
     ...parentContext,
     component: "HttpTransportStart",
   };
   logger.info(transportContext, "Starting HTTP transport.");
 
-  // Refuse the dangerous posture (unauthenticated + non-loopback + IBM i
-  // credentials) before any transport or tool loading happens. Runs after
-  // applyCliOverrides, so CLI-provided transport/tools flags are visible.
-  assertHttpSecurityPosture(transportContext);
-
-  const transportManager = createTransportManager(
-    createServerInstanceFn,
-    config.mcpSessionMode,
-    transportContext,
-  );
-
-  // Eager loading: Create and register tools during startup for HTTP mode
-  // This pre-warms the system and ensures tools are available immediately
-  const eagerLoadContext = {
-    ...transportContext,
-    operation: "EagerToolLoading",
+  const handler = createMcpHandler(createServerInstance, {
+    onerror: (error) =>
+      logger.warning(
+        { ...transportContext, err: error },
+        "MCP handler reported an error.",
+      ),
+  });
+  const grants = mapepire && createGrantManager({ mapepire });
+  let adminSocket: { close(): Promise<void> } | undefined;
+  const endSignOns = async (): Promise<void> => {
+    await adminSocket?.close();
+    await grants?.shutdown();
   };
 
-  logger.info(
-    eagerLoadContext,
-    "Pre-loading and caching YAML tools during HTTP server startup",
-  );
-
+  let server: ServerType;
   try {
-    // Create a temporary server instance to trigger eager loading
-    const preloadServer = await createServerInstanceFn();
-    logger.info(
-      eagerLoadContext,
-      `YAML tools pre-loaded successfully during startup`,
-    );
-
-    // Clean up the temporary server
-    await preloadServer.close();
-  } catch (error) {
-    logger.error(
-      eagerLoadContext,
-      `Failed to pre-load YAML tools during startup: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    // Continue with startup even if pre-loading fails
-  }
-
-  // Register server replacement callback for YAML auto-reload if the transport manager supports it
-  if (transportManager && "replaceAllServerInstances" in transportManager) {
-    const callbackContext = {
-      ...transportContext,
-      operation: "RegisterServerReplacementCallback",
-    };
-
-    logger.debug(
-      callbackContext,
-      "Registering server replacement callback for HTTP transport manager",
-    );
-
-    setServerReplacementCallback(async (_newServer) => {
-      const replacementContext = {
-        ...callbackContext,
-        operation: "ReplaceServerInstancesViaCallback",
-      };
-
-      logger.info(
-        replacementContext,
-        "YAML auto-reload triggered, replacing server instances in HTTP transport manager",
-      );
-
-      try {
-        // The transport manager will handle replacing its managed server instances
-        // We don't directly use the newServer parameter since the transport manager
-        // creates its own server instances via createServerInstanceFn
-        if (
-          "replaceAllServerInstances" in transportManager &&
-          typeof transportManager.replaceAllServerInstances === "function"
-        ) {
-          await transportManager.replaceAllServerInstances();
-        }
-
-        logger.info(
-          replacementContext,
-          "HTTP transport manager server instances replaced successfully",
-        );
-      } catch (error) {
-        logger.error(
-          replacementContext,
-          `Failed to replace server instances in HTTP transport manager: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    });
-
-    logger.info(
-      callbackContext,
-      `Server replacement callback registered for ${config.mcpSessionMode} transport mode`,
-    );
-  } else {
-    logger.debug(
+    const app = createHttpApp(
+      handler,
       transportContext,
-      `Transport manager (${config.mcpSessionMode}) does not support server replacement - auto-reload will only work for new connections`,
+      await createHttpAuth(transportContext, grants),
+      grants && {
+        grants,
+        authorizationServer: createAuthorizationServer(grants),
+      },
     );
+    if (grants) {
+      setGrantQueryExecutor(grants);
+      grants.start();
+      if (config.oauth.adminSocket) {
+        adminSocket = await startAdminSocket(grants, config.oauth.adminSocket);
+      }
+    }
+    server = await listen(
+      app,
+      config.mcpHttpPort,
+      config.mcpHttpHost,
+      transportContext,
+    );
+  } catch (error) {
+    await endSignOns();
+    throw error;
   }
 
-  const app = createHttpApp(
-    transportManager,
-    createServerInstanceFn,
-    transportContext,
-  );
-
-  const server = await startHttpServerWithRetry(
-    app,
-    HTTP_PORT,
-    HTTP_HOST,
-    config.mcpHttpMaxPortRetries,
-    transportContext,
-  );
+  const close = async (): Promise<void> => {
+    // server.close() waits for every open socket, including ones that never
+    // sent a request or never finish one. After the grace period those are
+    // cut off, so closing always completes.
+    const cutOff = setTimeout(() => {
+      if ("closeAllConnections" in server) {
+        server.closeAllConnections();
+      }
+    }, CLOSE_GRACE_MS);
+    try {
+      await handler.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
+      clearTimeout(cutOff);
+    } finally {
+      await endSignOns();
+    }
+  };
 
   logger.info(transportContext, "HTTP transport started successfully.");
-  return { app, server, transportManager };
+  return { handler, close };
 }

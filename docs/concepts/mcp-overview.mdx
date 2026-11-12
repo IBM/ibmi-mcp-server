@@ -58,7 +58,7 @@ graph LR
 **The Flow:**
 
 1. **AI agent requests a tool** - "I need to query active jobs"
-2. **MCP server validates and executes** - Checks auth, runs SQL as authenticated user
+2. **MCP server validates and executes** - Checks authentication, runs SQL with the configured IBM i profile
 3. **IBM i returns data** - SQL results from DB2 for i or QSYS2 services
 4. **Agent receives formatted response** - Structured JSON the AI can understand
 
@@ -114,8 +114,8 @@ This becomes a tool AI agents can discover and call automatically.
 Our implementation adds IBM i-specific features to the standard MCP protocol:
 
 - **YAML SQL Tools** - Define database operations in simple YAML (no coding required)
-- **IBM i Authentication** - Per-user authentication with RSA encryption
-- **Authority Respect** - SQL runs as the authenticated user, IBM i authorities apply
+- **OAuth 2.1 Authentication** - Remote deployments verify access tokens from your identity provider
+- **Authority Respect** - SQL runs as the configured IBM i profile, so IBM i authorities apply
 - **Production Features** - OpenTelemetry, structured logging, audit trails
 
 <Note>

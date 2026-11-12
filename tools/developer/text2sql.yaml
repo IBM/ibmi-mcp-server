@@ -1,5 +1,8 @@
 # IBM i Text-to-SQL Tools
-# Simplified tools for AI agents to discover schemas, validate queries, and generate SQL
+# Companion tools for the built-in text-to-SQL tools: sample a table and read
+# its statistics. Listing tables and validating queries are built-in tools
+# (list_tables_in_schema, validate_query); start the server with
+# --builtin-tools to get them.
 # Version 1.0.0
 
 sources:
@@ -11,69 +14,6 @@ sources:
     ignore-unauthorized: true
 
 tools:
-  list_tables_in_schema:
-    source: ibmi-system
-    description: "List tables, views, and physical files in a specific schema with metadata including row counts. Essential for understanding schema structure."
-    statement: |
-      SELECT T.TABLE_SCHEMA,
-             T.TABLE_NAME,
-             T.TABLE_TYPE,
-             T.TABLE_TEXT,
-             COALESCE(S.NUMBER_ROWS, 0) AS NUMBER_ROWS,
-             T.COLUMN_COUNT
-      FROM QSYS2.SYSTABLES T
-      LEFT JOIN QSYS2.SYSTABLESTAT S
-        ON T.TABLE_SCHEMA = S.TABLE_SCHEMA
-        AND T.TABLE_NAME = S.TABLE_NAME
-      WHERE T.TABLE_SCHEMA = UPPER(:schema_name)
-        AND T.TABLE_TYPE IN ('T', 'V', 'P')
-        AND (:table_filter = '*ALL' OR T.TABLE_NAME LIKE UPPER(:table_filter))
-      ORDER BY T.TABLE_TYPE, T.TABLE_NAME
-      FETCH FIRST 200 ROWS ONLY
-    parameters:
-      - name: schema_name
-        type: string
-        description: "Schema name to list tables from (e.g., 'QIWS', 'SAMPLE', 'MYLIB')"
-        required: true
-      - name: table_filter
-        type: string
-        description: "Filter tables by name pattern (e.g., 'CUST%', 'ORD%'). Use '*ALL' for all tables."
-        default: "*ALL"
-    security:
-      readOnly: true
-    annotations:
-      readOnlyHint: true
-      idempotentHint: true
-      domain: "development"
-      category: "text2sql"
-
-  # Query Validation
-  validate_query:
-    source: ibmi-system
-    description: "Validate SQL query syntax using IBM i's native SQL parser. Returns statement type and parsing results without executing the query. If no results are returned, the statement is invalid"
-    statement: |
-      SELECT *
-      FROM TABLE(QSYS2.PARSE_STATEMENT(
-        SQL_STATEMENT => :sql_statement,
-        NAMING => '*SQL',
-        DECIMAL_POINT => '*PERIOD',
-        SQL_STRING_DELIMITER => '*APOSTSQL'
-      )) AS P
-    parameters:
-      - name: sql_statement
-        type: string
-        description: "SQL statement to validate (e.g., 'SELECT * FROM QIWS.QCUSTCDT')"
-        required: true
-        minLength: 5
-        maxLength: 10000
-    security:
-      readOnly: true
-    annotations:
-      readOnlyHint: true
-      idempotentHint: true
-      domain: "development"
-      category: "text2sql"
-
   # Data Sampling
   sample_rows:
     source: ibmi-system
@@ -165,15 +105,13 @@ tools:
 toolsets:
   text2sql:
     title: "Text-to-SQL Development Tools"
-    description: "Toolset for AI agents to discover schemas, validate queries, sample data, and execute SQL on IBM i. Supports the full text-to-SQL workflow."
+    description: "Sample a table and read its statistics. Use with the built-in tools (--builtin-tools) for the full text-to-SQL workflow."
     tools:
-      - list_tables_in_schema
-      - validate_query
       - sample_rows
       - get_table_statistics
 
 metadata:
   version: "1.0.0"
-  description: "Text-to-SQL tools for schema discovery, query validation, and data exploration"
+  description: "Text-to-SQL companion tools for data sampling and table statistics"
   domain: "development"
   category: "text2sql"

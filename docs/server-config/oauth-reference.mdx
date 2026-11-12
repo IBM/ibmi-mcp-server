@@ -1,0 +1,177 @@
+---
+title: "OAuth Reference"
+description: "Every OAuth setting, default, limit, endpoint and log event."
+---
+
+## IBM i sign-on settings
+
+Used when `MCP_AUTH_MODE=oauth` and `OAUTH_ISSUER_URL` is not set.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `MCP_RESOURCE_URL` | required | Public URL of the MCP endpoint. `https`, or `http` on `localhost`, `127.0.0.1` or `[::1]`. The sign-in and token endpoints sit at this URL minus its last path segment. |
+| `MCP_ALLOWED_HOSTS` | loopback names | Host names (without port) the server answers to. Add the public host name. |
+| `MCP_HTTP_HOST`, `MCP_HTTP_PORT` | `127.0.0.1`, `3010` | Address and port the server listens on. |
+| `DB2i_HOST`, `DB2i_PORT` | port `8076` | The IBM i people sign on to, and its Mapepire port. |
+| `DB2i_SERVER_CERT_FILE` | | PEM file with the exact certificate Mapepire presents. |
+| `DB2i_CA_FILE` | | PEM file with the CA that issued Mapepire's certificate. Not with `DB2i_SERVER_CERT_FILE`. |
+| `DB2i_IGNORE_UNAUTHORIZED` | unset | `true` skips the certificate check. Test systems only. Not with a certificate file. |
+| `DB2i_JDBC_OPTIONS` | | Connection options for every person's job. Allowed keys: `naming`, `libraries`, `date format`, `date separator`, `time format`, `time separator`, `decimal separator`, `transaction isolation`, `access`. |
+| `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | | Certificate and key for the server's own HTTPS. Required unless `MCP_HTTP_HOST` is a loopback address. |
+| `MCP_TRUSTED_PROXIES` | | Addresses or CIDR ranges of reverse proxies. Must include `127.0.0.1` or `::1` when a proxy on the same machine is in front. |
+| `OAUTH_SIGNON_ALLOWED_CIDRS` | private and loopback ranges | Client addresses that may open the sign-in page. Setting it replaces the default. |
+| `OAUTH_ALLOWED_PROFILES` | all not starting with `Q` | Comma-separated profiles allowed to sign on. `DEV*` matches a prefix. `Q` profiles must be listed by exact name. |
+| `OAUTH_ALLOW_PRIVILEGED_PROFILES` | `false` | Allow profiles with `*ALLOBJ` or `*SECADM`. |
+| `OAUTH_GRANT_MAX_HOURS` | `12` | How long a sign-in lasts, counted from when the person signed in. |
+| `OAUTH_IDLE_CLOSE_MINUTES` | `10` | Idle time before a person's IBM i connection is closed. Access tokens last this plus 5 minutes. |
+| `OAUTH_MAX_CONNECTIONS` | `50` | IBM i connections open at once. |
+| `OAUTH_SIGNON_MAX_FAILURES` | `2` | Wrong passwords in a row before a profile is blocked on this server. Minimum `1`. |
+| `OAUTH_CODE_ADDRESS_BINDING` | `strict` | The client must exchange its sign-in code from the address the browser signed in from. `audit` only logs a mismatch. |
+| `OAUTH_ALLOW_LOOPBACK_REDIRECTS` | `true` | Accept `http://localhost`, `127.0.0.1` and `[::1]` redirects, as desktop clients use. Set `false` on machines shared by several people. |
+| `OAUTH_REDIRECT_URIS` | | Other redirect URIs to accept, exact match, separated by commas. Needed for web-based clients. |
+| `OAUTH_CLIENT_METADATA_DOCUMENTS` | `true` | Accept clients that identify themselves with the URL of a Client ID Metadata Document. The server fetches that document, so it needs outbound HTTPS. Set `false` where that is blocked: clients then register with the server instead. |
+| `OAUTH_ADMIN_SOCKET` | | Path of the admin socket. See [Admin commands](#admin-commands). |
+
+`OAUTH_JWKS_URI` and `OAUTH_AUDIENCE` stop startup in this mode. `OAUTH_REQUIRED_SCOPES` has no effect.
+
+## Behind a reverse proxy
+
+With a proxy that handles HTTPS on the same machine, the server keeps listening on `127.0.0.1` without its own certificate:
+
+```bash .env
+MCP_HTTP_HOST=127.0.0.1
+MCP_TRUSTED_PROXIES=127.0.0.1     # add ::1 if the proxy connects over IPv6
+MCP_RESOURCE_URL=https://mcp.example.com/mcp
+```
+
+The proxy must:
+
+- set the `X-Forwarded-For` header itself (overwrite or append the client address);
+- forward `/mcp`, `/oauth/*` and `/.well-known/*` unchanged;
+- leave the `Origin` request header, and the sign-in page's `Content-Security-Policy` and `Referrer-Policy` response headers, alone;
+- not buffer responses, because MCP streams them (`proxy_buffering off` in nginx).
+
+A proxy on another machine must connect to the server over HTTPS: give the server its own certificate as well, and list the proxy's address in `MCP_TRUSTED_PROXIES`. See [Docker](/deployment/docker#built-in-ibm-i-sign-on) and [OpenShift](/deployment/openshift#built-in-ibm-i-sign-on) for examples.
+
+## Identity provider settings
+
+Used when `MCP_AUTH_MODE=oauth` and `OAUTH_ISSUER_URL` is set.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `MCP_RESOURCE_URL` | required | Public URL of the MCP endpoint, as people add it to their clients. |
+| `OAUTH_ISSUER_URL` | required | Your provider's issuer, exactly as in its metadata. `https` unless on loopback. |
+| `OAUTH_JWKS_URI` | discovered | URL of the provider's signing keys. Set it to skip discovery. |
+| `OAUTH_AUDIENCE` | `MCP_RESOURCE_URL` | Expected `aud` claim in tokens. |
+| `OAUTH_REQUIRED_SCOPES` | none | Space-separated scopes every request must carry. |
+| `DB2i_USER`, `DB2i_PASS` | required | The service account all SQL runs as. |
+
+**Accepted tokens:** JWTs signed with `RS256/384/512`, `PS256/384/512`, `ES256/384/512` or `EdDSA`; `iss` equal to `OAUTH_ISSUER_URL`; `aud` equal to the audience (with or without a trailing slash); `exp` in the future, with no clock skew allowed. The caller is identified by `client_id`, else `azp`, else `sub`. Scopes are read from `scope`, else `scp`.
+
+## Fixed limits (IBM i sign-on)
+
+| Limit | Value |
+|-------|-------|
+| Sign-in page | Valid 10 minutes, one sign-in |
+| Authorization code | 60 seconds, single use, PKCE `S256` |
+| Sign-ins per profile | 5. A sixth ends the least recently used one |
+| Sign-ins in total | 1,000 |
+| Statements per person | One at a time, up to 8 waiting |
+| Statement time limit | 120 seconds, then the connection is closed |
+| Token refreshes | 12 per 5 minutes per sign-in |
+
+## What stops startup (IBM i sign-on)
+
+The server exits with a message that names the setting when:
+
+- `MCP_RESOURCE_URL` is missing or not `https` (outside loopback).
+- The transport is stdio.
+- `MCP_HTTP_HOST` is not loopback and no TLS certificate is set, or only one of the two TLS files is set.
+- A public `MCP_RESOURCE_URL` is served from a loopback `MCP_HTTP_HOST` and `MCP_TRUSTED_PROXIES` has no loopback entry.
+- `DB2i_HOST` is missing, or `DB2i_PASS` is set.
+- Certificate settings conflict: both files set, or a file plus `DB2i_IGNORE_UNAUTHORIZED=true`, or a file that holds no certificate.
+- `DB2i_JDBC_OPTIONS` has a key outside the allowed list.
+- `OAUTH_JWKS_URI`, `OAUTH_AUDIENCE` or `IBMI_HTTP_AUTH_ENABLED=true` is set.
+- Node.js runs with `--inspect`.
+- A list setting has a malformed entry.
+- `OAUTH_ADMIN_SOCKET` can't be created, or another server already listens on it.
+- A YAML tool file breaks the rules under [YAML tools](#yaml-tools).
+
+## YAML tools
+
+With IBM i sign-on, every tool runs on the connection of the person who calls it.
+
+- A source's `user` and `password` are ignored.
+- A source's `host` must be `${DB2i_HOST}`. Its `port` and `ignore-unauthorized` aren't used.
+- A source can't set `jdbc-options`. Use `DB2i_JDBC_OPTIONS`.
+- Only `${DB2i_HOST}` and `${DB2i_PORT}` may appear in a tool file (outside `user` and `password`).
+- `execute_sql` stays read-only by default, on top of the person's own IBM i authority.
+
+## Sign-on blocking
+
+The server counts failed sign-ons per profile so that it can't push a profile past the IBM i's `QMAXSIGN`.
+
+| Result | Counts toward the block | Page says |
+|--------|------------------------|-----------|
+| Wrong password or unknown profile | Yes | Sign-on not accepted |
+| Expired password, disabled profile | No | Which one, and what to do |
+| IBM i unreachable | No | System unavailable |
+| No answer, or an answer the server can't read | Yes, toward twice the limit | System unavailable |
+| Password the server can't send (see below) | No, nothing is sent | Which rule |
+
+After `OAUTH_SIGNON_MAX_FAILURES` wrong passwords in a row (or twice that many unreadable results), nothing more is sent for that profile until an admin unblocks it or the server restarts. The block doesn't expire on its own. The IBM i profile itself is not disabled.
+
+**Passwords the server refuses to send:** ones that contain `:`, `%`, `;` or `"`, start with `*`, end with `\`, start or end with a space, contain non-ASCII characters, or equal the profile name. **Profile names** are 1–10 characters (letters, digits, `#`, `$`, `_`) and don't start with a digit.
+
+## Admin commands
+
+Run as the same OS user as the server, from its folder so the same `OAUTH_ADMIN_SOCKET` applies. With `npx`, put `npx -y @ibm/ibmi-mcp-server@latest` in place of `ibmi-mcp-server`.
+
+```bash
+ibmi-mcp-server --admin "status"            # grants=3 connections=2/50 blocked=1
+ibmi-mcp-server --admin "unblock MYUSER"
+ibmi-mcp-server --admin "revoke MYUSER"     # every sign-in of the profile
+ibmi-mcp-server --admin "revoke <grantId>"  # one sign-in
+```
+
+A *grant* is one sign-in. Its `grantId` is in the server's log lines and in the IBM i job's client application name (`ibmi-mcp/<grantId>`).
+
+In a container: `docker exec <container> node packages/server/dist/index.js --admin "status"`. `revoke` ends the sign-in at once and closes its IBM i job. To lock someone out for good, also disable the profile on the IBM i.
+
+## Endpoints (IBM i sign-on)
+
+Relative to `MCP_RESOURCE_URL` without its last path segment:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/.well-known/oauth-authorization-server` | Authorization server metadata |
+| `/.well-known/oauth-protected-resource/mcp` | Resource metadata (both modes) |
+| `/oauth/authorize` | Sign-in page |
+| `/oauth/token` | Exchanges codes and refresh tokens |
+| `/oauth/revoke` | Ends a sign-in |
+| `/oauth/register` | Dynamic client registration |
+| `/healthz` | Counts of sign-ins, connections and blocked profiles |
+
+Refresh tokens rotate on every use.
+
+## Log events (IBM i sign-on)
+
+Each event is one log record with an `event` field. No record holds a password, token or authorization code.
+
+| `event` | Meaning |
+|---------|---------|
+| `signon_ok` | Someone signed in |
+| `signon_rejected`, `signon_expired`, `signon_disabled` | The IBM i refused the sign-on |
+| `signon_blocked` | The profile is blocked on this server |
+| `signon_refused` | Not attempted; `reason` says why |
+| `signon_refused_syntax`, `signon_refused_privileged` | Password or profile shape; privileged profile |
+| `signon_unavailable`, `signon_timeout` | Mapepire unreachable, certificate failed, or no answer |
+| `signon_source_mismatch` | Code exchanged from a different address than the sign-in |
+| `code_exchanged`, `token_refreshed`, `refresh_replayed`, `token_refused` | Token endpoint |
+| `connection_closed` | `reason`: `idle`, `no_pong`, `lost`, `abandoned` |
+| `statement_abandoned` | A statement passed 120 seconds |
+| `reconnect_ok`, `reconnect_rejected`, `reconnect_unavailable` | Reconnect after an idle close |
+| `grant_ended` | A sign-in ended; `reason` says why |
+| `profile_unblocked`, `admin_command` | Admin socket |
+
+Most of these are logged at `info`. A `MCP_LOG_LEVEL` of `notice` or higher hides them.

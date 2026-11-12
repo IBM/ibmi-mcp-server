@@ -10,10 +10,21 @@
  * @module tests/mcp-server/transports/http/httpSecurityPosture.test
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { config } from "../../../../src/config/index.js";
 import { assertHttpSecurityPosture } from "../../../../src/mcp-server/transports/http/hostValidation.js";
-import { JsonRpcErrorCode, McpError } from "../../../../src/types-global/errors.js";
+import {
+  JsonRpcErrorCode,
+  McpError,
+} from "../../../../src/types-global/errors.js";
 import { requestContextService } from "../../../../src/utils/index.js";
 
 const ENV_KEYS = ["DB2i_HOST", "DB2i_USER", "DB2i_PASS"] as const;
@@ -21,7 +32,6 @@ const ENV_KEYS = ["DB2i_HOST", "DB2i_USER", "DB2i_PASS"] as const;
 const savedConfig = {
   mcpTransportType: config.mcpTransportType,
   mcpAuthMode: config.mcpAuthMode,
-  mcpAuthSecretKey: config.mcpAuthSecretKey,
   mcpHttpHost: config.mcpHttpHost,
   toolsYamlPath: config.toolsYamlPath,
   mcpAllowUnauthenticatedHttp: config.mcpAllowUnauthenticatedHttp,
@@ -34,7 +44,7 @@ let savedEnv: Record<string, string | undefined>;
  * legible when pino is emitting JSON. Silence it here to keep test output
  * clean, and keep the spy so one test can assert the block is actually written.
  */
-let stderrSpy: ReturnType<typeof vi.spyOn>;
+let stderrSpy: MockInstance<typeof process.stderr.write>;
 
 const ctx = () =>
   requestContextService.createRequestContext({
@@ -60,7 +70,6 @@ beforeEach(() => {
   }
   config.toolsYamlPath = undefined;
   config.mcpAllowUnauthenticatedHttp = false;
-  config.mcpAuthSecretKey = undefined;
 });
 
 afterEach(() => {
@@ -74,7 +83,6 @@ afterEach(() => {
   }
   config.mcpTransportType = savedConfig.mcpTransportType;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
-  config.mcpAuthSecretKey = savedConfig.mcpAuthSecretKey;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.toolsYamlPath = savedConfig.toolsYamlPath;
   config.mcpAllowUnauthenticatedHttp = savedConfig.mcpAllowUnauthenticatedHttp;
@@ -106,30 +114,14 @@ describe("assertHttpSecurityPosture", () => {
     expect(() => assertHttpSecurityPosture(ctx())).not.toThrow();
   });
 
-  it("does not throw when JWT auth is genuinely enforced", () => {
-    armQuad();
-    config.mcpAuthMode = "jwt";
-    config.mcpAuthSecretKey = "0123456789abcdef0123456789abcdef";
-    expect(() => assertHttpSecurityPosture(ctx())).not.toThrow();
-  });
-
-  it("throws when MCP_AUTH_MODE=jwt but the secret key is unset (dev bypass)", () => {
-    // JwtStrategy falls back to a dev bypass outside production when
-    // MCP_AUTH_SECRET_KEY is missing: verify() returns a synthetic AuthInfo for
-    // ANY bearer token. Naming an auth mode is therefore not the same as
-    // enforcing authentication, and the guard must not be fooled by it.
-    armQuad();
-    config.mcpAuthMode = "jwt";
-    config.mcpAuthSecretKey = undefined;
-    expect(() => assertHttpSecurityPosture(ctx())).toThrow(McpError);
-  });
-
-  it("does not throw for auth modes without a bypass path", () => {
-    armQuad();
-    config.mcpAuthMode = "ibmi";
-    config.mcpAuthSecretKey = undefined;
-    expect(() => assertHttpSecurityPosture(ctx())).not.toThrow();
-  });
+  it.each(["oauth", "ibmi"] as const)(
+    "does not throw when MCP_AUTH_MODE=%s authenticates every request",
+    (mode) => {
+      armQuad();
+      config.mcpAuthMode = mode;
+      expect(() => assertHttpSecurityPosture(ctx())).not.toThrow();
+    },
+  );
 
   it.each(["127.0.0.1", "localhost", "::1"])(
     "does not throw on loopback bind %s (warns and proceeds)",

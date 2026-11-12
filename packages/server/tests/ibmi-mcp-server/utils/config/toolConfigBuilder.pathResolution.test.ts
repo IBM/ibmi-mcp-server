@@ -1,26 +1,20 @@
 /**
  * @fileoverview Path-resolution tests for ToolConfigBuilder.
  *
- * Covers the directory and glob source resolution used when `--tools` points at
- * a directory (or a glob) rather than a single YAML file.
+ * Covers how a tools path (`--tools`, `TOOLS_YAML_PATH`) is resolved to YAML
+ * files: a single file, a directory, or a glob pattern.
  *
  * Regression guard for the Windows bug where a glob pattern was built with
- * path.join(), producing backslashes that glob (v10+) treats as escape
+ * path.join(), producing backslashes that a glob pattern treats as escape
  * characters rather than path separators, so no tool files were discovered.
- * The fix passes the directory via glob's `cwd` option and keeps the pattern
+ * The fix passes the directory via the `cwd` option and keeps the pattern
  * forward-slash only. See IBM/ibmi-mcp-server#150.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-
-// Block the scheduler singleton (loaded transitively via the utils barrel).
-vi.mock("../../../../src/utils/scheduling/index.js", () => ({
-  SchedulerService: { getInstance: vi.fn() },
-  schedulerService: {},
-}));
 
 import { ToolConfigBuilder } from "../../../../src/ibmi-mcp-server/utils/config/toolConfigBuilder.js";
 
@@ -32,6 +26,20 @@ type PathResolver = {
   resolveGlobPaths(pattern: string, baseDir?: string): string[];
 };
 
+const toolFile = (name: string) => `
+sources:
+  test-source:
+    host: localhost
+    user: tester
+    password: not-a-real-password
+
+tools:
+  ${name}:
+    source: test-source
+    description: "${name}"
+    statement: "SELECT 1 FROM SYSIBM.SYSDUMMY1"
+`;
+
 describe("ToolConfigBuilder path resolution", () => {
   let tmpRoot: string;
   let builder: PathResolver;
@@ -42,9 +50,10 @@ describe("ToolConfigBuilder path resolution", () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "ibmi-tools-"));
     mkdirSync(join(tmpRoot, "nested"), { recursive: true });
 
-    writeFileSync(join(tmpRoot, "a.yaml"), "tools: {}\n");
-    writeFileSync(join(tmpRoot, "b.yml"), "tools: {}\n");
-    writeFileSync(join(tmpRoot, "nested", "c.yaml"), "tools: {}\n");
+    // Written out of order: the resolved list must not depend on it.
+    writeFileSync(join(tmpRoot, "nested", "c.yaml"), toolFile("tool_c"));
+    writeFileSync(join(tmpRoot, "b.yml"), toolFile("tool_b"));
+    writeFileSync(join(tmpRoot, "a.yaml"), toolFile("tool_a"));
     // Non-YAML files must be ignored.
     writeFileSync(join(tmpRoot, "README.md"), "ignore me\n");
   });
@@ -53,13 +62,14 @@ describe("ToolConfigBuilder path resolution", () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("finds all .yaml and .yml files in a directory (including nested)", () => {
+  it("finds all .yaml and .yml files in a directory (including nested), sorted", () => {
     const paths = builder.resolveDirectoryPaths(tmpRoot);
 
-    expect(paths).toHaveLength(3);
-    // Returned paths are absolute and forward-slash-comparable.
-    const names = paths.map((p) => p.split(/[\\/]/).pop()).sort();
-    expect(names).toEqual(["a.yaml", "b.yml", "c.yaml"]);
+    expect(paths).toEqual([
+      join(tmpRoot, "a.yaml"),
+      join(tmpRoot, "b.yml"),
+      join(tmpRoot, "nested", "c.yaml"),
+    ]);
     for (const p of paths) {
       expect(resolve(p)).toBe(p);
     }
@@ -71,17 +81,56 @@ describe("ToolConfigBuilder path resolution", () => {
     ).toThrow(/Configuration directory not found/);
   });
 
-  it("resolves a relative glob pattern against baseDir", () => {
+  it("resolves a relative glob pattern against baseDir, sorted", () => {
     const paths = builder.resolveGlobPaths("**/*.{yaml,yml}", tmpRoot);
 
-    expect(paths).toHaveLength(3);
-    const names = paths.map((p) => p.split(/[\\/]/).pop()).sort();
-    expect(names).toEqual(["a.yaml", "b.yml", "c.yaml"]);
+    expect(paths).toEqual([
+      join(tmpRoot, "a.yaml"),
+      join(tmpRoot, "b.yml"),
+      join(tmpRoot, "nested", "c.yaml"),
+    ]);
   });
 
   it("throws when a glob pattern matches nothing", () => {
     expect(() => builder.resolveGlobPaths("**/*.json", tmpRoot)).toThrow(
       /No files found matching pattern/,
     );
+  });
+
+  describe("a tools path", () => {
+    it("is a file, a directory, or a glob when nothing of that name exists", () => {
+      const typeOf = (toolsPath: string) =>
+        ToolConfigBuilder.sourceForPath(toolsPath).type;
+
+      expect(typeOf(join(tmpRoot, "a.yaml"))).toBe("file");
+      expect(typeOf(tmpRoot)).toBe("directory");
+      expect(typeOf(join(tmpRoot, "*.yaml"))).toBe("glob");
+      expect(typeOf(join(tmpRoot, "missing.yaml"))).toBe("file");
+    });
+
+    it("loads the files a glob pattern matches", async () => {
+      const result = await ToolConfigBuilder.fromPath(join(tmpRoot, "*.y*ml"));
+
+      expect(result.resolvedFilePaths).toEqual([
+        join(tmpRoot, "a.yaml"),
+        join(tmpRoot, "b.yml"),
+      ]);
+      expect(Object.keys(result.config.tools ?? {})).toEqual([
+        "tool_a",
+        "tool_b",
+      ]);
+    });
+
+    it("fails for a glob pattern that matches nothing", async () => {
+      await expect(
+        ToolConfigBuilder.fromPath(join(tmpRoot, "*.json")),
+      ).rejects.toThrow(/No files found matching pattern/);
+    });
+
+    it("fails for a missing path that is not a pattern", async () => {
+      await expect(
+        ToolConfigBuilder.fromPath(join(tmpRoot, "missing.yaml")),
+      ).rejects.toThrow(/Configuration file not found/);
+    });
   });
 });

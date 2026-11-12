@@ -1,20 +1,28 @@
 ---
-title: "IBM i Authentication"
-description: "Complete guide to IBM i HTTP authentication with token-based access, RSA encryption, and per-user connection pooling."
+title: "IBM i Authentication (Deprecated)"
+description: "Deprecated IBM i HTTP token authentication: token-based access, RSA encryption, and per-user connection pooling."
 ---
 
-IBM i HTTP authentication enables secure, token-based access to the MCP server with per-user connection pooling. Clients authenticate with IBM i credentials to obtain Bearer tokens for subsequent API requests.
+<Warning>
+**Deprecated.** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`, `IBMI_HTTP_AUTH_ENABLED`, the `IBMI_AUTH_*` variables, the `/api/v1/auth` endpoints and per-user connection pools) will be removed in a future major release. It still works as documented here. The server logs one deprecation warning at startup, and every `/api/v1/auth` response carries a `Deprecation: true` header.
+
+**Replacement:** the [built-in IBM i sign-on](/server-config/oauth-ibmi-signon) of `MCP_AUTH_MODE=oauth`. Users sign on with their IBM i user profile at a page the server serves, and their SQL runs under that profile, so object authorities and audit journals still apply per user. Clients use the standard MCP OAuth flow instead of `/api/v1/auth` and `get-access-token.js`, and the server needs no RSA key pair.
+
+Before you move, read its [limitations](/server-config/oauth-ibmi-signon#good-to-know): one IBM i per server, no multi-factor sign-on, profiles with `*ALLOBJ` or `*SECADM` refused by default, and clients that can only send a fixed `Authorization` header cannot use it. OAuth with an [external authorization server](/server-config/oauth-provider) is the other option; there every SQL statement runs as the `DB2i_USER` service account.
+</Warning>
+
+IBM i HTTP authentication gives token-based access to the MCP server with per-user connection pooling. Clients authenticate with IBM i credentials to obtain Bearer tokens for subsequent requests.
 
 <Info>
-**When to use IBM i authentication:**
-- **Multi-user environments**: Each user gets their own connection pool with their credentials
-- **Production deployments**: Token-based auth with automatic expiry and session management
-- **Enhanced security**: Credentials encrypted during transmission using RSA/AES
-- **Audit trails**: Per-user tracking of database operations
+**What IBM i authentication provides:**
+- **Per-user pools**: Each user gets their own connection pool with their credentials
+- **Token expiry**: Tokens expire and their pools are cleaned up automatically
+- **Encrypted credentials**: Credentials are encrypted in transit using RSA/AES
+- **Audit trails**: Database operations run under each user's own profile
 
-**When to use simpler auth:**
-- **Development**: Use shared `DB2i_USER`/`DB2i_PASS` credentials (no token auth needed)
-- **Single-user scenarios**: JWT or OAuth may be sufficient
+**Alternatives:**
+- **Development**: Use shared `DB2i_USER`/`DB2i_PASS` credentials with `MCP_AUTH_MODE=none` on loopback
+- **Remote deployments**: Use [OAuth](/server-config/oauth). Its built-in IBM i sign-on keeps per-user IBM i authority.
 </Info>
 
 ---
@@ -54,7 +62,7 @@ sequenceDiagram
 - **End-to-end encryption**: Credentials never transmitted in plain text
 - **Per-user pools**: Each token gets its own dedicated DB2 connection pool
 - **Token lifecycle**: Automatic expiry and cleanup of stale sessions
-- **Key rotation**: Support for multiple keypairs for zero-downtime rotation
+- **Single keypair**: The server loads one active keypair, identified by `IBMI_AUTH_KEY_ID`
 
 ---
 
@@ -69,7 +77,10 @@ sequenceDiagram
 | `IBMI_AUTH_KEY_ID` | Identifier for RSA keypair | (none) | ✅ Yes |
 | `IBMI_AUTH_PRIVATE_KEY_PATH` | Path to RSA private key | (none) | ✅ Yes |
 | `IBMI_AUTH_PUBLIC_KEY_PATH` | Path to RSA public key | (none) | ✅ Yes |
-| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP (dev only) | `false` | No |
+| `IBMI_AUTH_ALLOW_HTTP` | Allow HTTP. Only honoured when `NODE_ENV=development` | `false` | No |
+| `IBMI_AUTH_ALLOWED_HOSTS` | Comma-separated IBM i host names users may sign on to (case-insensitive) | `DB2i_HOST` | When `DB2i_HOST` is not set |
+| `MCP_TRUSTED_PROXIES` | Addresses or CIDR ranges of the reverse proxies whose `X-Forwarded-Proto` and `X-Forwarded-For` headers are believed | (none) | Behind a TLS-terminating proxy |
+| `MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE` | PEM certificate and private key; with both set the server listens with HTTPS itself | (none) | Without a TLS-terminating proxy |
 | `IBMI_AUTH_TOKEN_EXPIRY_SECONDS` | Token lifetime | `3600` (1hr) | No |
 | `IBMI_AUTH_CLEANUP_INTERVAL_SECONDS` | Cleanup interval | `300` (5min) | No |
 | `IBMI_AUTH_MAX_CONCURRENT_SESSIONS` | Max sessions | `100` | No |
@@ -77,6 +88,28 @@ sequenceDiagram
 <Info>
 **Complete Reference**: See the [IBM i Authentication Settings](/configuration#ibm-i-authentication-settings) section in the Configuration Reference for all available environment variables and their defaults.
 </Info>
+
+### Allowed Sign-on Hosts
+
+The request to `/api/v1/auth` names the IBM i host to sign on to. The server signs on only to hosts listed in `IBMI_AUTH_ALLOWED_HOSTS`, which defaults to `DB2i_HOST`. A request for any other host is refused with `403` and the message `Sign-on to this host is not allowed`, before any connection is opened.
+
+```bash
+# Users may sign on to either system
+IBMI_AUTH_ALLOWED_HOSTS=ibmi-prod.company.com,ibmi-dr.company.com
+```
+
+When IBM i authentication is enabled and neither `IBMI_AUTH_ALLOWED_HOSTS` nor `DB2i_HOST` is set, the server does not start.
+
+### HTTPS and Reverse Proxies
+
+`POST /api/v1/auth` must arrive over HTTPS. A request counts as HTTPS in one of two ways:
+
+- **The server terminates TLS itself.** Set `MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE` to PEM files; the server then listens with HTTPS.
+- **A reverse proxy terminates TLS** and sends `X-Forwarded-Proto: https`. The server believes that header only from a proxy whose address is listed in `MCP_TRUSTED_PROXIES` (IP addresses or CIDR ranges, comma-separated).
+
+Otherwise every sign-on is refused with `400` and `HTTPS/TLS is required for authentication endpoints`. See [Behind a Reverse Proxy](/configuration#behind-a-reverse-proxy).
+
+For local testing without a proxy, set `IBMI_AUTH_ALLOW_HTTP=true` together with `NODE_ENV=development`.
 
 ### Db2i Credentials: Important Notes
 
@@ -238,7 +271,7 @@ IBM i authentication requires RSA keypairs to protect credentials during transmi
 7. **Server authenticates** against IBM i and issues an access token
 
 <Note>
-**Key Rotation**: To rotate keys, generate a new keypair with a different `IBMI_AUTH_KEY_ID`. The server can support multiple keypairs simultaneously, allowing gradual migration without service interruption.
+**Key Rotation**: To rotate keys, generate a new keypair, point the key paths at it, set a different `IBMI_AUTH_KEY_ID`, and restart the server. The server loads a single active keypair, so clients must fetch the new public key after rotation.
 </Note>
 
 ---
@@ -269,10 +302,13 @@ MCP_TRANSPORT_TYPE=http
 MCP_HTTP_PORT=3010
 MCP_LOG_LEVEL=info
 
-# Security (production)
+# Security (production, behind a reverse proxy that terminates TLS)
 IBMI_AUTH_ALLOW_HTTP=false
+MCP_TRUSTED_PROXIES=10.0.0.5   # address of that proxy
 IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
 ```
+
+The key pair is read at startup: if a key file cannot be read or parsed, the server exits with `The IBM i HTTP authentication key pair could not be loaded (IBMI_AUTH_PRIVATE_KEY_PATH, IBMI_AUTH_PUBLIC_KEY_PATH): <reason>`.
 
 **Start the Server:**
 
@@ -286,38 +322,26 @@ IBMI_AUTH_TOKEN_EXPIRY_SECONDS=3600
     npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools
     ```
 
-    You should see:
+    On a terminal you should see:
     ```
-    ✓ IBM i HTTP authentication enabled
-    ✓ Public key loaded from secrets/public.pem
-    ✓ Private key loaded from secrets/private.pem
-    ✓ Server ready!
-      Transport: http
-      Host: 127.0.0.1:3010
-      Endpoint: http://127.0.0.1:3010/mcp
-      Auth: IBM i HTTP (key_id: production)
+    🚀 MCP Server running at: http://127.0.0.1:3010/mcp
     ```
+
+    The log also contains `IBM i HTTP authentication endpoint enabled at /api/v1/auth` and the deprecation warning.
   </Tab>
 
   <Tab title="Build from Source">
     ```bash
-    # From the repository root
-    export MCP_SERVER_CONFIG=.env
-    cd packages/server
-    npm run start:http -- --tools ../../tools
+    # From the repository root (the root .env is loaded automatically)
+    npm run start:http -- --tools ./tools
     ```
 
-    You should see:
+    On a terminal you should see:
     ```
-    ✓ IBM i HTTP authentication enabled
-    ✓ Public key loaded from secrets/public.pem
-    ✓ Private key loaded from secrets/private.pem
-    ✓ Server ready!
-      Transport: http
-      Host: 127.0.0.1:3010
-      Endpoint: http://127.0.0.1:3010/mcp
-      Auth: IBM i HTTP (key_id: production)
+    🚀 MCP Server running at: http://127.0.0.1:3010/mcp
     ```
+
+    The log also contains `IBM i HTTP authentication endpoint enabled at /api/v1/auth` and the deprecation warning.
   </Tab>
 </Tabs>
 
@@ -341,7 +365,7 @@ If you see the public key, authentication is properly configured!
 </Success>
 
 <Warning>
-**Production HTTPS**: In production, ensure `IBMI_AUTH_ALLOW_HTTP=false` and use HTTPS. The server will reject HTTP authentication requests for security.
+**Production HTTPS**: In production, ensure `IBMI_AUTH_ALLOW_HTTP=false` and use HTTPS. The server will reject HTTP authentication requests for security. Behind a TLS-terminating proxy, set `MCP_TRUSTED_PROXIES` to the proxy's address; see [HTTPS and Reverse Proxies](#https-and-reverse-proxies).
 </Warning>
 
 ---
@@ -407,10 +431,12 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiTVlVU0VSIiwiaG9zdCI6...
 |--------|-------|-------------|---------|
 | `--user` | `-u` | IBM i username | `DB2i_USER` from .env |
 | `--password` | `-p` | IBM i password | `DB2i_PASS` from .env |
-| `--host` | `-h` | IBM i host address | `DB2i_HOST` from .env |
+| `--host` | | IBM i host address | `DB2i_HOST` from .env |
 | `--server` | | MCP server address | `localhost` |
 | `--port` | | MCP server port | `3010` |
-| `--https` | | Use HTTPS instead of HTTP | HTTP |
+| `--https` | | Use HTTPS instead of HTTP. The server's certificate is verified | HTTP |
+| `--insecure` | | With `--https`, do not verify the server's certificate (self-signed setups only) | (verify) |
+| `--help` | `-h` | Show usage and exit | |
 | `--verbose` | `-v` | Enable verbose output with metadata | (quiet mode) |
 | `--quiet` | `-q` | Output only export command for shell eval | (normal mode) |
 
@@ -421,8 +447,7 @@ For advanced use cases, the script supports additional configuration:
 | Option | Description |
 |--------|-------------|
 | `--duration` | Token duration in seconds |
-| `--pool-start` | Initial connection pool size |
-| `--pool-max` | Maximum connection pool size |
+| `--pool-max` | Maximum connection pool size (the pool starts with one connection and grows on demand) |
 | `--public-key-path` | Path to PEM-encoded server public key (skips HTTP fetch) |
 | `--key-id` | Key identifier when using `--public-key-path` |
 
@@ -596,7 +621,8 @@ Once you have a token, configure your MCP client:
   <Accordion title="Network Security" icon="network-wired">
     - **HTTPS Only**: Never allow `IBMI_AUTH_ALLOW_HTTP=true` in production
     - **Firewall Rules**: Restrict access to auth endpoints
-    - **Rate Limiting**: Configure rate limits on authentication endpoints
+    - **Rate Limiting**: `POST /api/v1/auth` is limited to 10 requests per minute per client address. Behind a proxy, set `MCP_TRUSTED_PROXIES` to the proxy's address so the limit applies per client and not to the proxy
+    - **Allowed hosts**: Keep `IBMI_AUTH_ALLOWED_HOSTS` to the systems users should reach
     - **IP Whitelisting**: Restrict auth access to known client IPs when possible
   </Accordion>
 </AccordionGroup>
@@ -616,6 +642,19 @@ Once you have a token, configure your MCP client:
     **Why**: Validation requires these fields to be either undefined or have non-empty values. When using token auth, credentials come from the Bearer token, not environment variables.
   </Accordion>
 
+  <Accordion title="Sign-on Fails: 400, 401, 403 or 429 from /api/v1/auth">
+    | Status | Message | Cause |
+    |--------|---------|-------|
+    | `400` | `HTTPS/TLS is required for authentication endpoints` | The request did not arrive over HTTPS. Behind a TLS-terminating proxy set `MCP_TRUSTED_PROXIES` to the proxy's address, or give the server its own TLS listener (`MCP_TLS_CERT_FILE`, `MCP_TLS_KEY_FILE`); for local testing set `IBMI_AUTH_ALLOW_HTTP=true` with `NODE_ENV=development` |
+    | `401` | `Authentication failed` | The IBM i sign-on did not succeed (wrong user or password, host unreachable, and so on). The response does not say why; the server log does, in the `IBM i sign-on failed` record |
+    | `403` | `Sign-on to this host is not allowed` | The requested host is not in `IBMI_AUTH_ALLOWED_HOSTS` (default: `DB2i_HOST`) |
+    | `429` | Rate limit exceeded | More than 10 sign-on requests in one minute from one client address |
+
+    After IBM i rejects a user or password, the server does not try those credentials again for 60 seconds, so that repeated attempts do not disable the user profile. A corrected password is tried at once.
+
+    With `get-access-token.js --https`, a certificate that cannot be verified is also an error; pass `--insecure` for a self-signed certificate.
+  </Accordion>
+
   <Accordion title="401 Unauthorized When Using Token">
     **Possible causes:**
     - Token has expired (check `IBMI_AUTH_TOKEN_EXPIRY_SECONDS`)
@@ -625,7 +664,11 @@ Once you have a token, configure your MCP client:
     **Check:**
     ```bash
     # Verify header format
-    curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:3010/mcp
+    curl -X POST http://localhost:3010/mcp \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json, text/event-stream" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
     # Get a fresh token
     node get-access-token.js --verbose
@@ -633,7 +676,7 @@ Once you have a token, configure your MCP client:
   </Accordion>
 
   <Accordion title="Encryption Key Errors">
-    **Symptom**: Server fails to start or auth requests fail with encryption errors.
+    **Symptom**: Server fails to start with `The IBM i HTTP authentication key pair could not be loaded ...`, or auth requests fail with encryption errors.
 
     **Solutions:**
     - Verify file paths in `.env` are correct
@@ -664,8 +707,6 @@ When enabled (`IBMI_HTTP_AUTH_ENABLED=true`), the server provides these endpoint
 | `/api/v1/auth` | POST | Authenticate with encrypted IBM i credentials and receive Bearer token |
 | `/healthz` | GET | Health check endpoint (no authentication required) |
 
-For detailed API specifications, see the [API Reference](/api/auth-endpoints).
-
 ---
 
 ## Next Steps
@@ -680,7 +721,7 @@ For detailed API specifications, see the [API Reference](/api/auth-endpoints).
   <Card title="SQL Tools" icon="database" href="/sql-tools/overview">
     Create custom SQL operations for authenticated users
   </Card>
-  <Card title="Production Deployment" icon="server" href="/deployment/production">
+  <Card title="Production Deployment" icon="server" href="/deployment/overview">
     Deploy with Docker, HTTPS, and secrets management
   </Card>
 </CardGroup>

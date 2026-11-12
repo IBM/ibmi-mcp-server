@@ -172,33 +172,6 @@ export class IBMiConnectionPool extends BaseConnectionPool<
   }
 
   /**
-   * Check the health of the connection pool
-   */
-  static async healthCheck(): Promise<boolean> {
-    const context = requestContextService.createRequestContext({
-      operation: "ConnectionHealthCheck",
-    });
-
-    try {
-      await this.ensureInitialized();
-      const instance = this.getInstance();
-      const health = await instance.checkPoolHealth(IBM_I_POOL_ID, context);
-
-      logger.debug(context, "Connection health check passed");
-      return health.status === "healthy";
-    } catch (error) {
-      logger.error(
-        {
-          ...context,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "Connection health check failed",
-      );
-      return false;
-    }
-  }
-
-  /**
    * Close the connection pool gracefully
    */
   static async close(): Promise<void> {
@@ -214,23 +187,5 @@ export class IBMiConnectionPool extends BaseConnectionPool<
       await instance.closePool(IBM_I_POOL_ID, context);
       logger.info(context, "IBM i connection pool closed successfully");
     }
-  }
-
-  /**
-   * Get connection pool status for monitoring
-   */
-  static getStatus(): {
-    initialized: boolean;
-    connecting: boolean;
-    poolExists: boolean;
-  } {
-    const instance = this.getInstance();
-    const poolStatus = instance.getPoolStatus(IBM_I_POOL_ID);
-
-    return {
-      initialized: poolStatus?.initialized ?? false,
-      connecting: poolStatus?.connecting ?? false,
-      poolExists: poolStatus !== null,
-    };
   }
 }

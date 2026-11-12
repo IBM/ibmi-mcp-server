@@ -3,7 +3,11 @@
  * @module cli/config
  */
 
-export { CliConfigSchema, SystemConfigSchema, validateConfig } from "./schema.js";
+export {
+  CliConfigSchema,
+  SystemConfigSchema,
+  validateConfig,
+} from "./schema.js";
 export {
   loadConfig,
   loadConfigLayers,
@@ -26,5 +30,4 @@ export type {
   SystemConfig,
   ResolvedSystem,
   OutputFormat,
-  GlobalOptions,
 } from "./types.js";

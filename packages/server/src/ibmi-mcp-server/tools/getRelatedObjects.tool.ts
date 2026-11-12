@@ -10,12 +10,12 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
 import type { BindingValue } from "@ibm/mapepire-js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQueryWithPagination } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -115,10 +115,7 @@ export async function getRelatedObjectsLogic(
 
   const startTime = Date.now();
 
-  const bindParams: BindingValue[] = [
-    params.library_name,
-    params.file_name,
-  ];
+  const bindParams: BindingValue[] = [params.library_name, params.file_name];
 
   const whereClause = params.object_type_filter
     ? "\n    WHERE SQL_OBJECT_TYPE = ?"
@@ -138,7 +135,9 @@ export async function getRelatedObjectsLogic(
   `.trim();
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // Paginate: a single fetch returns at most 100 rows (mapepire default),
+    // which would silently drop dependent objects.
+    const result = await executeQueryWithPagination(
       sql,
       bindParams,
       appContext,

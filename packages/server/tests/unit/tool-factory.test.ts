@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
+  createHandler,
   defineTool,
   ToolDefinitionSchema,
 } from "../../src/mcp-server/tools/utils/tool-factory.js";
@@ -173,6 +174,32 @@ describe("Tool Factory", () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(() => defineTool(invalidDefinition as any)).toThrow(/snake_case/);
+    });
+  });
+
+  describe("createHandler()", () => {
+    it("flags a result that reports success: false as an error", async () => {
+      const failure = {
+        success: false,
+        error: { code: "-32010", message: "SQL0204 - NOPE not found" },
+      };
+      const handler = createHandler("test_tool", async () => failure);
+
+      const result = await handler({}, {} as never);
+
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toEqual(failure);
+    });
+
+    it("does not flag a successful result", async () => {
+      const handler = createHandler("test_tool", async () => ({
+        success: true,
+        data: [],
+      }));
+
+      const result = await handler({}, {} as never);
+
+      expect(result.isError).toBeUndefined();
     });
   });
 });

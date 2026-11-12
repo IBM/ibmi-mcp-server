@@ -482,7 +482,7 @@ tools:
       WHERE (:name_pattern IS NULL OR UPPER(FIRSTNME) LIKE UPPER(:name_pattern))
         AND (:min_salary IS NULL OR SALARY >= :min_salary)
         AND (:max_salary IS NULL OR SALARY <= :max_salary)
-        AND (:departments IS NULL OR WORKDEPT IN (:departments))
+        AND WORKDEPT IN (:departments)
       ORDER BY LASTNAME, FIRSTNME
       LIMIT :page_size OFFSET (:page_number - 1) * :page_size
     parameters:
@@ -515,7 +515,7 @@ tools:
         type: array
         itemType: string
         description: "Filter by departments (e.g., ['A00', 'B01'])"
-        required: false
+        required: true   # an array expands to one marker per element, so it cannot be tested with IS NULL
         minLength: 1
         maxLength: 10
 

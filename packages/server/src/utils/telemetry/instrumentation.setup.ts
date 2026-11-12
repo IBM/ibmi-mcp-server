@@ -5,11 +5,9 @@
  * @module src/utils/telemetry/instrumentation.setup
  */
 import { config } from "@/config/index.js";
-import { DiagConsoleLogger, DiagLogLevel, diag } from "@opentelemetry/api";
+import { type DiagLogger, DiagLogLevel, diag } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
-import { PinoInstrumentation } from "@opentelemetry/instrumentation-pino";
 import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
@@ -30,7 +28,16 @@ export let startedSdk: NodeSDK | null = null;
 
 // --- Custom Diagnostic Logger for OpenTelemetry ---
 // This logger uses the standard console to avoid circular dependencies with the main application logger.
-class OtelDiagnosticLogger extends DiagConsoleLogger {}
+// Every level goes to stderr: DiagConsoleLogger sends info/debug to stdout,
+// which must carry only JSON-RPC when the stdio transport is in use.
+const toStderr = (...args: unknown[]): void => console.error(...args);
+const otelDiagnosticLogger: DiagLogger = {
+  error: toStderr,
+  warn: toStderr,
+  info: toStderr,
+  debug: toStderr,
+  verbose: toStderr,
+};
 
 /**
  * A custom SpanProcessor that writes ended spans to a log file using Pino.
@@ -73,7 +80,7 @@ if (config.openTelemetry.enabled) {
       DiagLogLevel[
         config.openTelemetry.logLevel as keyof typeof DiagLogLevel
       ] ?? DiagLogLevel.INFO;
-    diag.setLogger(new OtelDiagnosticLogger(), otelLogLevel);
+    diag.setLogger(otelDiagnosticLogger, otelLogLevel);
 
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: config.openTelemetry.serviceName,
@@ -115,13 +122,11 @@ if (config.openTelemetry.enabled) {
       // meta-package pulls in ~40 instrumentations and, transitively,
       // `systeminformation`, whose `os` allowlist excludes IBM i (os400)
       // and makes `npm install` fail there (GitHub discussion #175).
+      // Only instrumentations that work without a module loader hook belong
+      // here: this ESM build registers none, so those that patch modules
+      // (http, pino) have no effect. Undici subscribes to diagnostics channels.
       instrumentations: [
-        new HttpInstrumentation({
-          ignoreIncomingRequestHook: (req) => req.url === "/healthz",
-        }),
-        // Injects trace_id/span_id into pino log records.
-        new PinoInstrumentation(),
-        // Spans for native `fetch` (see utils/network/fetchWithTimeout.ts).
+        // Spans for native `fetch`.
         new UndiciInstrumentation(),
       ],
     });
@@ -132,6 +137,7 @@ if (config.openTelemetry.enabled) {
     );
   } catch (error) {
     diag.error("Error initializing OpenTelemetry", error);
-    process.exit(1);
+    // The facade hands this to the entry point, which owns process exit.
+    throw error;
   }
 }

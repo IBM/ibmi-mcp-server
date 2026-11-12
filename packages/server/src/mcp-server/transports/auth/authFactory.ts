@@ -1,54 +1,93 @@
 /**
- * @fileoverview Factory for creating an authentication strategy based on configuration.
- * This module centralizes the logic for selecting and instantiating the correct
- * authentication strategy, promoting loose coupling and easy extensibility.
+ * @fileoverview Selects the HTTP authentication for the configured
+ * `MCP_AUTH_MODE`.
  * @module src/mcp-server/transports/auth/authFactory
  */
 import { config } from "@/config/index.js";
-import { logger, requestContextService } from "@/utils/index.js";
-import { AuthStrategy } from "./strategies/authStrategy.js";
-import { IBMiTokenStrategy } from "./strategies/ibmiTokenStrategy.js";
-import { JwtStrategy } from "./strategies/jwtStrategy.js";
-import { OauthStrategy } from "./strategies/oauthStrategy.js";
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { logger, type RequestContext } from "@/utils/index.js";
+import { getPublicKeyMetadata } from "@/ibmi-mcp-server/auth/crypto.js";
+import type { GrantManager } from "@/ibmi-mcp-server/oauth/contracts.js";
+import { createBuiltinOAuthAuth } from "./builtinOAuth.js";
+import { authenticateIbmiToken } from "./ibmiTokenAuth.js";
+import type { HttpAuth } from "./lib/authTypes.js";
+import { createOAuthAuth } from "./oauth.js";
+
+const jwtModeRetired = (): McpError =>
+  new McpError(
+    JsonRpcErrorCode.ConfigurationError,
+    "MCP_AUTH_MODE=jwt is no longer supported. Use MCP_AUTH_MODE=oauth with MCP_RESOURCE_URL and OAUTH_ISSUER_URL.",
+  );
 
 /**
- * Creates and returns an authentication strategy instance based on the
- * application's configuration (`config.mcpAuthMode`).
+ * Refuses to start with the retired `jwt` auth mode, on either transport.
  *
- * @returns An instance of a class that implements the `AuthStrategy` interface,
- *          or `null` if authentication is disabled (`none`).
- * @throws {Error} If the auth mode is unknown or misconfigured.
+ * @throws {McpError} `ConfigurationError`.
  */
-export function createAuthStrategy(): AuthStrategy | null {
-  const context = requestContextService.createRequestContext({
-    operation: "createAuthStrategy",
-    authMode: config.mcpAuthMode,
-  });
-  logger.info(context, "Creating authentication strategy...");
+export function assertAuthModeSupported(): void {
+  if (config.mcpAuthMode === "jwt") {
+    throw jwtModeRetired();
+  }
+}
+
+/**
+ * Builds the authentication for the HTTP transport.
+ *
+ * `MCP_AUTH_MODE=oauth` verifies the tokens of the external authorization
+ * server `OAUTH_ISSUER_URL` names; without that setting the server is its
+ * own authorization server and tokens are looked up in `grants`.
+ *
+ * @param grants - The grant manager of the built-in IBM i sign-on.
+ * @returns `null` when authentication is disabled (`MCP_AUTH_MODE=none`).
+ * @throws {McpError} `ConfigurationError` if the mode is misconfigured.
+ */
+export async function createHttpAuth(
+  context: RequestContext,
+  grants?: Pick<GrantManager, "authenticate">,
+): Promise<HttpAuth | null> {
+  if (config.mcpAuthMode === "ibmi" || config.ibmiHttpAuth.enabled) {
+    logger.warning(
+      context,
+      "IBM i HTTP token authentication is deprecated and will be removed in a future major release; use MCP_AUTH_MODE=oauth for multi-user remote deployments.",
+    );
+    if (config.ibmiHttpAuth.allowedHosts.length === 0) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        "IBM i HTTP authentication needs the IBM i hosts users may sign on to: set IBMI_AUTH_ALLOWED_HOSTS (comma-separated host names) or DB2i_HOST.",
+      );
+    }
+  }
+  if (config.ibmiHttpAuth.enabled) {
+    // Read the key pair now: a bad key path must stop startup, not fail
+    // every sign-on.
+    try {
+      getPublicKeyMetadata();
+    } catch (error) {
+      throw new McpError(
+        JsonRpcErrorCode.ConfigurationError,
+        `The IBM i HTTP authentication key pair could not be loaded (IBMI_AUTH_PRIVATE_KEY_PATH, IBMI_AUTH_PUBLIC_KEY_PATH): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   switch (config.mcpAuthMode) {
     case "jwt":
-      logger.debug(context, "Instantiating JWT authentication strategy.");
-      return new JwtStrategy();
+      throw jwtModeRetired();
     case "oauth":
-      logger.debug(context, "Instantiating OAuth authentication strategy.");
-      return new OauthStrategy();
+      if (!config.oauth.builtin) {
+        return createOAuthAuth(context);
+      }
+      if (!grants) {
+        throw new McpError(
+          JsonRpcErrorCode.ConfigurationError,
+          "MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL: the built-in IBM i sign-on was not started. Set OAUTH_ISSUER_URL to use an external authorization server.",
+        );
+      }
+      return createBuiltinOAuthAuth(grants, context);
     case "ibmi":
-      logger.debug(
-        context,
-        "Instantiating IBM i token authentication strategy.",
-      );
-      return new IBMiTokenStrategy();
+      return { authenticate: authenticateIbmiToken };
     case "none":
       logger.info(context, "Authentication is disabled ('none' mode).");
-      return null; // No authentication
-    default:
-      // This ensures that if a new auth mode is added to the config type
-      // but not to this factory, we get a compile-time or runtime error.
-      logger.error(
-        context,
-        `Unknown authentication mode: ${config.mcpAuthMode}`,
-      );
-      throw new Error(`Unknown authentication mode: ${config.mcpAuthMode}`);
+      return null;
   }
 }

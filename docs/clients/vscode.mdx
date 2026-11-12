@@ -107,11 +107,39 @@ Create or edit `mcp.json`:
 **Security**: On first start, VSCode will prompt you to trust the MCP server. Only trust servers from reliable sources as they can execute code on your machine.
 </Info>
 
-## Remote (HTTP/SSE) Setup
+## Remote (HTTP) Setup
 
-VSCode supports both HTTP and SSE (Server-Sent Events) transport for remote servers.
+VSCode connects to the server with the `http` transport type. The server has no standalone SSE endpoint, so `"type": "sse"` does not work.
 
-### Using CLI
+### With OAuth (Recommended)
+
+For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/server-config/oauth)), configure the URL without an `Authorization` header in `mcp.json`:
+
+```json
+{
+  "servers": {
+    "ibmiMcp": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+If your version of VSCode supports OAuth for remote MCP servers, it opens a browser sign-in on first use. What else applies depends on how the server is configured:
+
+- **External authorization server** (`OAUTH_ISSUER_URL` set on the server): you sign in with your identity provider. If your version of VSCode does not run the OAuth flow, add an `Authorization: Bearer <token>` header with an access token from your identity provider.
+- **Built-in IBM i sign-on** (no `OAUTH_ISSUER_URL` on the server): you sign on with your IBM i user profile at a page the MCP server serves. That sign-on has not been tested with VSCode: only the MCP TypeScript SDK client is covered by the server's tests. There is no bearer-token fallback in that mode: tokens come only from the sign-in flow. The server keeps the loopback redirect URIs VSCode registers (`http://127.0.0.1/` and `http://127.0.0.1:33418/`); its `https://vscode.dev/redirect` and `https://insiders.vscode.dev/redirect` are accepted only when the server administrator lists them in `OAUTH_REDIRECT_URIS`, which a remote window (Remote-SSH, WSL, a container) may need.
+
+See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
+
+### With IBM i Tokens (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
+#### Using CLI
 
 ```bash
 # Add remote HTTP server
@@ -125,10 +153,8 @@ code --add-mcp '{
 }'
 ```
 
-### Using mcp.json
+#### Using mcp.json
 
-<Tabs>
-  <Tab title="HTTP Transport">
 ```json
 {
   "servers": {
@@ -142,28 +168,6 @@ code --add-mcp '{
   }
 }
 ```
-  </Tab>
-
-  <Tab title="SSE Transport">
-```json
-{
-  "servers": {
-    "ibmiMcp": {
-      "type": "sse",
-      "url": "http://localhost:3010/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_ACCESS_TOKEN_HERE"
-      }
-    }
-  }
-}
-```
-
-<Info>
-**SSE (Server-Sent Events)**: Alternative to HTTP transport for real-time server updates. Use when your server supports SSE protocol.
-</Info>
-  </Tab>
-</Tabs>
 
 ## Secure Credentials with Variables
 
@@ -310,7 +314,8 @@ After configuration:
     - Verify remote server is running
     - Check token is valid and not expired
     - Ensure correct Authorization header format
-    - Get fresh token: `node get-access-token.js --verbose`
+    - OAuth: sign in again, or replace an expired bearer token
+    - IBM i tokens (deprecated): get a fresh token with `node get-access-token.js --verbose`
   </Accordion>
 
   <Accordion title="Input Variables Not Prompting">
@@ -430,8 +435,8 @@ Load specific toolsets for different workflows:
   <Card title="Configuration" icon="gear" href="/configuration">
     Explore all configuration options
   </Card>
-  <Card title="Authentication" icon="lock" href="/configuration#ibm-i-authentication-settings">
-    Set up secure IBM i authentication
+  <Card title="Authentication" icon="lock" href="/server-config/oauth">
+    Set up OAuth for remote servers
   </Card>
   <Card title="Other Clients" icon="grid" href="/clients/overview">
     Explore other MCP-compatible clients

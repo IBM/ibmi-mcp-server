@@ -24,6 +24,10 @@ Sources define database connections that your SQL tools use to execute queries a
 
 ---
 
+<Note>
+**With the built-in IBM i sign-on** (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`) every tool runs on the connection of the user who calls it. A source's `user` and `password` are ignored (variables they reference need not be set), its `host` must be `DB2i_HOST`, its `port` and `ignore-unauthorized` are not used, and a source that sets `jdbc-options` stops startup. `${VAR}` is replaced only for `DB2i_HOST` and `DB2i_PORT`: any other variable in a tool file, outside a source's `user` and `password`, stops startup. See [YAML Tools](/server-config/oauth-reference#yaml-tools).
+</Note>
+
 ## Basic Source Configuration
 
 Every YAML file starts with a `sources` section that defines one or more database connections:
@@ -129,7 +133,7 @@ The IBM i user profile must have:
 
 ### Optional Fields
 
-These fields have sensible defaults and can be omitted for most configurations:
+These fields have sensible defaults and can be omitted for most configurations. A source accepts no other keys: a misspelled or unknown key (for example `prot: 8076`) fails the load with `sources.<name>: Unrecognized key: "prot"`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -172,7 +176,7 @@ These fields have sensible defaults and can be omitted for most configurations:
     ```
 
     <Note>
-    Interpolation supports `${VAR_NAME}` only — there is no `${VAR:default}` syntax. If `DB2i_PORT` is unset at YAML load time, the placeholder stays literal and validation fails; omit `port` instead to use Mapepire's default **8076**, or set `DB2i_PORT` in `.env` before starting the server.
+    Interpolation supports `${VAR_NAME}` only — there is no `${VAR:default}` syntax. If `DB2i_PORT` is unset at YAML load time, the file fails to load (`environment variable(s) not set: DB2i_PORT`); omit `port` instead to use Mapepire's default **8076**, or set `DB2i_PORT` in `.env` before starting the server.
     </Note>
   </Tab>
 
@@ -199,16 +203,7 @@ These fields have sensible defaults and can be omitted for most configurations:
         ignore-unauthorized: true  # Allow self-signed
     ```
 
-    **Environment-specific:**
-    ```yaml
-    sources:
-      ibmi-system:
-        host: ${DB2i_HOST}
-        user: ${DB2i_USER}
-        password: ${DB2i_PASS}
-        port: 8076
-        ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}
-    ```
+    `ignore-unauthorized` must be a YAML boolean (`true` or `false`). It cannot come from `${VAR}`: an interpolated value is always a string, and the load fails.
 
     <Warning>
     **Production Security**: Only use `ignore-unauthorized: true` in development. Production must use valid SSL certificates with `ignore-unauthorized: false`.
@@ -365,29 +360,24 @@ DB2i_USER=MCPUSER
 DB2i_PASS=SecurePassword123
 ```
 
-### Default Values
+### Interpolation Rules
 
-Provide fallback values for optional settings:
-
-```yaml
-sources:
-  ibmi-system:
-    host: ${DB2i_HOST}
-    user: ${DB2i_USER}
-    password: ${DB2i_PASS}
-    port: ${DB2i_PORT:8076}                           # Defaults to 8076
-    ignore-unauthorized: ${DB2i_IGNORE_UNAUTHORIZED:false}  # Defaults to false
-```
-
-<Note>
-**Syntax**: `${VARIABLE_NAME:default_value}` - Use `:` to specify default values that apply when the environment variable is not set.
-</Note>
+- **Syntax**: `${VARIABLE_NAME}` only. There is no default-value syntax such as `${VAR:default}`.
+- **Where**: inside any string value of the file (sources, statements, descriptions). Keys and comments are left alone.
+- **When**: after the YAML is parsed. A value cannot change the structure of the file, so a password that contains `#`, `:` or `*` needs no quoting.
+- **Type**: the result is always a string. `port: ${DB2i_PORT}` works because the port accepts a numeric string; `ignore-unauthorized: ${VAR}` does not, because that key needs a boolean.
+- **Unset variables**: a referenced variable that is not set fails the load: `Invalid tool configuration in <file>: environment variable(s) not set: DB2i_HOST, ...`. `--list-toolsets` is the exception: it connects to nothing, so it lists the toolsets without them.
+- Values are read from the server's environment when the file is loaded. Restart the server after changing `.env`.
 
 ---
 
 ## Multiple Sources
 
 Define multiple sources for different environments, systems, or use cases:
+
+<Note>
+**The same source in several files.** When the server loads a directory or glob, each file may define the sources it uses. Definitions of one source name that are identical merge. Definitions that differ are an error naming both files: `Source '<name>' is defined differently in <fileA> and <fileB>.` Make them identical, or set `YAML_ALLOW_DUPLICATE_SOURCES=true` to use the definition from the last file in sorted path order.
+</Note>
 
 ### Multi-Environment Setup
 
@@ -399,8 +389,6 @@ sources:
     password: ${PROD_DB2i_PASS}
     port: 8076
     ignore-unauthorized: false
-    connectionTimeout: 30000
-    requestTimeout: 120000
 
   development:
     host: ${DEV_DB2i_HOST}
@@ -408,8 +396,6 @@ sources:
     password: ${DEV_DB2i_PASS}
     port: 8076
     ignore-unauthorized: true  # Self-signed certs OK in dev
-    connectionTimeout: 10000
-    requestTimeout: 60000
 
   testing:
     host: ${TEST_DB2i_HOST}
@@ -417,8 +403,6 @@ sources:
     password: ${TEST_DB2i_PASS}
     port: 8076
     ignore-unauthorized: true
-    connectionTimeout: 15000
-    requestTimeout: 30000
 ```
 
 **Tool Usage:**
@@ -615,7 +599,9 @@ sources:
   </Accordion>
 
   <Accordion title="Authentication Failures" icon="user-xmark">
-    **Symptom:** "Invalid credentials" or "User not authorized" errors
+    **Symptom:** `IBM i sign-on failed: the system rejected the user or password. No new sign-on is attempted for N s, ...`
+
+    After IBM i rejects a sign-on, the server does not try the same credentials again for 60 seconds, so that repeated tool calls do not disable the user profile. Correct the credentials, then retry after that time (or restart the server).
 
     **Solutions:**
     1. Verify environment variables are set:
@@ -632,10 +618,9 @@ sources:
     **Symptom:** "Request timeout" or "Connection timeout" errors
 
     **Solutions:**
-    1. Increase `requestTimeout` for long-running queries
-    2. Increase `connectionTimeout` for slow networks
-    3. Optimize SQL queries to run faster
-    4. Check network latency between server and IBM i
+    1. Increase `MCP_POOL_QUERY_TIMEOUT_MS` (server environment variable, default 30000) for long-running queries
+    2. Optimize SQL queries to run faster
+    3. Check network latency between server and IBM i
   </Accordion>
 
   <Accordion title="SSL Certificate Errors" icon="certificate">

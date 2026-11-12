@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program.js";
 
 describe("ibmi describe command", () => {
   afterEach(() => {

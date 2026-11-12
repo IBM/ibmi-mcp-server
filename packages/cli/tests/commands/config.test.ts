@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/index";
-import type { ConfigLayer } from "../../src/config/loader";
+import { createProgram } from "../../src/program.js";
+import type { ConfigLayer } from "../../src/config/loader.js";
 
 vi.mock("../../src/config/loader.js", () => ({
   loadConfig: vi.fn(),
@@ -21,10 +21,7 @@ vi.mock("../../src/config/credentials.js", () => ({
   expandEnvVars: vi.fn((s: string) => s),
 }));
 
-import {
-  loadConfig,
-  loadConfigLayers,
-} from "../../src/config/loader.js";
+import { loadConfig, loadConfigLayers } from "../../src/config/loader.js";
 
 const mockLoadConfig = vi.mocked(loadConfig);
 const mockLoadConfigLayers = vi.mocked(loadConfigLayers);

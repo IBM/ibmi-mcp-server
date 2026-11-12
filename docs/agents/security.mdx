@@ -294,22 +294,7 @@ systemctl restart ibmi-agent.service
 
 ### MCP Server Authentication
 
-Add authentication to MCP server endpoints:
-
-```typescript
-// MCP server with authentication middleware
-app.use("/mcp", authenticate, mcpHandler);
-
-function authenticate(req, res, next) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-
-  if (!isValidToken(token)) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  next();
-}
-```
+Protect a remote MCP server with OAuth: set `MCP_AUTH_MODE=oauth` on the server (see [OAuth Authentication](/server-config/oauth)). The server then requires an access token from your identity provider on every request. Pass it from the agent as a bearer token:
 
 ```python
 # Agent with authentication headers
@@ -679,7 +664,7 @@ if destructive_attempt_detected:
   <Card title="Advanced Configuration" icon="cog" href="/agents/agno/advanced-config">
     Production deployment and monitoring configuration
   </Card>
-  <Card title="MCP Server Security" icon="server" href="/configuration#security">
+  <Card title="MCP Server Security" icon="server" href="/configuration#authentication-configuration">
     Secure MCP server configuration
   </Card>
   <Card title="IBM i Security Guide" icon="book" href="https://www.ibm.com/docs/en/i">

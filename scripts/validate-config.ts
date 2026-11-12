@@ -16,7 +16,7 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { resolve, extname, relative, dirname } from "path";
 import { fileURLToPath } from "url";
-import { parseArgs } from "util";
+import { isDeepStrictEqual, parseArgs } from "util";
 import * as yaml from "js-yaml";
 import Ajv from "ajv";
 
@@ -120,7 +120,7 @@ Options:
   -h, --help                Show this help message
 
 Examples:
-  npm run validate -- --tools tools/performance.yaml
+  npm run validate -- --tools tools/performance/performance.yaml
   npm run validate -- --tools-dir tools/
   npm run validate -- --tools-dir ../tools/ --verbose
 
@@ -403,10 +403,29 @@ function generateValidationSummary(
 }
 
 /**
+ * A source definition with its defaults written out (port 8076, certificates
+ * not verified), as the server compares two definitions of one source.
+ */
+function comparableSource(definition: unknown): unknown {
+  if (typeof definition !== "object" || definition === null) {
+    return definition;
+  }
+  const source = definition as Record<string, unknown>;
+  return {
+    ...source,
+    port: Number(source.port ?? 8076),
+    "ignore-unauthorized": source["ignore-unauthorized"] ?? true,
+  };
+}
+
+/**
  * Perform cross-reference validation across all valid configurations
  * Validates that:
  * 1. All tools reference sources that exist (across all files)
  * 2. All toolsets reference tools that exist (across all files)
+ * 3. A source defined in more than one file has the same definition in each,
+ *    unless YAML_ALLOW_DUPLICATE_SOURCES=true. The server applies this rule
+ *    after substituting ${VAR}; here the definitions are compared as written.
  */
 function validateCrossReferences(
   validResults: FileValidationResult[]
@@ -415,6 +434,12 @@ function validateCrossReferences(
 
   // Aggregate all sources, tools, and toolsets from valid configs
   const allSources = new Set<string>();
+  const sourceDefinitions = new Map<
+    string,
+    { definition: unknown; file: string }
+  >();
+  const allowDuplicateSources =
+    process.env.YAML_ALLOW_DUPLICATE_SOURCES === "true";
   const allTools = new Set<string>();
   const allToolsets: Record<string, { tools: string[]; file: string }> = {};
 
@@ -425,9 +450,27 @@ function validateCrossReferences(
 
     // Collect sources
     if (config.sources && typeof config.sources === "object") {
-      Object.keys(config.sources).forEach((sourceName) =>
-        allSources.add(sourceName)
-      );
+      Object.entries(config.sources).forEach(([sourceName, definition]) => {
+        allSources.add(sourceName);
+        const first = sourceDefinitions.get(sourceName);
+        if (!first) {
+          sourceDefinitions.set(sourceName, {
+            definition,
+            file: result.relativePath,
+          });
+        } else if (
+          !allowDuplicateSources &&
+          !isDeepStrictEqual(
+            comparableSource(first.definition),
+            comparableSource(definition)
+          )
+        ) {
+          errors.push(
+            `Source '${sourceName}' is defined differently in ${first.file} and ${result.relativePath}. ` +
+              `Make the definitions identical, or set YAML_ALLOW_DUPLICATE_SOURCES=true to use the last one.`
+          );
+        }
+      });
     }
 
     // Collect tools
@@ -575,7 +618,7 @@ function displayResults(report: ValidationReport, verbose: boolean): void {
   }
   if (report.crossReferenceErrors && report.crossReferenceErrors.length > 0) {
     console.log(
-      "   • Fix cross-reference errors (tools referencing non-existent sources or toolsets referencing non-existent tools)"
+      "   • Fix cross-reference errors (tools referencing non-existent sources, toolsets referencing non-existent tools, or a source defined differently in two files)"
     );
     console.log(
       "   • Ensure all referenced sources are defined in at least one configuration file"
@@ -687,11 +730,9 @@ async function main(): Promise<void> {
 }
 
 // Execute main function
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    console.error(
-      `❌ Unexpected error: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
-    process.exit(1);
-  });
-}
+main().catch((error) => {
+  console.error(
+    `❌ Unexpected error: ${error instanceof Error ? error.message : "Unknown error"}`
+  );
+  process.exit(1);
+});

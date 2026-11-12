@@ -8,8 +8,8 @@
 
 import { z } from "zod";
 import { resolve } from "path";
-import { existsSync } from "fs";
-import { glob } from "glob";
+import { existsSync, globSync, statSync } from "fs";
+import { isDeepStrictEqual } from "util";
 import {
   ProcessedSQLTool,
   CachedToolConfig,
@@ -17,6 +17,8 @@ import {
   ConfigBuildResult,
 } from "./types.js";
 import {
+  DEFAULT_MAPEPIRE_PORT,
+  SourceConfig,
   SqlToolConfig,
   SqlToolParameter,
   SqlToolsConfig,
@@ -50,7 +52,25 @@ export interface ConfigMergeOptions {
   allowDuplicateSources?: boolean;
   /** Whether to validate merged config */
   validateMerged?: boolean;
+  /**
+   * Leave a `${VAR}` whose variable is not set as written instead of failing
+   * the load. For callers that never connect, such as `--list-toolsets`.
+   */
+  allowUnsetVariables?: boolean;
 }
+
+/**
+ * A source with its defaults written out, so that a file that leaves a
+ * default out and one that spells it compare equal.
+ */
+const withSourceDefaults = (source: SourceConfig): SourceConfig => ({
+  ...source,
+  port: source.port ?? DEFAULT_MAPEPIRE_PORT,
+  "ignore-unauthorized": source["ignore-unauthorized"] ?? true,
+});
+
+/** Characters that make a tools path a glob pattern when no such file exists. */
+const GLOB_MAGIC = /[*?[\]{}]/;
 
 /**
  * Tool Configuration Builder
@@ -268,7 +288,9 @@ export class ToolConfigBuilder {
       schemaShape[param.name] = zodType;
     }
 
-    return z.object(schemaShape).strict();
+    // Not strict: arguments the tool does not declare are dropped, not
+    // rejected, so a client that sends extras still gets its result.
+    return z.object(schemaShape);
   }
 
   /**
@@ -399,14 +421,6 @@ export class ToolConfigBuilder {
 
       return ErrorHandler.tryCatch(
         async () => {
-          if (!config.statement) {
-            throw new McpError(
-              JsonRpcErrorCode.InvalidParams,
-              `Tool ${toolName} has no SQL statement defined`,
-              { toolName },
-            );
-          }
-
           const result = await SQLToolFactory.executeStatementWithParameters(
             toolName,
             config.source,
@@ -609,9 +623,11 @@ export class ToolConfigBuilder {
         const configs = await this.loadAllConfigurations(
           filePaths,
           operationContext,
+          options?.allowUnsetVariables,
         );
         const mergedConfig = await this.mergeConfigurations(
           configs,
+          filePaths,
           options,
           operationContext,
         );
@@ -633,7 +649,6 @@ export class ToolConfigBuilder {
         );
 
         return {
-          success: true,
           config: mergedConfig,
           stats,
           resolvedFilePaths: filePaths,
@@ -648,6 +663,29 @@ export class ToolConfigBuilder {
   }
 
   /**
+   * The source that a tools path (`--tools`, `TOOLS_YAML_PATH`) stands for: an
+   * existing file or directory, otherwise a glob pattern when the path
+   * contains glob characters.
+   */
+  static sourceForPath(toolsPath: string): ConfigSource {
+    const resolvedPath = resolve(toolsPath);
+    let type: ConfigSource["type"] = "file";
+    if (existsSync(resolvedPath)) {
+      type = statSync(resolvedPath).isDirectory() ? "directory" : "file";
+    } else if (GLOB_MAGIC.test(toolsPath)) {
+      type = "glob";
+    }
+    return { type, path: toolsPath, required: true };
+  }
+
+  /**
+   * The YAML files a tools path resolves to at this moment.
+   */
+  resolveToolsPath(toolsPath: string): string[] {
+    return this.resolveSourcePaths(ToolConfigBuilder.sourceForPath(toolsPath));
+  }
+
+  /**
    * Resolve all file paths from sources
    * @private
    */
@@ -659,8 +697,7 @@ export class ToolConfigBuilder {
 
     for (const source of sources) {
       try {
-        const paths = await this.resolveSourcePaths(source);
-        allPaths.push(...paths);
+        allPaths.push(...this.resolveSourcePaths(source));
       } catch (error) {
         if (source.required) {
           throw error;
@@ -680,7 +717,7 @@ export class ToolConfigBuilder {
    * Resolve paths for a single source
    * @private
    */
-  private async resolveSourcePaths(source: ConfigSource): Promise<string[]> {
+  private resolveSourcePaths(source: ConfigSource): string[] {
     switch (source.type) {
       case "file":
         return this.resolveFilePath(source.path);
@@ -727,11 +764,7 @@ export class ToolConfigBuilder {
       );
     }
 
-    // glob requires forward-slash patterns even on Windows; backslashes are
-    // interpreted as escape characters, not path separators. Pass the resolved
-    // directory via `cwd` (a filesystem path, so separators are fine there) and
-    // keep the pattern forward-slash only so directory sources work on Windows.
-    return glob.sync("**/*.{yaml,yml}", { cwd: resolvedDir, absolute: true });
+    return this.findFiles("**/*.{yaml,yml}", resolvedDir);
   }
 
   /**
@@ -739,10 +772,7 @@ export class ToolConfigBuilder {
    * @private
    */
   private resolveGlobPaths(pattern: string, baseDir?: string): string[] {
-    // Resolve the pattern relative to baseDir via glob's `cwd` option rather
-    // than join(), which would corrupt the forward-slash glob pattern into
-    // backslashes on Windows (glob treats backslashes as escape characters).
-    const paths = glob.sync(pattern, { absolute: true, cwd: baseDir });
+    const paths = this.findFiles(pattern, baseDir);
 
     if (paths.length === 0) {
       throw new McpError(
@@ -755,35 +785,39 @@ export class ToolConfigBuilder {
   }
 
   /**
-   * Load all configurations from file paths
+   * Absolute paths of the files matching a glob pattern, sorted so that the
+   * order files are merged in does not depend on the file system.
+   *
+   * The directory goes in `cwd` instead of being joined into the pattern:
+   * path.join() would put backslashes into the pattern on Windows.
+   * @private
+   */
+  private findFiles(pattern: string, cwd = process.cwd()): string[] {
+    return globSync(pattern, { cwd })
+      .map((match) => resolve(cwd, match))
+      .sort();
+  }
+
+  /**
+   * Load all configurations from file paths. A file that cannot be parsed or
+   * validated fails the whole load.
    * @private
    */
   private async loadAllConfigurations(
     filePaths: string[],
     context: RequestContext,
+    allowUnsetVariables?: boolean,
   ): Promise<SqlToolsConfig[]> {
     const configs: SqlToolsConfig[] = [];
 
     for (const filePath of filePaths) {
-      try {
-        logger.debug(context, `Loading configuration from: ${filePath}`);
-        const result = await ConfigParser.parseYamlFile(filePath, context);
-
-        if (result.success && result.config) {
-          configs.push(result.config);
-        } else {
-          logger.error(
-            context,
-            `Failed to load configuration from: ${filePath}`,
-          );
-        }
-      } catch (error) {
-        logger.error(
-          context,
-          `Error loading configuration from: ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        throw error;
-      }
+      logger.debug(context, `Loading configuration from: ${filePath}`);
+      const { config } = await ConfigParser.parseYamlFile(
+        filePath,
+        context,
+        allowUnsetVariables,
+      );
+      configs.push(config);
     }
 
     return configs;
@@ -796,13 +830,14 @@ export class ToolConfigBuilder {
    */
   private async mergeConfigurations(
     configs: SqlToolsConfig[],
+    filePaths: string[],
     options?: ConfigMergeOptions,
     context?: RequestContext,
   ): Promise<SqlToolsConfig> {
     if (configs.length === 0) {
       throw new McpError(
         JsonRpcErrorCode.ConfigurationError,
-        "No valid configurations to merge",
+        "No YAML tool files found",
       );
     }
 
@@ -829,10 +864,13 @@ export class ToolConfigBuilder {
     };
 
     // Merge each configuration
-    for (const configToMerge of configs) {
+    const sourceFiles = new Map<string, string>();
+    for (const [index, configToMerge] of configs.entries()) {
       await this.mergeIntoTarget(
         mergedConfig,
         configToMerge,
+        filePaths[index]!,
+        sourceFiles,
         mergeOptions,
         context,
       );
@@ -848,11 +886,15 @@ export class ToolConfigBuilder {
 
   /**
    * Merge a configuration into the target
+   * @param filePath - The file `source` was loaded from
+   * @param sourceFiles - The file each merged source was last defined in
    * @private
    */
   private async mergeIntoTarget(
     target: SqlToolsConfig,
     source: SqlToolsConfig,
+    filePath: string,
+    sourceFiles: Map<string, string>,
     options: ConfigMergeOptions,
     context?: RequestContext,
   ): Promise<void> {
@@ -862,11 +904,21 @@ export class ToolConfigBuilder {
         target.sources = {};
       }
       for (const [sourceName, sourceConfig] of Object.entries(source.sources)) {
-        if (target.sources[sourceName]) {
+        const existing = target.sources[sourceName];
+        if (existing) {
+          // Files commonly repeat the one source they all share.
+          if (
+            isDeepStrictEqual(
+              withSourceDefaults(existing),
+              withSourceDefaults(sourceConfig),
+            )
+          ) {
+            continue;
+          }
           if (!options.allowDuplicateSources) {
             throw new McpError(
               JsonRpcErrorCode.ConfigurationError,
-              `Duplicate source name: ${sourceName}. To allow duplicate source names, set YAML_ALLOW_DUPLICATE_SOURCES=true in server .env`,
+              `Source '${sourceName}' is defined differently in ${sourceFiles.get(sourceName)} and ${filePath}. Make the definitions identical, or set YAML_ALLOW_DUPLICATE_SOURCES=true to use the last one.`,
             );
           }
           logger.warning(
@@ -875,6 +927,7 @@ export class ToolConfigBuilder {
           );
         }
         target.sources[sourceName] = sourceConfig;
+        sourceFiles.set(sourceName, filePath);
       }
     }
 
@@ -973,53 +1026,17 @@ export class ToolConfigBuilder {
     logger.debug(context || {}, "Merged configuration validated successfully");
   }
 
-  // Static factory methods for convenience
-  static async fromFile(
-    filePath: string,
+  /**
+   * Build the configuration a tools path stands for.
+   */
+  static async fromPath(
+    toolsPath: string,
     context?: RequestContext,
+    options?: ConfigMergeOptions,
   ): Promise<ConfigBuildResult> {
-    const builder = ToolConfigBuilder.getInstance();
-    return builder.buildFromSources(
-      [{ type: "file", path: filePath, required: true }],
-      undefined,
-      context,
-    );
-  }
-
-  static async fromFiles(
-    filePaths: string[],
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    const builder = ToolConfigBuilder.getInstance();
-    const sources = filePaths.map((path) => ({
-      type: "file" as const,
-      path,
-      required: true,
-    }));
-    return builder.buildFromSources(sources, undefined, context);
-  }
-
-  static async fromDirectory(
-    directoryPath: string,
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    const builder = ToolConfigBuilder.getInstance();
-    return builder.buildFromSources(
-      [{ type: "directory", path: directoryPath, required: true }],
-      undefined,
-      context,
-    );
-  }
-
-  static async fromGlob(
-    pattern: string,
-    baseDir?: string,
-    context?: RequestContext,
-  ): Promise<ConfigBuildResult> {
-    const builder = ToolConfigBuilder.getInstance();
-    return builder.buildFromSources(
-      [{ type: "glob", path: pattern, baseDir, required: true }],
-      undefined,
+    return ToolConfigBuilder.getInstance().buildFromSources(
+      [ToolConfigBuilder.sourceForPath(toolsPath)],
+      options,
       context,
     );
   }

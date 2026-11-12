@@ -1,19 +1,17 @@
 /**
  * Tests for the DNS rebinding protection middleware (Host/Origin allowlist).
  *
- * Built against the full Hono app from createHttpApp with a stubbed
- * TransportManager: asserting the stub's handleRequest was never called is
- * what proves a rejection happened BEFORE MCP dispatch, which is the
- * HackerOne report's actual requirement.
+ * Built against the full Hono app from createHttpApp with a stubbed MCP
+ * handler: asserting the stub's fetch was never called is what proves a
+ * rejection happened BEFORE MCP dispatch, which is the HackerOne report's
+ * actual requirement.
  *
  * @module tests/mcp-server/transports/http/hostValidation.test
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { config } from "../../../../src/config/index.js";
 import { createHttpApp } from "../../../../src/mcp-server/transports/http/httpTransport.js";
-import type { TransportManager } from "../../../../src/mcp-server/transports/core/transportTypes.js";
 import { JsonRpcErrorCode } from "../../../../src/types-global/errors.js";
 import { logger, requestContextService } from "../../../../src/utils/index.js";
 
@@ -22,6 +20,7 @@ const savedConfig = {
   mcpAllowedOrigins: config.mcpAllowedOrigins,
   mcpHttpHost: config.mcpHttpHost,
   mcpAuthMode: config.mcpAuthMode,
+  mcpTrustedProxies: config.mcpTrustedProxies,
   rateLimitEnabled: config.rateLimit.enabled,
   ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
 };
@@ -33,39 +32,41 @@ const MCP_BODY = JSON.stringify({
 });
 
 function buildApp() {
-  const handleRequest = vi.fn().mockResolvedValue({
-    type: "buffered",
-    headers: new Headers(),
-    statusCode: 200,
-    body: { jsonrpc: "2.0", result: {}, id: 1 },
-  });
-  const manager = {
-    handleRequest,
-    shutdown: vi.fn().mockResolvedValue(undefined),
-  } as unknown as TransportManager;
-  const createServerInstanceFn = vi.fn() as unknown as () => Promise<McpServer>;
+  const handleRequest = vi.fn(async () =>
+    Response.json({ jsonrpc: "2.0", result: {}, id: 1 }),
+  );
   const app = createHttpApp(
-    manager,
-    createServerInstanceFn,
+    { fetch: handleRequest },
     requestContextService.createRequestContext({
       operation: "hostValidationTest",
     }),
+    null,
   );
   return { app, handleRequest };
 }
 
 type TestApp = ReturnType<typeof buildApp>["app"];
 
-function mcpPost(app: TestApp, headers: Record<string, string>) {
-  return app.request("/mcp", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      ...headers,
+function mcpPost(
+  app: TestApp,
+  headers: Record<string, string>,
+  socketAddress?: string,
+) {
+  return app.request(
+    "/mcp",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...headers,
+      },
+      body: MCP_BODY,
     },
-    body: MCP_BODY,
-  });
+    socketAddress
+      ? { incoming: { socket: { remoteAddress: socketAddress } } }
+      : undefined,
+  );
 }
 
 beforeEach(() => {
@@ -73,6 +74,7 @@ beforeEach(() => {
   config.mcpAllowedOrigins = undefined;
   config.mcpHttpHost = "127.0.0.1";
   config.mcpAuthMode = "none";
+  config.mcpTrustedProxies = [];
   config.rateLimit.enabled = false;
   config.ibmiHttpAuth.enabled = false;
 });
@@ -82,6 +84,7 @@ afterEach(() => {
   config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.mcpAuthMode = savedConfig.mcpAuthMode;
+  config.mcpTrustedProxies = savedConfig.mcpTrustedProxies;
   config.rateLimit.enabled = savedConfig.rateLimitEnabled;
   config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
 });
@@ -103,7 +106,7 @@ describe("Host header validation", () => {
     expect(handleRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("allows 127.0.0.1 on any port (EADDRINUSE retry walks the port)", async () => {
+  it("allows 127.0.0.1 on any port", async () => {
     const { app, handleRequest } = buildApp();
     const res = await mcpPost(app, { host: "127.0.0.1:9999" });
     expect(res.status).toBe(200);
@@ -166,6 +169,24 @@ describe("Origin validation (three-state rule)", () => {
     });
     expect(res.status).toBe(403);
     expect(handleRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not take MCP_RESOURCE_URL for an allowed Origin when the server serves no sign-in page", async () => {
+    // Only the built-in authorization server has a page of its own.
+    const savedResourceUrl = config.mcpResourceUrl;
+    config.mcpResourceUrl = "https://mcp.example.com/mcp";
+    config.mcpAllowedHosts = ["*"];
+    try {
+      const { app, handleRequest } = buildApp();
+      const res = await mcpPost(app, {
+        host: "internal:3010",
+        origin: "https://mcp.example.com",
+      });
+      expect(res.status).toBe(403);
+      expect(handleRequest).not.toHaveBeenCalled();
+    } finally {
+      config.mcpResourceUrl = savedResourceUrl;
+    }
   });
 
   it("allows requests without an Origin (non-browser MCP clients)", async () => {
@@ -326,20 +347,40 @@ describe("rejection log attribution", () => {
     const warn = vi.spyOn(logger, "warning").mockImplementation(() => {});
     const { app } = buildApp();
 
-    const res = await mcpPost(app, {
-      host: "attacker.example:8088",
-      "x-forwarded-for": "203.0.113.9",
-      "x-real-ip": "198.51.100.7",
-    });
+    const res = await mcpPost(
+      app,
+      {
+        host: "attacker.example:8088",
+        "x-forwarded-for": "203.0.113.9",
+        "x-real-ip": "198.51.100.7",
+      },
+      "10.9.9.9",
+    );
     expect(res.status).toBe(403);
 
     const ctx = warn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    // The claimed values are still recorded, clearly labelled as claims...
-    expect(ctx.forwardedFor).toBe("203.0.113.9");
-    expect(ctx.realIp).toBe("198.51.100.7");
-    // ...but must not be promoted into the field meaning "source".
-    expect(ctx.clientIp).not.toBe("203.0.113.9");
-    expect(ctx.clientIp).not.toBe("198.51.100.7");
+    expect(ctx.clientIp).toBe("10.9.9.9");
+    // The peer is not in MCP_TRUSTED_PROXIES: the claimed addresses are not
+    // recorded at all.
+    expect(JSON.stringify(ctx)).not.toContain("203.0.113.9");
+    expect(JSON.stringify(ctx)).not.toContain("198.51.100.7");
+
+    warn.mockRestore();
+  });
+
+  it("logs the address a proxy listed in MCP_TRUSTED_PROXIES reports", async () => {
+    config.mcpTrustedProxies = ["10.9.9.9/32"];
+    const warn = vi.spyOn(logger, "warning").mockImplementation(() => {});
+    const { app } = buildApp();
+
+    await mcpPost(
+      app,
+      { host: "attacker.example:8088", "x-forwarded-for": "203.0.113.9" },
+      "10.9.9.9",
+    );
+
+    const ctx = warn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(ctx.clientIp).toBe("203.0.113.9");
 
     warn.mockRestore();
   });

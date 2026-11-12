@@ -4,8 +4,7 @@
  * @module src/utils/cli/argumentParser
  */
 
-import { existsSync, statSync } from "fs";
-import { resolve } from "path";
+import { parseArgs } from "util";
 
 type mcpTransportType = "stdio" | "http";
 
@@ -16,122 +15,65 @@ export interface CliArguments {
   listToolsets?: boolean;
   builtinTools?: boolean;
   executeSql?: boolean;
+  /** A command for the admin socket of a running server. */
+  admin?: string;
   help?: boolean;
-  errors?: string[];
-  warnings?: string[];
 }
 
 /**
+ * Parses process.argv into CliArguments.
  *
- * This function should:
- * 1. Parse process.argv.slice(2) to get command line arguments
- * 2. Look for --tools flag and capture the next argument as the path
- * 3. Look for --help or -h flags
- * 5. Return a CliArguments object with the parsed values
+ * Both `--flag value` and `--flag=value` are accepted. When a flag is
+ * repeated, the last occurrence wins.
  *
- * Handle edge cases like:
- * - Missing value after --tools
- * - Unknown arguments (should warn but not fail)
- * - Multiple --tools arguments (use the last one)
+ * @throws {Error} For an unknown flag, a flag without its value, a positional
+ *   argument or an invalid transport type. The message is meant for the user.
  */
 export function parseCliArguments(): CliArguments {
-  const args = process.argv.slice(2);
-  const parsed: CliArguments = {
-    errors: [],
-    warnings: [],
+  const { values } = parseArgs({
+    // parseArgs only knows one-letter short options; -ts is spelled out.
+    args: process.argv
+      .slice(2)
+      .map((arg) => (arg === "-ts" ? "--toolsets" : arg)),
+    options: {
+      tools: { type: "string" },
+      transport: { type: "string", short: "t" },
+      toolsets: { type: "string" },
+      "list-toolsets": { type: "boolean" },
+      "builtin-tools": { type: "boolean" },
+      "execute-sql": { type: "boolean" },
+      admin: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+    allowPositionals: false,
+  });
+
+  const { transport } = values;
+  if (
+    transport !== undefined &&
+    transport !== "stdio" &&
+    transport !== "http"
+  ) {
+    throw new Error(
+      `Invalid transport type: ${transport}. Use "stdio" or "http".`,
+    );
+  }
+
+  return {
+    tools: values.tools,
+    transport,
+    // Split by comma and trim whitespace
+    toolsets: values.toolsets
+      ?.split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0),
+    listToolsets: values["list-toolsets"],
+    builtinTools: values["builtin-tools"],
+    executeSql: values["execute-sql"],
+    admin: values.admin,
+    help: values.help,
   };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === "--tools") {
-      if (i + 1 < args.length) {
-        const toolsPath = args[i + 1];
-        parsed.tools = toolsPath;
-        i++; // Skip the next argument as it's the tools path
-      } else {
-        parsed.errors?.push("--tools flag requires a path argument");
-      }
-    } else if (arg === "--help" || arg === "-h") {
-      parsed.help = true;
-    } else if (arg === "--transport" || arg === "-t") {
-      if (i + 1 < args.length) {
-        const transport = args[i + 1] as mcpTransportType;
-        if (transport === "stdio" || transport === "http") {
-          parsed.transport = transport;
-          i++; // Skip the next argument as it's the transport type
-        } else {
-          parsed.errors?.push(`Invalid transport type: ${transport}`);
-        }
-      } else {
-        parsed.errors?.push("--transport flag requires a type argument");
-      }
-    } else if (arg === "--toolsets" || arg === "-ts") {
-      if (i + 1 < args.length) {
-        const toolsetsValue = args[i + 1];
-        // Split by comma and trim whitespace
-        parsed.toolsets =
-          toolsetsValue
-            ?.split(",")
-            .map((t) => t.trim())
-            .filter((t) => t.length > 0) || [];
-        i++; // Skip the next argument as it's the toolsets value
-      } else {
-        parsed.errors?.push(
-          "--toolsets flag requires a comma-separated list argument",
-        );
-      }
-    } else if (arg === "--list-toolsets") {
-      parsed.listToolsets = true;
-    } else if (arg === "--builtin-tools") {
-      parsed.builtinTools = true;
-    } else if (arg === "--execute-sql") {
-      parsed.executeSql = true;
-    } else if (arg?.startsWith("--")) {
-      parsed.warnings?.push(`Unknown argument detected: ${arg}`);
-      i++;
-    }
-  }
-
-  return parsed;
-}
-
-/**
- * Validates that a tools path exists and is accessible
- */
-export function validateToolsPath(path: string): {
-  valid: boolean;
-  message?: string;
-} {
-  try {
-    const resolvedPath = resolve(path);
-
-    if (existsSync(resolvedPath)) {
-      const stats = statSync(resolvedPath);
-      if (stats.isFile()) {
-        return {
-          valid: true,
-          message: `Using tools file: ${resolvedPath}`,
-        };
-      } else if (stats.isDirectory()) {
-        return {
-          valid: true,
-          message: `Using tools directory: ${resolvedPath}`,
-        };
-      }
-    }
-
-    // For glob patterns or remote paths, let the YAML loader handle validation
-    return {
-      valid: true,
-      message: `Tools path "${path}" will be validated by YAML tools loader`,
-    };
-  } catch (error) {
-    return {
-      valid: false,
-      message: `Cannot access tools path "${path}": ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
 }
 
 /**
@@ -157,16 +99,22 @@ Options:
                     validate_query)
   --execute-sql     Enable the execute_sql tool (combine with --builtin-tools
                     for the full text-to-SQL workflow)
+  --admin <command> Send one command to the admin socket (OAUTH_ADMIN_SOCKET)
+                    of a running server, print its reply and exit:
+                      - status
+                      - unblock <profile>
+                      - revoke <profile|grantId>
 
-  -h, --help        Show this help message
+  -h, --help       Show this help message
 
 Examples:
   npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql
   npx @ibm/ibmi-mcp-server --builtin-tools --transport http
-  npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance.yaml
+  npx @ibm/ibmi-mcp-server --builtin-tools --execute-sql --tools tools/performance/performance.yaml
   npx @ibm/ibmi-mcp-server --tools tools
   npx @ibm/ibmi-mcp-server --toolsets performance,system
   npx @ibm/ibmi-mcp-server --list-toolsets --tools tools
+  npx @ibm/ibmi-mcp-server --admin "unblock MYUSER"
 
 Environment Variables:
   TOOLS_YAML_PATH              Path to YAML tools (CLI --tools takes precedence)

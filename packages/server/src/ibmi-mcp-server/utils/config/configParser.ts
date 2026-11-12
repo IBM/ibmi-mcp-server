@@ -8,9 +8,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { load as yamlLoad } from "js-yaml";
-import { ProcessedSQLTool } from "./types.js";
-import { ParsingResult, SqlToolsConfig } from "../../schemas/index.js";
-import { SqlToolParameter } from "../../schemas/index.js";
+import { config as serverConfig } from "@/config/index.js";
 import { ErrorHandler, logger } from "@/utils/internal/index.js";
 import {
   requestContextService,
@@ -19,12 +17,26 @@ import {
 
 // Import schemas from centralized location
 import {
+  SqlToolsConfig,
   SqlToolsConfigSchema,
-  SqlToolParameterSchema,
   SqlToolSecurityConfig,
 } from "@/ibmi-mcp-server/schemas/index.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlSecurityValidator } from "../security/sqlSecurityValidator.js";
+import { ParameterProcessor } from "../sql/parameterProcessor.js";
+
+/** A YAML tools file that parsed and validated. */
+export interface ParsedYamlFile {
+  config: SqlToolsConfig;
+  stats: {
+    sourceCount: number;
+    toolCount: number;
+    enabledToolCount: number;
+    disabledToolCount: number;
+    toolsetCount: number;
+    totalParameterCount: number;
+  };
+}
 
 /**
  * YAML configuration parser with validation and environment variable interpolation
@@ -34,12 +46,17 @@ export class ConfigParser {
    * Parse and validate a YAML tools configuration file
    * @param filePath - Path to the YAML configuration file
    * @param context - Request context for logging
-   * @returns Parsing result with validation information
+   * @param allowUnsetVariables - Leave a `${VAR}` whose variable is not set as
+   *   written instead of failing. For callers that never connect.
+   * @returns The validated configuration and its statistics
+   * @throws {McpError} naming the file and the problems found in it, when the
+   *   file cannot be read, parsed or validated
    */
   static async parseYamlFile(
     filePath: string,
     context?: RequestContext,
-  ): Promise<ParsingResult> {
+    allowUnsetVariables = false,
+  ): Promise<ParsedYamlFile> {
     const operationContext =
       context ||
       requestContextService.createRequestContext({
@@ -66,6 +83,14 @@ export class ConfigParser {
           );
         }
 
+        const fail = (errors: string[]): never => {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            `Invalid tool configuration in ${resolvedPath}: ${errors.join("; ")}`,
+            { filePath: resolvedPath, errors },
+          );
+        };
+
         // Read file content
         const fileContent = readFileSync(resolvedPath, "utf8");
         logger.debug(
@@ -76,101 +101,67 @@ export class ConfigParser {
           "YAML file content loaded",
         );
 
-        // Interpolate environment variables at startup
+        let parsedYaml: unknown;
+        try {
+          parsedYaml = yamlLoad(fileContent);
+        } catch (error) {
+          fail([error instanceof Error ? error.message : String(error)]);
+        }
+
+        // Interpolate after parsing, so that a value can change neither the
+        // structure of the document nor its own type.
         // TODO: In the future, this should use client-provided environment variables
         // instead of server-side environment variables
-        const interpolatedContent = this.interpolateEnvironmentVariables(
-          fileContent,
-          operationContext,
+        const substituted = new Set<string>();
+        const unset = new Set<string>();
+        const withheld = new Set<string>();
+        const interpolated = this.interpolateEnvironmentVariables(
+          parsedYaml,
+          substituted,
+          unset,
+          withheld,
+        );
+        if (withheld.size > 0 && !allowUnsetVariables) {
+          fail([
+            `environment variable(s) a tool file cannot read with the built-in OAuth sign-on, where only \${DB2i_HOST} and \${DB2i_PORT} are substituted: ${[...withheld].join(", ")}`,
+          ]);
+        }
+        if (unset.size > 0 && !allowUnsetVariables) {
+          fail([`environment variable(s) not set: ${[...unset].join(", ")}`]);
+        }
+        // Names only, never values: they are credentials.
+        logger.debug(
+          { ...operationContext, variables: [...substituted] },
+          "Environment variables substituted",
         );
 
-        // Parse YAML
-        const parsedYaml = yamlLoad(interpolatedContent);
-
         // Validate against schema
-        const validationResult = SqlToolsConfigSchema.safeParse(parsedYaml);
-
+        const validationResult = SqlToolsConfigSchema.safeParse(interpolated);
         if (!validationResult.success) {
-          const errors = validationResult.error.issues.map(
-            (err) => `${err.path.join(".")}: ${err.message}`,
+          fail(
+            validationResult.error.issues.map(
+              (err) => `${err.path.join(".")}: ${err.message}`,
+            ),
           );
-
-          logger.error(
-            {
-              ...operationContext,
-              errors,
-            },
-            "YAML validation failed",
-          );
-
-          return {
-            success: false,
-            errors,
-          };
         }
 
         const config = validationResult.data as SqlToolsConfig;
 
-        // Additional validation - check tool source references
-        const sourceValidationErrors =
-          this.validateToolSourceReferences(config);
-        if (sourceValidationErrors.length > 0) {
-          logger.error(
-            {
-              ...operationContext,
-              errors: sourceValidationErrors,
-            },
-            "Source reference validation failed",
-          );
-
-          return {
-            success: false,
-            errors: sourceValidationErrors,
-          };
-        }
-
         // Note: Toolset validation is intentionally deferred to post-merge validation
         // in YamlConfigBuilder to support cross-file tool references with YAML_MERGE_ARRAYS
 
-        // Additional validation - check tool-specific requirements
-        const toolValidationErrors = this.validateToolRequirements(config);
-        if (toolValidationErrors.length > 0) {
-          logger.error(
-            {
-              ...operationContext,
-              errors: toolValidationErrors,
-            },
-            "Tool requirements validation failed",
-          );
-
-          return {
-            success: false,
-            errors: toolValidationErrors,
-          };
+        const errors = [
+          // Not for callers that never connect (`allowUnsetVariables`).
+          ...(serverConfig.oauth.builtin && !allowUnsetVariables
+            ? this.validateBuiltinOAuthSources(config)
+            : []),
+          ...this.validateToolSourceReferences(config),
+          ...this.validateParameterMarkers(config),
+          ...this.validateSqlSecurity(config, operationContext),
+        ];
+        if (errors.length > 0) {
+          fail(errors);
         }
-
-        // Validate SQL security at load time (fail-fast)
-        const securityValidationErrors = this.validateSqlSecurity(
-          config,
-          operationContext,
-        );
-        if (securityValidationErrors.length > 0) {
-          logger.error(
-            {
-              ...operationContext,
-              errors: securityValidationErrors,
-            },
-            "SQL security validation failed at load time",
-          );
-
-          return {
-            success: false,
-            errors: securityValidationErrors,
-          };
-        }
-
-        // Process tools
-        const processedTools = this.processTools(config);
 
         // Count disabled tools
         const totalTools = config.tools ? Object.keys(config.tools).length : 0;
@@ -205,12 +196,7 @@ export class ConfigParser {
           "YAML configuration parsed successfully",
         );
 
-        return {
-          success: true,
-          config,
-          processedTools,
-          stats,
-        };
+        return { config, stats };
       },
       {
         operation: "ParseYamlFile",
@@ -221,95 +207,107 @@ export class ConfigParser {
   }
 
   /**
-   * Interpolate environment variables in YAML content
-   * Supports ${VAR_NAME} syntax
-   * @param content - YAML content string
-   * @param context - Request context for logging
-   * @returns Content with environment variables interpolated
+   * Replace `${VAR_NAME}` in every string value of a parsed YAML document.
+   * Keys and non-string values are left alone.
+   *
+   * In built-in OAuth mode only `DB2i_HOST` and `DB2i_PORT` are substituted,
+   * anywhere: what a tool file says reaches every signed-on user who calls
+   * the tool, so it must not be able to read the server's environment. A
+   * source's `user` and `password` are ignored in that mode (every statement
+   * runs on the caller's own IBM i sign-on), so another variable is left as
+   * written there (`DB2i_USER`, `DB2i_PASS` need not be set); anywhere else
+   * it is reported in `withheld`.
+   * @param value - Parsed YAML value
+   * @param substituted - Receives the names of the variables substituted
+   * @param unset - Receives the names of referenced variables that are not set
+   * @param withheld - Receives the names of the variables built-in OAuth
+   *   mode does not substitute, other than in a source's `user` or `password`
+   * @param path - Keys from the document root to `value`
+   * @returns The value with environment variables interpolated
    * @private
    */
   private static interpolateEnvironmentVariables(
-    content: string,
-    context: RequestContext,
-  ): string {
-    return content.replace(/\$\{([^}]+)\}/g, (match, varName) => {
-      const envValue = process.env[varName];
-      if (envValue === undefined) {
-        logger.debug(
-          {
-            ...context,
-            varName,
-          },
-          `Environment variable ${varName} not found, keeping placeholder`,
-        );
-        return match;
-      }
-      logger.debug(
-        {
-          ...context,
-          varName,
-          envValue: envValue.substring(0, 10) + "...", // Only show first 10 chars for security
-        },
-        `Environment variable ${varName} found and substituted`,
+    value: unknown,
+    substituted: Set<string>,
+    unset: Set<string>,
+    withheld: Set<string>,
+    path: string[] = [],
+  ): unknown {
+    if (typeof value === "string") {
+      const { builtin } = serverConfig.oauth;
+      const ignoredCredential =
+        path[0] === "sources" && (path[2] === "user" || path[2] === "password");
+      return value.replace(/\$\{([^}]+)\}/g, (match, varName: string) => {
+        if (builtin && varName !== "DB2i_HOST" && varName !== "DB2i_PORT") {
+          if (!ignoredCredential) {
+            withheld.add(varName);
+          }
+          return match;
+        }
+        const envValue = process.env[varName];
+        if (envValue === undefined) {
+          unset.add(varName);
+          return match;
+        }
+        substituted.add(varName);
+        return envValue;
+      });
+    }
+    if (Array.isArray(value)) {
+      return value.map((item, index) =>
+        this.interpolateEnvironmentVariables(
+          item,
+          substituted,
+          unset,
+          withheld,
+          [...path, String(index)],
+        ),
       );
-      return envValue;
-    });
+    }
+    if (typeof value === "object" && value?.constructor === Object) {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [
+          key,
+          this.interpolateEnvironmentVariables(
+            item,
+            substituted,
+            unset,
+            withheld,
+            [...path, key],
+          ),
+        ]),
+      );
+    }
+    return value;
   }
 
   /**
-   * Interpolate environment variables using client-provided environment
-   * Supports ${VAR_NAME} syntax
-   *
-   * NOT USED CURRENTLY
-   * @param content - Content string with environment variable placeholders
-   * @param clientEnvironment - Environment variables provided by the client
-   * @param context - Request context for logging
-   * @returns Content with environment variables interpolated
+   * Built-in OAuth mode has one IBM i, the one users sign on to (`DB2i_HOST`),
+   * and one set of JDBC options (`DB2i_JDBC_OPTIONS`). A source that says
+   * otherwise is refused, so that no tool runs somewhere, or with options,
+   * its author did not write.
+   * @param config - Parsed YAML configuration
+   * @returns Array of validation errors
+   * @private
    */
-  static interpolateClientEnvironmentVariables(
-    content: string,
-    clientEnvironment: Record<string, string> = {},
-    context?: RequestContext,
-  ): string {
-    const operationContext =
-      context ||
-      requestContextService.createRequestContext({
-        operation: "InterpolateClientEnvironmentVariables",
-      });
+  private static validateBuiltinOAuthSources(config: SqlToolsConfig): string[] {
+    const host = serverConfig.oauth.mapepire.host;
+    const errors: string[] = [];
 
-    logger.debug(
-      {
-        ...operationContext,
-        contentLength: content.length,
-        availableClientVars: Object.keys(clientEnvironment),
-      },
-      "Starting client environment variable interpolation",
-    );
-
-    return content.replace(/\$\{([^}]+)\}/g, (match, varName) => {
-      const envValue = clientEnvironment[varName];
-      if (envValue === undefined) {
-        logger.debug(
-          {
-            ...operationContext,
-            match,
-            varName,
-            availableClientVars: Object.keys(clientEnvironment),
-          },
-          `Client environment variable ${varName} not found, keeping placeholder`,
+    Object.entries(config.sources ?? {}).forEach(([sourceName, source]) => {
+      if (source.host.toLowerCase() !== host?.toLowerCase()) {
+        errors.push(
+          `Source '${sourceName}' names host '${source.host}'. With the built-in OAuth sign-on every tool runs on the IBM i users sign on to, DB2i_HOST (${host ?? "not set"}): use that host or \${DB2i_HOST}`,
         );
-        return match;
       }
-      logger.debug(
-        {
-          ...operationContext,
-          varName,
-          envValue: envValue.substring(0, 10) + "...", // Only show first 10 chars for security
-        },
-        `Client environment variable ${varName} found and substituted`,
-      );
-      return envValue;
+      if (source["jdbc-options"] !== undefined) {
+        errors.push(
+          `Source '${sourceName}' sets jdbc-options. With the built-in OAuth sign-on every connection uses DB2i_JDBC_OPTIONS: remove jdbc-options from the source`,
+        );
+      }
     });
+
+    return errors;
   }
 
   /**
@@ -342,32 +340,24 @@ export class ConfigParser {
   }
 
   /**
-   * Validate tool-specific requirements
+   * A statement binds by name (:name) or by position (?), never both
    * @param config - Parsed YAML configuration
    * @returns Array of validation errors
    * @private
    */
-  private static validateToolRequirements(config: SqlToolsConfig): string[] {
-    const errors: string[] = [];
-
-    // Skip validation if tools section is missing
-    if (!config.tools) {
-      return errors;
-    }
-
-    Object.entries(config.tools).forEach(([toolName, tool]) => {
-      // All tools must have a statement
-      if (!tool.statement || tool.statement.trim().length === 0) {
-        errors.push(`Tool '${toolName}' must have a non-empty statement field`);
-      }
-    });
-
-    return errors;
+  private static validateParameterMarkers(config: SqlToolsConfig): string[] {
+    return Object.entries(config.tools ?? {})
+      .filter(([, tool]) =>
+        ParameterProcessor.mixesMarkerStyles(tool.statement),
+      )
+      .map(
+        ([toolName]) =>
+          `Tool '${toolName}': ${ParameterProcessor.MIXED_MARKERS_MESSAGE}`,
+      );
   }
 
   /**
    * Validate SQL statements for security at load time
-   * Fails server startup if security violations found
    * @param config - Parsed YAML configuration
    * @param context - Request context for logging
    * @returns Array of validation errors
@@ -387,11 +377,6 @@ export class ConfigParser {
     Object.entries(config.tools).forEach(([toolName, tool]) => {
       // Skip disabled tools
       if (tool.enabled === false) {
-        return;
-      }
-
-      // Skip tools without statements
-      if (!tool.statement?.trim()) {
         return;
       }
 
@@ -428,94 +413,5 @@ export class ConfigParser {
     });
 
     return errors;
-  }
-
-  /**
-   * Process tools from YAML configuration into runtime format
-   * @param config - Validated YAML configuration
-   * @returns Array of processed tools
-   * @private
-   */
-  private static processTools(config: SqlToolsConfig): ProcessedSQLTool[] {
-    const processedTools: ProcessedSQLTool[] = [];
-
-    // Return empty array if tools section is missing
-    if (!config.tools) {
-      return processedTools;
-    }
-
-    // Build toolset membership map
-    const toolToToolsets: Record<string, string[]> = {};
-    if (config.toolsets) {
-      Object.entries(config.toolsets).forEach(([toolsetName, toolset]) => {
-        toolset.tools.forEach((toolName) => {
-          if (!toolToToolsets[toolName]) {
-            toolToToolsets[toolName] = [];
-          }
-          toolToToolsets[toolName].push(toolsetName);
-        });
-      });
-    }
-
-    // Process each tool
-    Object.entries(config.tools).forEach(([toolName, tool]) => {
-      // Skip disabled tools
-      if (tool.enabled === false) {
-        logger.debug(
-          {
-            toolName,
-            enabled: false,
-          },
-          `Skipping disabled tool: ${toolName}`,
-        );
-        return;
-      }
-
-      const source = config.sources?.[tool.source];
-      const toolsets = toolToToolsets[toolName] || [];
-
-      processedTools.push({
-        name: toolName,
-        config: tool,
-        source: source!,
-        toolsets,
-        metadata: {
-          name: toolName,
-          description: tool.description,
-          domain: tool.domain,
-          category: tool.category,
-          toolsets,
-        },
-      });
-    });
-
-    return processedTools;
-  }
-
-  /**
-   * Validate a single tool parameter definition
-   * @param parameter - Parameter definition to validate
-   * @returns Validation result
-   */
-  static validateParameter(parameter: SqlToolParameter): {
-    valid: boolean;
-    errors: string[];
-  } {
-    const result = SqlToolParameterSchema.safeParse(parameter);
-
-    if (result.success) {
-      return { valid: true, errors: [] };
-    }
-
-    const errors = result.error.issues.map((err) => err.message);
-    return { valid: false, errors };
-  }
-
-  /**
-   * Get available parameter types
-   * @returns Array of supported parameter types
-   */
-  static getAvailableParameterTypes(): string[] {
-    return ["string", "number", "boolean", "integer"];
   }
 }
