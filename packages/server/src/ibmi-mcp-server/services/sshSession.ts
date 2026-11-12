@@ -52,6 +52,11 @@ export function hostKeyMatches(actualHex: string, expected: string): boolean {
   return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
+/** Interval between SSH keepalive probes on an idle connection. */
+const SSH_KEEPALIVE_INTERVAL_MS = 15_000;
+/** Unanswered keepalive probes after which ssh2 drops the connection. */
+const SSH_KEEPALIVE_COUNT_MAX = 3;
+
 function closedWhileConnecting(): McpError {
   return new McpError(
     JsonRpcErrorCode.DatabaseError,
@@ -180,6 +185,13 @@ class SSHSession {
         host: ssh.host,
         port: ssh.port,
         username: ssh.username,
+        // ssh2 sends no keepalives by default, so a connection dropped
+        // silently (firewall or NAT idle timeout) would still look alive and
+        // the next query would hang until the query timeout. With these, ssh2
+        // closes the socket after ~45s without a reply, which fires the
+        // "close" handler below.
+        keepaliveInterval: SSH_KEEPALIVE_INTERVAL_MS,
+        keepaliveCountMax: SSH_KEEPALIVE_COUNT_MAX,
         ...(ssh.privateKey ? { privateKey: ssh.privateKey } : {}),
         ...(ssh.passphrase ? { passphrase: ssh.passphrase } : {}),
         ...(ssh.password && !ssh.privateKey ? { password: ssh.password } : {}),

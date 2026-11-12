@@ -274,6 +274,18 @@ describe("shared SSH session", () => {
     lease.end();
   });
 
+  it("enables SSH keepalive so a silently dropped connection is detected", async () => {
+    const lease = acquireSSHSession(ssh);
+    await lease.init();
+    expect(mockConnectSSH2).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keepaliveInterval: 15_000,
+        keepaliveCountMax: 3,
+      }),
+    );
+    lease.end();
+  });
+
   it("ends the client when the session is closed while SSH is connecting", async () => {
     let resolveConnect!: (client: typeof mockClient) => void;
     mockConnectSSH2.mockImplementation(
