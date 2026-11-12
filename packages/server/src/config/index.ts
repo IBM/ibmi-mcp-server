@@ -151,6 +151,16 @@ const pkg = loadPackageJson();
 /** Shared schema for `DB2i_PORT` (startup env + runtime `config.db2i` getter). */
 const Db2iPortSchema = MapepirePortEnvSchema;
 
+/**
+ * SSH port. A blank value (`DB2i_SSH_PORT=` in a .env file) means the default,
+ * like `MapepirePortEnvSchema`: coercing "" gives 0, which would fail the
+ * whole environment parse and reset every setting to its default.
+ */
+const SshPortEnvSchema = z.preprocess(
+  (val) => (val === "" || val === undefined || val === null ? undefined : val),
+  z.coerce.number().int().positive().default(22),
+);
+
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
@@ -298,7 +308,7 @@ const EnvSchema = z.object({
   /** Passphrase for an encrypted SSH private key. From `DB2i_SSH_PASSPHRASE`. */
   DB2i_SSH_PASSPHRASE: z.string().optional(),
   /** SSH port on the IBM i system. From `DB2i_SSH_PORT`. Default: 22. */
-  DB2i_SSH_PORT: z.coerce.number().int().positive().default(22),
+  DB2i_SSH_PORT: SshPortEnvSchema,
   /**
    * Expected SSH host key fingerprint (SHA-256), as printed by `ssh-keygen -lf`
    * (`SHA256:...`) or as 64 hex chars. When set, the connection is rejected on
@@ -780,12 +790,7 @@ export const config = {
     const hostKeySha256 = process.env.DB2i_SSH_HOST_KEY_SHA256?.trim();
     return {
       host,
-      port: z.coerce
-        .number()
-        .int()
-        .positive()
-        .default(22)
-        .parse(process.env.DB2i_SSH_PORT),
+      port: SshPortEnvSchema.parse(process.env.DB2i_SSH_PORT),
       username,
       // Key-based auth takes precedence; password is the fallback
       ...(keyPath ? { privateKey: getCachedPrivateKey(keyPath) } : {}),

@@ -2,7 +2,7 @@
  * @fileoverview Unit tests for config.db2iSsh (DB2i_TRANSPORT=ssh settings).
  */
 
-import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -100,6 +100,25 @@ describe("config.db2iSsh", () => {
       technique: "cli",
       hostKeySha256: "SHA256:abc",
     });
+  });
+
+  it("treats a blank DB2i_SSH_PORT as the default", () => {
+    process.env.DB2i_HOST = "h";
+    process.env.DB2i_USER = "u";
+    process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+    process.env.DB2i_SSH_PORT = "";
+
+    expect(config.db2iSsh?.port).toBe(22);
+  });
+
+  it("keeps other settings when DB2i_SSH_PORT is blank", async () => {
+    // A failed environment parse falls back to defaults for every setting
+    process.env.MCP_HTTP_PORT = "4321";
+    process.env.DB2i_SSH_PORT = "";
+
+    vi.resetModules();
+    const fresh = (await import("../../src/config/index.js")).config;
+    expect(fresh.mcpHttpPort).toBe(4321);
   });
 
   it("throws on an invalid port, technique or unreadable key file", () => {
