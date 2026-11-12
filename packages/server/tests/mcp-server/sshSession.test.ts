@@ -274,6 +274,51 @@ describe("shared SSH session", () => {
     lease.end();
   });
 
+  it("ends the client when the session is closed while SSH is connecting", async () => {
+    let resolveConnect!: (client: typeof mockClient) => void;
+    mockConnectSSH2.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveConnect = resolve;
+        }),
+    );
+    const lease = acquireSSHSession(ssh);
+    const init = lease.init();
+    await Promise.resolve();
+
+    lease.end(); // last lease: the session closes while connectSSH2 is pending
+    resolveConnect(mockClient);
+
+    await expect(init).rejects.toThrow(/closed while it was connecting/);
+    expect(mockClient.end).toHaveBeenCalledTimes(1);
+    expect(mockWithConfig).not.toHaveBeenCalled();
+  });
+
+  it("closes the job when the session is closed while the job is connecting", async () => {
+    let resolveJob!: () => void;
+    mockWithConfig.mockImplementationOnce(() => {
+      const job = makeJob();
+      job.connect.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveJob = () => resolve({});
+          }),
+      );
+      created.push(job);
+      return job;
+    });
+    const lease = acquireSSHSession(ssh);
+    const init = lease.init();
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+
+    lease.end();
+    resolveJob();
+
+    await expect(init).rejects.toThrow(/closed while it was connecting/);
+    expect(created[0]!.close).toHaveBeenCalledTimes(1);
+    expect(mockClient.end).toHaveBeenCalledTimes(1);
+  });
+
   it("does not set a host key verifier when no fingerprint is pinned", async () => {
     const lease = acquireSSHSession(ssh);
     await lease.init();

@@ -52,6 +52,14 @@ export function hostKeyMatches(actualHex: string, expected: string): boolean {
   return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
+function closedWhileConnecting(): McpError {
+  return new McpError(
+    JsonRpcErrorCode.DatabaseError,
+    "IBM i SSH session was closed while it was connecting.",
+    { reconnectOnNextCall: true },
+  );
+}
+
 /** One SSH client + one SQL job, shared by all leases with the same key. */
 class SSHSession {
   private client: Client | null = null;
@@ -191,6 +199,13 @@ class SSHSession {
             }
           : {}),
       });
+      // The session may have been closed (last lease ended, shutdown) while
+      // the SSH connection was being opened. close() could not see this
+      // client yet, so it is ended here.
+      if (this.dead) {
+        client.end();
+        throw closedWhileConnecting();
+      }
       this.client = client;
 
       client.on("error", (err: Error) => {
@@ -218,6 +233,12 @@ class SSHSession {
         this.jdbcOptions,
       );
       await job.connect();
+      // Same check for the job: close() already ended the client, but it
+      // never saw this job.
+      if (this.dead) {
+        await job.close().catch(() => undefined);
+        throw closedWhileConnecting();
+      }
       this.job = job;
       this.alive = true;
       logger.info(this.context, "IBM i SSH session ready");
