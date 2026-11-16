@@ -41,9 +41,11 @@ export async function executeMultiSystem(
   // Dynamic import to avoid pulling server modules into static CLI chain
   const { SourceManager } = await import("@ibm/ibmi-mcp-server/services");
 
-  // Resolve passwords upfront (sequentially — interactive prompts can't interleave)
+  // Resolve passwords upfront (sequentially — interactive prompts can't interleave).
+  // A system with an SSH key needs none: SSH uses key authentication only.
   const credentials: Map<string, string> = new Map();
   for (const sys of systems) {
+    if (sys.config.sshKey) continue;
     const password = await resolvePassword(
       sys.name,
       sys.config.password,
@@ -52,6 +54,9 @@ export async function executeMultiSystem(
     );
     credentials.set(sys.name, password);
   }
+
+  // Each system's own config decides SSH; a key in the shell would apply to all
+  delete process.env.DB2i_SSH_KEY;
 
   // Create a temporary SourceManager (not the singleton)
   const mgr = new SourceManager();
@@ -62,9 +67,16 @@ export async function executeMultiSystem(
       await mgr.registerSource(sys.name, {
         host: sys.config.host,
         user: sys.config.user,
-        password: credentials.get(sys.name)!,
         port: sys.config.port,
         "ignore-unauthorized": sys.config.ignoreUnauthorized,
+        ...(sys.config.sshKey
+          ? {
+              "ssh-key": sys.config.sshKey,
+              ...(sys.config.sshHostKeySha256
+                ? { "ssh-host-key-sha256": sys.config.sshHostKeySha256 }
+                : {}),
+            }
+          : { password: credentials.get(sys.name)! }),
       });
     }
 

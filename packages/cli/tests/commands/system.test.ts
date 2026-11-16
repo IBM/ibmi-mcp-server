@@ -19,6 +19,19 @@ vi.mock("../../src/config/credentials.js", () => ({
   expandEnvVars: vi.fn((s: string) => s),
 }));
 
+const { listSessions, stopSession } = vi.hoisted(() => ({
+  listSessions: vi.fn(async () => [] as unknown[]),
+  stopSession: vi.fn(async (_socket: string) => true),
+}));
+
+vi.mock("../../src/session/client.js", () => ({
+  listSessions,
+  stopSession,
+  currentSocket: vi.fn(
+    ({ name }: { name: string }) => `/home/user/.ibmi/run/${name}-current.sock`,
+  ),
+}));
+
 vi.mock("@ibm/ibmi-mcp-server/services", () => ({
   IBMiConnectionPool: {
     executeQuery: vi.fn(() => Promise.resolve({ success: true, data: [] })),
@@ -117,7 +130,7 @@ describe("ibmi system command — registration", () => {
     expect(system?.description()).toBe("Manage IBM i system connections");
   });
 
-  it("should register all 7 subcommands under system", () => {
+  it("should register all 9 subcommands under system", () => {
     const program = createProgram();
     const system = program.commands.find((c) => c.name() === "system");
     const subNames = system?.commands.map((c) => c.name()).sort();
@@ -130,6 +143,8 @@ describe("ibmi system command — registration", () => {
         "show",
         "test",
         "add",
+        "status",
+        "disconnect",
       ].sort(),
     );
   });
@@ -1250,5 +1265,196 @@ describe("ibmi system test", () => {
       (r: Record<string, unknown>) => r.PROPERTY === "status",
     );
     expect(statusRow?.VALUE).toBe("error");
+  });
+});
+
+describe("ibmi system add — SSH", () => {
+  beforeEach(() => {
+    mockLoadConfig.mockReturnValue({ systems: {} });
+    mockUpsertSystem.mockReset();
+  });
+
+  it("should save the SSH key, host key pin, technique and keep-session choice", async () => {
+    await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "add",
+        "dev",
+        "--host",
+        "dev.example.com",
+        "--user",
+        "MYUSER",
+        "--ssh-key",
+        "~/.ssh/id_ed25519",
+        "--ssh-host-key-sha256",
+        "SHA256:abc",
+        "--ssh-technique",
+        "cli",
+        "--no-keep-session",
+      ]);
+    });
+
+    const [, sysConfig] = mockUpsertSystem.mock.calls[0]!;
+    expect(sysConfig).toMatchObject({
+      sshKey: "~/.ssh/id_ed25519",
+      sshHostKeySha256: "SHA256:abc",
+      sshTechnique: "cli",
+      keepSession: false,
+    });
+    expect(sysConfig.password).toBeUndefined();
+  });
+
+  it("should write no SSH fields for a password system", async () => {
+    await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "add",
+        "prod",
+        "--host",
+        "prod.example.com",
+        "--user",
+        "PRODUSER",
+      ]);
+    });
+
+    const [, sysConfig] = mockUpsertSystem.mock.calls[0]!;
+    expect(sysConfig).not.toHaveProperty("sshKey");
+    expect(sysConfig).not.toHaveProperty("keepSession");
+  });
+});
+
+describe("ibmi system status and disconnect", () => {
+  const session = (system: string, socket: string) => ({
+    socket,
+    info: {
+      system,
+      host: `${system}.example.com`,
+      user: "MYUSER",
+      technique: "tcp",
+      pid: 48211,
+      version: "0.0.0",
+      state: "open",
+      startedAt: "2026-11-16T12:00:00.000Z",
+      idleSeconds: 190,
+      idleTimeoutSeconds: 600,
+    },
+  });
+
+  beforeEach(() => {
+    listSessions.mockReset().mockResolvedValue([]);
+    stopSession.mockClear();
+    mockLoadConfig.mockReturnValue({
+      systems: {
+        dev: {
+          host: "dev.example.com",
+          port: 8076,
+          user: "MYUSER",
+          sshKey: "~/.ssh/id_ed25519",
+          readOnly: false,
+          confirm: false,
+          timeout: 60,
+          maxRows: 5000,
+          ignoreUnauthorized: true,
+        },
+        prod: {
+          host: "prod.example.com",
+          port: 8076,
+          user: "PRODUSER",
+          readOnly: false,
+          confirm: false,
+          timeout: 60,
+          maxRows: 5000,
+          ignoreUnauthorized: true,
+        },
+      },
+    });
+  });
+
+  const run = (...args: string[]) =>
+    captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync(["node", "ibmi", "system", ...args]);
+    });
+
+  it("should show an open session with its idle time, and the transport of each system", async () => {
+    listSessions.mockResolvedValue([
+      session("dev", "/home/user/.ibmi/run/dev-current.sock"),
+    ]);
+    const output = await run("status", "--format", "json");
+    const rows = JSON.parse(output).data as Record<string, unknown>[];
+    expect(rows).toEqual([
+      {
+        SYSTEM: "dev",
+        TRANSPORT: "ssh · tcp",
+        SESSION: "open · idle 3:10 of 10:00",
+        PID: 48211,
+      },
+      { SYSTEM: "prod", TRANSPORT: "mapepire", SESSION: "-", PID: "" },
+    ]);
+  });
+
+  it("should show a closed session and a session opened with earlier settings", async () => {
+    listSessions.mockResolvedValue([
+      session("dev", "/home/user/.ibmi/run/dev-older.sock"),
+    ]);
+    const output = await run("status", "--format", "json");
+    const rows = JSON.parse(output).data as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ SYSTEM: "dev", SESSION: "closed" });
+    expect(rows[2]).toMatchObject({
+      SYSTEM: "dev",
+      SESSION: expect.stringContaining("earlier settings"),
+    });
+  });
+
+  it("should close every session of a system", async () => {
+    listSessions.mockResolvedValue([
+      session("dev", "/run/dev-a.sock"),
+      session("dev", "/run/dev-b.sock"),
+      session("test", "/run/test.sock"),
+    ]);
+    const output = await run("disconnect", "dev", "--format", "table");
+    expect(
+      (stopSession.mock.calls as unknown as [string][]).map(
+        ([socket]) => socket,
+      ),
+    ).toEqual(["/run/dev-a.sock", "/run/dev-b.sock"]);
+    expect(output).toContain("Closed the session for dev.");
+  });
+
+  it("should close all sessions with --all, and say when none is open", async () => {
+    listSessions.mockResolvedValue([session("dev", "/run/dev.sock")]);
+    expect(await run("disconnect", "--all", "--format", "table")).toContain(
+      "Closed 1 session.",
+    );
+    listSessions.mockResolvedValue([]);
+    expect(await run("disconnect", "--all", "--format", "table")).toContain(
+      "No sessions are open.",
+    );
+  });
+
+  it("should need a system name or --all", async () => {
+    const stderr: string[] = [];
+    const write = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderr.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await run("disconnect", "--format", "table");
+    } finally {
+      process.stderr.write = write;
+    }
+    expect(stderr.join("")).toContain("Pass a system name, or --all.");
+    expect(process.exitCode).toBe(2);
+    process.exitCode = undefined;
   });
 });

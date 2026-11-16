@@ -3,7 +3,7 @@ title: "Command Reference"
 description: "Complete reference for all IBM i CLI commands, options, and usage examples."
 ---
 
-All commands follow the pattern `ibmi <command> [arguments] [options]`. [Global options](/cli/configuration#output-format-priority) (`--system`, `--format`, `--raw`, `--stream`, `--tools`, `--no-color`) apply to every command. `--watch` and `--output` apply to the commands that query a system: `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe` and `validate`.
+All commands follow the pattern `ibmi <command> [arguments] [options]`. [Global options](/cli/configuration#output-format-priority) (`--system`, `--format`, `--raw`, `--stream`, `--tools`, `--no-color`) apply to every command. `--watch`, `--output` and `--fresh` apply to the commands that query a system: `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe` and `validate`. `--fresh` connects for this command only, instead of using the [SSH session](/cli/configuration#ssh-sessions) of an SSH system.
 
 ---
 
@@ -275,6 +275,9 @@ ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity
 ibmi system test --all                    # test all systems
+ibmi system status                        # transport and SSH session of each system
+ibmi system disconnect dev                # close the SSH session of a system
+ibmi system disconnect --all              # close all SSH sessions
 ibmi system config-path                   # show config file locations
 ```
 
@@ -285,10 +288,12 @@ ibmi system config-path                   # show config file locations
 | `add <name>` | Add a new system connection |
 | `remove <name>` | Remove a system connection |
 | `default <name>` | Set the default system |
-| `test [name]` | Test connectivity (`--all` for all systems) |
+| `test [name]` | Test connectivity with a new connection (`--all` for all systems) |
+| `status` | Show the transport of each system and its SSH session: `open` with its idle time, `closed`, `off` (`keepSession: false`) or `-` (Mapepire daemon) |
+| `disconnect [name]` | Close the SSH session of a system (`--all` for all systems) |
 | `config-path` | Show config file locations |
 
-`system add` options: `--host`, `--port` (default `8076`), `--user`, `--password`, `--description`, `--read-only`, `--default-schema`, and `--verify-tls` / `--no-verify-tls`. By default the server's TLS certificate is **not** verified (`ignoreUnauthorized: true`); `--verify-tls` stores `ignoreUnauthorized: false`. `system show` reports the setting as `verifyTls`, and `system list` in the `VERIFY_TLS` column.
+`system add` options: `--host`, `--port` (default `8076`), `--user`, `--password`, `--description`, `--read-only`, `--default-schema`, `--verify-tls` / `--no-verify-tls`, and for an [SSH system](/cli/configuration#ssh-connections) `--ssh-key`, `--ssh-host-key-sha256`, `--ssh-technique tcp|cli` and `--no-keep-session`. By default the server's TLS certificate is **not** verified (`ignoreUnauthorized: true`); `--verify-tls` stores `ignoreUnauthorized: false`. `system show` reports the setting as `verifyTls`, and `system list` in the `VERIFY_TLS` column.
 
 ### `ibmi config show`
 

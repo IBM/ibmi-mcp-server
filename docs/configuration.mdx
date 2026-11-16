@@ -754,7 +754,7 @@ With `DB2i_SSH_KEY` set you can delete the `DB2i_PASS` line from `.env`: a tools
 - With `DB2i_SSH_KEY` set, a YAML source cannot opt out of SSH. To mix SSH and Mapepire sources, use `ssh-key` on the sources instead.
 - SSH is not used with the built-in IBM i sign-on (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`). In that mode every statement runs on the Mapepire connection of the user who signed on. The server refuses to start when `DB2i_SSH_KEY` is set, and `ssh-key` on a YAML source is not used.
 - Requests that carry an IBM i bearer token (`IBMI_HTTP_AUTH_ENABLED=true`) still use the WebSocket transport.
-- The SSH transport is designed and tested for the MCP server. The `ibmi` CLI has no SSH option of its own (it supplies host, user and password from its own config), and its use with `DB2i_SSH_KEY` set in the environment is untested.
+- The `ibmi` CLI has its own SSH setting per system (`sshKey` in `~/.ibmi/config.yaml`) and keeps an SSH session open between commands. See [CLI SSH Connections](/cli/configuration#ssh-connections).
 - Heavy queries such as `QSYS2.SYSTEM_STATUS(DETAILED_INFO=>'ALL')` can take 25s or more on a cold, small partition. Raise `MCP_POOL_QUERY_TIMEOUT_MS` if you see timeouts.
 </Warning>
 

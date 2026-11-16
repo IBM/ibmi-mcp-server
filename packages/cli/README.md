@@ -48,6 +48,7 @@ These apply to every command:
 | `--stream` | NDJSON output (one JSON object per line); implies JSON unless `--format` is given |
 | `--output <path>` | Write output to a file instead of stdout (commands that query a system: `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe`, `validate`) |
 | `--watch <seconds>` | Re-run command at interval (Ctrl+C to stop); same commands as `--output`. With `--output`, the file is rewritten after every run |
+| `--fresh` | Connect for this command only; do not use or open an [SSH session](#ssh-connections) |
 | `--tools <path>` | Path to YAML tool file(s), comma-separated |
 | `--no-color` | Disable colored output |
 
@@ -156,6 +157,8 @@ ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
 ibmi system test dev                      # test connectivity (live)
 ibmi system test --all                    # test all systems
+ibmi system status                        # transport and SSH session of each system
+ibmi system disconnect dev                # close the SSH session of dev (--all for all)
 ibmi system config-path                   # show config file locations
 ```
 
@@ -269,9 +272,26 @@ When a command needs a system connection, the CLI resolves it in this order:
 
 ### Password Resolution
 
+A system with `sshKey` needs no password. For the others:
+
 1. Config `password` field (with `${ENV_VAR}` expansion)
 2. Interactive prompt (TTY only, hidden input)
 3. Error if non-interactive and no password available
+
+### SSH Connections
+
+A system with an SSH key connects over SSH instead of the Mapepire daemon, with key authentication only:
+
+```bash
+ibmi system add dev --host dev.example.com --user MYUSER \
+  --ssh-key ~/.ssh/id_ed25519 --ssh-host-key-sha256 SHA256:AbC...
+```
+
+Optional: `--ssh-technique cli` (default `tcp`) and `--no-keep-session`. In the config file these are `sshKey`, `sshHostKeySha256`, `sshTechnique` and `keepSession`.
+
+The first command on an SSH system opens an **SSH session**: a background process that keeps the SSH connection and one SQL job open, so later commands skip the connect and run in well under a second. A session closes after 10 minutes with no command (`IBMI_SESSION_IDLE_SECONDS`), after a statement times out, or with `ibmi system disconnect`. All commands on one system share its SQL job while the session is open, so `SET SCHEMA` and temporary tables stay from one command to the next; use `--fresh` or `ibmi system disconnect` for a clean job.
+
+Sessions live in `~/.ibmi/run/` (directory `0700`, sockets `0600`). Details: [SSH Connections](https://github.com/IBM/ibmi-mcp-server/blob/main/docs/cli/configuration.mdx#ssh-connections).
 
 ---
 

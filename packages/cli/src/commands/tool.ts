@@ -261,7 +261,7 @@ async function executeTool(
     }
 
     // Dynamic import to avoid loading server infrastructure until execution time
-    const { ParameterProcessor, IBMiConnectionPool } =
+    const { ParameterProcessor, executeQuery, executeQueryWithPagination } =
       await import("@ibm/ibmi-mcp-server/services");
 
     // Process SQL parameters (BindingValue from mapepire-js)
@@ -307,19 +307,15 @@ async function executeTool(
     // fetchAllRows is set we paginate; rowsToFetch (if present) becomes
     // the per-fetch page size. Otherwise rowsToFetch caps the single-shot
     // execute() call.
+    // Through the query router: the statement goes to the SSH session when
+    // the system has one open.
     const result = tool.fetchAllRows
-      ? await IBMiConnectionPool.executeQueryWithPagination(
-          processedSql,
-          bindingParams,
-          ctx,
-          tool.rowsToFetch,
-        )
-      : await IBMiConnectionPool.executeQuery(
-          processedSql,
-          bindingParams,
-          ctx,
-          tool.rowsToFetch,
-        );
+      ? await executeQueryWithPagination(processedSql, bindingParams, ctx, {
+          rowsToFetch: tool.rowsToFetch,
+        })
+      : await executeQuery(processedSql, bindingParams, ctx, {
+          rowsToFetch: tool.rowsToFetch,
+        });
 
     // The paginated path returns a `truncated` flag when the server hit
     // MAX_PAGINATION_ROWS. Surface it in the output footer so users know

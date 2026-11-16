@@ -34,6 +34,8 @@ const SYSTEM_SUBCOMMANDS = [
   "remove",
   "default",
   "test",
+  "status",
+  "disconnect",
   "config-path",
 ];
 
@@ -46,6 +48,7 @@ const GLOBAL_OPTIONS = [
   "--tools",
   "--output",
   "--watch",
+  "--fresh",
   "--no-color",
   "--version",
   "--help",
@@ -159,6 +162,7 @@ ${SYSTEM_SUBCOMMANDS.map((c) => `    '${c}:${c}'`).join("\n")}
     '--tools[Path to YAML tool files]:file:_files'
     '--output[Write output to file]:file:_files'
     '--watch[Re-run at interval]:seconds:'
+    '--fresh[Connect for this command only]'
     '--no-color[Disable colored output]'
     '--help[Show help]'
     '--version[Show version]'
@@ -238,6 +242,7 @@ function generateFish(): string {
     "complete -c ibmi -l tools -d 'Path to YAML tool files' -r -F",
     "complete -c ibmi -l output -d 'Write output to file' -r -F",
     "complete -c ibmi -l watch -d 'Re-run at interval (seconds)' -x",
+    "complete -c ibmi -l fresh -d 'Connect for this command only'",
     "complete -c ibmi -l no-color -d 'Disable colored output'",
   );
 

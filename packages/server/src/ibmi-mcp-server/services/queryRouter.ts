@@ -54,6 +54,36 @@ export function setGrantQueryExecutor(
 }
 
 /**
+ * Runs the statements that would go to the `DB2i_*` service pool somewhere
+ * else. The `ibmi` CLI sets one to send them to the session host process
+ * that holds the connection of a system. The MCP server never sets one.
+ */
+export interface ServiceQueryExecutor {
+  executeQuery<T = unknown>(
+    query: string,
+    params?: BindingValue[],
+    context?: RequestContext,
+    rowsToFetch?: number,
+  ): Promise<QueryResult<T>>;
+  executeQueryWithPagination(
+    query: string,
+    params?: BindingValue[],
+    context?: RequestContext,
+    rowsToFetch?: number,
+  ): Promise<PaginatedQueryResult>;
+}
+
+/** The service executor, when the `ibmi` CLI has set one. */
+let serviceExecutor: ServiceQueryExecutor | undefined;
+
+/** Sets the service executor; `undefined` removes it. */
+export function setServiceQueryExecutor(
+  executor: ServiceQueryExecutor | undefined,
+): void {
+  serviceExecutor = executor;
+}
+
+/**
  * Built-in OAuth mode: the caller's grant and what runs statements on it.
  *
  * @throws {McpError} `Unauthorized` when the request carries no grant or no
@@ -131,6 +161,14 @@ export async function executeQuery<T = unknown>(
     );
   }
   if (source === undefined) {
+    if (serviceExecutor) {
+      return serviceExecutor.executeQuery<T>(
+        query,
+        params,
+        context,
+        rowsToFetch,
+      );
+    }
     return IBMiConnectionPool.executeQuery(
       query,
       params,
@@ -185,6 +223,14 @@ export async function executeQueryWithPagination(
     );
   }
   if (source === undefined) {
+    if (serviceExecutor) {
+      return serviceExecutor.executeQueryWithPagination(
+        query,
+        params,
+        context,
+        rowsToFetch,
+      );
+    }
     return IBMiConnectionPool.executeQueryWithPagination(
       query,
       params,

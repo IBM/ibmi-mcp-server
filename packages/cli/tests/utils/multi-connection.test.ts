@@ -94,6 +94,35 @@ describe("executeMultiSystem", () => {
     );
   });
 
+  it("should register an SSH system with its key and no password", async () => {
+    const { resolvePassword } = await import("../../src/config/credentials.js");
+    const dev = makeSystem("dev", "dev400.com");
+    dev.config.sshKey = "~/.ssh/id_ed25519";
+    dev.config.sshHostKeySha256 = "SHA256:abc";
+    const prod = makeSystem("prod", "prod400.com");
+
+    await executeMultiSystem([dev, prod], async () => ({
+      data: [],
+      meta: { rowCount: 0 },
+    }));
+
+    const devSource = mockRegisterSource.mock.calls.find(
+      ([name]) => name === "dev",
+    )![1];
+    expect(devSource).toMatchObject({
+      host: "dev400.com",
+      "ssh-key": "~/.ssh/id_ed25519",
+      "ssh-host-key-sha256": "SHA256:abc",
+    });
+    expect(devSource).not.toHaveProperty("password");
+    // Only the password system asks for its password
+    expect(vi.mocked(resolvePassword)).toHaveBeenCalledTimes(1);
+    expect(mockRegisterSource).toHaveBeenCalledWith(
+      "prod",
+      expect.objectContaining({ password: "mock-password" }),
+    );
+  });
+
   it("should capture errors from failed systems without crashing", async () => {
     const systems = [
       makeSystem("dev", "dev400.com"),
