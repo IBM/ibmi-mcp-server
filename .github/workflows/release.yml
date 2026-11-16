@@ -16,9 +16,9 @@
 #   github    create the GitHub Release from the release notes file
 #
 # Every publishing step skips work that is already done, so a failed run can be
-# finished with "Re-run failed jobs", or by running this workflow by hand from
-# main (workflow_dispatch). A manual run releases the version in package.json,
-# using the commit its tag points to if the tag exists.
+# finished with "Re-run failed jobs". Once tag v<version> exists, a release can
+# also be finished by running this workflow by hand on that tag
+# (workflow_dispatch). Every job builds the commit the run started from.
 #
 # npm publishes through trusted publishing (OIDC). Each package on npmjs.com
 # must list this repository and the workflow file `release.yml` as a trusted
@@ -49,7 +49,6 @@ jobs:
     outputs:
       release: ${{ steps.plan.outputs.release }}
       version: ${{ steps.plan.outputs.version }}
-      sha: ${{ steps.plan.outputs.sha }}
       prerelease: ${{ steps.plan.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
@@ -57,12 +56,19 @@ jobs:
       - name: Decide whether to release
         id: plan
         run: |
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::error::Run this workflow from main (got $GITHUB_REF)."
-            exit 1
-          fi
+          case "$GITHUB_REF" in
+            refs/heads/main | refs/tags/v*) ;;
+            *)
+              echo "::error::Run this workflow from main or from a v* tag (got $GITHUB_REF)."
+              exit 1
+              ;;
+          esac
 
           V=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [ "$GITHUB_REF" != "refs/tags/v$V" ]; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match package.json version $V."
+            exit 1
+          fi
           for p in packages/server packages/cli; do
             PV=$(node -p "require('./$p/package.json').version")
             if [ "$PV" != "$V" ]; then
@@ -74,11 +80,17 @@ jobs:
           TAG_SHA=$(git ls-remote origin "refs/tags/v$V^{}" | cut -f1)
           [ -n "$TAG_SHA" ] || TAG_SHA=$(git ls-remote origin "refs/tags/v$V" | cut -f1)
 
-          # A tag on this same commit means a re-run of this release; keep going.
-          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ] && [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            echo "Tag v$V already exists on another commit; package.json changed without a version bump. Nothing to release."
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Every job builds GITHUB_SHA. A tag on this same commit means a re-run
+          # of this release, so keep going. A tag on another commit means this
+          # version was released from that commit.
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+              echo "Tag v$V already exists on another commit; package.json changed without a version bump. Nothing to release."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::v$V is tagged on another commit. To finish that release, run this workflow on tag v$V."
+            exit 1
           fi
 
           PRERELEASE=false
@@ -86,10 +98,9 @@ jobs:
           {
             echo "release=true"
             echo "version=$V"
-            echo "sha=${TAG_SHA:-$GITHUB_SHA}"
             echo "prerelease=$PRERELEASE"
           } >> "$GITHUB_OUTPUT"
-          echo "Releasing v$V from ${TAG_SHA:-$GITHUB_SHA}"
+          echo "Releasing v$V from $GITHUB_SHA"
 
   verify:
     needs: plan
@@ -97,8 +108,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.plan.outputs.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -130,7 +139,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.plan.outputs.version }}
-          SHA: ${{ needs.plan.outputs.sha }}
+          SHA: ${{ github.sha }}
         run: |
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$V" >/dev/null 2>&1; then
             echo "Tag v$V already exists."
@@ -147,8 +156,6 @@ jobs:
       id-token: write # npm trusted publishing (OIDC) and provenance
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.plan.outputs.sha }}
 
       # No dependency cache in release builds.
       - uses: actions/setup-node@v4
@@ -206,8 +213,6 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.plan.outputs.sha }}
 
       - name: Set image name
         run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -287,8 +292,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.plan.outputs.sha }}
 
       - name: Create GitHub Release
         env:

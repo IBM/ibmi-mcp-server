@@ -59,7 +59,8 @@ To start over before the PR is merged, run `npm run release:undo`. It resets the
 Every publish step skips work that is already done, so it is safe to run again.
 
 - **A job failed after approval.** Fix the cause, then use **Re-run failed jobs** on the workflow run.
-- **The fix needs a new commit on `main`.** Run the Release workflow by hand from `main` (**Run workflow**). A manual run releases the version in `package.json`. If the tag already exists, it builds from the tagged commit.
+- **The run can't be re-run** (for example, it is too old). After tag `vX.Y.Z` exists, start the Release workflow by hand on that tag: `gh workflow run release.yml --repo IBM/ibmi-mcp-server --ref vX.Y.Z`. It builds the tagged commit and skips what is already published.
+- **The fix needs code changes.** Release a new patch version.
 - **A broken version reached npm.** npm versions cannot be reused. Release a new patch version.
 
 ## Pre-releases
