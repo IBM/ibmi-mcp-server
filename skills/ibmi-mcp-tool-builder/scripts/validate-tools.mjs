@@ -65,18 +65,24 @@ function collectYamlFiles(target) {
 // in string values of the parsed document. The server refuses to load a file
 // that references an unset variable; here it keeps its ${VAR} placeholder and
 // is reported at the end, so a file can be checked without credentials.
-function interpolate(value, unsetVars) {
+// With DB2i_SSH_KEY set, every source connects over SSH and its password is not
+// used, so the server also accepts an unset variable in sources.<name>.password.
+function interpolate(value, unsetVars, path = []) {
   if (typeof value === "string") {
+    const unusedPassword =
+      path[0] === "sources" && path[2] === "password" && process.env.DB2i_SSH_KEY;
     return value.replace(/\$\{([^}]+)\}/g, (match, name) => {
       if (process.env[name] !== undefined) return process.env[name];
-      unsetVars.add(name);
+      if (!unusedPassword) unsetVars.add(name);
       return match;
     });
   }
-  if (Array.isArray(value)) return value.map((v) => interpolate(v, unsetVars));
+  if (Array.isArray(value)) {
+    return value.map((v, i) => interpolate(v, unsetVars, [...path, String(i)]));
+  }
   if (value?.constructor === Object) {
     return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, interpolate(v, unsetVars)]),
+      Object.entries(value).map(([k, v]) => [k, interpolate(v, unsetVars, [...path, k])]),
     );
   }
   return value;
@@ -206,6 +212,15 @@ for (const file of files) {
     } else if (!config.sources && !config.tools && !config.toolsets) {
       errors.push("must contain at least one of: sources, tools, toolsets");
     } else {
+      for (const [name, source] of Object.entries(config.sources ?? {})) {
+        // The schema cannot say this: it depends on DB2i_SSH_KEY. The server
+        // refuses such a source when it loads the file.
+        if (!source.password && !source["ssh-key"] && !process.env.DB2i_SSH_KEY) {
+          report.error(
+            `sources.${name}: needs a password, or an SSH key (ssh-key on the source, or DB2i_SSH_KEY in the environment)`,
+          );
+        }
+      }
       for (const [name, tool] of Object.entries(config.tools ?? {})) {
         checkStatement(name, tool, report);
       }

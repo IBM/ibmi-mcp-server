@@ -21,10 +21,34 @@ toolsets:       # toolset_name -> { title, description, tools: [tool_name, ...] 
 
 | Field | Req | Notes |
 |-------|-----|-------|
-| `host`, `user`, `password` | yes | Always `${DB2i_HOST}`, `${DB2i_USER}`, `${DB2i_PASS}`. Never literals |
-| `port` | | Mapepire port, default 8076 |
-| `ignore-unauthorized` | | `true` for self-signed certificates |
+| `host`, `user` | yes | Usually `${DB2i_HOST}`, `${DB2i_USER}`. Never literal credentials |
+| `password` | one credential | `${DB2i_PASS}`. Connects through the Mapepire daemon |
+| `ssh-key` | one credential | Path to a private key (`~/` is expanded). Connects over SSH instead, with key authentication only; `password` is not used |
+| `ssh-host-key-sha256` | | Host key fingerprint of this host (`SHA256:<base64>` from `ssh-keygen -lf`). Recommended with `ssh-key` |
+| `port` | | Mapepire port, default 8076. Not used over SSH |
+| `ignore-unauthorized` | | `true` for self-signed certificates. Not used over SSH |
 | `jdbc-options` | | e.g. `libraries: [MYLIB, QGPL]`, `naming: system` |
+
+A source needs a credential: `password`, or an SSH key. `DB2i_SSH_KEY` in the environment gives every
+source without `ssh-key` that key, so an existing file with `password: ${DB2i_PASS}` connects over SSH
+with no change (and `DB2i_PASS` then need not be set). With no key anywhere, sources use the Mapepire
+daemon. Each source connects to its own `host` as its own `user`, so one file can mix systems:
+
+```yaml
+sources:
+  dev:                          # SSH, no Mapepire daemon needed
+    host: dev.example.com
+    user: ${DEV_USER}
+    ssh-key: ~/.ssh/id_ed25519
+    ssh-host-key-sha256: SHA256:AbC...
+  prod:                         # Mapepire daemon
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+```
+
+The schema cannot check the credential rule (it depends on `DB2i_SSH_KEY`); the bundled validator does,
+and so does the server when it loads the file.
 
 ## `tools.<name>`
 
