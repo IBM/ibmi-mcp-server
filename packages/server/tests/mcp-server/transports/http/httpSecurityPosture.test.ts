@@ -19,6 +19,9 @@ import {
   vi,
   type MockInstance,
 } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { config } from "../../../../src/config/index.js";
 import { assertHttpSecurityPosture } from "../../../../src/mcp-server/transports/http/hostValidation.js";
 import {
@@ -27,7 +30,12 @@ import {
 } from "../../../../src/types-global/errors.js";
 import { requestContextService } from "../../../../src/utils/index.js";
 
-const ENV_KEYS = ["DB2i_HOST", "DB2i_USER", "DB2i_PASS"] as const;
+const ENV_KEYS = [
+  "DB2i_HOST",
+  "DB2i_USER",
+  "DB2i_PASS",
+  "DB2i_SSH_KEY",
+] as const;
 
 const savedConfig = {
   mcpTransportType: config.mcpTransportType,
@@ -99,6 +107,27 @@ describe("assertHttpSecurityPosture", () => {
     }
     expect(thrown).toBeInstanceOf(McpError);
     expect((thrown as McpError).code).toBe(JsonRpcErrorCode.ConfigurationError);
+  });
+
+  it("throws when credentials are an SSH private key (no DB2i_PASS)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "posture-key-"));
+    try {
+      const keyPath = path.join(dir, "id_test");
+      writeFileSync(keyPath, "fake-private-key");
+      config.mcpTransportType = "http";
+      config.mcpAuthMode = "none";
+      config.mcpHttpHost = "0.0.0.0";
+      process.env.DB2i_HOST = "ibmi.example.com";
+      process.env.DB2i_USER = "tester";
+      process.env.DB2i_SSH_KEY = keyPath;
+
+      expect(config.db2i).toBeUndefined();
+      expect(() => assertHttpSecurityPosture(ctx())).toThrow(
+        /Refusing to start/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("throws when credentials come only from a tools YAML (no DB2i_* env)", () => {

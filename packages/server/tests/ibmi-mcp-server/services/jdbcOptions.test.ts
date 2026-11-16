@@ -129,6 +129,9 @@ const SUCCESSFUL_RESULT = {
 
 const ORIGINAL_IDLE_TIMEOUT = config.poolTimeouts.idleTimeoutMs;
 const ORIGINAL_QUERY_TIMEOUT = config.poolTimeouts.queryTimeoutMs;
+// These suites exercise the WebSocket (Mapepire daemon) path regardless of the
+// developer's local .env (which may set DB2i_SSH_KEY).
+delete process.env.DB2i_SSH_KEY;
 
 function resetMocks() {
   MockPool.mockClear();

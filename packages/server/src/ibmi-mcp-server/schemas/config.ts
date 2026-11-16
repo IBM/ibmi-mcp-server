@@ -85,13 +85,32 @@ export const SourceConfigSchema = z
       .string()
       .min(1, "User cannot be empty")
       .describe("Database user name"),
+    // Optional and nullable: a source that connects over SSH has no
+    // password. A source with neither a password nor an SSH key is refused
+    // below.
     password: z
       .string()
-      .min(1, "Password cannot be empty")
-      .describe("Database password"),
+      .nullish()
+      .describe(
+        "Database password for the Mapepire daemon. Required unless the source connects over SSH (ssh-key or DB2i_SSH_KEY).",
+      ),
     port: MapepirePortSchema.optional().describe(
-      "Mapepire daemon port (default: 8076)",
+      "Mapepire daemon port (default: 8076). Not used over SSH.",
     ),
+    "ssh-key": z
+      .string()
+      .min(1, "ssh-key cannot be empty")
+      .optional()
+      .describe(
+        "Path to an SSH private key. When set, the source connects to its host as its user over SSH instead of the Mapepire daemon, and no password is used. Overrides DB2i_SSH_KEY.",
+      ),
+    "ssh-host-key-sha256": z
+      .string()
+      .min(1, "ssh-host-key-sha256 cannot be empty")
+      .optional()
+      .describe(
+        "Expected SSH host key fingerprint of this host (SHA256:<base64> from ssh-keygen -lf, or 64 hex chars). Overrides DB2i_SSH_HOST_KEY_SHA256.",
+      ),
     "ignore-unauthorized": z
       .boolean()
       .optional()
@@ -123,6 +142,18 @@ export const SourceConfigSchema = z
           "The 'libraries' field accepts an array or comma-separated string. " +
           "Env var DB2i_JDBC_OPTIONS overrides these values per-source.",
       ),
+  })
+  .superRefine((source, ctx) => {
+    // One credential: a password (Mapepire daemon) or an SSH key, which is
+    // the source's own `ssh-key` or else DB2i_SSH_KEY.
+    if (!source.password && !source["ssh-key"] && !process.env.DB2i_SSH_KEY) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["password"],
+        message:
+          "A source needs a password, or an SSH key (ssh-key on the source, or DB2i_SSH_KEY in the environment)",
+      });
+    }
   })
   .describe("Database connection configuration");
 

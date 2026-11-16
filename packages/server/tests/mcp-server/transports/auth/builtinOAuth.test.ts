@@ -62,6 +62,7 @@ const MINUTE = 60_000;
 
 const ENV_NAMES = [
   "DB2i_PASS",
+  "DB2i_SSH_KEY",
   "DB2i_IGNORE_UNAUTHORIZED",
   "DB2i_JDBC_OPTIONS",
 ] as const;
@@ -649,6 +650,15 @@ describe("built-in OAuth: what the server refuses to start with", () => {
       ),
     );
     expect(JSON.stringify(start())).not.toContain("dummy-service-Pw");
+  });
+
+  it("DB2i_SSH_KEY", () => {
+    process.env.DB2i_SSH_KEY = "/path/to/service-key";
+    expect(start()).toMatchObject(
+      refusal(
+        "DB2i_SSH_KEY must not be set when users sign on with their IBM i profile (MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL): remove DB2i_SSH_KEY, no SQL runs as a service account in this mode and every statement runs on the signed-on user's Mapepire connection.",
+      ),
+    );
   });
 
   it.each([

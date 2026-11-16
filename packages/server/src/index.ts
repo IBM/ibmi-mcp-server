@@ -356,10 +356,58 @@ logOperationStart(
   `Starting ${config.mcpServerName} (Version: ${config.mcpServerVersion}, Transport: ${config.mcpTransportType}, Env: ${environment})...`,
 );
 
+/**
+ * Logs how the built-in tools connect to IBM i (SSH vs Mapepire daemon).
+ * YAML sources choose per source and log their own choice when registered.
+ * Never logs secrets.
+ */
+function logDb2iConnectionMode(context: RequestContext): void {
+  if (config.oauth.builtin) {
+    // Every statement runs on the signed-on user's own Mapepire connection.
+    logger.info(
+      { ...context, transport: "websocket" },
+      "IBM i connection mode: built-in IBM i sign-on (Mapepire daemon, as the signed-on user). SSH keys on YAML sources are not used in this mode.",
+    );
+    return;
+  }
+
+  const ssh = config.db2iSsh;
+  if (ssh) {
+    logger.info(
+      {
+        ...context,
+        transport: "ssh",
+        host: ssh.host,
+        port: ssh.port,
+        user: ssh.username,
+        technique: ssh.technique,
+      },
+      `IBM i connection mode: SSH (${ssh.username}@${ssh.host}:${ssh.port}), from DB2i_SSH_KEY. It also applies to every YAML source without its own ssh-key. Connections open on first use.`,
+    );
+    return;
+  }
+
+  const db2i = config.db2i;
+  logger.info(
+    {
+      ...context,
+      transport: "websocket",
+      host: db2i?.host,
+      port: db2i?.port,
+      user: db2i?.user,
+      configured: Boolean(db2i),
+    },
+    db2i
+      ? `IBM i connection mode: WebSocket (Mapepire daemon) ${db2i.user}@${db2i.host}:${db2i.port}`
+      : `IBM i connection mode: no built-in connection. Set DB2i_HOST and DB2i_USER with DB2i_PASS (Mapepire daemon) or DB2i_SSH_KEY (SSH).`,
+  );
+}
+
 try {
   if (openTelemetryStartupError) {
     throw openTelemetryStartupError;
   }
+  logDb2iConnectionMode(startupContext);
   runningServer = await initializeAndStartServer();
   if (config.mcpTransportType === "stdio") {
     // The client closing stdin is the portable way to stop a stdio server.

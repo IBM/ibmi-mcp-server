@@ -23,6 +23,7 @@ import {
 } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { ParameterProcessor } from "../sql/parameterProcessor.js";
+import type { BindingValue } from "@ibm/mapepire-js";
 import { QueryResult } from "@ibm/mapepire-js";
 
 /**
@@ -101,7 +102,7 @@ export class SQLToolFactory {
         );
 
         let processedSql: string;
-        let bindingParameters: (string | number | (string | number)[])[] = [];
+        let bindingParameters: BindingValue[] = [];
 
         // Special handling for direct SQL substitution (e.g., execute_sql tool)
         if (
@@ -264,7 +265,7 @@ export class SQLToolFactory {
    */
   private static async executeWithAuthRouting<T>(
     sql: string,
-    parameters: (string | number | (string | number)[])[],
+    parameters: BindingValue[],
     sourceName: string,
     context: RequestContext,
     securityConfig?: SqlToolSecurityConfig,

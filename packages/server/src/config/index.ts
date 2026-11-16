@@ -212,6 +212,16 @@ function builtinIssuer(resourceUrl: string | undefined): string | undefined {
   return url.origin + url.pathname.replace(/\/$/, "").replace(/\/[^/]*$/, "");
 }
 
+/**
+ * SSH port. A blank value (`DB2i_SSH_PORT=` in a .env file) means the default,
+ * like `MapepirePortEnvSchema`: coercing "" gives 0, which would fail the
+ * whole environment parse and reset every setting to its default.
+ */
+const SshPortEnvSchema = z.preprocess(
+  (val) => (val === "" || val === undefined || val === null ? undefined : val),
+  z.coerce.number().int().positive().default(22),
+);
+
 const EnvSchema = z.object({
   // --- Existing MCP and other variables ---
   MCP_SERVER_NAME: z.string().optional(),
@@ -435,6 +445,26 @@ const EnvSchema = z.object({
    * Example: `naming=system;date format=iso;libraries=MYLIB,DEVDATA`
    */
   DB2i_JDBC_OPTIONS: z.string().optional(),
+
+  /**
+   * Path to an SSH private key (OpenSSH, RSA-PEM). A leading `~` is expanded.
+   * When set, every IBM i connection that has no `ssh-key` of its own (the
+   * built-in tools and every YAML source) connects over SSH with this key
+   * instead of the Mapepire daemon. From `DB2i_SSH_KEY`.
+   */
+  DB2i_SSH_KEY: optionalSetting,
+  /** Passphrase for an encrypted SSH private key. From `DB2i_SSH_PASSPHRASE`. */
+  DB2i_SSH_PASSPHRASE: z.string().optional(),
+  /** SSH port on the IBM i system. From `DB2i_SSH_PORT`. Default: 22. */
+  DB2i_SSH_PORT: SshPortEnvSchema,
+  /**
+   * Expected SSH host key fingerprint (SHA-256), as printed by `ssh-keygen -lf`
+   * (`SHA256:...`) or as 64 hex chars. When set, the connection is rejected on
+   * mismatch. From `DB2i_SSH_HOST_KEY_SHA256`.
+   */
+  DB2i_SSH_HOST_KEY_SHA256: optionalSetting,
+  /** Mapepire JDBC technique for the SSH transport. `tcp` (default) uses jt400. From `DB2i_SSH_TECHNIQUE`. */
+  DB2i_SSH_TECHNIQUE: z.enum(["tcp", "cli"]).default("tcp"),
 
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   TOOLS_YAML_PATH: z
@@ -730,6 +760,30 @@ function parseJdbcOptionsString(raw: string): JDBCOptions | undefined {
   return Object.keys(result).length > 0 ? (result as JDBCOptions) : undefined;
 }
 
+/** SSH private keys by path, so a key file is read once per process. */
+const cachedPrivateKeys = new Map<string, Buffer>();
+
+function getCachedPrivateKey(keyPath: string): Buffer {
+  const resolved = expandTilde(keyPath);
+  let buf = cachedPrivateKeys.get(resolved);
+  if (!buf) {
+    buf = readFileSync(resolved);
+    cachedPrivateKeys.set(resolved, buf);
+  }
+  return buf;
+}
+
+/** What an SSH connection to one IBM i system needs. */
+export interface Db2iSshConfig {
+  host: string;
+  port: number;
+  username: string;
+  privateKey: Buffer;
+  passphrase?: string;
+  hostKeySha256?: string;
+  technique: "tcp" | "cli";
+}
+
 export const config = {
   mcpServerName: env.MCP_SERVER_NAME || pkg.name,
   mcpServerVersion: env.MCP_SERVER_VERSION || pkg.version,
@@ -856,6 +910,56 @@ export const config = {
     };
   },
 
+  /**
+   * SSH settings for one IBM i system, or `undefined` when the connection has
+   * no SSH key and must use the Mapepire daemon.
+   *
+   * The key is `target.keyPath` (a YAML source's `ssh-key`) or else
+   * `DB2i_SSH_KEY`. A key is the only SSH credential: no password is ever sent
+   * over SSH. The host key fingerprint is `target.hostKeySha256` or else
+   * `DB2i_SSH_HOST_KEY_SHA256`. Port, passphrase and technique come from the
+   * environment for every connection.
+   *
+   * @throws if the key file cannot be read or an SSH variable is invalid.
+   */
+  sshFor(target: {
+    host: string;
+    user: string;
+    keyPath?: string;
+    hostKeySha256?: string;
+  }): Db2iSshConfig | undefined {
+    const keyPath = target.keyPath || process.env.DB2i_SSH_KEY;
+    if (!keyPath) return undefined;
+    const passphrase = process.env.DB2i_SSH_PASSPHRASE;
+    const hostKeySha256 = (
+      target.hostKeySha256 || process.env.DB2i_SSH_HOST_KEY_SHA256
+    )?.trim();
+    return {
+      host: target.host,
+      port: SshPortEnvSchema.parse(process.env.DB2i_SSH_PORT),
+      username: target.user,
+      privateKey: getCachedPrivateKey(keyPath),
+      ...(passphrase ? { passphrase } : {}),
+      ...(hostKeySha256 ? { hostKeySha256 } : {}),
+      technique: z
+        .enum(["tcp", "cli"])
+        .default("tcp")
+        .parse(process.env.DB2i_SSH_TECHNIQUE),
+    };
+  },
+
+  /**
+   * SSH settings for the built-in tools: `DB2i_HOST` and `DB2i_USER` with the
+   * key from `DB2i_SSH_KEY`. `undefined` unless all three are set, in which
+   * case the built-in tools use the Mapepire daemon (`config.db2i`).
+   */
+  get db2iSsh(): Db2iSshConfig | undefined {
+    const host = process.env.DB2i_HOST;
+    const user = process.env.DB2i_USER;
+    if (!host || !user || !process.env.DB2i_SSH_KEY) return undefined;
+    return this.sshFor({ host, user });
+  },
+
   /** Path to YAML tools configuration file. From `TOOLS_YAML_PATH`. */
   toolsYamlPath: env.TOOLS_YAML_PATH,
 
@@ -938,6 +1042,11 @@ if (config.ibmiHttpAuth.enabled) {
       `IBM i HTTP auth is enabled but missing required key configuration: ${missing.join(", ")}`,
     );
   }
+}
+
+// Fail fast if DB2i_SSH_KEY is set but the key file cannot be read.
+if (process.env.DB2i_SSH_KEY) {
+  getCachedPrivateKey(process.env.DB2i_SSH_KEY);
 }
 
 export const environment: string = config.environment;

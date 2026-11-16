@@ -217,6 +217,10 @@ export class ConfigParser {
    * runs on the caller's own IBM i sign-on), so another variable is left as
    * written there (`DB2i_USER`, `DB2i_PASS` need not be set); anywhere else
    * it is reported in `withheld`.
+   *
+   * A source's `password` is also unused when `DB2i_SSH_KEY` is set (every
+   * source then connects over SSH with that key), so a variable it names that
+   * is not set is left as written there instead of failing the load.
    * @param value - Parsed YAML value
    * @param substituted - Receives the names of the variables substituted
    * @param unset - Receives the names of referenced variables that are not set
@@ -237,6 +241,8 @@ export class ConfigParser {
       const { builtin } = serverConfig.oauth;
       const ignoredCredential =
         path[0] === "sources" && (path[2] === "user" || path[2] === "password");
+      const unusedPassword =
+        ignoredCredential && Boolean(process.env.DB2i_SSH_KEY);
       return value.replace(/\$\{([^}]+)\}/g, (match, varName: string) => {
         if (builtin && varName !== "DB2i_HOST" && varName !== "DB2i_PORT") {
           if (!ignoredCredential) {
@@ -246,7 +252,12 @@ export class ConfigParser {
         }
         const envValue = process.env[varName];
         if (envValue === undefined) {
-          unset.add(varName);
+          // With DB2i_SSH_KEY every source connects over SSH with that key
+          // and its password is never used, so the variable a password names
+          // (`DB2i_PASS` in the shipped tool files) need not be set.
+          if (!(unusedPassword && path[2] === "password")) {
+            unset.add(varName);
+          }
           return match;
         }
         substituted.add(varName);

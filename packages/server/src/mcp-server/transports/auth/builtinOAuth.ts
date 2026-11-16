@@ -102,6 +102,11 @@ export function createBuiltinMapepireClient(): MapepireClient {
       "DB2i_PASS must not be set when users sign on with their IBM i profile (MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL): remove DB2i_PASS, no SQL runs as a service account in this mode.",
     );
   }
+  if (process.env.DB2i_SSH_KEY) {
+    throw configurationError(
+      "DB2i_SSH_KEY must not be set when users sign on with their IBM i profile (MCP_AUTH_MODE=oauth without OAUTH_ISSUER_URL): remove DB2i_SSH_KEY, no SQL runs as a service account in this mode and every statement runs on the signed-on user's Mapepire connection.",
+    );
+  }
   // Only when set: the service-account default (true) does not apply here.
   const ignoreUnauthorized = ["true", "1"].includes(
     process.env.DB2i_IGNORE_UNAUTHORIZED ?? "",

@@ -136,7 +136,18 @@ describe("YAML Parser Unit Tests", () => {
         ),
       );
       expect(message).toContain("sources.invalid-source.user");
-      expect(message).toContain("sources.invalid-source.password");
+    });
+
+    it("should refuse a source with neither a password nor an SSH key", async () => {
+      const message = await loadError(
+        parseYaml(`
+sources:
+  no-credential:
+    host: test-host
+    user: test-user
+`),
+      );
+      expect(message).toContain("sources.no-credential.password");
     });
 
     it("should validate parameter types", async () => {
@@ -301,6 +312,7 @@ tools:
       delete process.env.TEST_HOST;
       delete process.env.TEST_USER;
       delete process.env.TEST_PASS;
+      delete process.env.DB2i_SSH_KEY;
     });
 
     const yamlContent = `
@@ -391,6 +403,24 @@ tools:
       expect(message).toContain(
         "environment variable(s) not set: TEST_USER, TEST_PASS",
       );
+    });
+
+    it("should load a source whose password variable is not set when DB2i_SSH_KEY makes the password unused", async () => {
+      process.env.TEST_HOST = "test-host.example.com";
+      process.env.TEST_USER = "test-user";
+      process.env.DB2i_SSH_KEY = "/path/to/key";
+
+      const result = await parseYaml(yamlContent);
+      expect(result.config.sources?.["test-source"]?.user).toBe("test-user");
+    });
+
+    it("should still fail on an unset user variable when DB2i_SSH_KEY is set", async () => {
+      process.env.TEST_HOST = "test-host.example.com";
+      process.env.DB2i_SSH_KEY = "/path/to/key";
+
+      const message = await loadError(parseYaml(yamlContent));
+      expect(message).toContain("environment variable(s) not set: TEST_USER");
+      expect(message).not.toContain("TEST_PASS");
     });
   });
 

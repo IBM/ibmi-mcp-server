@@ -17,15 +17,17 @@ Sources define database connections that your SQL tools use to execute queries a
 |-------|------|----------|---------|-------------|
 | `host` | string | ✅ Yes | - | IBM i hostname or IP address |
 | `user` | string | ✅ Yes | - | IBM i user profile |
-| `password` | string | ✅ Yes | - | User profile password |
+| `password` | string | ✅ Yes, unless the source uses SSH | - | User profile password (Mapepire daemon) |
 | `port` | integer | No | `8076` | Mapepire daemon port |
+| `ssh-key` | string | No | - | Path to an SSH private key. The source then connects over [SSH](#ssh-fields) and needs no password |
+| `ssh-host-key-sha256` | string | No | - | Expected SSH host key fingerprint of this host |
 | `ignore-unauthorized` | boolean | No | `false` | Accept self-signed SSL certs |
 | `jdbc-options` | object | No | `{}` | JDBC connection options passed to the mapepire driver (libraries, naming, date format, etc.) |
 
 ---
 
 <Note>
-**With the built-in IBM i sign-on** (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`) every tool runs on the connection of the user who calls it. A source's `user` and `password` are ignored (variables they reference need not be set), its `host` must be `DB2i_HOST`, its `port` and `ignore-unauthorized` are not used, and a source that sets `jdbc-options` stops startup. `${VAR}` is replaced only for `DB2i_HOST` and `DB2i_PORT`: any other variable in a tool file, outside a source's `user` and `password`, stops startup. See [YAML Tools](/server-config/oauth-reference#yaml-tools).
+**With the built-in IBM i sign-on** (`MCP_AUTH_MODE=oauth` without `OAUTH_ISSUER_URL`) every tool runs on the connection of the user who calls it. A source's `user` and `password` are ignored (variables they reference need not be set), its `host` must be `DB2i_HOST`, its `port`, `ignore-unauthorized`, `ssh-key` and `ssh-host-key-sha256` are not used, and a source that sets `jdbc-options` stops startup. `${VAR}` is replaced only for `DB2i_HOST` and `DB2i_PORT`: any other variable in a tool file, outside a source's `user` and `password`, stops startup. See [YAML Tools](/server-config/oauth-reference#yaml-tools).
 </Note>
 
 ## Basic Source Configuration
@@ -52,13 +54,13 @@ sources:
 
 ### Required Fields
 
-All sources must include these three fields:
+All sources must include `host` and `user`, and one credential: a `password` (Mapepire daemon) or an SSH key ([SSH](#ssh-fields)).
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
-| `host` | string | Hostname or IP address of IBM i system running Mapepire daemon | `${DB2i_HOST}` |
+| `host` | string | Hostname or IP address of the IBM i system | `${DB2i_HOST}` |
 | `user` | string | IBM i user profile for database authentication | `${DB2i_USER}` |
-| `password` | string | Password for the IBM i user profile | `${DB2i_PASS}` |
+| `password` | string | Password for the IBM i user profile. Not needed when the source has `ssh-key` or `DB2i_SSH_KEY` is set | `${DB2i_PASS}` |
 
 <Warning>
 **Security Requirement**: Always use environment variables for credentials. Never hardcode sensitive values in YAML files.
@@ -140,6 +142,29 @@ These fields have sensible defaults and can be omitted for most configurations. 
 | `port` | integer | `8076` | Port number where Mapepire daemon listens |
 | `ignore-unauthorized` | boolean | `false` | Accept self-signed SSL certificates |
 | `jdbc-options` | object | `{}` | JDBC connection options forwarded to the mapepire driver |
+| `ssh-key` | string | - | Path to an SSH private key (absolute, or starting with `~/`) |
+| `ssh-host-key-sha256` | string | - | Expected SSH host key fingerprint (`SHA256:<base64>` or 64 hex chars) |
+
+<a id="ssh-fields"></a>
+**SSH instead of the Mapepire daemon:**
+
+A source connects over SSH when it has an SSH key. It connects to its own `host` as its own `user`, with key authentication only, and `password`, `port` and `ignore-unauthorized` are not used. A source without a key uses the Mapepire daemon with its `password`.
+
+```yaml
+sources:
+  dev:
+    host: dev.example.com
+    user: MYUSER
+    ssh-key: ~/.ssh/id_ed25519
+    ssh-host-key-sha256: SHA256:AbC...   # recommended
+
+  prod:
+    host: prod.example.com
+    user: ${PROD_USER}
+    password: ${PROD_PASS}               # no key: Mapepire daemon
+```
+
+Setting `DB2i_SSH_KEY` in the environment gives every source without `ssh-key` that key, so an existing tools file moves to SSH with no YAML change. See [SSH Transport](/configuration#ssh-transport) for key setup, host key verification and limits.
 
 **Detailed Configuration:**
 

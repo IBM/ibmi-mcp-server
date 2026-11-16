@@ -266,7 +266,9 @@ async function executeTool(
 
     // Process SQL parameters (BindingValue from mapepire-js)
     let processedSql: string;
-    let bindingParams: (string | number | (string | number)[])[] = [];
+    let bindingParams: Awaited<
+      ReturnType<typeof ParameterProcessor.process>
+    >["parameters"] = [];
 
     // Always process when the tool defines parameters (as the server does), so
     // an optional parameter that was not passed is still bound.

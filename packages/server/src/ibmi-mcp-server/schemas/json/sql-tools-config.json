@@ -24,15 +24,24 @@
             "description": "Database user name"
           },
           "password": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Database password"
+            "description": "Database password for the Mapepire daemon. Required unless the source connects over SSH (ssh-key or DB2i_SSH_KEY).",
+            "type": ["string", "null"]
           },
           "port": {
-            "description": "Mapepire daemon port (default: 8076)",
+            "description": "Mapepire daemon port (default: 8076). Not used over SSH.",
             "type": "integer",
             "minimum": 1,
             "maximum": 65535
+          },
+          "ssh-key": {
+            "description": "Path to an SSH private key. When set, the source connects to its host as its user over SSH instead of the Mapepire daemon, and no password is used. Overrides DB2i_SSH_KEY.",
+            "type": "string",
+            "minLength": 1
+          },
+          "ssh-host-key-sha256": {
+            "description": "Expected SSH host key fingerprint of this host (SHA256:<base64> from ssh-keygen -lf, or 64 hex chars). Overrides DB2i_SSH_HOST_KEY_SHA256.",
+            "type": "string",
+            "minLength": 1
           },
           "ignore-unauthorized": {
             "description": "Whether to ignore unauthorized SSL certificates",
@@ -60,7 +69,7 @@
             "additionalProperties": {}
           }
         },
-        "required": ["host", "user", "password"],
+        "required": ["host", "user"],
         "additionalProperties": false,
         "description": "Database connection configuration"
       }

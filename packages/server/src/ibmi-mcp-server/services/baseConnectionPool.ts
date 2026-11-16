@@ -29,9 +29,34 @@ import {
   MAX_PAGINATION_ROWS,
 } from "@/config/index.js";
 
+import {
+  acquireSSHSession,
+  sshSessionKey,
+  type SSHCredentials,
+} from "./sshSession.js";
+
 type MapepirePool = InstanceType<typeof Pool>;
 type MapepireJob = ReturnType<MapepirePool["getJob"]>;
 type MapepireQuery = ReturnType<MapepireJob["query"]>;
+
+/**
+ * What this class needs of a pool. Satisfied by mapepire's `Pool` (Mapepire
+ * daemon) and by a lease on a shared SSH session (`acquireSSHSession`), which
+ * is a pool with one connection that cannot grow. Both also carry a `jobs`
+ * list, read through {@link jobsOf}.
+ */
+export interface PoolLike {
+  init(): Promise<unknown>;
+  end(): void;
+  hasSpace(): boolean;
+  waitForJob(): Promise<MapepireJob>;
+  /**
+   * Called when a statement on this pool timed out, before the pool is
+   * ended. The SSH lease closes the shared session here: its one job may be
+   * stuck, and other pools hold a lease on the same job.
+   */
+  onQueryTimeout?(): void;
+}
 
 /**
  * A pool's connections. mapepire keeps them private, and its own way of
@@ -40,11 +65,37 @@ type MapepireQuery = ReturnType<MapepireJob["query"]>;
  * is an unhandled promise rejection and is not held back by the sign-on
  * cool-down. The pool picks and adds connections itself (see takeJob).
  */
-const jobsOf = (pool: MapepirePool): MapepireJob[] =>
+const jobsOf = (pool: PoolLike): MapepireJob[] =>
   (pool as unknown as { jobs: MapepireJob[] }).jobs;
 
-/** "ready", "busy", "connecting" or "ended" (JobStatus is a type-only import) */
-const statusOf = (job: MapepireJob): string => job.getStatus();
+/**
+ * "ready", "busy", "connecting" or "ended" (JobStatus is a type-only import).
+ *
+ * mapepire-js 1.x does not end a job when its connection drops: the job stays
+ * "ready" or "busy", and a request sent on it is never answered (the failed
+ * send is a promise rejection inside mapepire that nothing handles). Such a
+ * job is reported as "ended" here, from its transport, so that it is never
+ * picked for a statement.
+ */
+const statusOf = (job: MapepireJob): string => {
+  const status = job.getStatus();
+  if (
+    (status === "ready" || status === "busy") &&
+    job.getTransport?.()?.isConnected?.() === false
+  ) {
+    return "ended";
+  }
+  return status;
+};
+
+/**
+ * Takes a query out of the static list mapepire keeps of every query, without
+ * sending anything (mapepire-js 1.x; the method is not in its types).
+ */
+const forgetQuery = (query: MapepireQuery): void =>
+  (
+    query as unknown as { removeFromGlobalList?: () => void }
+  ).removeFromGlobalList?.();
 
 /**
  * How long a rejected sign-on is remembered. IBM i disables a user profile
@@ -71,7 +122,7 @@ interface InitFailure {
 /** One request's use of a pool: the statement it runs and how to cancel it */
 interface PoolLease {
   state: PoolInstanceState;
-  pool: MapepirePool;
+  pool: PoolLike;
   /** The connection the statement runs on */
   job: MapepireJob;
   query: MapepireQuery;
@@ -97,13 +148,19 @@ export interface PoolConnectionConfig {
   maxSize?: number;
   startingSize?: number;
   jdbcOptions?: JDBCOptions;
+  /**
+   * When set, the pool connects over SSH (`ssh-single` transport) instead of
+   * the Mapepire WebSocket daemon, to the host and user in this object.
+   * `password`, `port` and `ignoreUnauthorized` are not used.
+   */
+  ssh?: SSHCredentials;
 }
 
 /**
  * Pool instance state
  */
 export interface PoolInstanceState {
-  pool: MapepirePool | null;
+  pool: PoolLike | null;
   isInitialized: boolean;
   isConnecting: boolean;
   healthStatus: PoolHealthStatus;
@@ -211,12 +268,18 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   private static signOnKey(poolConfig: PoolConnectionConfig): string {
     return createHash("sha256")
       .update(
-        JSON.stringify([
-          poolConfig.host.toLowerCase(),
-          poolConfig.port ?? DEFAULT_MAPEPIRE_PORT,
-          poolConfig.user.toUpperCase(),
-          poolConfig.password,
-        ]),
+        JSON.stringify(
+          poolConfig.ssh
+            ? // An SSH connection attempt: another system, user or key is
+              // another attempt, and none is a Mapepire sign-on.
+              ["ssh", sshSessionKey(poolConfig.ssh)]
+            : [
+                poolConfig.host.toLowerCase(),
+                poolConfig.port ?? DEFAULT_MAPEPIRE_PORT,
+                poolConfig.user.toUpperCase(),
+                poolConfig.password,
+              ],
+        ),
       )
       .digest("hex");
   }
@@ -363,14 +426,18 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   ): Promise<void> {
     poolState.isConnecting = true;
     poolState.closedWhileConnecting = false;
-    let pool: MapepirePool | undefined;
+    let pool: PoolLike | undefined;
+    const ssh = poolState.config.ssh;
 
     try {
       logger.info(
         {
           ...context,
+          transport: ssh ? "ssh" : "websocket",
           host: poolState.config.host,
-          port: poolState.config.port ?? DEFAULT_MAPEPIRE_PORT,
+          port: ssh
+            ? ssh.port
+            : (poolState.config.port ?? DEFAULT_MAPEPIRE_PORT),
           user: poolState.config.user.substring(0, 3) + "***",
           ignoreUnauthorized: poolState.config.ignoreUnauthorized ?? true,
           // Intentionally logging only `libraries`: other JDBCOptions fields
@@ -392,27 +459,39 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
         );
       }
 
-      // Create daemon server configuration
-      const server = await this.createDaemonServer(poolState.config, context);
-
-      // Pool.init() opens `startingSize` connections in parallel, and each one
-      // is a sign-on. Open a single probe connection first, so that rejected
-      // credentials cost one sign-on attempt, then open the rest: init() reads
-      // the size from this options object every time it is called.
-      const poolOptions = {
-        creds: server,
-        maxSize,
-        startingSize: 1,
-        ...(poolState.config.jdbcOptions &&
+      const jdbcOptions =
+        poolState.config.jdbcOptions &&
         Object.keys(poolState.config.jdbcOptions).length > 0
-          ? { opts: poolState.config.jdbcOptions }
-          : {}),
-      };
-      pool = new Pool(poolOptions);
-      await pool.init();
-      if (startingSize > 1) {
-        poolOptions.startingSize = startingSize - 1;
+          ? poolState.config.jdbcOptions
+          : undefined;
+
+      if (ssh) {
+        // SSH: a lease on the one SQL job shared by every pool with the same
+        // target and key. No daemon, no certificate and nothing to size.
+        pool = acquireSSHSession(ssh, jdbcOptions);
         await pool.init();
+      } else {
+        // Create daemon server configuration
+        const server = await this.createDaemonServer(poolState.config, context);
+
+        // Pool.init() opens `startingSize` connections in parallel, and each
+        // one is a sign-on. Open a single probe connection first, so that
+        // rejected credentials cost one sign-on attempt, then open the rest:
+        // init() reads the size from this options object every time it is
+        // called.
+        const poolOptions = {
+          creds: server,
+          maxSize,
+          startingSize: 1,
+          ...(jdbcOptions ? { opts: jdbcOptions } : {}),
+        };
+        const daemonPool = new Pool(poolOptions);
+        pool = daemonPool;
+        await daemonPool.init();
+        if (startingSize > 1) {
+          poolOptions.startingSize = startingSize - 1;
+          await daemonPool.init();
+        }
       }
     } catch (error) {
       // Release any connection that did open before the failure
@@ -484,7 +563,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   private takeJob(
     poolId: TId,
     poolState: PoolInstanceState,
-    pool: MapepirePool,
+    pool: PoolLike,
     context: RequestContext,
   ): MapepireJob | undefined {
     const jobs = jobsOf(pool);
@@ -510,7 +589,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   private growPool(
     poolId: TId,
     poolState: PoolInstanceState,
-    pool: MapepirePool,
+    pool: PoolLike,
     context: RequestContext,
   ): void {
     const signOnKey = BaseConnectionPool.signOnKey(poolState.config);
@@ -649,6 +728,9 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
                 { poolId: this.describePool(poolId), timeoutMs },
               ),
             );
+            // The connection this request ran on may be stuck. An SSH lease
+            // closes the session it shares with other pools.
+            lease.pool.onQueryTimeout?.();
             // Only the pool this request ran on: one re-created since then
             // belongs to other requests.
             if (lease.state.pool === lease.pool) {
@@ -685,13 +767,20 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
   ): Promise<void> {
     if (statusOf(lease.job) === "ended") {
       // The connection is gone (dropped, or its pool was closed) and its
-      // cursors with it. Query.close() is still called, because it is what
-      // marks the query finished so that it is pruned below; but it sends the
-      // close request on the dead socket, which is never answered and makes
-      // the job look busy again. Closing the job once more undoes that.
-      lease.query.close().catch(() => {
-        // nothing to release
-      });
+      // cursors with it. Query.close() is what marks the query finished so
+      // that it is pruned below, but unless mapepire itself knows the job has
+      // ended it sends the close request on the dead socket: that is never
+      // answered, makes the job look busy again and, with mapepire-js 1.x,
+      // is an unhandled promise rejection. So the query is closed only when
+      // mapepire reports the job as ended, and otherwise just dropped from
+      // mapepire's list. The job is closed in both cases.
+      if (lease.job.getStatus() === "ended") {
+        lease.query.close().catch(() => {
+          // nothing to release
+        });
+      } else {
+        forgetQuery(lease.query);
+      }
       void lease.job.close();
     } else {
       try {

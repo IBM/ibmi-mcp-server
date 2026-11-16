@@ -67,18 +67,26 @@ const emitterOf = (job: Job) =>
 const jobsOf = (pool: MapepirePool) =>
   (pool as unknown as { jobs: Job[] }).jobs;
 
+/** Whether a job's transport has its socket (mapepire-js 1.x) */
+const setConnected = (job: Job, connected: boolean) => {
+  (job.getTransport() as unknown as { connected: boolean }).connected =
+    connected;
+};
+
 /**
- * What mapepire does when a job's socket closes: the requests waiting on it
- * fail, and the job has ended.
+ * What mapepire-js 1.x does when a job's socket closes: the transport is no
+ * longer connected and the requests waiting on it fail. The job itself is
+ * not ended: it keeps the status it had.
  */
 function dropConnection(job: Job) {
+  setConnected(job, false);
   const emitter = emitterOf(job);
   for (const event of emitter.eventNames()) {
     if (typeof event === "string" && event.endsWith("_conn_fail")) {
       emitter.emit(event, new Error("Connection failed with code 1006"));
     }
   }
-  void job.close();
+  emitter.removeAllListeners();
 }
 
 /** What a network reset or IPL does to a pool: every job's socket closes */
@@ -100,7 +108,7 @@ const queriesHeldByMapepire = () =>
 
 class TestSourceManager extends SourceManager {
   mapepirePool(sourceName: string): MapepirePool | null {
-    return this.pools.get(sourceName)?.pool ?? null;
+    return (this.pools.get(sourceName)?.pool ?? null) as MapepirePool | null;
   }
 }
 
@@ -162,6 +170,7 @@ beforeEach(() => {
     setStatus(this, "connecting");
     await signOn();
     setStatus(this, statusAfterSignOn);
+    setConnected(this, statusAfterSignOn !== "ended");
     return { success: true } as never;
   });
   // The real send() without the socket: the job is busy until its requests
@@ -173,7 +182,8 @@ beforeEach(() => {
   ) {
     const request = content as JobRequest;
     const emitter = emitterOf(this);
-    const closed = this.getStatus() === "ended";
+    const closed =
+      this.getStatus() === "ended" || !this.getTransport().isConnected();
     return new Promise((resolve, reject) => {
       setStatus(this, "busy");
       const removeListeners = () => {
@@ -614,8 +624,11 @@ describe("dropped connections – recover once", () => {
     await run(sources);
     const dropped = sources.mapepirePool("src")!;
     dropConnections(dropped);
-    // What mapepire does with such a pool
-    expect(() => dropped.query("SELECT 1")).toThrow(TypeError);
+    // What mapepire does with such a pool: its jobs still look usable
+    expect(jobsOf(dropped).map((job) => job.getStatus())).toEqual([
+      "ready",
+      "ready",
+    ]);
 
     expect((await run(sources)).success).toBe(true);
 

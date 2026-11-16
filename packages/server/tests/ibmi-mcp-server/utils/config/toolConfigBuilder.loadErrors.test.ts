@@ -77,7 +77,7 @@ describe("ToolConfigBuilder loading", () => {
       const message = await loadError(filePath);
 
       expect(message).toContain(`Invalid tool configuration in ${filePath}`);
-      expect(message).toContain("sources.invalid-source.password");
+      expect(message).toContain("sources.invalid-source.user");
     });
 
     it("fails the whole load when one file of a directory is invalid", async () => {
