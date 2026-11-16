@@ -156,6 +156,11 @@ toolsets:
       - list_active_jobs_for_user
 ```
 
+The source above connects through the Mapepire daemon. For SSH, replace `password` with
+`ssh-key: <path to private key>` (key authentication only; see `references/yaml-reference.md`), or keep
+the file as it is and set `DB2i_SSH_KEY` in the environment. Use the same source shape as the user's
+existing tools files.
+
 Rules that matter most:
 
 - **Bind every input with `:param_name`.** Never splice values into SQL text.
@@ -193,6 +198,7 @@ node --env-file=.env <skill-dir>/scripts/validate-tools.mjs tools-tmp/my-tools.y
 It checks:
 
 - **Schema**: YAML parses and matches `assets/sql-tools-config.json` (required fields, types, enums, unknown keys).
+- **Credentials**: every source has a `password` or an SSH key (`ssh-key`, or `DB2i_SSH_KEY` in the environment).
 - **Bindings**: undeclared `:params`, unused parameters, `:` followed by a digit in SQL code (the server rejects it
   when the tool has parameters; inside a literal like `'12:30'` or a comment it is fine, because the server masks
   literals, delimited identifiers and comments first), placeholders in a tool with no parameters,
@@ -215,8 +221,9 @@ Finish by giving the user a command to start the MCP server with their tools. Fi
 npx -y @ibm/ibmi-mcp-server@latest --transport http --tools tools-tmp/my-tools.yaml --toolsets job_monitoring
 ```
 
-- Connection settings come from `DB2i_HOST`, `DB2i_USER`, `DB2i_PASS` (and optional `DB2i_PORT`) in the environment
-  or a `.env` file in the current directory. If they aren't set, say so and show which variables to set.
+- Connection settings come from the environment or a `.env` file in the current directory: `DB2i_HOST` and
+  `DB2i_USER`, with `DB2i_PASS` (Mapepire daemon, optional `DB2i_PORT`) or `DB2i_SSH_KEY` (SSH, a path to a
+  private key). If they aren't set, say so and show which variables to set.
 - `--toolsets` is optional; omit it to load every tool in the file. `--tools` also accepts a directory.
 - HTTP mode serves MCP at `http://127.0.0.1:3010/mcp`. For an MCP client that launches the server itself,
   use `--transport stdio` instead.
