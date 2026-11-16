@@ -131,6 +131,9 @@ const SUCCESSFUL_RESULT = {
 
 const ORIGINAL_IDLE_TIMEOUT = config.poolTimeouts.idleTimeoutMs;
 const ORIGINAL_QUERY_TIMEOUT = config.poolTimeouts.queryTimeoutMs;
+// These suites exercise the WebSocket (Mapepire daemon) path regardless of the
+// developer's local .env (which may set DB2i_TRANSPORT=ssh).
+config.db2iTransport = "websocket";
 
 function resetMocks() {
   MockPool.mockClear();
@@ -153,6 +156,7 @@ function resetMocks() {
 function restoreConfig() {
   config.poolTimeouts.idleTimeoutMs = ORIGINAL_IDLE_TIMEOUT;
   config.poolTimeouts.queryTimeoutMs = ORIGINAL_QUERY_TIMEOUT;
+  config.db2iTransport = "websocket";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -727,6 +731,52 @@ describe("SourceManager – jdbc-options wiring", () => {
       "DEVLIB",
       "DEVDATA",
     ]);
+  });
+
+  it("5.2b – registerSource uses the SSH transport when DB2i_TRANSPORT=ssh", async () => {
+    const sshCreds = {
+      host: "ssh-host",
+      port: 22,
+      username: "SSHUSER",
+      privateKey: Buffer.from("k"),
+      technique: "tcp" as const,
+    };
+    const sshGetter = vi
+      .spyOn(config, "db2iSsh", "get")
+      .mockReturnValue(sshCreds);
+    config.db2iTransport = "ssh";
+
+    const sm = new TestSourceManager();
+    await sm.registerSource("ssh-src", {
+      host: "daemon-host",
+      user: "u",
+      password: "p",
+      port: 8076,
+    });
+
+    const poolState = sm.getPoolsMap().get("ssh-src");
+    expect(poolState!.config.ssh).toEqual(sshCreds);
+    // Lazy init: nothing connects until first use.
+    expect(poolState!.pool).toBeNull();
+    expect(MockPool).not.toHaveBeenCalled();
+    sshGetter.mockRestore();
+  });
+
+  it("5.2c – registerSource fails clearly when SSH config is incomplete", async () => {
+    const sshGetter = vi
+      .spyOn(config, "db2iSsh", "get")
+      .mockReturnValue(undefined);
+    config.db2iTransport = "ssh";
+
+    const sm = new TestSourceManager();
+    await expect(
+      sm.registerSource("ssh-src", {
+        host: "daemon-host",
+        user: "u",
+        password: "p",
+      }),
+    ).rejects.toThrow(/DB2i_TRANSPORT=ssh/);
+    sshGetter.mockRestore();
   });
 
   it("5.2 – registerSource works without jdbc-options", async () => {

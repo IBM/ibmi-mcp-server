@@ -11,12 +11,20 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { config } from "../../../../src/config/index.js";
 import { assertHttpSecurityPosture } from "../../../../src/mcp-server/transports/http/hostValidation.js";
 import { JsonRpcErrorCode, McpError } from "../../../../src/types-global/errors.js";
 import { requestContextService } from "../../../../src/utils/index.js";
 
-const ENV_KEYS = ["DB2i_HOST", "DB2i_USER", "DB2i_PASS"] as const;
+const ENV_KEYS = [
+  "DB2i_HOST",
+  "DB2i_USER",
+  "DB2i_PASS",
+  "DB2i_SSH_PRIVATE_KEY_PATH",
+] as const;
 
 const savedConfig = {
   mcpTransportType: config.mcpTransportType,
@@ -25,6 +33,7 @@ const savedConfig = {
   mcpHttpHost: config.mcpHttpHost,
   toolsYamlPath: config.toolsYamlPath,
   mcpAllowUnauthenticatedHttp: config.mcpAllowUnauthenticatedHttp,
+  db2iTransport: config.db2iTransport,
 };
 
 let savedEnv: Record<string, string | undefined>;
@@ -78,6 +87,7 @@ afterEach(() => {
   config.mcpHttpHost = savedConfig.mcpHttpHost;
   config.toolsYamlPath = savedConfig.toolsYamlPath;
   config.mcpAllowUnauthenticatedHttp = savedConfig.mcpAllowUnauthenticatedHttp;
+  config.db2iTransport = savedConfig.db2iTransport;
 });
 
 describe("assertHttpSecurityPosture", () => {
@@ -91,6 +101,39 @@ describe("assertHttpSecurityPosture", () => {
     }
     expect(thrown).toBeInstanceOf(McpError);
     expect((thrown as McpError).code).toBe(JsonRpcErrorCode.ConfigurationError);
+  });
+
+  it("throws when credentials are an SSH private key (no DB2i_PASS)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "posture-key-"));
+    try {
+      const keyPath = path.join(dir, "id_test");
+      writeFileSync(keyPath, "fake-private-key");
+      config.mcpTransportType = "http";
+      config.mcpAuthMode = "none";
+      config.mcpHttpHost = "0.0.0.0";
+      config.db2iTransport = "ssh";
+      process.env.DB2i_HOST = "ibmi.example.com";
+      process.env.DB2i_USER = "tester";
+      process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+
+      expect(config.db2i).toBeUndefined();
+      expect(() => assertHttpSecurityPosture(ctx())).toThrow(
+        /Refusing to start/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not count an SSH key as credentials on the websocket transport", () => {
+    config.mcpTransportType = "http";
+    config.mcpAuthMode = "none";
+    config.mcpHttpHost = "0.0.0.0";
+    process.env.DB2i_HOST = "ibmi.example.com";
+    process.env.DB2i_USER = "tester";
+    process.env.DB2i_SSH_PRIVATE_KEY_PATH = "/nonexistent/id_test";
+
+    expect(() => assertHttpSecurityPosture(ctx())).not.toThrow();
   });
 
   it("throws when credentials come only from a tools YAML (no DB2i_* env)", () => {

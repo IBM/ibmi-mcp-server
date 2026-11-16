@@ -281,7 +281,9 @@ function isAuthenticationEnforced(): boolean {
  * Startup guard: refuses to start when ALL of — transport is `http`,
  * authentication is not actually enforced, the bind host is non-loopback, and
  * the process holds IBM i credentials. "Holds credentials" means `config.db2i`
- * is set OR a tools YAML is configured: YAML `sources:` carry their own
+ * is set, OR the SSH transport is configured (`DB2i_TRANSPORT=ssh`, where a
+ * private key replaces `DB2i_PASS` so `config.db2i` stays undefined), OR a
+ * tools YAML is configured: YAML `sources:` carry their own
  * credentials (possibly literals or arbitrary env vars), so gating on DB2i_*
  * env vars alone would miss the primary credential path. Override with
  * `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`.
@@ -295,8 +297,11 @@ export function assertHttpSecurityPosture(parentContext: RequestContext): void {
   if (config.mcpTransportType !== "http") return;
   if (isAuthenticationEnforced()) return;
 
+  const hasEnvCredentials =
+    Boolean(config.db2i) ||
+    (config.db2iTransport === "ssh" && Boolean(config.db2iSsh));
   const hasIbmiCredentials =
-    Boolean(config.db2i) || Boolean(config.toolsYamlPath);
+    hasEnvCredentials || Boolean(config.toolsYamlPath);
   if (!hasIbmiCredentials) return;
 
   // Name the actual reason auth is not enforced, so the operator is not sent
@@ -309,7 +314,7 @@ export function assertHttpSecurityPosture(parentContext: RequestContext): void {
       : `${config.mcpAuthMode} - MCP_AUTH_SECRET_KEY is unset, so no token is verified`;
 
   const credentialSources = [
-    config.db2i ? "DB2i_* environment variables" : null,
+    hasEnvCredentials ? "DB2i_* environment variables" : null,
     config.toolsYamlPath ? `tools YAML at ${config.toolsYamlPath}` : null,
   ]
     .filter(Boolean)

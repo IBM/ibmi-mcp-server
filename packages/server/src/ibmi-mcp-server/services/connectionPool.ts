@@ -59,6 +59,37 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     });
 
     try {
+      // SSH transport: leases on the shared ssh-single session, no daemon needed
+      if (config.db2iTransport === "ssh") {
+        const ssh = config.db2iSsh;
+        if (!ssh) {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            "SSH configuration not found. Please ensure DB2i_HOST, DB2i_USER, and either DB2i_SSH_PRIVATE_KEY_PATH or DB2i_PASS environment variables are set.",
+            { configSection: "db2iSsh" },
+          );
+        }
+        logger.info(
+          { ...context, host: ssh.host, port: ssh.port, transport: "ssh" },
+          "Initializing IBM i connection pool (SSH transport)",
+        );
+        await instance.initializePool(
+          IBM_I_POOL_ID,
+          {
+            host: ssh.host,
+            user: ssh.username,
+            password: "",
+            ssh,
+            ...(config.db2iJdbcOptions
+              ? { jdbcOptions: config.db2iJdbcOptions }
+              : {}),
+          },
+          context,
+        );
+        logger.info(context, "IBM i connection pool initialized successfully");
+        return;
+      }
+
       // Check if Db2i configuration is available
       if (!config.db2i) {
         throw new McpError(
