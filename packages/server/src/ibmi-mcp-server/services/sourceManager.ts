@@ -19,6 +19,7 @@ import {
   RequestContext,
 } from "@/utils/internal/requestContext.js";
 import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { sshCredentialsEqual } from "./sshSession.js";
 import {
   BaseConnectionPool,
   PoolConnectionConfig,
@@ -64,7 +65,8 @@ export class SourceManager extends BaseConnectionPool<string> {
       a.user !== b.user ||
       a.password !== b.password ||
       (a.port ?? DEFAULT_MAPEPIRE_PORT) !== (b.port ?? DEFAULT_MAPEPIRE_PORT) ||
-      (a.ignoreUnauthorized ?? true) !== (b.ignoreUnauthorized ?? true)
+      (a.ignoreUnauthorized ?? true) !== (b.ignoreUnauthorized ?? true) ||
+      !sshCredentialsEqual(a.ssh, b.ssh)
     ) {
       return false;
     }
@@ -125,15 +127,28 @@ export class SourceManager extends BaseConnectionPool<string> {
             ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
             : undefined;
 
-        // With DB2i_TRANSPORT=ssh every YAML source is served over the shared
-        // SSH credentials from the environment (the source's host/user/port
-        // describe the Mapepire daemon and are not used).
-        const sshCreds =
-          config.db2iTransport === "ssh" ? config.db2iSsh : undefined;
-        if (config.db2iTransport === "ssh" && !sshCreds) {
+        // A source connects over SSH when it has an SSH key: its own `ssh-key`
+        // or else DB2i_SSH_KEY. It connects to its own host as its own user.
+        // The key is the only SSH credential; the password is never sent.
+        let sshCreds: PoolConnectionConfig["ssh"];
+        try {
+          sshCreds = config.sshFor({
+            host: sourceConfig.host,
+            user: sourceConfig.user,
+            keyPath: sourceConfig["ssh-key"],
+            hostKeySha256: sourceConfig["ssh-host-key-sha256"],
+          });
+        } catch (error) {
           throw new McpError(
             JsonRpcErrorCode.ConfigurationError,
-            "DB2i_TRANSPORT=ssh but SSH configuration is incomplete. Set DB2i_HOST, DB2i_USER and DB2i_SSH_PRIVATE_KEY_PATH (or DB2i_PASS).",
+            `Source '${sourceName}': SSH configuration could not be read: ${error instanceof Error ? error.message : String(error)}`,
+            { sourceName },
+          );
+        }
+        if (!sshCreds && !sourceConfig.password) {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            `Source '${sourceName}' has no credential. Set 'password' (Mapepire daemon), or 'ssh-key' on the source or DB2i_SSH_KEY in the environment (SSH).`,
             { sourceName },
           );
         }
@@ -143,9 +158,10 @@ export class SourceManager extends BaseConnectionPool<string> {
               ...operationContext,
               sourceName,
               sshHost: sshCreds.host,
-              yamlHost: sourceConfig.host,
+              sshPort: sshCreds.port,
+              keyFrom: sourceConfig["ssh-key"] ? "ssh-key" : "DB2i_SSH_KEY",
             },
-            `Source '${sourceName}' will use the SSH transport (YAML host/port ignored)`,
+            `Source '${sourceName}' will connect over SSH (password and Mapepire port not used)`,
           );
         }
 
@@ -153,7 +169,7 @@ export class SourceManager extends BaseConnectionPool<string> {
         const poolConfig: PoolConnectionConfig = {
           host: sourceConfig.host,
           user: sourceConfig.user,
-          password: sourceConfig.password,
+          password: sshCreds ? "" : (sourceConfig.password ?? ""),
           port: sourceConfig.port,
           ignoreUnauthorized: sourceConfig["ignore-unauthorized"],
           ...(mergedJdbc && Object.keys(mergedJdbc).length > 0

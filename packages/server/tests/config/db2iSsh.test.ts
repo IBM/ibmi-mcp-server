@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit tests for config.db2iSsh (DB2i_TRANSPORT=ssh settings).
+ * @fileoverview Unit tests for config.db2iSsh and config.sshFor (SSH key settings).
  */
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
@@ -27,20 +27,23 @@ describe("config.db2iSsh", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("returns undefined without host, user or any credential", () => {
+  it("returns undefined without host, user or a key", () => {
     expect(config.db2iSsh).toBeUndefined();
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
     expect(config.db2iSsh).toBeUndefined();
-    delete process.env.DB2i_USER;
+    // A password is never an SSH credential.
     process.env.DB2i_PASS = "p";
+    expect(config.db2iSsh).toBeUndefined();
+    delete process.env.DB2i_USER;
+    process.env.DB2i_SSH_KEY = keyPath;
     expect(config.db2iSsh).toBeUndefined();
   });
 
   it("reads the private key and applies defaults", () => {
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+    process.env.DB2i_SSH_KEY = keyPath;
 
     const ssh = config.db2iSsh;
     expect(ssh).toMatchObject({
@@ -49,8 +52,8 @@ describe("config.db2iSsh", () => {
       port: 22,
       technique: "tcp",
     });
-    expect(ssh?.privateKey?.toString()).toBe("fake-private-key");
-    expect(ssh?.password).toBeUndefined();
+    expect(ssh?.privateKey.toString()).toBe("fake-private-key");
+    expect(ssh).not.toHaveProperty("password");
   });
 
   it("expands a leading ~ in the private key path", () => {
@@ -59,36 +62,26 @@ describe("config.db2iSsh", () => {
     const name = `db2i-ssh-test-${process.pid}-missing`;
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = `~/${name}`;
+    process.env.DB2i_SSH_KEY = `~/${name}`;
 
     expect(() => config.db2iSsh).toThrow(path.join(homedir(), name));
   });
 
-  it("prefers the key over DB2i_PASS when both are set", () => {
+  it("uses the key and no password when DB2i_PASS is also set", () => {
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
     process.env.DB2i_PASS = "secret";
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+    process.env.DB2i_SSH_KEY = keyPath;
 
     const ssh = config.db2iSsh;
     expect(ssh?.privateKey).toBeDefined();
-    expect(ssh?.password).toBeUndefined();
-  });
-
-  it("falls back to password auth without a key", () => {
-    process.env.DB2i_HOST = "h";
-    process.env.DB2i_USER = "u";
-    process.env.DB2i_PASS = "secret";
-
-    const ssh = config.db2iSsh;
-    expect(ssh?.password).toBe("secret");
-    expect(ssh?.privateKey).toBeUndefined();
+    expect(ssh).not.toHaveProperty("password");
   });
 
   it("passes through passphrase, port, technique and host key pin", () => {
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+    process.env.DB2i_SSH_KEY = keyPath;
     process.env.DB2i_SSH_PASSPHRASE = "pp";
     process.env.DB2i_SSH_PORT = "2222";
     process.env.DB2i_SSH_TECHNIQUE = "cli";
@@ -105,7 +98,7 @@ describe("config.db2iSsh", () => {
   it("treats a blank DB2i_SSH_PORT as the default", () => {
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+    process.env.DB2i_SSH_KEY = keyPath;
     process.env.DB2i_SSH_PORT = "";
 
     expect(config.db2iSsh?.port).toBe(22);
@@ -124,7 +117,7 @@ describe("config.db2iSsh", () => {
   it("throws on an invalid port, technique or unreadable key file", () => {
     process.env.DB2i_HOST = "h";
     process.env.DB2i_USER = "u";
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = keyPath;
+    process.env.DB2i_SSH_KEY = keyPath;
 
     process.env.DB2i_SSH_PORT = "abc";
     expect(() => config.db2iSsh).toThrow();
@@ -134,7 +127,64 @@ describe("config.db2iSsh", () => {
     expect(() => config.db2iSsh).toThrow();
     delete process.env.DB2i_SSH_TECHNIQUE;
 
-    process.env.DB2i_SSH_PRIVATE_KEY_PATH = path.join(dir, "missing");
+    process.env.DB2i_SSH_KEY = path.join(dir, "missing");
     expect(() => config.db2iSsh).toThrow();
+  });
+
+  describe("sshFor (one YAML source)", () => {
+    it("returns undefined when neither the source nor the environment has a key", () => {
+      expect(config.sshFor({ host: "h", user: "u" })).toBeUndefined();
+    });
+
+    it("uses the source's own host, user and key", () => {
+      const ssh = config.sshFor({ host: "dev", user: "DEVUSER", keyPath });
+      expect(ssh).toMatchObject({ host: "dev", username: "DEVUSER", port: 22 });
+      expect(ssh?.privateKey.toString()).toBe("fake-private-key");
+    });
+
+    it("falls back to DB2i_SSH_KEY and keeps the source's host and user", () => {
+      process.env.DB2i_HOST = "env-host";
+      process.env.DB2i_USER = "ENVUSER";
+      process.env.DB2i_SSH_KEY = keyPath;
+
+      expect(config.sshFor({ host: "prod", user: "PRODUSER" })).toMatchObject({
+        host: "prod",
+        username: "PRODUSER",
+      });
+    });
+
+    it("prefers the source's key over DB2i_SSH_KEY", () => {
+      const otherKey = path.join(dir, "id_other");
+      writeFileSync(otherKey, "other-private-key");
+      process.env.DB2i_SSH_KEY = keyPath;
+
+      const ssh = config.sshFor({ host: "h", user: "u", keyPath: otherKey });
+      expect(ssh?.privateKey.toString()).toBe("other-private-key");
+    });
+
+    it("prefers the source's host key fingerprint over the environment", () => {
+      process.env.DB2i_SSH_HOST_KEY_SHA256 = "SHA256:env";
+      expect(
+        config.sshFor({ host: "h", user: "u", keyPath })?.hostKeySha256,
+      ).toBe("SHA256:env");
+      expect(
+        config.sshFor({
+          host: "h",
+          user: "u",
+          keyPath,
+          hostKeySha256: "SHA256:source",
+        })?.hostKeySha256,
+      ).toBe("SHA256:source");
+    });
+
+    it("throws when the source's key file cannot be read", () => {
+      expect(() =>
+        config.sshFor({
+          host: "h",
+          user: "u",
+          keyPath: path.join(dir, "missing"),
+        }),
+      ).toThrow();
+    });
   });
 });

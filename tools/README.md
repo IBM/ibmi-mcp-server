@@ -94,11 +94,13 @@ Below is an overview of the structure and purpose of each section.
 The `sources` section defines database connection details. Each source includes:
 - `host`: IBM i system hostname or IP
 - `user`: Database user
-- `password`: User password
-- `port`: Database port (default: 8076)
+- `password`: User password (Mapepire daemon)
+- `port`: Mapepire daemon port (default: 8076)
 - `ignore-unauthorized`: Whether to ignore SSL certificate errors
+- `ssh-key`: Path to an SSH private key. The source then connects over SSH instead of the Mapepire daemon, to its own `host` as its own `user`, and needs no `password`
+- `ssh-host-key-sha256`: Expected SSH host key fingerprint of the host (recommended with `ssh-key`)
 
-> `host`, `user`, and `password` are REQUIRED for each source.
+> `host` and `user` are REQUIRED for each source, with one credential: `password`, or an SSH key (`ssh-key` on the source, or `DB2i_SSH_KEY` in the environment, which applies to every source). See the [SSH transport docs](../docs/configuration.mdx#ssh-transport).
 
 Example:
 ```yaml

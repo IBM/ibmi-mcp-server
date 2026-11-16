@@ -281,8 +281,8 @@ function isAuthenticationEnforced(): boolean {
  * Startup guard: refuses to start when ALL of — transport is `http`,
  * authentication is not actually enforced, the bind host is non-loopback, and
  * the process holds IBM i credentials. "Holds credentials" means `config.db2i`
- * is set, OR the SSH transport is configured (`DB2i_TRANSPORT=ssh`, where a
- * private key replaces `DB2i_PASS` so `config.db2i` stays undefined), OR a
+ * is set, OR an SSH key is configured (`DB2i_SSH_KEY`, which replaces
+ * `DB2i_PASS` so `config.db2i` stays undefined), OR a
  * tools YAML is configured: YAML `sources:` carry their own
  * credentials (possibly literals or arbitrary env vars), so gating on DB2i_*
  * env vars alone would miss the primary credential path. Override with
@@ -297,9 +297,7 @@ export function assertHttpSecurityPosture(parentContext: RequestContext): void {
   if (config.mcpTransportType !== "http") return;
   if (isAuthenticationEnforced()) return;
 
-  const hasEnvCredentials =
-    Boolean(config.db2i) ||
-    (config.db2iTransport === "ssh" && Boolean(config.db2iSsh));
+  const hasEnvCredentials = Boolean(config.db2i) || Boolean(config.db2iSsh);
   const hasIbmiCredentials =
     hasEnvCredentials || Boolean(config.toolsYamlPath);
   if (!hasIbmiCredentials) return;

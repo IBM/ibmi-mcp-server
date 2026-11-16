@@ -105,18 +105,12 @@ describe("shared SSH session", () => {
     lease.end();
   });
 
-  it("uses password auth when no private key is given", async () => {
-    const lease = acquireSSHSession({
-      host: "h-pw",
-      port: 22,
-      username: "u",
-      password: "secret",
-      technique: "tcp",
-    });
+  it("authenticates with the private key and never sends a password", async () => {
+    const lease = acquireSSHSession(ssh);
     await lease.init();
-    expect(mockConnectSSH2).toHaveBeenCalledWith(
-      expect.objectContaining({ password: "secret" }),
-    );
+    const options = mockConnectSSH2.mock.calls[0]![0];
+    expect(options.privateKey).toEqual(ssh.privateKey);
+    expect(options).not.toHaveProperty("password");
     lease.end();
   });
 

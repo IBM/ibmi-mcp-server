@@ -1,12 +1,15 @@
 /**
  * @fileoverview One shared SSH session with ONE mapepire `SQLJob` per IBM i
- * target (used when `DB2i_TRANSPORT=ssh`).
+ * target (used by every connection that has an SSH key).
  *
  * Starting an `ssh-single` job is expensive (SSH connect, JAR checks, JVM start
- * and JDBC connect: ~10s), so the job is created once and then reused by every
- * consumer: the built-in tools and every YAML source. Each `BaseConnectionPool`
- * entry gets a cheap {@link PoolLike} lease on the shared session; the session
- * is closed when the last lease ends.
+ * and JDBC connect: ~10s), so the job is created once per target and then
+ * reused by every consumer with the same host, user, key and options: the
+ * built-in tools and the YAML sources. Each `BaseConnectionPool` entry gets a
+ * cheap {@link PoolLike} lease on the shared session; the session is closed
+ * when the last lease ends.
+ *
+ * Authentication is by private key only. No password is ever sent over SSH.
  *
  * @module src/ibmi-mcp-server/services/sshSession
  */
@@ -26,14 +29,13 @@ import type { PoolLike } from "./baseConnectionPool.js";
 const { SQLJob, connectSSH2, createSSH2Connection } = pkg;
 type SQLJobInstance = InstanceType<typeof SQLJob>;
 
-/** SSH credentials + technique, as returned by `config.db2iSsh`. */
+/** SSH credentials + technique, as returned by `config.sshFor()`. */
 export interface SSHCredentials {
   host: string;
   port: number;
   username: string;
-  privateKey?: Buffer;
+  privateKey: Buffer;
   passphrase?: string;
-  password?: string;
   /** Expected host key fingerprint (`SHA256:<base64>` or 64 hex chars). */
   hostKeySha256?: string;
   technique: "tcp" | "cli";
@@ -168,7 +170,6 @@ class SSHSession {
         port: ssh.port,
         user: ssh.username.substring(0, 3) + "***",
         technique: ssh.technique,
-        authMethod: ssh.privateKey ? "key" : "password",
       },
       "Opening IBM i SSH session",
     );
@@ -176,7 +177,7 @@ class SSHSession {
     if (!ssh.hostKeySha256) {
       logger.warning(
         this.context,
-        "DB2i_SSH_HOST_KEY_SHA256 is not set: the IBM i SSH host key is NOT verified (vulnerable to man-in-the-middle). Set it to the fingerprint from `ssh-keygen -lf`.",
+        "No SSH host key fingerprint is set for this system: the IBM i SSH host key is NOT verified (vulnerable to man-in-the-middle). Set `ssh-host-key-sha256` on the YAML source or DB2i_SSH_HOST_KEY_SHA256 to the fingerprint from `ssh-keygen -lf`.",
       );
     }
 
@@ -192,9 +193,8 @@ class SSHSession {
         // "close" handler below.
         keepaliveInterval: SSH_KEEPALIVE_INTERVAL_MS,
         keepaliveCountMax: SSH_KEEPALIVE_COUNT_MAX,
-        ...(ssh.privateKey ? { privateKey: ssh.privateKey } : {}),
+        privateKey: ssh.privateKey,
         ...(ssh.passphrase ? { passphrase: ssh.passphrase } : {}),
-        ...(ssh.password && !ssh.privateKey ? { password: ssh.password } : {}),
         ...(ssh.hostKeySha256
           ? {
               hostHash: "sha256",
@@ -203,7 +203,7 @@ class SSHSession {
                 if (!ok) {
                   logger.error(
                     this.context,
-                    "IBM i SSH host key does not match DB2i_SSH_HOST_KEY_SHA256; refusing to connect",
+                    "IBM i SSH host key does not match the configured fingerprint; refusing to connect",
                   );
                 }
                 return ok;
@@ -269,20 +269,31 @@ function sessionKey(ssh: SSHCredentials, jdbcOptions?: JDBCOptions): string {
     ssh.port,
     ssh.username,
     ssh.technique,
-    credentialDigest(ssh),
+    keyDigest(ssh),
     ssh.hostKeySha256 ?? null,
     jdbcOptions ?? null,
   ]);
 }
 
 /**
- * SHA-256 of the private key (or password), so sessions opened with different
+ * SHA-256 of the private key and passphrase, so sessions opened with different
  * credentials are never shared and no secret ends up in the map key.
  */
-function credentialDigest(ssh: SSHCredentials): string {
-  const secret = ssh.privateKey ?? ssh.password ?? "";
-  const kind = ssh.privateKey ? "key" : "password";
-  return `${kind}:${createHash("sha256").update(secret).digest("hex")}`;
+function keyDigest(ssh: SSHCredentials): string {
+  return createHash("sha256")
+    .update(ssh.privateKey)
+    .update("\0")
+    .update(ssh.passphrase ?? "")
+    .digest("hex");
+}
+
+/** True when two SSH settings would share one session (same target and key). */
+export function sshCredentialsEqual(
+  a: SSHCredentials | undefined,
+  b: SSHCredentials | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return sessionKey(a) === sessionKey(b);
 }
 
 /**
