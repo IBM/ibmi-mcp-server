@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { createProgram } from "../../src/index";
+import { createProgram } from "../../src/program.js";
 
 vi.mock("../../src/config/loader.js", () => ({
   loadConfig: vi.fn(),
@@ -18,6 +18,17 @@ vi.mock("../../src/config/credentials.js", () => ({
   resolvePassword: vi.fn(() => Promise.resolve("password")),
   expandEnvVars: vi.fn((s: string) => s),
 }));
+
+vi.mock("@ibm/ibmi-mcp-server/services", () => ({
+  IBMiConnectionPool: {
+    executeQuery: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  },
+}));
+
+vi.mock("readline", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("readline")>();
+  return { ...actual, createInterface: vi.fn(actual.createInterface) };
+});
 
 import {
   loadConfig,
@@ -111,7 +122,15 @@ describe("ibmi system command — registration", () => {
     const system = program.commands.find((c) => c.name() === "system");
     const subNames = system?.commands.map((c) => c.name()).sort();
     expect(subNames).toEqual(
-      ["config-path", "default", "list", "remove", "show", "test", "add"].sort(),
+      [
+        "config-path",
+        "default",
+        "list",
+        "remove",
+        "show",
+        "test",
+        "add",
+      ].sort(),
     );
   });
 
@@ -147,7 +166,9 @@ describe("ibmi system command — registration", () => {
     expect(add?.options.find((o) => o.long === "--password")).toBeDefined();
     expect(add?.options.find((o) => o.long === "--description")).toBeDefined();
     expect(add?.options.find((o) => o.long === "--read-only")).toBeDefined();
-    expect(add?.options.find((o) => o.long === "--default-schema")).toBeDefined();
+    expect(
+      add?.options.find((o) => o.long === "--default-schema"),
+    ).toBeDefined();
   });
 
   it("should register system remove <name> subcommand", () => {
@@ -201,7 +222,14 @@ describe("ibmi system list", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "list", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "list",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("No systems configured");
@@ -213,7 +241,14 @@ describe("ibmi system list", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "list", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "list",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("NAME");
@@ -235,7 +270,14 @@ describe("ibmi system list", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "list", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "list",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("✓");
@@ -247,7 +289,14 @@ describe("ibmi system list", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "list", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "list",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -255,12 +304,16 @@ describe("ibmi system list", () => {
     expect(Array.isArray(parsed.data)).toBe(true);
     expect(parsed.data).toHaveLength(2);
 
-    const prodRow = parsed.data.find((r: Record<string, unknown>) => r.NAME === "prod");
+    const prodRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "prod",
+    );
     expect(prodRow).toBeDefined();
     expect(prodRow.HOST).toBe("prod.example.com");
     expect(prodRow.DEFAULT).toBe("✓");
 
-    const devRow = parsed.data.find((r: Record<string, unknown>) => r.NAME === "dev");
+    const devRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "dev",
+    );
     expect(devRow).toBeDefined();
     expect(devRow.DEFAULT).toBe("");
   });
@@ -271,14 +324,54 @@ describe("ibmi system list", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "list", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "list",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
-    const prodRow = parsed.data.find((r: Record<string, unknown>) => r.NAME === "prod");
-    const devRow = parsed.data.find((r: Record<string, unknown>) => r.NAME === "dev");
+    const prodRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "prod",
+    );
+    const devRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "dev",
+    );
     expect(prodRow.READ_ONLY).toBe("yes");
     expect(devRow.READ_ONLY).toBe("no");
+  });
+
+  it("should show whether TLS certificate verification is on", async () => {
+    const config = makeSampleConfig();
+    config.systems.prod.ignoreUnauthorized = false;
+    mockLoadConfig.mockReturnValue(config);
+
+    const output = await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "list",
+        "--format",
+        "json",
+      ]);
+    });
+
+    const parsed = JSON.parse(output);
+    const prodRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "prod",
+    );
+    const devRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.NAME === "dev",
+    );
+    expect(prodRow.VERIFY_TLS).toBe("yes");
+    expect(devRow.VERIFY_TLS).toBe("no");
   });
 });
 
@@ -295,7 +388,15 @@ describe("ibmi system show", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "show", "prod", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "show",
+        "prod",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("PROPERTY");
@@ -313,7 +414,15 @@ describe("ibmi system show", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "show", "prod", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "show",
+        "prod",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("****");
@@ -326,7 +435,15 @@ describe("ibmi system show", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "show", "dev", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "show",
+        "dev",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("(not set)");
@@ -338,7 +455,15 @@ describe("ibmi system show", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "show", "prod", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "show",
+        "prod",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -348,13 +473,49 @@ describe("ibmi system show", () => {
     expect(defaultRow?.VALUE).toBe("yes");
   });
 
+  it("should show whether TLS certificate verification is on", async () => {
+    const config = makeSampleConfig();
+    config.systems.prod.ignoreUnauthorized = false;
+    mockLoadConfig.mockReturnValue(config);
+
+    const verifyTls = async (name: string) => {
+      const output = await captureStdout(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync([
+          "node",
+          "ibmi",
+          "system",
+          "show",
+          name,
+          "--format",
+          "json",
+        ]);
+      });
+      return JSON.parse(output).data.find(
+        (r: Record<string, unknown>) => r.PROPERTY === "verifyTls",
+      )?.VALUE;
+    };
+
+    expect(await verifyTls("prod")).toBe("true");
+    expect(await verifyTls("dev")).toBe("false");
+  });
+
   it("should write error to stderr when system not found", async () => {
     mockLoadConfig.mockReturnValue({ systems: {} });
 
     const stderr = await captureStderr(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "show", "nonexistent", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "show",
+        "nonexistent",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(stderr).toContain("Error:");
@@ -367,7 +528,15 @@ describe("ibmi system show", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "show", "ghost", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "show",
+        "ghost",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -452,6 +621,36 @@ describe("ibmi system add", () => {
     expect(sysConfig.defaultSchema).toBe("DEVLIB");
   });
 
+  it("should turn on TLS certificate verification only with --verify-tls", async () => {
+    const addWith = async (...flags: string[]) => {
+      mockUpsertSystem.mockReset();
+      await captureStdout(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync([
+          "node",
+          "ibmi",
+          "system",
+          "add",
+          "mydev",
+          "--host",
+          "mydev.example.com",
+          "--user",
+          "admin",
+          ...flags,
+          "--format",
+          "json",
+        ]);
+      });
+      return mockUpsertSystem.mock.calls[0]![1].ignoreUnauthorized;
+    };
+
+    // The default is unchanged: certificates are not verified
+    expect(await addWith()).toBe(true);
+    expect(await addWith("--no-verify-tls")).toBe(true);
+    expect(await addWith("--verify-tls")).toBe(false);
+  });
+
   it("should use default port 8076 when --port is not specified", async () => {
     await captureStdout(async () => {
       const program = createProgram();
@@ -477,7 +676,10 @@ describe("ibmi system add", () => {
 
   it("should write error and not call upsertSystem when --host/--user are missing in non-TTY", async () => {
     const originalIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: false,
+      configurable: true,
+    });
 
     try {
       const stderr = await captureStderr(async () => {
@@ -498,6 +700,45 @@ describe("ibmi system add", () => {
       expect(stderr).toContain("Error:");
       expect(stderr).toContain("non-interactive");
     } finally {
+      Object.defineProperty(process.stdin, "isTTY", {
+        value: originalIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it("should reject an empty answer at the interactive Host/User prompts", async () => {
+    const readline = await import("readline");
+    vi.mocked(readline.createInterface).mockReturnValueOnce({
+      question: (_question: string, cb: (answer: string) => void) => cb("  "),
+      close: vi.fn(),
+    } as unknown as ReturnType<typeof readline.createInterface>);
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const stderr = await captureStderr(async () => {
+        const program = createProgram();
+        program.exitOverride();
+        await program.parseAsync([
+          "node",
+          "ibmi",
+          "system",
+          "add",
+          "mydev",
+          "--format",
+          "table",
+        ]);
+      });
+
+      expect(mockUpsertSystem).not.toHaveBeenCalled();
+      expect(stderr).toContain("Host and user are required.");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = undefined;
       Object.defineProperty(process.stdin, "isTTY", {
         value: originalIsTTY,
         configurable: true,
@@ -543,7 +784,15 @@ describe("ibmi system remove", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "remove", "prod", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "remove",
+        "prod",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(mockRemoveSystem).toHaveBeenCalledWith("prod");
@@ -556,7 +805,15 @@ describe("ibmi system remove", () => {
     const stderr = await captureStderr(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "remove", "ghost", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "remove",
+        "ghost",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(stderr).toContain("Error:");
@@ -569,7 +826,15 @@ describe("ibmi system remove", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "remove", "dev", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "remove",
+        "dev",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -583,7 +848,15 @@ describe("ibmi system remove", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "remove", "ghost", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "remove",
+        "ghost",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -605,7 +878,15 @@ describe("ibmi system default", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "default", "dev", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "default",
+        "dev",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(mockSetDefaultSystem).toHaveBeenCalledWith("dev");
@@ -620,7 +901,15 @@ describe("ibmi system default", () => {
     const stderr = await captureStderr(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "default", "unknown", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "default",
+        "unknown",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(stderr).toContain("Error:");
@@ -633,7 +922,15 @@ describe("ibmi system default", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "default", "prod", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "default",
+        "prod",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -649,7 +946,15 @@ describe("ibmi system default", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "default", "ghost", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "default",
+        "ghost",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -669,7 +974,14 @@ describe("ibmi system config-path", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "config-path", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "config-path",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("/home/user/.ibmi/config.yaml");
@@ -682,7 +994,14 @@ describe("ibmi system config-path", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "config-path", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "config-path",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("SCOPE");
@@ -693,7 +1012,14 @@ describe("ibmi system config-path", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "config-path", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "config-path",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -702,8 +1028,12 @@ describe("ibmi system config-path", () => {
     expect(parsed.data).toHaveLength(2);
     expect(parsed.meta.rows).toBe(2);
 
-    const userRow = parsed.data.find((r: Record<string, unknown>) => r.SCOPE === "user");
-    const projectRow = parsed.data.find((r: Record<string, unknown>) => r.SCOPE === "project");
+    const userRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.SCOPE === "user",
+    );
+    const projectRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.SCOPE === "project",
+    );
     expect(userRow?.PATH).toBe("/home/user/.ibmi/config.yaml");
     expect(projectRow?.PATH).toBe("/project/.ibmi/config.yaml");
   });
@@ -722,7 +1052,15 @@ describe("ibmi system test", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "test", "prod", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "prod",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(output).toContain("PROPERTY");
@@ -737,7 +1075,15 @@ describe("ibmi system test", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "test", "--all", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "--all",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -754,7 +1100,14 @@ describe("ibmi system test", () => {
     const stderr = await captureStderr(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "test", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(stderr).toContain("Error:");
@@ -767,7 +1120,15 @@ describe("ibmi system test", () => {
     const stderr = await captureStderr(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "test", "nosuchsystem", "--format", "table"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "nosuchsystem",
+        "--format",
+        "table",
+      ]);
     });
 
     expect(stderr).toContain("Error:");
@@ -780,7 +1141,14 @@ describe("ibmi system test", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "test", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);
@@ -789,6 +1157,71 @@ describe("ibmi system test", () => {
       (r: Record<string, unknown>) => r.PROPERTY === "system",
     );
     expect(systemRow?.VALUE).toBe("prod");
+  });
+
+  it("should run a query against the system to verify the connection", async () => {
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
+    const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+    mockExecuteQuery.mockClear();
+    mockLoadConfig.mockReturnValue(makeSampleConfig());
+
+    await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "prod",
+        "--format",
+        "json",
+      ]);
+    });
+
+    expect(mockExecuteQuery).toHaveBeenCalledTimes(1);
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      "VALUES 1",
+      [],
+      expect.objectContaining({ toolName: "system_test" }),
+    );
+  });
+
+  it("should render error row when the test query fails", async () => {
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
+    vi.mocked(IBMiConnectionPool.executeQuery).mockRejectedValueOnce(
+      new Error("connect ECONNREFUSED 10.0.0.1:8076"),
+    );
+    mockLoadConfig.mockReturnValue(makeSampleConfig());
+
+    const output = await captureStdout(async () => {
+      const program = createProgram();
+      program.exitOverride();
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "prod",
+        "--format",
+        "json",
+      ]);
+    });
+    const exitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    const parsed = JSON.parse(output);
+    const statusRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.PROPERTY === "status",
+    );
+    const errorRow = parsed.data.find(
+      (r: Record<string, unknown>) => r.PROPERTY === "error",
+    );
+    expect(statusRow?.VALUE).toBe("error");
+    expect(errorRow?.VALUE).toContain("ECONNREFUSED");
+    expect(exitCode).toBe(1);
   });
 
   it("should render error row when connection fails", async () => {
@@ -800,7 +1233,15 @@ describe("ibmi system test", () => {
     const output = await captureStdout(async () => {
       const program = createProgram();
       program.exitOverride();
-      await program.parseAsync(["node", "ibmi", "system", "test", "prod", "--format", "json"]);
+      await program.parseAsync([
+        "node",
+        "ibmi",
+        "system",
+        "test",
+        "prod",
+        "--format",
+        "json",
+      ]);
     });
 
     const parsed = JSON.parse(output);

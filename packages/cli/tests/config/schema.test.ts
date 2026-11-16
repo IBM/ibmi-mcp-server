@@ -3,7 +3,7 @@ import {
   CliConfigSchema,
   SystemConfigSchema,
   validateConfig,
-} from "../../src/config/schema";
+} from "../../src/config/schema.js";
 
 describe("SystemConfigSchema", () => {
   it("should validate a minimal system config", () => {

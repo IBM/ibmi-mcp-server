@@ -32,15 +32,6 @@ export default [
     },
   },
   {
-    ignores: [
-      "coverage/",
-      "dist/",
-      "logs/",
-      "data/",
-      "node_modules/",
-      // Ignore Python test virtualenv and vendored assets
-      "tests/agents/.venv/",
-      "tests/agents/**/static/**",
-    ],
+    ignores: ["coverage/", "dist/", "logs/", "data/", "node_modules/"],
   },
 ];

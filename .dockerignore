@@ -113,6 +113,9 @@ target/
 # =============================================================================
 build/
 dist/
+# Patterns are anchored at the context root; also cover packages/*/dist so a
+# stale local build is never copied into the image
+**/dist
 out/
 
 # =============================================================================
@@ -165,11 +168,26 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+# Same files at any depth (e.g. packages/server/.env)
+**/.env
+**/.env.*
+!**/.env.example
 .sample-env
 sample.*
 !sample.template.*
 mcp-servers.json
 mcp-config.json
+
+# =============================================================================
+# CREDENTIALS & SENSITIVE FILES (git-ignored, must not enter the build context)
+# =============================================================================
+**/secrets
+**/*.pem
+**/.ibmi
+**/.mcp.json
+**/mcp.json
+**/*credentials*.json
+**/*secrets*.json
 
 # =============================================================================
 # DEMO & EXAMPLE DIRECTORIES
@@ -188,8 +206,6 @@ docs/api/
 # =============================================================================
 # APPLICATION SPECIFIC
 # =============================================================================
-repomix-output*
-duckdata/
 .claude
 
 # =============================================================================
@@ -197,7 +213,6 @@ duckdata/
 # =============================================================================
 agents/
 client/
-release/
 coverage/
 .git/
 .github/

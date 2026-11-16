@@ -21,58 +21,90 @@ export function expandEnvVars(value: string): string {
 }
 
 /**
+ * Prompt the user for a line of visible input (e.g. a y/N confirmation).
+ * The prompt is written to stderr so it doesn't interfere with piped output.
+ */
+export async function promptLine(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+    // Without these, Ctrl+C or end of input would leave the promise pending
+    // and the process would exit 0 without an answer.
+    rl.once("SIGINT", () => {
+      reject(new Error("Cancelled"));
+      rl.close();
+    });
+    rl.once("close", () => resolve(""));
+    rl.question(prompt, (answer) => {
+      resolve(answer);
+      rl.close();
+    });
+  });
+}
+
+/**
  * Prompt the user for a password interactively (hidden input).
  * Returns the entered password string.
  */
 export async function promptPassword(prompt: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stderr, // Use stderr so it doesn't interfere with piped output
-      terminal: true,
-    });
+  const stdin = process.stdin;
 
-    // Disable echoing for password entry
-    if (process.stdin.isTTY) {
-      process.stderr.write(prompt);
-      const stdin = process.stdin;
-      const wasRaw = stdin.isRaw;
-      stdin.setRawMode(true);
-
-      let password = "";
-      const onData = (char: Buffer) => {
-        const c = char.toString("utf8");
-        if (c === "\n" || c === "\r") {
-          stdin.setRawMode(wasRaw ?? false);
-          stdin.removeListener("data", onData);
-          process.stderr.write("\n");
-          rl.close();
-          resolve(password);
-        } else if (c === "\u0003") {
-          // Ctrl+C — throw to let withConnection's finally block run cleanup
-          stdin.setRawMode(wasRaw ?? false);
-          stdin.removeListener("data", onData);
-          process.stderr.write("\n");
-          rl.close();
-          reject(new Error("Cancelled"));
-          return;
-        } else if (c === "\u007f" || c === "\b") {
-          // Backspace
-          if (password.length > 0) {
-            password = password.slice(0, -1);
-          }
-        } else {
-          password += c;
-        }
-      };
-      stdin.on("data", onData);
-    } else {
-      // Non-interactive: read a line
+  if (!stdin.isTTY) {
+    // Non-interactive: read a line without echoing it back
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: stdin,
+        output: process.stderr, // Use stderr so it doesn't interfere with piped output
+        terminal: false,
+      });
       rl.question(prompt, (answer) => {
         rl.close();
         resolve(answer);
       });
-    }
+    });
+  }
+
+  // Interactive: read keypresses in raw mode so nothing is echoed. No readline
+  // interface is attached here, because a terminal-mode interface echoes input.
+  return new Promise((resolve, reject) => {
+    process.stderr.write(prompt);
+    const wasRaw = stdin.isRaw;
+    stdin.setRawMode(true);
+    stdin.resume();
+
+    let password = "";
+    const finish = () => {
+      stdin.removeListener("data", onData);
+      stdin.setRawMode(wasRaw ?? false);
+      stdin.pause();
+      process.stderr.write("\n");
+    };
+    const onData = (chunk: Buffer) => {
+      // A chunk can hold several characters (paste, fast typing)
+      for (const c of chunk.toString("utf8")) {
+        if (c === "\n" || c === "\r" || c === "\u0004") {
+          // Enter or Ctrl+D
+          finish();
+          resolve(password);
+          return;
+        }
+        if (c === "\u0003") {
+          // Ctrl+C — throw to let withConnection's finally block run cleanup
+          finish();
+          reject(new Error("Cancelled"));
+          return;
+        }
+        if (c === "\u007f" || c === "\b") {
+          // Backspace
+          password = password.slice(0, -1);
+        } else {
+          password += c;
+        }
+      }
+    };
+    stdin.on("data", onData);
   });
 }
 

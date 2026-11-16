@@ -16,6 +16,13 @@ import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
 import { SqlToolParameter } from "../../schemas/index.js";
 import { maskSqlLiteralsAndComments } from "./sqlTextMask.js";
 
+/**
+ * SQL NULL as a binding. Mapepire binds a JSON null with setNull()
+ * (mapepire-server, PreparedExecute.addJsonArrayParameters), although the
+ * BindingValue type of mapepire-js leaves null out.
+ */
+const SQL_NULL = null as unknown as BindingValue;
+
 /** SQL text with literals, delimited identifiers and comments blanked out. */
 function codeOnly(sql: string): string {
   return maskSqlLiteralsAndComments(sql).masked;
@@ -92,6 +99,9 @@ interface NamedParameterMatch {
  * Handles validation, type conversion, and SQL parameter binding in one streamlined interface
  */
 export class ParameterProcessor {
+  static readonly MIXED_MARKERS_MESSAGE =
+    "SQL statement mixes named (:name) and positional (?) parameter markers; use named markers only";
+
   /**
    * Process SQL statement with parameter validation and binding
    * @param sql - SQL statement with parameter placeholders
@@ -163,13 +173,10 @@ export class ParameterProcessor {
             );
             break;
           case "hybrid":
-            result = await this.processHybridParameters(
-              sql,
-              processedParameters,
-              context,
-              strictTypeValidation,
+            throw new McpError(
+              JsonRpcErrorCode.ValidationError,
+              this.MIXED_MARKERS_MESSAGE,
             );
-            break;
           default:
             // No parameters found
             result = {
@@ -311,14 +318,16 @@ export class ParameterProcessor {
           result.valid = false;
           return result;
         }
-        if (definition.default !== undefined) {
+        if (definition.default !== undefined && definition.default !== null) {
           return this.validateParameter(definition.default, {
             ...definition,
             required: false,
           });
         }
-        // Allow null/undefined for non-required parameters
-        result.value = "";
+        // An omitted optional parameter without a default (or with
+        // `default: null`) is SQL NULL, so that "(:p IS NULL OR col = :p)"
+        // works.
+        result.value = SQL_NULL;
         return result;
       }
 
@@ -710,6 +719,14 @@ export class ParameterProcessor {
   }
 
   /**
+   * Whether a statement uses both named (:name) and positional (?) markers
+   * @param sql - SQL statement to analyze
+   */
+  static mixesMarkerStyles(sql: string): boolean {
+    return this.detectParameterMode(sql) === "hybrid";
+  }
+
+  /**
    * Process named parameters (:param)
    * @param sql - SQL statement with named parameters
    * @param parameterValues - Parameter values by name
@@ -726,7 +743,6 @@ export class ParameterProcessor {
     const namedParamRegex = /:(\w+)/g;
     const matches: NamedParameterMatch[] = [];
     const parameterNames: string[] = [];
-    const missingParameters: string[] = [];
     let match;
 
     // Find all named parameter matches. The masked text has the same
@@ -751,21 +767,16 @@ export class ParameterProcessor {
     for (const paramMatch of matches) {
       const paramName = paramMatch.paramName;
 
-      // Check if parameter exists in the parameter values
-      if (!(paramName in parameterValues)) {
-        missingParameters.push(paramName);
-        logger.warning(
-          {
-            ...context,
-            availableParams: Object.keys(parameterValues),
-            missingParam: paramName,
-          },
-          `Named parameter ':${paramName}' not found in parameter values`,
-        );
-        continue;
-      }
-
       const paramValue = parameterValues[paramName];
+
+      // A marker without a value would reach the database as ":name".
+      if (paramValue === undefined) {
+        throw new McpError(
+          JsonRpcErrorCode.ValidationError,
+          `No value for parameter ':${paramName}'`,
+          { paramName, availableParams: Object.keys(parameterValues) },
+        );
+      }
 
       // Convert and validate parameter value
       const bindingValue = this.convertToBindingValue(
@@ -776,6 +787,15 @@ export class ParameterProcessor {
 
       // Handle array parameters - expand to multiple placeholders
       if (Array.isArray(bindingValue)) {
+        // An empty list would expand to "IN ()".
+        if (bindingValue.length === 0) {
+          throw new McpError(
+            JsonRpcErrorCode.ValidationError,
+            `Array parameter '${paramName}' must contain at least one value`,
+            { paramName },
+          );
+        }
+
         // Add each array element as individual parameters
         for (const item of bindingValue) {
           parameters.push(item);
@@ -825,7 +845,7 @@ export class ParameterProcessor {
       sql: processedSql,
       parameters,
       parameterNames,
-      missingParameters,
+      missingParameters: [],
       mode: "named",
       stats: {
         originalLength: sql.length,
@@ -882,7 +902,7 @@ export class ParameterProcessor {
 
       parameterNames.push(paramName);
 
-      if (paramValue === undefined || paramValue === null) {
+      if (paramValue === undefined) {
         missingParameters.push(paramName);
         logger.warning(
           {
@@ -921,61 +941,6 @@ export class ParameterProcessor {
   }
 
   /**
-   * Process hybrid parameters (mix of named and positional)
-   * @param sql - SQL statement with mixed parameters
-   * @param parameterValues - Parameter values by name
-   * @param context - Request context
-   * @param strictTypeValidation - Whether to enforce strict type validation
-   * @returns Processing result
-   */
-  private static async processHybridParameters(
-    sql: string,
-    parameterValues: Record<string, unknown>,
-    context: RequestContext,
-    strictTypeValidation: boolean,
-  ): Promise<ParameterProcessingResult> {
-    logger.warning(
-      {
-        ...context,
-        sql: sql.substring(0, 100) + "...",
-      },
-      "Hybrid parameter mode detected - processing named parameters first",
-    );
-
-    // Process named parameters first, then handle any remaining positional ones
-    const namedResult = await this.processNamedParameters(
-      sql,
-      parameterValues,
-      context,
-      strictTypeValidation,
-    );
-
-    // If there are still ? placeholders, process them as positional
-    const positionalParamCount = this.countPositionalParameters(
-      namedResult.sql,
-    );
-    if (positionalParamCount > namedResult.parameters.length) {
-      logger.debug(
-        {
-          ...context,
-          remainingPositional:
-            positionalParamCount - namedResult.parameters.length,
-        },
-        "Processing remaining positional parameters in hybrid mode",
-      );
-    }
-
-    return {
-      ...namedResult,
-      mode: "hybrid",
-      stats: {
-        ...namedResult.stats,
-        positionalParametersFound: positionalParamCount,
-      },
-    };
-  }
-
-  /**
    * Convert a parameter value to BindingValue
    * @param value - Parameter value to convert
    * @param paramName - Parameter name for error messages
@@ -989,15 +954,8 @@ export class ParameterProcessor {
   ): BindingValue {
     // BindingValue = string | number | (string | number)[]
 
-    if (value === null || value === undefined) {
-      if (strictTypeValidation) {
-        throw new McpError(
-          JsonRpcErrorCode.ValidationError,
-          `Parameter '${paramName}' cannot be null or undefined`,
-          { paramName, value },
-        );
-      }
-      return "";
+    if (value === null) {
+      return SQL_NULL;
     }
 
     // Handle arrays

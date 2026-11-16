@@ -19,11 +19,15 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
       fetchMore: vi.fn(),
       close: vi.fn(),
     };
+    const query = vi.fn(() => mockQueryInstance);
     const mockPoolInstance = {
       init: vi.fn(),
       execute: vi.fn(),
       end: vi.fn(),
-      query: vi.fn(() => mockQueryInstance),
+      query,
+      // The pool picks one of these connections for each statement: one
+      // ready job, which starts every statement through `query`.
+      jobs: [{ getStatus: () => "ready", query }],
     };
     return {
       mockPoolInstance,
@@ -39,15 +43,6 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
 // Module mocks
 // ---------------------------------------------------------------------------
 
-// Prevent SchedulerService singleton from initializing during import.
-// The scheduler is loaded transitively via errorHandler → utils/index barrel.
-// The global logger mock (setup.ts) doesn't resolve correctly from this
-// nested directory, so we block the scheduler module entirely.
-vi.mock("../../../src/utils/scheduling/index.js", () => ({
-  SchedulerService: { getInstance: vi.fn() },
-  schedulerService: {},
-}));
-
 vi.mock("@ibm/mapepire-js", () => ({
   default: {
     Pool: MockPool,
@@ -60,7 +55,11 @@ vi.mock("@ibm/mapepire-js", () => ({
 // ---------------------------------------------------------------------------
 import { BaseConnectionPool } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
-import { config } from "../../../src/config/index.js";
+import {
+  config,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGINATION_ROWS,
+} from "../../../src/config/index.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -74,11 +73,15 @@ class TestConnectionPool extends BaseConnectionPool<string> {
     params?: unknown[],
     context?: Record<string, unknown>,
   ) {
-    return this.executeQuery(
+    return this.executeQuery(poolId, query, params as never, context as never);
+  }
+
+  async testExecuteQueryWithPagination(poolId: string, query: string) {
+    return this.executeQueryWithPagination(
       poolId,
       query,
-      params as never,
-      context as never,
+      undefined,
+      TEST_CONTEXT as never,
     );
   }
 
@@ -92,10 +95,6 @@ class TestConnectionPool extends BaseConnectionPool<string> {
 
   testStartIdleTimer() {
     this.startIdleTimer();
-  }
-
-  testClearAllPools() {
-    this.clearAllPools();
   }
 
   getPoolsMap() {
@@ -206,12 +205,12 @@ describe("BaseConnectionPool – Query Timeout", () => {
     await vi.advanceTimersByTimeAsync(1_001);
     await assertion;
 
-    // After timeout, closePool runs fire-and-forget (mock end() resolves
-    // synchronously), so the pool is already fully closed by this point:
-    // healthStatus reverts to "unknown" and pool is nulled out.
+    // The timeout closes the pool: it is nulled out and reads unhealthy
+    // until the next request re-initializes it.
     const state = pool.getPoolsMap().get("test")!;
     expect(state.pool).toBeNull();
     expect(state.isInitialized).toBe(false);
+    expect(state.healthStatus).toBe("unhealthy");
 
     // pool.end() should have been called to close the timed-out pool
     expect(mockPoolInstance.end).toHaveBeenCalled();
@@ -264,9 +263,10 @@ describe("BaseConnectionPool – Query Timeout", () => {
     const secondResult = await pool.testExecuteQuery("test", "SELECT 1");
     expect(secondResult.success).toBe(true);
 
-    // Pool constructor should have been called twice (init + re-init)
+    // Pool constructor should have been called twice (init + re-init), each
+    // time opening a probe connection and then the remaining ones
     expect(MockPool).toHaveBeenCalledTimes(2);
-    expect(mockPoolInstance.init).toHaveBeenCalledTimes(2);
+    expect(mockPoolInstance.init).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -456,7 +456,7 @@ describe("BaseConnectionPool – Static Instance Registry", () => {
         throw new Error("shutdown kaboom");
       }
     }
-    const _badPool = new FailingPool();
+    new FailingPool(); // registers itself with BaseConnectionPool
 
     // shutdownAll should not throw, and goodPool's shutdown should still run
     await expect(BaseConnectionPool.shutdownAll()).resolves.toBeUndefined();
@@ -569,8 +569,8 @@ describe("SourceManager – getHealthSummary", () => {
     pools.get("bad")!.healthStatus = "unhealthy";
 
     const summary = sm.getHealthSummary();
-    expect(summary["good"].healthStatus).toBe("healthy");
-    expect(summary["bad"].healthStatus).toBe("unhealthy");
+    expect(summary["good"]?.healthStatus).toBe("healthy");
+    expect(summary["bad"]?.healthStatus).toBe("unhealthy");
 
     const hasUnhealthy = Object.values(summary).some(
       (s) => s.healthStatus === "unhealthy",
@@ -737,5 +737,184 @@ describe("BaseConnectionPool – rowsToFetch threading", () => {
       /boom/,
     );
     expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 7 – executeQueryWithPagination row cap
+// ═══════════════════════════════════════════════════════════════════════════
+describe("BaseConnectionPool – paginated query row cap", () => {
+  let pool: TestConnectionPool;
+
+  const rows = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({ id: i }));
+
+  beforeEach(async () => {
+    resetMocks();
+    config.poolTimeouts.idleTimeoutMs = 0;
+    pool = new TestConnectionPool();
+    await pool.testInitializePool("test", TEST_CONFIG, TEST_CONTEXT);
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+    restoreConfig();
+  });
+
+  it("7.1 – a complete result of exactly the cap is not flagged truncated", async () => {
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      data: rows(MAX_PAGINATION_ROWS),
+      is_done: true,
+    });
+
+    const result = await pool.testExecuteQueryWithPagination(
+      "test",
+      "SELECT 1",
+    );
+
+    expect(result.data).toHaveLength(MAX_PAGINATION_ROWS);
+    expect(result.truncated).toBe(false);
+    expect(mockQueryInstance.fetchMore).not.toHaveBeenCalled();
+  });
+
+  it("7.2 – stops at the cap and flags truncated when more rows remain", async () => {
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      data: rows(MAX_PAGINATION_ROWS),
+      is_done: false,
+    });
+
+    const result = await pool.testExecuteQueryWithPagination(
+      "test",
+      "SELECT 1",
+    );
+
+    expect(result.data).toHaveLength(MAX_PAGINATION_ROWS);
+    expect(result.truncated).toBe(true);
+    expect(mockQueryInstance.fetchMore).not.toHaveBeenCalled();
+  });
+
+  it("7.3 – trims a final page that overshoots the cap and flags truncated", async () => {
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      data: rows(MAX_PAGINATION_ROWS - 1),
+      is_done: false,
+    });
+    mockQueryInstance.fetchMore.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      data: rows(2),
+      is_done: true,
+    });
+
+    const result = await pool.testExecuteQueryWithPagination(
+      "test",
+      "SELECT 1",
+    );
+
+    expect(result.data).toHaveLength(MAX_PAGINATION_ROWS);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("7.4 – marks the pool healthy after a successful paginated query", async () => {
+    const state = pool.getPoolsMap().get("test")!;
+    state.healthStatus = "unknown";
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      is_done: true,
+    });
+
+    await pool.testExecuteQueryWithPagination("test", "SELECT 1");
+
+    expect(state.healthStatus).toBe("healthy");
+    expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("7.5 – closes the query when a later fetch fails", async () => {
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      is_done: false,
+    });
+    mockQueryInstance.fetchMore.mockRejectedValue(new Error("fetch failed"));
+
+    await expect(
+      pool.testExecuteQueryWithPagination("test", "SELECT 1"),
+    ).rejects.toThrow(/fetch failed/);
+
+    expect(mockQueryInstance.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("7.6 – fetches the first page with the configured fetch size", async () => {
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      is_done: true,
+    });
+
+    await pool.testExecuteQueryWithPagination("test", "SELECT 1");
+
+    // Not mapepire's 100-row default, which would cost an extra round trip
+    expect(mockQueryInstance.execute).toHaveBeenCalledWith(DEFAULT_PAGE_SIZE);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 8 – mapepire global query list pruning
+// ═══════════════════════════════════════════════════════════════════════════
+describe("BaseConnectionPool – prunes mapepire's global query list", () => {
+  let pool: TestConnectionPool;
+  // mapepire's Query class exposes a static cleanup(); the pool reaches it
+  // through the query instance's constructor.
+  const cleanup = vi.fn();
+
+  beforeEach(async () => {
+    resetMocks();
+    cleanup.mockReset().mockResolvedValue(undefined);
+    mockPoolInstance.query.mockImplementation(
+      () =>
+        ({
+          ...mockQueryInstance,
+          constructor: { cleanup },
+        }) as never,
+    );
+    config.poolTimeouts.idleTimeoutMs = 0;
+    pool = new TestConnectionPool();
+    await pool.testInitializePool("test", TEST_CONFIG, TEST_CONTEXT);
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+    restoreConfig();
+  });
+
+  it("8.1 – after a single-fetch query", async () => {
+    await pool.testExecuteQuery("test", "SELECT 1", [], TEST_CONTEXT);
+
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("8.2 – after a failed query", async () => {
+    mockQueryInstance.execute.mockRejectedValue(new Error("SQL0204"));
+
+    await expect(
+      pool.testExecuteQuery("test", "SELECT 1", [], TEST_CONTEXT),
+    ).rejects.toThrow(/SQL0204/);
+
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("8.3 – after a paginated query, without failing it when cleanup rejects", async () => {
+    cleanup.mockRejectedValue(new Error("cleanup failed"));
+    mockQueryInstance.execute.mockResolvedValue({
+      ...SUCCESSFUL_RESULT,
+      is_done: true,
+    });
+
+    const result = await pool.testExecuteQueryWithPagination(
+      "test",
+      "SELECT 1",
+    );
+
+    expect(result.data).toHaveLength(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
   });
 });

@@ -166,7 +166,10 @@ describe("per-source SSH", () => {
 
     await sm.connect("prod", ctx);
     expect(MockPool).toHaveBeenCalledTimes(1);
-    expect(MockPool.mock.calls[0]![0].creds).toMatchObject({
+    const [poolOptions] = MockPool.mock.calls[0] as unknown as [
+      { creds: unknown },
+    ];
+    expect(poolOptions.creds).toMatchObject({
       host: "prod.example.com",
       user: "PRODUSER",
     });
@@ -299,11 +302,22 @@ describe("SourceConfigSchema – SSH fields", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts a null password (blank ${DB2i_PASS})", () => {
-    expect(
-      SourceConfigSchema.safeParse({ host: "h", user: "u", password: null })
-        .success,
-    ).toBe(true);
+  it("needs a password or an SSH key", () => {
+    const saved = process.env.DB2i_SSH_KEY;
+    delete process.env.DB2i_SSH_KEY;
+    try {
+      const source = { host: "h", user: "u", password: null };
+      const refused = SourceConfigSchema.safeParse(source);
+      expect(refused.success).toBe(false);
+      expect(refused.error?.issues[0]?.path).toEqual(["password"]);
+
+      // DB2i_SSH_KEY gives every source a key.
+      process.env.DB2i_SSH_KEY = "/path/to/key";
+      expect(SourceConfigSchema.safeParse(source).success).toBe(true);
+    } finally {
+      if (saved === undefined) delete process.env.DB2i_SSH_KEY;
+      else process.env.DB2i_SSH_KEY = saved;
+    }
   });
 
   it("rejects an empty ssh-key", () => {

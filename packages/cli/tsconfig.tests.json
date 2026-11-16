@@ -1,0 +1,10 @@
+{
+  // Type-checks the test suite together with src (tsconfig.json covers src only).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

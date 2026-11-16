@@ -1,5 +1,10 @@
 #version: "3.9"          # Supported by both podman-compose and Docker Compose v2+
 
+# LOCAL DEMO ONLY. The passwords and JWT secret below are fixed demo values
+# and Redis has no password, so every published port is bound to 127.0.0.1.
+# Do not publish them on other interfaces; see "Production Considerations" in
+# deployment/README.md.
+
 ###############################################################################
 #  NETWORKS + VOLUMES - declared first so they can be referenced later
 ###############################################################################
@@ -32,7 +37,7 @@ services:
     #  dockerfile: Containerfile     # Same one the Makefile builds
     restart: unless-stopped
     ports:
-      - "4444:4444"                 # HTTP (or HTTPS if SSL=true is set)
+      - "127.0.0.1:4444:4444"       # HTTP (or HTTPS if SSL=true is set)
     networks: [mcpnet]
 
     # ──────────────────────────────────────────────────────────────────────
@@ -167,7 +172,7 @@ services:
   redis:
     image: redis:latest
     ports:
-      - "6379:6379"      # expose only if you want host access
+      - "127.0.0.1:6379:6379"  # host access for debugging; no password
     networks: [mcpnet]
 
 ###############################################################################
@@ -179,7 +184,7 @@ services:
       - PGADMIN_DEFAULT_EMAIL=admin@example.com
       - PGADMIN_DEFAULT_PASSWORD=changeme
     ports:
-      - "5050:80"      # http://localhost:5050
+      - "127.0.0.1:5050:80"  # http://localhost:5050
     volumes:
       - pgadmindata:/var/lib/pgadmin
     networks: [mcpnet]
@@ -196,7 +201,7 @@ services:
     restart: unless-stopped
     networks: [mcpnet]
     ports:
-      - "5540:5540"                 # Redis Insight UI (default 5540)
+      - "127.0.0.1:5540:5540"       # Redis Insight UI (default 5540)
     depends_on:          # Default stack: Postgres + Redis
       redis:
         condition: service_started
@@ -409,19 +414,25 @@ services:
     container_name: ibmi-mcp-server
     networks: [mcpnet]
     ports:
-      - "3010:3010"    # Map host port 3010 to container port 3010
+      - "127.0.0.1:3010:3010"  # Map host port 3010 to container port 3010
     restart: unless-stopped
     env_file:
       - ../../.env     # Load environment variables from root .env file
     environment:
       # Enable YAML auto-reload for development (file watching)
       - YAML_AUTO_RELOAD=true
-      - TOOLS_YAML_PATH=/usr/src/app/tools
+      - TOOLS_YAML_PATH=/app/tools
+      # A container must bind all interfaces to be reachable from the gateway and
+      # through the published port; .env.example sets MCP_HTTP_HOST=127.0.0.1
+      - MCP_HTTP_HOST=0.0.0.0
     volumes:
-      - ../../tools:/usr/src/app/tools:rw,Z  # Mount tools configurations with read-write for auto-reload
-      - ../../secrets:/usr/src/app/secrets:ro,Z  # Mount secrets directory as read-only
+      # The image's working directory is /app, so relative paths from .env such as
+      # IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem resolve to these mounts
+      - ../../tools:/app/tools:rw,Z  # Mount tools configurations with read-write for auto-reload
+      - ../../secrets:/app/secrets:ro,Z  # Mount secrets directory as read-only
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3010/healthz"]
+      # The image ships no curl/wget; probe with the bundled Node runtime
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -127,8 +127,25 @@ class SSHSession {
       !this.dead &&
       this.client !== null &&
       this.job !== null &&
-      this.job.getStatus() !== "ended"
+      this.job.getStatus() !== "ended" &&
+      // mapepire-js 1.x does not end a job when its connection drops (the
+      // remote mapepire-server exits while the SSH client stays open): the
+      // transport is then the only thing that says so.
+      this.job.getTransport?.()?.isConnected?.() !== false
     );
+  }
+
+  /**
+   * True when the session connected and its job has since been lost, while
+   * leases still hold it. Such a session is never reused.
+   */
+  get isLost(): boolean {
+    return this.alive && !this.dead && !this.isAlive();
+  }
+
+  /** The session's one job while it is usable. */
+  get liveJob(): SQLJobInstance | undefined {
+    return this.isAlive() && this.job ? this.job : undefined;
   }
 
   query(sql: string, opts?: QueryOptions) {
@@ -287,6 +304,14 @@ function keyDigest(ssh: SSHCredentials): string {
     .digest("hex");
 }
 
+/**
+ * Identifies an SSH target and key without holding a secret: equal for two
+ * settings that would share one session (given the same JDBC options).
+ */
+export function sshSessionKey(ssh: SSHCredentials): string {
+  return sessionKey(ssh);
+}
+
 /** True when two SSH settings would share one session (same target and key). */
 export function sshCredentialsEqual(
   a: SSHCredentials | undefined,
@@ -298,9 +323,12 @@ export function sshCredentialsEqual(
 
 /**
  * Lease on a shared {@link SSHSession}; what `BaseConnectionPool` holds in place
- * of mapepire's `Pool`.
+ * of mapepire's `Pool`. To the pool manager it is a pool with one connection
+ * that cannot grow: `jobs` holds the session's job while the session is usable
+ * and is empty once it is lost, which makes the manager end the lease and take
+ * a new one (a new session) on the next statement.
  */
-class SSHSessionLease implements PoolLike {
+export class SSHSessionLease implements PoolLike {
   private released = false;
 
   constructor(
@@ -317,6 +345,29 @@ class SSHSessionLease implements PoolLike {
     }
   }
 
+  /** The connections of this "pool": the shared job, or none. */
+  get jobs(): SQLJobInstance[] {
+    const job = this.released ? undefined : this.session.liveJob;
+    return job ? [job] : [];
+  }
+
+  /** One job per session: the pool never grows. */
+  hasSpace(): boolean {
+    return false;
+  }
+
+  async waitForJob(): Promise<SQLJobInstance> {
+    const [job] = this.jobs;
+    if (!job) {
+      throw new McpError(
+        JsonRpcErrorCode.DatabaseError,
+        "IBM i SSH session is not available. It will be re-established on the next request.",
+        { reconnectOnNextCall: true },
+      );
+    }
+    return job;
+  }
+
   query(sql: string, opts?: QueryOptions) {
     return this.session.query(sql, opts);
   }
@@ -327,13 +378,11 @@ class SSHSessionLease implements PoolLike {
 
   /**
    * A query timed out. The single job may be stuck, so the shared session is
-   * torn down; every lease re-creates it on the next request.
-   *
-   * @returns `false`, so the caller also closes (releases) its own lease.
+   * torn down; every pool with a lease on it takes a new one on its next
+   * request. The caller also ends its own lease.
    */
-  onQueryTimeout(): boolean {
+  onQueryTimeout(): void {
     void this.session.close();
-    return false;
   }
 
   end(): void {
@@ -351,9 +400,15 @@ class SSHSessionLease implements PoolLike {
 export function acquireSSHSession(
   ssh: SSHCredentials,
   jdbcOptions?: JDBCOptions,
-): PoolLike {
+): SSHSessionLease {
   const key = sessionKey(ssh, jdbcOptions);
   let session = sessions.get(key);
+  if (session?.isLost) {
+    // Other pools still hold a lease on it, so nothing has closed it yet.
+    // Closing it marks it dead for them too; each takes a new lease on the
+    // new session with its next statement.
+    void session.close();
+  }
   if (!session || session.isDead) {
     const created: SSHSession = new SSHSession(ssh, jdbcOptions, (s) => {
       if (sessions.get(key) === s) sessions.delete(key);

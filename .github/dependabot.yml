@@ -19,3 +19,35 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # Action versions in .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The node base image of the published container (packages/server/Dockerfile).
+  - package-ecosystem: "docker"
+    directory: "/packages/server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "docker"
+    # The image's Node major follows the supported Node versions; change it by hand.
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]

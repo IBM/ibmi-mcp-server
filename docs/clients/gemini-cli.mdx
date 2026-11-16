@@ -58,7 +58,30 @@ The `--tools` path must be an **absolute path**, not relative.
 
 For connecting to a remote IBM i MCP Server:
 
-**Step 1: Start remote server**
+### With OAuth (Recommended)
+
+For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/server-config/oauth)), add the URL without an `Authorization` header to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "https://mcp.example.com/mcp",
+      "type": "http"
+    }
+  }
+}
+```
+
+If your version of Gemini CLI supports OAuth for remote MCP servers, it opens a browser sign-in on first use. If it does not, add an `Authorization: Bearer <token>` header with an access token from your identity provider. See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
+
+### With IBM i Tokens (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
+**Step 1: Start remote server** (configured for IBM i authentication; see [IBM i Authentication](/server-config/ibmi-auth))
 ```bash
 # On server machine
 npm run start:http
@@ -157,7 +180,8 @@ You can configure multiple MCP servers for different purposes:
     **Solutions**:
     - Confirm server is running with auth enabled
     - Verify token hasn't expired
-    - Get fresh token: `node get-access-token.js --verbose`
+    - OAuth: sign in again, or replace an expired bearer token
+    - IBM i tokens (deprecated): get a fresh token with `node get-access-token.js --verbose`
     - Check Authorization header format
   </Accordion>
 </AccordionGroup>

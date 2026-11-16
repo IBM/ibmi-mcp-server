@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { resolveSystem, resolveSystems } from "../../src/config/resolver";
-import type { CliConfig } from "../../src/config/types";
+import { resolveSystem, resolveSystems } from "../../src/config/resolver.js";
+import type { CliConfig } from "../../src/config/types.js";
 
 const originalEnv = { ...process.env };
 
@@ -140,9 +140,7 @@ describe("resolveSystem", () => {
   });
 
   it("should throw for unknown --system flag value", () => {
-    expect(() => resolveSystem("nonexistent", testConfig)).toThrow(
-      /not found/,
-    );
+    expect(() => resolveSystem("nonexistent", testConfig)).toThrow(/not found/);
   });
 
   it("should throw for unknown IBMI_SYSTEM env value", () => {
@@ -170,24 +168,24 @@ describe("resolveSystems", () => {
   it("should return single-element array for non-comma flag", () => {
     const result = resolveSystems("dev", testConfig);
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("dev");
-    expect(result[0].config.host).toBe("dev400.com");
+    expect(result[0]?.name).toBe("dev");
+    expect(result[0]?.config.host).toBe("dev400.com");
   });
 
   it("should return multiple systems for comma-separated flag", () => {
     const result = resolveSystems("dev,prod", testConfig);
     expect(result).toHaveLength(2);
-    expect(result[0].name).toBe("dev");
-    expect(result[0].config.host).toBe("dev400.com");
-    expect(result[1].name).toBe("prod");
-    expect(result[1].config.host).toBe("prod400.com");
+    expect(result[0]?.name).toBe("dev");
+    expect(result[0]?.config.host).toBe("dev400.com");
+    expect(result[1]?.name).toBe("prod");
+    expect(result[1]?.config.host).toBe("prod400.com");
   });
 
   it("should trim whitespace in system names", () => {
     const result = resolveSystems("dev , prod", testConfig);
     expect(result).toHaveLength(2);
-    expect(result[0].name).toBe("dev");
-    expect(result[1].name).toBe("prod");
+    expect(result[0]?.name).toBe("dev");
+    expect(result[1]?.name).toBe("prod");
   });
 
   it("should throw if any system in the list is not found", () => {
@@ -200,8 +198,8 @@ describe("resolveSystems", () => {
     delete process.env["IBMI_SYSTEM"];
     const result = resolveSystems("prod", testConfig);
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("prod");
-    expect(result[0].source).toBe("flag");
-    expect(result[0].config.host).toBe("prod400.com");
+    expect(result[0]?.name).toBe("prod");
+    expect(result[0]?.source).toBe("flag");
+    expect(result[0]?.config.host).toBe("prod400.com");
   });
 });

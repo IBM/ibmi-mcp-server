@@ -186,7 +186,12 @@ ${SYSTEM_SUBCOMMANDS.map((c) => `    '${c}:${c}'`).join("\n")}
   esac
 }
 
-_ibmi "$@"
+# Autoloaded from fpath: run the completion. Sourced via eval: register it.
+if [ "$funcstack[1]" = "_ibmi" ]; then
+  _ibmi "$@"
+else
+  compdef _ibmi ibmi
+fi
 `;
 }
 

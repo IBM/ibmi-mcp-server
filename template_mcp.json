@@ -1,16 +1,14 @@
 {
   "mcpServers": {
-    "ibmi-mcp-server": {
-      "command": "npx",
-      "args": ["ibmi-mcp-server"],
+    "default-server": {
+      "command": "node",
+      "args": ["packages/server/dist/index.js", "--transport", "stdio", "--tools", "tools"],
       "env": {
-        "TOOLS_YAML_PATH": "tools",
         "NODE_OPTIONS": "--no-deprecation",
         "DB2i_HOST": "<DB2i_HOST>",
         "DB2i_USER": "<DB2i_USER>",
         "DB2i_PASS": "<DB2i_PASS>",
-        "DB2i_PORT": "<DB2i_PORT>",
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "DB2i_PORT": "<DB2i_PORT>"
       }
     }
   }

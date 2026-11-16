@@ -10,6 +10,12 @@ spec:
   port:
     targetPort: 3010
   tls:
+    # edge: the router terminates TLS and forwards plain HTTP to the pod. That
+    # fits MCP_AUTH_MODE=oauth with OAUTH_ISSUER_URL (an external
+    # authorization server).
+    # With the built-in IBM i sign-on (MCP_AUTH_MODE=oauth without
+    # OAUTH_ISSUER_URL) the pod must serve TLS itself and this must be
+    # `reencrypt`: see "Built-in IBM i sign-on" in ../README.md.
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
   wildcardPolicy: None

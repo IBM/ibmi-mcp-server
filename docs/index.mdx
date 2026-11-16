@@ -79,12 +79,12 @@ Different goals? Jump directly to what you need:
     → [SQL Tools Guide](/sql-tools/overview)
   </Card>
 
-  <Card title="🤖 Build AI Agents" icon="robot" href="/agents/building-agents">
+  <Card title="🤖 Build AI Agents" icon="robot" href="/agents/overview">
     **Create specialized agents**
 
     Build intelligent IBM i agents that understand system monitoring, security, and more.
 
-    → [Agent Development](/agents/building-agents)
+    → [Agent Development](/agents/overview)
   </Card>
 </CardGroup>
 
@@ -104,7 +104,7 @@ Different goals? Jump directly to what you need:
   <Card title="Enterprise Security" icon="shield-halved">
     **IBM i security integration**
 
-    Respects user profiles, object authorities, and audit requirements. Multiple auth modes including IBM i HTTP authentication with RSA encryption.
+    Respects user profiles, object authorities, and audit requirements. OAuth 2.1 authentication for remote deployments.
 
     [See Configuration →](/configuration)
   </Card>
@@ -157,20 +157,13 @@ Different goals? Jump directly to what you need:
   </Accordion>
 
   <Accordion title="How does authentication work?" icon="key">
-    The server supports multiple authentication modes to fit your deployment:
+    **Local development (stdio or loopback HTTP):** no authentication. All SQL runs with the configured `DB2i_USER` credentials.
 
-    **For Development:**
-    - **Shared credentials** (stdio): All operations use same Db2i user
-    - Fast setup for testing and local development
+    **Remote, multi-user deployments (HTTP):** OAuth, following the MCP authorization specification, in one of two forms. With the built-in IBM i sign-on, users sign on with their IBM i user profile at a page the server serves and SQL runs as that user. With an external authorization server, the server verifies access tokens from your identity provider; a token identifies the caller and SQL runs as the `DB2i_USER` service account.
 
-    **For Production:**
-    - **Per-user authentication** (HTTP): Each user connects with their own credentials
-    - **IBM i HTTP Auth**: RSA-encrypted credential exchange
-    - **JWT/OAuth**: Custom authentication systems
+    **IBM i HTTP token authentication** (per-user IBM i credentials) is deprecated.
 
-    All modes respect IBM i object authorities and maintain audit trails.
-
-    [See authentication setup →](/configuration#authentication-settings)
+    [See OAuth setup →](/server-config/oauth)
   </Accordion>
 
   <Accordion title="What can I build with this?" icon="lightbulb">
@@ -189,7 +182,7 @@ Different goals? Jump directly to what you need:
     - Business intelligence agent answering data questions
     - System administration agent managing resources
 
-    [Explore agent examples →](/agents/building-agents)
+    [Explore agent examples →](/agents/overview)
   </Accordion>
 </AccordionGroup>
 
@@ -236,7 +229,7 @@ Different goals? Jump directly to what you need:
     - Rate limiting and resource protection
     - Multi-environment configuration
 
-    Use HTTP transport with IBM i authentication for production deployments.
+    Use HTTP transport with [OAuth](/server-config/oauth) for production deployments.
   </Accordion>
 
   <Accordion title="Where do I get help?" icon="life-ring">
@@ -244,7 +237,7 @@ Different goals? Jump directly to what you need:
     - 📖 Documentation: You're reading it!
     - 💬 GitHub Issues: [Report bugs or request features](https://github.com/IBM/ibmi-mcp-server/issues)
     - 🔧 Configuration: See [environment variables](/configuration)
-    - 🚀 Examples: Review [SQL tools](/sql-tools/building-tools) and [agents](/agents/building-agents)
+    - 🚀 Examples: Review [SQL tools](/sql-tools/building-tools) and [agents](/agents/overview)
   </Accordion>
 </AccordionGroup>
 
@@ -270,7 +263,7 @@ Different goals? Jump directly to what you need:
 - [What is MCP?](/concepts/mcp-overview) - Understand the protocol
 - [Configuration Reference](/configuration) - All environment variables
 - [Client Integrations](/clients/overview) - Connect your AI client
-- [Agent Development](/agents/building-agents) - Build specialized agents
+- [Agent Development](/agents/overview) - Build specialized agents
 
 ---
 

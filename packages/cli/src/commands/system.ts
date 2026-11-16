@@ -22,7 +22,7 @@ import {
 } from "../formatters/output.js";
 import { ExitCode, classifyError } from "../utils/exit-codes.js";
 import { connectSystem } from "../utils/connection.js";
-import { getFormat } from "../utils/command-helpers.js";
+import { getFormat, createCliContext } from "../utils/command-helpers.js";
 
 /** Result of a connection test. */
 interface ConnectionTestResult {
@@ -36,7 +36,8 @@ interface ConnectionTestResult {
 }
 
 /**
- * Test connectivity to an IBM i system by establishing and closing a connection.
+ * Test connectivity to an IBM i system by opening a connection, running a
+ * trivial query, and closing the connection.
  */
 async function testSystemConnection(
   name: string,
@@ -52,6 +53,15 @@ async function testSystemConnection(
       source: "flag" as const,
     };
     cleanup = await connectSystem(resolved);
+
+    // connectSystem only stages credentials — the pool connects on first query
+    const { IBMiConnectionPool } =
+      await import("@ibm/ibmi-mcp-server/services");
+    await IBMiConnectionPool.executeQuery(
+      "VALUES 1",
+      [],
+      createCliContext("system_test"),
+    );
 
     return { ...base, STATUS: "connected" };
   } catch (err) {
@@ -94,12 +104,16 @@ export function registerSystemCommand(program: Command): void {
           USER: sys.user,
           PORT: sys.port,
           READ_ONLY: sys.readOnly ? "yes" : "no",
+          VERIFY_TLS: sys.ignoreUnauthorized ? "no" : "yes",
           DEFAULT: name === config.default ? "✓" : "",
         }));
 
         renderOutput(data, format, { rowCount: data.length });
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -114,9 +128,7 @@ export function registerSystemCommand(program: Command): void {
         const config = loadConfig();
         const sys = config.systems[name];
         if (!sys) {
-          throw new Error(
-            `System "${name}" not found. Run: ibmi system list`,
-          );
+          throw new Error(`System "${name}" not found. Run: ibmi system list`);
         }
 
         const data = [
@@ -129,6 +141,7 @@ export function registerSystemCommand(program: Command): void {
           { PROPERTY: "confirm", VALUE: String(sys.confirm) },
           { PROPERTY: "timeout", VALUE: `${sys.timeout}s` },
           { PROPERTY: "maxRows", VALUE: String(sys.maxRows) },
+          { PROPERTY: "verifyTls", VALUE: String(!sys.ignoreUnauthorized) },
           { PROPERTY: "description", VALUE: sys.description ?? "(none)" },
           {
             PROPERTY: "default",
@@ -138,7 +151,10 @@ export function registerSystemCommand(program: Command): void {
 
         renderOutput(data, format, { rowCount: data.length });
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -150,10 +166,15 @@ export function registerSystemCommand(program: Command): void {
     .option("--host <host>", "IBM i hostname")
     .option("--port <port>", "Mapepire port", "8076")
     .option("--user <user>", "User profile")
-    .option("--password <password>", "Password (or use env var reference: ${MY_PASS})")
+    .option(
+      "--password <password>",
+      "Password (or use env var reference: ${MY_PASS})",
+    )
     .option("--description <desc>", "Description")
     .option("--read-only", "Block mutation queries", false)
     .option("--default-schema <schema>", "Default schema/library")
+    .option("--verify-tls", "Verify the server's TLS certificate", false)
+    .option("--no-verify-tls", "Accept any TLS certificate (default)")
     .action(async (name: string, opts, cmd: Command) => {
       const format = getFormat(cmd);
       try {
@@ -176,15 +197,22 @@ export function registerSystemCommand(program: Command): void {
           const ask = (question: string): Promise<string> =>
             new Promise((resolve) => rl.question(question, resolve));
 
-          if (!host) host = await ask("Host: ");
-          if (!user) user = await ask("User: ");
+          if (!host) host = (await ask("Host: ")).trim();
+          if (!user) user = (await ask("User: ")).trim();
 
           rl.close();
+
+          // An empty answer would save a config that fails validation on load
+          if (!host || !user) {
+            throw new Error("Host and user are required.");
+          }
         }
 
         const port = parseInt(opts["port"] as string, 10);
         if (isNaN(port) || port <= 0 || port > 65535) {
-          throw new Error(`Invalid --port value: "${opts["port"]}". Must be a number between 1 and 65535.`);
+          throw new Error(
+            `Invalid --port value: "${opts["port"]}". Must be a number between 1 and 65535.`,
+          );
         }
 
         const system: SystemConfig = {
@@ -198,7 +226,7 @@ export function registerSystemCommand(program: Command): void {
           confirm: false,
           timeout: 60,
           maxRows: 5000,
-          ignoreUnauthorized: true,
+          ignoreUnauthorized: !(opts["verifyTls"] as boolean),
         };
 
         upsertSystem(name, system);
@@ -207,7 +235,10 @@ export function registerSystemCommand(program: Command): void {
           format,
         );
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -226,7 +257,10 @@ export function registerSystemCommand(program: Command): void {
           throw new Error(`System "${name}" not found.`);
         }
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -241,7 +275,10 @@ export function registerSystemCommand(program: Command): void {
         setDefaultSystem(name);
         renderMessage(`Default system set to "${name}".`, format);
       } catch (err) {
-        renderError(err instanceof Error ? err : new Error(String(err)), format);
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
         process.exitCode = ExitCode.GENERAL;
       }
     });
@@ -271,14 +308,10 @@ export function registerSystemCommand(program: Command): void {
 
         // Resolve which system to test
         const targetName =
-          name ??
-          cmd.optsWithGlobals()["system"] ??
-          config.default;
+          name ?? cmd.optsWithGlobals()["system"] ?? config.default;
 
         if (!targetName) {
-          throw new Error(
-            "No system specified. Pass a name or set a default.",
-          );
+          throw new Error("No system specified. Pass a name or set a default.");
         }
 
         const sys = config.systems[targetName];
@@ -293,7 +326,9 @@ export function registerSystemCommand(program: Command): void {
             { PROPERTY: "host", VALUE: `${result.HOST}:${result.PORT}` },
             { PROPERTY: "user", VALUE: result.USER },
             { PROPERTY: "status", VALUE: result.STATUS },
-            ...(result.ERROR ? [{ PROPERTY: "error", VALUE: result.ERROR }] : []),
+            ...(result.ERROR
+              ? [{ PROPERTY: "error", VALUE: result.ERROR }]
+              : []),
           ],
           format,
           { rowCount: 1 },

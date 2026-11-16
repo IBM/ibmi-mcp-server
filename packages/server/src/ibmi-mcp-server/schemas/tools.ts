@@ -121,87 +121,8 @@ export const SqlToolExecutionResultSchema = z
   })
   .describe("SQL tool execution result structure");
 
-/**
- * Tool processing result schema for configuration building
- */
-export const ToolProcessingResultSchema = z
-  .object({
-    success: z.boolean().describe("Whether tool processing succeeded"),
-
-    toolConfigs: z
-      .array(z.unknown())
-      .optional()
-      .describe("Generated tool configurations (if successful)"),
-
-    errors: z
-      .array(z.string())
-      .optional()
-      .describe("Processing errors (if unsuccessful)"),
-
-    stats: z
-      .object({
-        toolCount: z.number().describe("Number of tools processed"),
-        sourceCount: z.number().describe("Number of sources referenced"),
-        toolsetCount: z.number().describe("Number of toolsets created"),
-        totalParameterCount: z
-          .number()
-          .describe("Total parameters across all tools"),
-      })
-      .optional()
-      .describe("Processing statistics"),
-  })
-  .describe("Result of tool processing operation");
-
-/**
- * Parsing result schema with validation information
- */
-export const ParsingResultSchema = z
-  .object({
-    success: z.boolean().describe("Whether parsing was successful"),
-
-    config: z
-      .unknown()
-      .optional()
-      .describe("Parsed configuration (if successful)"),
-
-    errors: z
-      .array(z.string())
-      .optional()
-      .describe("Validation errors (if unsuccessful)"),
-
-    processedTools: z
-      .array(z.unknown())
-      .optional()
-      .describe("Processed tools ready for registration"),
-
-    stats: z
-      .object({
-        sourceCount: z.number().describe("Number of sources in configuration"),
-        toolCount: z.number().describe("Number of tools in configuration"),
-        enabledToolCount: z
-          .number()
-          .optional()
-          .describe("Number of enabled tools"),
-        disabledToolCount: z
-          .number()
-          .optional()
-          .describe("Number of disabled tools"),
-        toolsetCount: z
-          .number()
-          .describe("Number of toolsets in configuration"),
-        totalParameterCount: z
-          .number()
-          .describe("Total parameters across all tools"),
-      })
-      .optional()
-      .describe("Statistics about the parsed configuration"),
-  })
-  .describe("Result of YAML configuration parsing");
-
 // Inferred types for export
 export type StandardSqlToolOutput = z.infer<typeof StandardSqlToolOutputSchema>;
 export type SqlToolExecutionResult = z.infer<
   typeof SqlToolExecutionResultSchema
 >;
-export type ToolProcessingResult = z.infer<typeof ToolProcessingResultSchema>;
-export type ParsingResult = z.infer<typeof ParsingResultSchema>;

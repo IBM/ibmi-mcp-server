@@ -94,6 +94,7 @@ tools:
       - name: ptf_group_name
         type: string
         description: "PTF group name or prefix (e.g., 'SF99730', 'SF997'), 2-10 characters"
+        required: true
     security:
       readOnly: true
     annotations:

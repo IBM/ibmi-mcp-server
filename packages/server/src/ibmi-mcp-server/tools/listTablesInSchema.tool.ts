@@ -8,11 +8,11 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQuery } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -123,7 +123,9 @@ export async function listTablesLogic(
   const fetchLimit = params.limit + 1;
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // Pass fetchLimit as rowsToFetch: without it mapepire returns at most
+    // 100 rows per fetch, which silently truncates pages when limit >= 100.
+    const result = await executeQuery(
       sql,
       [
         params.schema_name,
@@ -133,6 +135,7 @@ export async function listTablesLogic(
         fetchLimit,
       ],
       appContext,
+      { rowsToFetch: fetchLimit },
     );
 
     const executionTime = Date.now() - startTime;

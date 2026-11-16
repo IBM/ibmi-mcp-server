@@ -32,16 +32,10 @@ export interface ConfigSource {
  * Configuration build result
  */
 export interface ConfigBuildResult {
-  /** Whether build was successful */
-  success: boolean;
   /** Merged configuration */
-  config?: SqlToolsConfig;
-  /** Build errors */
-  errors?: string[];
-  /** Build warnings */
-  warnings?: string[];
+  config: SqlToolsConfig;
   /** Build statistics */
-  stats?: {
+  stats: {
     sourcesLoaded: number;
     sourcesMerged: number;
     toolsTotal: number;
@@ -49,7 +43,7 @@ export interface ConfigBuildResult {
     sourcesTotal: number;
   };
   /** Resolved file paths that contributed to this build */
-  resolvedFilePaths?: string[];
+  resolvedFilePaths: string[];
 }
 
 /**

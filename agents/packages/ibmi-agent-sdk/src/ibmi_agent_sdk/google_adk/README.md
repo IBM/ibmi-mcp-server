@@ -46,7 +46,7 @@ toolset = load_toolset_tools(
     "performance",
     transport="stdio",
     command="npx",
-    args=["ibmi-mcp-server"],
+    args=["-y", "@ibm/ibmi-mcp-server@latest"],
     env={
         "DB2i_HOST": "your-host.com",
         "DB2i_USER": "username",
@@ -175,7 +175,7 @@ toolset = load_filtered_mcp_tools(
 toolset = load_filtered_mcp_tools(
     transport="stdio",
     command="npx",
-    args=["ibmi-mcp-server"],
+    args=["-y", "@ibm/ibmi-mcp-server@latest"],
     env={
         "DB2i_HOST": "your-host.com",
         "DB2i_USER": "username",

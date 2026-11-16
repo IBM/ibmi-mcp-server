@@ -236,12 +236,12 @@ describe("shared SSH session", () => {
     b.end();
   });
 
-  it("onQueryTimeout tears the session down and tells the caller to close its pool", async () => {
+  it("onQueryTimeout tears the shared session down for every lease", async () => {
     const a = acquireSSHSession(ssh);
     const b = acquireSSHSession(ssh);
     await Promise.all([a.init(), b.init()]);
 
-    expect(a.onQueryTimeout?.({})).toBe(false);
+    a.onQueryTimeout();
     await vi.waitFor(() => expect(created[0]!.close).toHaveBeenCalledTimes(1));
     expect(b.isAlive?.()).toBe(false);
     a.end();

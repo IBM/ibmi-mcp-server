@@ -12,7 +12,7 @@ A file contains at least one of `sources`, `tools`, `toolsets`. Files passed tog
 (or a directory) are merged, so a tool may reference a source defined in another file.
 
 ```yaml
-sources:        # connection(s); ${VAR} is replaced from the environment before parsing
+sources:        # connection(s); ${VAR} in string values is replaced from the environment after parsing
 tools:          # tool_name -> definition
 toolsets:       # toolset_name -> { title, description, tools: [tool_name, ...] }
 ```
@@ -32,7 +32,7 @@ toolsets:       # toolset_name -> { title, description, tools: [tool_name, ...] 
 |-------|-----|-------|
 | `source` | yes | A key under `sources` |
 | `description` | yes | LLM-facing: what it returns, when to use it |
-| `statement` | yes* | SQL with `:param` placeholders (*the schema allows omitting it; the server rejects that) |
+| `statement` | yes | SQL with `:param` placeholders. Must not be blank |
 | `parameters` | | See below |
 | `security.readOnly` | | Default `true`. Non-`SELECT/WITH/VALUES` (including `CALL`) needs `false` |
 | `security.maxQueryLength`, `security.forbiddenKeywords` | | Extra guardrails |
@@ -44,7 +44,10 @@ toolsets:       # toolset_name -> { title, description, tools: [tool_name, ...] 
 | `fetchAllRows` | | Page through everything (capped by `IBMI_PAGINATION_MAX_ROWS`). Small catalogs only |
 | `enabled` | | `false` keeps the tool defined but unregistered |
 
-Unknown keys are schema errors (`additionalProperties: false`).
+Unknown keys are schema errors (`additionalProperties: false`), in the validator and in the server.
+A `${VAR}` that is not set stops the server from loading the file. A tool must not have the name of an
+enabled built-in tool (`describe_sql_object`, `execute_sql`, `list_schemas`, `list_tables_in_schema`,
+`get_table_columns`, `get_related_objects`, `validate_query`).
 
 ## `parameters[]`
 
@@ -63,12 +66,14 @@ Unknown keys are schema errors (`additionalProperties: false`).
 
 ### Binding behavior (verified against the server)
 
-- Placeholders are found with `/:(\w+)/g` on the **raw** statement, string literals included.
-  `':'` followed by a digit anywhere (e.g. `'12:30'`, `'::1'`) is rejected when the tool has parameters.
-  Use `TIME('12.30.00')` or pass the value as a parameter.
+- The server masks string literals, delimited identifiers (`"..."`) and comments, then finds placeholders
+  with `/:(\w+)/g` in the remaining SQL code. A `:` followed by a digit inside a literal (e.g. `'12:30'`,
+  `'::1'`) is fine. A `:` followed by a digit in SQL code is rejected when the tool has parameters, as is an
+  unterminated quote.
 - A tool with **no** `parameters` sends its SQL unchanged. Any `:name` left in it is a SQL error.
-- An omitted optional parameter with no default binds as `''` for **every** type, never `NULL`.
-  `:x IS NULL` therefore never matches, and `''` into a numeric comparison fails at runtime.
+- An omitted optional parameter with no default binds as SQL `NULL`, so `(:x IS NULL OR col = :x)` works.
+  A parameter with a default is never `NULL`.
+- An empty array, a `:name` without a value, and a statement that mixes `?` with `:name` are errors.
 - An array parameter expands to `?, ?, ?` **without** parentheses, so write `IN (:ids)`.
   Callers pass a JSON array (`["A","B"]`), not a string.
 

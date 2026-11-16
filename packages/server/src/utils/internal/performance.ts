@@ -61,23 +61,24 @@ export async function measureToolExecution<T>(
   );
 
   return tracer.startActiveSpan(`tool_execution:${toolName}`, async (span) => {
+    const inputBytes = getPayloadSize(inputPayload);
     span.setAttributes({
       [ATTR_CODE_FUNCTION]: toolName,
       [ATTR_CODE_NAMESPACE]: "mcp-tools",
-      "mcp.tool.input_bytes": getPayloadSize(inputPayload),
+      "mcp.tool.input_bytes": inputBytes,
     });
 
     const startTime = process.hrtime.bigint();
     let isSuccess = false;
     let errorCode: number | string | undefined;
-    let outputPayload: T | undefined;
+    let outputBytes = 0;
 
     try {
       const result = await toolLogicFn();
       isSuccess = true;
-      outputPayload = result;
+      outputBytes = getPayloadSize(result);
       span.setStatus({ code: SpanStatusCode.OK });
-      span.setAttribute("mcp.tool.output_bytes", getPayloadSize(outputPayload));
+      span.setAttribute("mcp.tool.output_bytes", outputBytes);
       return result;
     } catch (error) {
       if (error instanceof McpError) {
@@ -117,8 +118,8 @@ export async function measureToolExecution<T>(
           durationMs: parseFloat(durationMs.toFixed(2)),
           isSuccess,
           errorCode,
-          inputBytes: getPayloadSize(inputPayload),
-          outputBytes: getPayloadSize(outputPayload),
+          inputBytes,
+          outputBytes,
         },
       });
     }

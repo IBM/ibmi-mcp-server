@@ -8,14 +8,13 @@
 # workspace is not shipped.
 
 # ---- Base ----
-FROM node:bookworm-slim AS base
+FROM node:22-bookworm-slim AS base
 WORKDIR /app
 
-# System updates + recent npm (lockfileVersion 3 needs npm >= 7)
+# System updates. The npm bundled with Node 22 reads lockfileVersion 3.
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
-    && npm install -g npm@latest \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -36,7 +35,8 @@ RUN npm ci
 
 # Copy the full source tree and build only the server workspace.
 # (.dockerignore keeps node_modules/, dist/, .git/, .github/, .claude/,
-# agents/, and .env files out of the build context.)
+# agents/, .env files and credential files out of the build context, at
+# any depth.)
 COPY . .
 
 RUN npm run build -w @ibm/ibmi-mcp-server
@@ -72,12 +72,13 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/packages/server/package.json ./packages/server/package.json
 COPY --from=builder /app/packages/server/dist ./packages/server/dist
 
-# Non-root user + npm cache dir
+# Non-root user that owns its home directory (-m): the default LOGS_DIR,
+# ~/.ibmi-mcp-server/logs, is created there on first start. On a read-only
+# root filesystem that directory cannot be created and the server logs to
+# stderr only; mount a volume or tmpfs at LOGS_DIR to keep log files.
 RUN groupadd -r appgroup \
-    && useradd -r -g appgroup appuser \
-    && chown -R appuser:appgroup /app \
-    && mkdir -p /home/appuser/.npm \
-    && chown -R appuser:appgroup /home/appuser/.npm
+    && useradd -r -m -g appgroup appuser \
+    && chown -R appuser:appgroup /app
 
 USER appuser
 
@@ -89,6 +90,10 @@ ENV MCP_TRANSPORT_TYPE=http
 # is the operator's explicit, per-deployment decision.
 ENV MCP_HTTP_HOST=0.0.0.0
 EXPOSE 3010
+
+# /healthz answers on the configured port; loopback is always an allowed Host.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.MCP_HTTP_PORT || 3010) + '/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 
 # Run node directly on the built entry rather than via `npx` — avoids
 # any bin-resolution surprises and gives a cleaner PID 1.

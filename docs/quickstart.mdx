@@ -13,11 +13,11 @@ Complete these prerequisites before starting the installation:
 
 <Steps>
   <Step title="Verify Node.js Installation">
-    Ensure Node.js 18 or higher is installed on your development machine:
+    Ensure Node.js 22.17 or higher is installed on your development machine:
 
     ```bash
     node --version
-    # Should show v18.0.0 or higher
+    # Should show v22.17.0 or higher
     ```
 
     **Don't have Node.js?** Download from [nodejs.org](https://nodejs.org/)
@@ -100,7 +100,8 @@ Choose your installation method based on your needs:
 
     <Note>
     **Repository Structure**: The IBM i MCP Server follows a modular architecture:
-    - `server/` - MCP server implementation (main package)
+    - `packages/server/` - MCP server implementation (`@ibm/ibmi-mcp-server`)
+    - `packages/cli/` - `ibmi` command-line interface (`@ibm/ibmi-cli`)
     - `tools/` - SQL tool YAML configurations
     - `agents/` - Agent implementations and examples
     - `deployment/` - Deployment configurations (Docker, Gateway, OpenShift)
@@ -127,10 +128,10 @@ Choose your installation method based on your needs:
     <Success>
     ✓ **Verify the build succeeded:**
     - No error messages in the output
-    - `dist/` directory was created
-    - `dist/index.js` exists
+    - `packages/server/dist/` directory was created
+    - `packages/server/dist/index.js` exists
 
-    **Build failed?** Check that Node.js 18+ is installed and all dependencies downloaded successfully.
+    **Build failed?** Check that Node.js 22.17+ is installed and all dependencies downloaded successfully.
     </Success>
 
     **Benefits:**
@@ -213,7 +214,7 @@ Replace the connection values with your actual IBM i system credentials. The use
 </Success>
 
 <Card title="Explore All Configuration Options →" icon="gear" href="/configuration">
- The Configuration guide covers authentication modes (JWT, OAuth, IBM i), HTTP/HTTPS settings, OpenTelemetry observability, and all environment variables with examples for development and production.
+ The Configuration guide covers authentication (OAuth for remote deployments), HTTP settings, OpenTelemetry observability, and all environment variables with examples for development and production.
 </Card>
 
 ---
@@ -333,29 +334,20 @@ Start the server in HTTP mode with your new SQL tool:
     export MCP_SERVER_CONFIG=.env
     npx -y @ibm/ibmi-mcp-server@latest --transport http --tools ./tools/quickstart.yaml
     ```
-
-    **Session Modes**:
-    - `auto` (default): Automatically detects client capabilities ← **Start with this**
-    - `stateful`: Maintains persistent sessions with connection state
-    - `stateless`: Each request is independent, no session state
-
-    Set via environment: `MCP_SESSION_MODE=stateful npx -y @ibm/ibmi-mcp-server@latest --transport http`
   </Tab>
 
   <Tab title="Build from Source">
     ```bash
-    # From server/ directory
-    npm run start:http -- --tools ../tools/quickstart.yaml
+    # From the repository root. The root .env is loaded automatically
+    # and paths are relative to the repository root.
+    npm run start:http -- --tools ./tools/quickstart.yaml
     ```
-
-    **Session Modes**:
-    - `auto` (default): Automatically detects client capabilities ← **Start with this**
-    - `stateful`: Maintains persistent sessions with connection state
-    - `stateless`: Each request is independent, no session state
-
-    Set via environment: `MCP_SESSION_MODE=stateful npm run start:http`
   </Tab>
 </Tabs>
+
+<Info>
+The HTTP server is stateless and serves MCP protocol revision `2026-07-28` and earlier clients from the same endpoint. There is no session mode to configure.
+</Info>
 
 <Note>
 **Alternative: Stdio Transport** - For MCP Inspector or CLI tools, use `--transport stdio` (NPM package) or `npm run start:stdio` (build from source). However, HTTP transport is recommended for most use cases.
@@ -366,7 +358,7 @@ Start the server in HTTP mode with your new SQL tool:
 | Option | Description | Example |
 |--------|-------------|---------|
 | `--tools <path>` | Override YAML tools path | `--tools ./my-configs` |
-| `--toolsets <list>` | Load specific toolsets only | `--toolsets performance,security` |
+| `--toolsets <list>` | Load specific toolsets only. An unknown name stops startup | `--toolsets performance,security_audit` |
 | `--transport <type>` | Force transport type | `--transport http` |
 | `--help` | Show help information | `--help` |
 | `--list-toolsets` | List available toolsets | `--list-toolsets` |
@@ -374,18 +366,12 @@ Start the server in HTTP mode with your new SQL tool:
 You should see output similar to:
 
 ```
-✓ Server ready!
-  Transport: http
-  Host: 127.0.0.1:3010
-  Endpoint: http://127.0.0.1:3010/mcp
-  Tools loaded: 1
+🚀 MCP Server running at: http://127.0.0.1:3010/mcp
 ```
 
 <Success>
 ✓ **Verify the server started successfully:**
-- See "Server ready!" message
-- HTTP endpoint is displayed (or "Stdio ready" for stdio mode)
-- Number of tools loaded shown (should be > 0)
+- See "MCP Server running at" message with the HTTP endpoint
 - No error messages about Mapepire connection
 - Server process remains running (doesn't exit immediately)
 
@@ -625,7 +611,7 @@ Your MCP server is now ready for:
   <Card title="Configuration" icon="gear" href="/configuration">
     Explore all configuration options and environment variables
   </Card>
-  <Card title="Agent Development" icon="robot" href="/agents/building-agents">
+  <Card title="Agent Development" icon="robot" href="/agents/overview">
     Build sophisticated AI agents that understand IBM i concepts
   </Card>
 </CardGroup>
@@ -640,13 +626,13 @@ Your MCP server is now ready for:
   </Accordion>
 
   <Accordion title="Authentication Failed" icon="">
-    - Verify your IBM i username and password are correct
+    - Verify your IBM i username and password are correct. After a rejected sign-on the server waits 60 seconds before it tries the same credentials again, so that repeated tool calls do not disable the profile
     - Check that your user profile is not disabled or expired
     - Ensure you have appropriate authorities for QSYS2 services
   </Accordion>
 
   <Accordion title="Port Already in Use" icon="">
-    Change the port in your `.env` file:
+    The server exits with `Port 3010 on 127.0.0.1 is already in use.` It does not pick another port. Stop the other process, or change the port in your `.env` file:
     ```bash
     MCP_HTTP_PORT=3011
     ```
@@ -654,8 +640,8 @@ Your MCP server is now ready for:
   </Accordion>
 
   <Accordion title="Tools Not Loading" icon="">
-    - Check that `prebuiltconfigs/` directory exists
-    - Verify your YAML tool configurations are valid
+    - Check that the `--tools` path (or `TOOLS_YAML_PATH`) points to an existing file or directory
+    - Verify your YAML tool configurations are valid. One invalid file, an unknown key, or a `${VAR}` that is not set stops startup with `Invalid tool configuration in <file>: ...`
     - Use `--list-toolsets` to see available tools:
     ```bash
     npm run start:http -- --list-toolsets
@@ -664,7 +650,7 @@ Your MCP server is now ready for:
 
   <Accordion title="Client Script Fails (mcp_client.py)" icon="">
     **Connection refused or timeout:**
-    - Ensure MCP server is running: check for "Server ready!" message
+    - Ensure MCP server is running: check for the "MCP Server running at" message
     - Verify server is on port 3010 (or update script if using different port)
     - Server must use HTTP transport (not stdio)
 

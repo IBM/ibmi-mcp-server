@@ -53,10 +53,10 @@ fi
 
 echo ""
 echo "🔍 Step 4: Checking IBM i MCP Server..."
-if curl -s -f http://127.0.0.1:3010/mcp > /dev/null 2>&1; then
+if curl -s -f http://127.0.0.1:3010/healthz > /dev/null 2>&1; then
     echo "✅ IBM i MCP Server is running"
 else
-    echo "⚠️  IBM i MCP Server not detected at http://127.0.0.1:3010/mcp"
+    echo "⚠️  IBM i MCP Server not detected at http://127.0.0.1:3010"
     echo "   Start it with: npm run dev (from project root)"
 fi
 

@@ -15,7 +15,7 @@ Output formatting options only apply when `responseFormat: markdown` is set. Too
 The output formatting system provides:
 
 - **Multiple table styles** for different display contexts
-- **Type-aware column alignment** (numeric right-aligned, text left-aligned)
+- **Column type indicators** in the headers
 - **NULL value handling** with configurable replacements
 - **Row truncation** with clear truncation indicators
 - **Metadata display** including execution time, row counts, and NULL statistics
@@ -46,17 +46,17 @@ GitHub-flavored markdown table format with column type indicators. Best for docu
 
 **Characteristics:**
 - Uses `|` for column separators
-- Includes `---` header separator with alignment indicators
+- Includes a `---` header separator
 - Column headers include type information: `EMPLOYEE_ID (INTEGER)`
-- Numeric columns automatically right-aligned
+- All columns are left-aligned
 - Most readable in markdown renderers
 
 **Example:**
 ```markdown
 | EMPLOYEE_ID (INTEGER) | FIRST_NAME (VARCHAR) | SALARY (DECIMAL) |
-|----------------------:|:---------------------|------------------:|
-|                000010 | John                 |         75000.00 |
-|                000020 | Alice                |         82500.00 |
+| --------------------- | -------------------- | ---------------- |
+| 000010                | John                 | 75000.00         |
+| 000020                | Alice                | 82500.00         |
 ```
 
 **Use Cases:**
@@ -278,19 +278,14 @@ tools:
 
 ### Column Type Awareness
 
-Columns are automatically aligned based on database types:
-
-- **Right-aligned:** INTEGER, DECIMAL, FLOAT, NUMERIC (all numeric types)
-- **Left-aligned:** VARCHAR, CHAR, DATE, TIME, TIMESTAMP (text and temporal types)
-
-Column headers include type information: `SALARY (DECIMAL)`
+Column headers include type information: `SALARY (DECIMAL)`. All columns are left-aligned.
 
 **Example Output:**
 
 ```markdown
-| EMPNO (INTEGER) | FIRSTNME (VARCHAR) |  SALARY (DECIMAL) |
-|----------------:|:-------------------|------------------:|
-|          000010 | John               |          75000.00 |
+| EMPNO (INTEGER) | FIRSTNME (VARCHAR) | SALARY (DECIMAL) |
+| --------------- | ------------------ | ---------------- |
+| 000010          | John               | 75000.00         |
 ```
 
 ### NULL Value Handling
@@ -370,7 +365,6 @@ A fully-formatted SQL tool response includes:
     **Characteristics:**
     - Most readable
     - Type annotations
-    - Alignment indicators
   </Tab>
 
   <Tab title="ascii">

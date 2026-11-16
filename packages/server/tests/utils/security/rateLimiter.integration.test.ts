@@ -1,107 +1,26 @@
 /**
- * Integration tests for rate limiter configuration.
+ * Integration tests for rate limiting.
  *
- * Tests the wiring between environment variables → Zod config → RateLimiter singleton,
- * and the conditional middleware registration in httpTransport.
+ * Covers the RateLimiter error contract and the rate-limit middleware as it
+ * is actually wired into the HTTP app (createHttpApp).
  *
  * @module tests/utils/security/rateLimiter.integration
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { z } from "zod";
-
-/**
- * Standalone copy of the rate-limit portion of EnvSchema.
- * We duplicate only the 4 fields rather than importing the full EnvSchema
- * (which is not exported and has side effects like fs operations).
- */
-const RateLimitEnvSchema = z.object({
-  MCP_RATE_LIMIT_ENABLED: z
-    .string()
-    .optional()
-    .default("true")
-    .transform((val) => val === "true" || val === "1"),
-  MCP_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
-  MCP_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
-  MCP_RATE_LIMIT_SKIP_DEV: z
-    .string()
-    .optional()
-    .default("false")
-    .transform((val) => val === "true" || val === "1"),
-});
+import { config } from "../../../src/config/index.js";
+import { createHttpApp } from "../../../src/mcp-server/transports/http/httpTransport.js";
+import {
+  JsonRpcErrorCode,
+  McpError,
+} from "../../../src/types-global/errors.js";
+import { requestContextService } from "../../../src/utils/index.js";
+import {
+  RateLimiter,
+  rateLimiter,
+} from "../../../src/utils/security/rateLimiter.js";
 
 describe("Rate Limiter Config Integration", () => {
-  describe("Zod schema validation for MCP_RATE_LIMIT_* env vars", () => {
-    it("should use correct defaults when no env vars are set", () => {
-      const result = RateLimitEnvSchema.parse({});
-
-      expect(result).toEqual({
-        MCP_RATE_LIMIT_ENABLED: true,
-        MCP_RATE_LIMIT_MAX_REQUESTS: 100,
-        MCP_RATE_LIMIT_WINDOW_MS: 900_000,
-        MCP_RATE_LIMIT_SKIP_DEV: false,
-      });
-    });
-
-    it("should parse string booleans correctly", () => {
-      const result = RateLimitEnvSchema.parse({
-        MCP_RATE_LIMIT_ENABLED: "false",
-        MCP_RATE_LIMIT_SKIP_DEV: "true",
-      });
-
-      expect(result.MCP_RATE_LIMIT_ENABLED).toBe(false);
-      expect(result.MCP_RATE_LIMIT_SKIP_DEV).toBe(true);
-    });
-
-    it('should accept "1" as truthy for boolean fields', () => {
-      const result = RateLimitEnvSchema.parse({
-        MCP_RATE_LIMIT_ENABLED: "1",
-        MCP_RATE_LIMIT_SKIP_DEV: "1",
-      });
-
-      expect(result.MCP_RATE_LIMIT_ENABLED).toBe(true);
-      expect(result.MCP_RATE_LIMIT_SKIP_DEV).toBe(true);
-    });
-
-    it("should coerce string numbers for numeric fields", () => {
-      const result = RateLimitEnvSchema.parse({
-        MCP_RATE_LIMIT_MAX_REQUESTS: "500",
-        MCP_RATE_LIMIT_WINDOW_MS: "60000",
-      });
-
-      expect(result.MCP_RATE_LIMIT_MAX_REQUESTS).toBe(500);
-      expect(result.MCP_RATE_LIMIT_WINDOW_MS).toBe(60_000);
-    });
-
-    it("should reject zero for max requests (positive constraint)", () => {
-      expect(() =>
-        RateLimitEnvSchema.parse({ MCP_RATE_LIMIT_MAX_REQUESTS: "0" }),
-      ).toThrow();
-    });
-
-    it("should reject negative values for window ms", () => {
-      expect(() =>
-        RateLimitEnvSchema.parse({ MCP_RATE_LIMIT_WINDOW_MS: "-1000" }),
-      ).toThrow();
-    });
-
-    it("should reject non-integer values for max requests", () => {
-      expect(() =>
-        RateLimitEnvSchema.parse({ MCP_RATE_LIMIT_MAX_REQUESTS: "10.5" }),
-      ).toThrow();
-    });
-
-    it("should treat unrecognized string as false for boolean fields", () => {
-      const result = RateLimitEnvSchema.parse({
-        MCP_RATE_LIMIT_ENABLED: "yes",
-        MCP_RATE_LIMIT_SKIP_DEV: "on",
-      });
-
-      expect(result.MCP_RATE_LIMIT_ENABLED).toBe(false);
-      expect(result.MCP_RATE_LIMIT_SKIP_DEV).toBe(false);
-    });
-  });
-
   describe("RateLimiter singleton config wiring", () => {
     beforeEach(() => {
       vi.useFakeTimers();
@@ -111,10 +30,7 @@ describe("Rate Limiter Config Integration", () => {
       vi.useRealTimers();
     });
 
-    it("should create a RateLimiter with custom config values", async () => {
-      const { RateLimiter } =
-        await import("../../../src/utils/security/rateLimiter");
-
+    it("should create a RateLimiter with custom config values", () => {
       const limiter = new RateLimiter({
         windowMs: 60_000,
         maxRequests: 5,
@@ -126,27 +42,23 @@ describe("Rate Limiter Config Integration", () => {
         expect(() => limiter.check("test-key")).not.toThrow();
       }
 
-      // 6th should fail
-      expect(() => limiter.check("test-key")).toThrow();
-
-      // Verify the error contains the right limit info
+      // 6th should fail, and the error carries the configured limit info
+      let thrown: unknown;
       try {
         limiter.check("test-key");
-      } catch (error: unknown) {
-        const mcpError = error as { details?: Record<string, unknown> };
-        expect(mcpError.details).toMatchObject({
-          limit: 5,
-          windowMs: 60_000,
-        });
+      } catch (error) {
+        thrown = error;
       }
+      expect(thrown).toBeInstanceOf(McpError);
+      expect((thrown as McpError).details).toMatchObject({
+        limit: 5,
+        windowMs: 60_000,
+      });
 
       limiter.dispose();
     });
 
-    it("should reflect configured window duration in error messages", async () => {
-      const { RateLimiter } =
-        await import("../../../src/utils/security/rateLimiter");
-
+    it("should reflect configured window duration in error messages", () => {
       const limiter = new RateLimiter({
         windowMs: 120_000, // 2 minutes
         maxRequests: 1,
@@ -154,21 +66,13 @@ describe("Rate Limiter Config Integration", () => {
 
       limiter.check("key");
 
-      try {
-        limiter.check("key");
-      } catch (error: unknown) {
-        const mcpError = error as { message: string };
-        // Should say "120 seconds" (window is 120s from now)
-        expect(mcpError.message).toMatch(/\d+ seconds/);
-      }
+      // Window is 120s from now
+      expect(() => limiter.check("key")).toThrow(/120 seconds/);
 
       limiter.dispose();
     });
 
-    it("should enforce per-key isolation with configured limits", async () => {
-      const { RateLimiter } =
-        await import("../../../src/utils/security/rateLimiter");
-
+    it("should enforce per-key isolation with configured limits", () => {
       const limiter = new RateLimiter({
         windowMs: 60_000,
         maxRequests: 2,
@@ -188,89 +92,167 @@ describe("Rate Limiter Config Integration", () => {
     });
   });
 
-  describe("getClientIp extraction logic", () => {
-    /**
-     * These tests verify the IP resolution priority chain:
-     * 1. X-Forwarded-For (first entry)
-     * 2. X-Real-IP
-     * 3. socket.remoteAddress
-     * 4. "unknown_ip" fallback
-     *
-     * We test the logic directly rather than through the Hono middleware,
-     * since the function is not exported. This mirrors the implementation
-     * in httpTransport.ts:49-57.
-     */
-    function getClientIp(
-      headers: Record<string, string | undefined>,
-      socketAddress?: string,
-    ): string {
-      const forwardedFor = headers["x-forwarded-for"];
-      return (
-        (forwardedFor?.split(",")[0] ?? "").trim() ||
-        headers["x-real-ip"] ||
-        socketAddress ||
-        "unknown_ip"
+  describe("HTTP middleware wiring", () => {
+    const savedConfig = {
+      mcpAllowedHosts: config.mcpAllowedHosts,
+      mcpAllowedOrigins: config.mcpAllowedOrigins,
+      mcpHttpHost: config.mcpHttpHost,
+      mcpAuthMode: config.mcpAuthMode,
+      mcpTrustedProxies: config.mcpTrustedProxies,
+      rateLimitEnabled: config.rateLimit.enabled,
+      ibmiHttpAuthEnabled: config.ibmiHttpAuth.enabled,
+    };
+    const savedLimiterConfig = rateLimiter.getConfig();
+
+    function buildApp() {
+      const handleRequest = vi.fn(async () =>
+        Response.json({ jsonrpc: "2.0", result: {}, id: 1 }),
+      );
+      const app = createHttpApp(
+        { fetch: handleRequest },
+        requestContextService.createRequestContext({
+          operation: "rateLimiterIntegrationTest",
+        }),
+        null,
+      );
+      return { app, handleRequest };
+    }
+
+    /** POSTs to /mcp as if the TCP peer were `socketAddress`. */
+    function mcpPost(
+      app: ReturnType<typeof buildApp>["app"],
+      socketAddress: string,
+      headers: Record<string, string> = {},
+    ) {
+      return app.request(
+        "/mcp",
+        {
+          method: "POST",
+          headers: {
+            host: "localhost:3010",
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            ...headers,
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "tools/list", id: 1 }),
+        },
+        { incoming: { socket: { remoteAddress: socketAddress } } },
       );
     }
 
-    it("should prefer X-Forwarded-For when present", () => {
-      expect(
-        getClientIp(
-          { "x-forwarded-for": "203.0.113.50, 70.41.3.18" },
-          "172.17.0.1",
-        ),
-      ).toBe("203.0.113.50");
+    beforeEach(() => {
+      config.mcpAllowedHosts = undefined;
+      config.mcpAllowedOrigins = undefined;
+      config.mcpHttpHost = "127.0.0.1";
+      config.mcpAuthMode = "none";
+      config.mcpTrustedProxies = [];
+      config.ibmiHttpAuth.enabled = false;
+      config.rateLimit.enabled = true;
+      rateLimiter.reset();
+      rateLimiter.configure({
+        windowMs: 60_000,
+        maxRequests: 1,
+        skipInDevelopment: false,
+      });
     });
 
-    it("should use X-Real-IP when X-Forwarded-For is absent", () => {
-      expect(
-        getClientIp(
-          { "x-forwarded-for": undefined, "x-real-ip": "10.0.0.1" },
-          "172.17.0.1",
-        ),
-      ).toBe("10.0.0.1");
+    afterEach(() => {
+      config.mcpAllowedHosts = savedConfig.mcpAllowedHosts;
+      config.mcpAllowedOrigins = savedConfig.mcpAllowedOrigins;
+      config.mcpHttpHost = savedConfig.mcpHttpHost;
+      config.mcpAuthMode = savedConfig.mcpAuthMode;
+      config.mcpTrustedProxies = savedConfig.mcpTrustedProxies;
+      config.rateLimit.enabled = savedConfig.rateLimitEnabled;
+      config.ibmiHttpAuth.enabled = savedConfig.ibmiHttpAuthEnabled;
+      rateLimiter.reset();
+      rateLimiter.configure(savedLimiterConfig);
     });
 
-    it("should fall back to socket.remoteAddress when no proxy headers", () => {
-      expect(
-        getClientIp(
-          { "x-forwarded-for": undefined, "x-real-ip": undefined },
-          "172.17.0.2",
-        ),
-      ).toBe("172.17.0.2");
+    it("answers 429 with a RateLimited JSON-RPC error once the limit is exceeded", async () => {
+      const { app, handleRequest } = buildApp();
+
+      const first = await mcpPost(app, "10.9.9.9");
+      expect(first.status).toBe(200);
+
+      const second = await mcpPost(app, "10.9.9.9");
+      expect(second.status).toBe(429);
+      const body = (await second.json()) as { error: { code: number } };
+      expect(body.error.code).toBe(JsonRpcErrorCode.RateLimited);
+
+      // The limited request never reached MCP dispatch.
+      expect(handleRequest).toHaveBeenCalledTimes(1);
     });
 
-    it("should return unknown_ip only when all sources are absent", () => {
-      expect(
-        getClientIp(
-          { "x-forwarded-for": undefined, "x-real-ip": undefined },
-          undefined,
-        ),
-      ).toBe("unknown_ip");
+    it("keeps a separate budget per client socket address", async () => {
+      const { app } = buildApp();
+
+      expect((await mcpPost(app, "10.9.9.9")).status).toBe(200);
+      expect((await mcpPost(app, "10.8.8.8")).status).toBe(200);
+      expect((await mcpPost(app, "10.9.9.9")).status).toBe(429);
     });
 
-    it("should trim whitespace from X-Forwarded-For entries", () => {
-      expect(
-        getClientIp({ "x-forwarded-for": "  203.0.113.50 , 70.41.3.18" }),
-      ).toBe("203.0.113.50");
+    it.each(["x-forwarded-for", "x-real-ip"])(
+      "ignores %s, so a caller cannot get a new budget by changing it",
+      async (header) => {
+        const { app } = buildApp();
+
+        expect(
+          (await mcpPost(app, "10.9.9.9", { [header]: "1.2.3.1" })).status,
+        ).toBe(200);
+        expect(
+          (await mcpPost(app, "10.9.9.9", { [header]: "1.2.3.2" })).status,
+        ).toBe(429);
+      },
+    );
+
+    describe("behind a proxy listed in MCP_TRUSTED_PROXIES", () => {
+      // Every request arrives from the proxy's address.
+      const viaProxy = (
+        app: ReturnType<typeof buildApp>["app"],
+        headers: Record<string, string>,
+      ) => mcpPost(app, "10.0.0.1", headers);
+
+      beforeEach(() => {
+        config.mcpTrustedProxies = ["10.0.0.0/24"];
+      });
+
+      it("keys on the address the proxy wrote: the last X-Forwarded-For entry", async () => {
+        const { app } = buildApp();
+        const from = (address: string) =>
+          viaProxy(app, { "x-forwarded-for": address });
+
+        expect((await from("1.2.3.1")).status).toBe(200);
+        expect((await from("1.2.3.2")).status).toBe(200);
+        expect((await from("1.2.3.1")).status).toBe(429);
+      });
+
+      it("ignores the entries a caller put in front, which an appending proxy passes on", async () => {
+        const { app } = buildApp();
+        const claiming = (address: string) =>
+          viaProxy(app, { "x-forwarded-for": `${address}, 1.2.3.1` });
+
+        expect((await claiming("198.51.100.1")).status).toBe(200);
+        expect((await claiming("198.51.100.2")).status).toBe(429);
+      });
+
+      it("ignores X-Real-IP, which a proxy that sets only X-Forwarded-For passes on", async () => {
+        const { app } = buildApp();
+        const claiming = (address: string) =>
+          viaProxy(app, { "x-real-ip": address });
+
+        expect((await claiming("198.51.100.1")).status).toBe(200);
+        expect((await claiming("198.51.100.2")).status).toBe(429);
+      });
     });
 
-    it("should handle empty X-Forwarded-For and fall through", () => {
-      expect(
-        getClientIp(
-          { "x-forwarded-for": "", "x-real-ip": undefined },
-          "192.168.1.1",
-        ),
-      ).toBe("192.168.1.1");
-    });
+    it("does not limit requests when MCP_RATE_LIMIT_ENABLED=false", async () => {
+      config.rateLimit.enabled = false;
+      const { app, handleRequest } = buildApp();
 
-    it("should handle IPv6-mapped IPv4 from socket (Docker common case)", () => {
-      expect(
-        getClientIp(
-          { "x-forwarded-for": undefined, "x-real-ip": undefined },
-          "::ffff:172.17.0.2",
-        ),
-      ).toBe("::ffff:172.17.0.2");
+      for (let i = 0; i < 3; i++) {
+        expect((await mcpPost(app, "10.9.9.9")).status).toBe(200);
+      }
+      expect(handleRequest).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -283,12 +265,7 @@ describe("Rate Limiter Config Integration", () => {
       vi.useRealTimers();
     });
 
-    it("should produce McpError with RateLimited code and structured details", async () => {
-      const { RateLimiter } =
-        await import("../../../src/utils/security/rateLimiter");
-      const { JsonRpcErrorCode, McpError } =
-        await import("../../../src/types-global/errors");
-
+    it("should produce McpError with RateLimited code and structured details", () => {
       const limiter = new RateLimiter({
         windowMs: 30_000,
         maxRequests: 1,
@@ -316,10 +293,7 @@ describe("Rate Limiter Config Integration", () => {
       limiter.dispose();
     });
 
-    it("should correctly calculate wait time as window approaches reset", async () => {
-      const { RateLimiter } =
-        await import("../../../src/utils/security/rateLimiter");
-
+    it("should correctly calculate wait time as window approaches reset", () => {
       const limiter = new RateLimiter({
         windowMs: 10_000, // 10 seconds
         maxRequests: 1,

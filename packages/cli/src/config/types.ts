@@ -53,11 +53,3 @@ export interface ResolvedSystem {
 
 /** Output format options. */
 export type OutputFormat = "table" | "json" | "csv" | "markdown";
-
-/** Global CLI options passed to every command. */
-export interface GlobalOptions {
-  system?: string;
-  format?: OutputFormat;
-  raw?: boolean;
-  noColor?: boolean;
-}

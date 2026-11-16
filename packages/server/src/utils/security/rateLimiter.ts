@@ -57,6 +57,14 @@ export class RateLimiter {
   private cleanupTimer: NodeJS.Timeout | null = null;
 
   /**
+   * Most keys tracked at once. Callers choose their own keys (one per client
+   * address), so the store is bounded: past this, the oldest entry is dropped.
+   */
+  public static readonly MAX_ENTRIES = 10_000;
+  /** Longer keys are cut to this length. */
+  public static readonly MAX_KEY_LENGTH = 256;
+
+  /**
    * Default configuration values.
    * @private
    */
@@ -160,6 +168,14 @@ export class RateLimiter {
     logger.debug(logContext, "Rate limiter reset, all limits cleared");
   }
 
+  /** The key an identifier is stored under. */
+  private limitKey(key: string, context?: RequestContext): string {
+    const limitKey = this.config.keyGenerator
+      ? this.config.keyGenerator(key, context)
+      : key;
+    return limitKey.slice(0, RateLimiter.MAX_KEY_LENGTH);
+  }
+
   /**
    * Checks if a request exceeds the configured rate limit.
    * Throws an `McpError` if the limit is exceeded.
@@ -177,15 +193,19 @@ export class RateLimiter {
       return;
     }
 
-    const limitKey = this.config.keyGenerator
-      ? this.config.keyGenerator(key, context)
-      : key;
+    const limitKey = this.limitKey(key, context);
     activeSpan?.setAttribute("mcp.rate_limit.key", limitKey);
 
     const now = Date.now();
     let entry = this.limits.get(limitKey);
 
     if (!entry || now >= entry.resetTime) {
+      // Deleting first keeps the map ordered by window start, so its first
+      // key is always the oldest entry.
+      this.limits.delete(limitKey);
+      if (this.limits.size >= RateLimiter.MAX_ENTRIES) {
+        this.limits.delete(this.limits.keys().next().value as string);
+      }
       entry = {
         count: 1,
         resetTime: now + this.config.windowMs,

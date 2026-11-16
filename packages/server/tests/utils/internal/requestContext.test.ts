@@ -3,7 +3,7 @@
  * @module tests/utils/internal/requestContext.test
  */
 import { describe, it, expect } from "vitest";
-import { requestContextService } from "../../../src/utils/internal/requestContext";
+import { requestContextService } from "../../../src/utils/internal/requestContext.js";
 
 describe("requestContextService", () => {
   describe("createRequestContext", () => {

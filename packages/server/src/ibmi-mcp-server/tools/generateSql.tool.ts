@@ -9,11 +9,11 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQueryWithPagination } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -144,11 +144,11 @@ async function generateSqlLogic(
 
   try {
     // Execute the GENERATE_SQL procedure using pagination to get all results
-    const result = await IBMiConnectionPool.executeQueryWithPagination(
+    const result = await executeQueryWithPagination(
       sql,
       [params.object_name, params.object_library, params.object_type],
       appContext,
-      500, // Fetch 500 rows at a time
+      { rowsToFetch: 500 }, // Fetch 500 rows at a time
     );
 
     const executionTime = Date.now() - startTime;

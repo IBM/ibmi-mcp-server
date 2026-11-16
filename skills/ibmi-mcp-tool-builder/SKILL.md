@@ -161,8 +161,11 @@ Rules that matter most:
 - **Bind every input with `:param_name`.** Never splice values into SQL text.
 - **Every `:name` in the statement must be declared in `parameters`, and vice versa.**
 - Parameters are **required unless they have a `default` or `required: false`**. An omitted optional
-  parameter with no default binds as `''` for every type, **never NULL**, so `:x IS NULL` never matches.
-  For "no filter", give a sentinel default and test for it: `(:lib = '*ALL' OR LIBRARY_NAME = :lib)`.
+  parameter with no default binds as SQL NULL, so `(:x IS NULL OR col = :x)` works; a parameter with a
+  default is never NULL. For "no filter" you can also give a sentinel default and test for it:
+  `(:lib = '*ALL' OR LIBRARY_NAME = :lib)`.
+- Use named markers only. A statement that mixes `?` and `:name` does not load, and an array parameter
+  must receive at least one value.
 - Bound row limit: `FETCH FIRST n ROWS ONLY` (or a `max_rows` parameter) for anything that can grow.
   The server fetches at most 100 rows per call unless the tool sets `rowsToFetch`, so a limit above 100
   needs `rowsToFetch` as well.
@@ -190,11 +193,16 @@ node --env-file=.env <skill-dir>/scripts/validate-tools.mjs tools-tmp/my-tools.y
 It checks:
 
 - **Schema**: YAML parses and matches `assets/sql-tools-config.json` (required fields, types, enums, unknown keys).
-- **Bindings**: undeclared `:params`, unused parameters, `:` followed by a digit (the server rejects it, even inside a
-  literal like `'12:30'`), placeholders in a tool with no parameters, optional parameters with no default,
-  `:param IS NULL` tests, array parameters not wrapped in `( )`.
+- **Bindings**: undeclared `:params`, unused parameters, `:` followed by a digit in SQL code (the server rejects it
+  when the tool has parameters; inside a literal like `'12:30'` or a comment it is fine, because the server masks
+  literals, delimited identifiers and comments first), placeholders in a tool with no parameters,
+  `:param IS NULL` tests on a parameter that has a default, statements that mix `?` and `:name`,
+  array parameters not wrapped in `( )`.
 - **Security**: non-`SELECT/WITH/VALUES` statements that are not marked `security.readOnly: false`.
 - **References**: every tool's `source` and every toolset entry exists across all files given.
+
+The server applies the same schema when it loads the file: an unknown key or a missing or blank `statement`
+stops it, and so does a `${VAR}` that is not set.
 
 Exit code `0` = valid (warnings allowed), `1` = errors, `2` = usage/setup problem. Fix every error and
 re-run until it exits `0`. Address warnings or tell the user why one is intentional.

@@ -9,12 +9,7 @@
  */
 
 import type { z, ZodObject, ZodRawShape } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  ServerNotification,
-  ServerRequest,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock, ServerContext } from "@modelcontextprotocol/server";
 import type { RequestContext } from "../../../utils/index.js";
 
 // =============================================================================
@@ -31,11 +26,11 @@ import type { RequestContext } from "../../../utils/index.js";
 export type ResponseFormatter<TOutput> = (result: TOutput) => ContentBlock[];
 
 /**
- * A type alias for the SDK's `RequestHandlerExtra` context, making it more
- * specific and easier to reference in our tool logic signatures.
- * Provides access to protocol-level capabilities like cancellation, notifications, and auth.
+ * The SDK's per-request handler context, passed to tool logic.
+ * Provides the cancellation signal (`mcpReq.signal`), request-scoped
+ * notifications and, over HTTP, the verified identity (`http.authInfo`).
  */
-export type SdkContext = RequestHandlerExtra<ServerRequest, ServerNotification>;
+export type SdkContext = ServerContext;
 
 /**
  * Function signature for tool business logic.

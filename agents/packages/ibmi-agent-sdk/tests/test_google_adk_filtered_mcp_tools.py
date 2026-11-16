@@ -248,7 +248,7 @@ class TestLoadFilteredMCPTools:
         result = load_filtered_mcp_tools(
             transport="stdio",
             command="npx",
-            args=["ibmi-mcp-server"],
+            args=["-y", "@ibm/ibmi-mcp-server@latest"],
             env={"DB2i_HOST": "localhost"}
         )
         
@@ -392,7 +392,7 @@ class TestConvenienceFunctions:
             "performance",
             transport="stdio",
             command="npx",
-            args=["ibmi-mcp-server"]
+            args=["-y", "@ibm/ibmi-mcp-server@latest"]
         )
         
         call_kwargs = mock_load.call_args[1]
