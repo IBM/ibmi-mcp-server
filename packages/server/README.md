@@ -1502,7 +1502,7 @@ Configuration for connecting to IBM i Db2 for i databases via Mapepire.
 |----------|-------------|---------|----------|
 | `DB2i_HOST` | IBM i system hostname or IP address | None | ✅ Yes (for SQL tools) |
 | `DB2i_USER` | IBM i user profile for database connections | None | ✅ Yes (for SQL tools) |
-| `DB2i_PASS` | Password for IBM i user profile | None | ✅ Yes (for SQL tools) |
+| `DB2i_PASS` | Password for IBM i user profile | None | ✅ Yes (for SQL tools), unless `DB2i_SSH_KEY` is set |
 | `DB2i_PORT` | Mapepire daemon/gateway port | `8076` | No (empty/unset also defaults to `8076`) |
 | `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification (for self-signed certs) | `true` | No |
 
@@ -1510,6 +1510,18 @@ Configuration for connecting to IBM i Db2 for i databases via Mapepire.
 1. Server connects to Mapepire daemon/gateway at `DB2i_HOST:DB2i_PORT`
 2. Authenticates using `DB2i_USER` and `DB2i_PASS`
 3. Executes SQL tools through authenticated connection pool
+
+**SSH instead of the Mapepire daemon:** A connection uses SSH when it has an SSH key, and SSH authenticates with the key only (no password is sent). With no key set, nothing changes.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DB2i_SSH_KEY` | Path to an SSH private key. The built-in tools and every YAML source then connect over SSH, each source to its own `host` as its own `user` | None |
+| `DB2i_SSH_PASSPHRASE` | Passphrase for an encrypted key | None |
+| `DB2i_SSH_HOST_KEY_SHA256` | Expected SSH host key fingerprint. Without it the host key is not verified | None |
+| `DB2i_SSH_PORT` | SSH port on the IBM i | `22` |
+| `DB2i_SSH_TECHNIQUE` | JDBC technique: `tcp` or `cli` | `tcp` |
+
+For several systems, put `ssh-key` (and `ssh-host-key-sha256`) on individual YAML sources instead of setting `DB2i_SSH_KEY`. See the [SSH transport docs](https://github.com/IBM/ibmi-mcp-server/blob/main/docs/configuration.mdx#ssh-transport) for key setup and limits.
 
 **`DB2i_PORT` scope:** Applies to the singleton connection pool (built-in tools such as `execute_sql`, shared credentials) and the CLI. YAML SQL tools use each source's `port` field — literal value, `${DB2i_PORT}`, or omit for Mapepire default **8076**. Shipped YAML packs use literal `8076`; env alone does not override unless the YAML references `${DB2i_PORT}`. Restart the server after changing `.env` (YAML hot-reload does not re-read env vars).
 

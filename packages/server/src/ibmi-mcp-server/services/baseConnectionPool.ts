@@ -71,7 +71,8 @@ export interface PoolConnectionConfig {
   jdbcOptions?: JDBCOptions;
   /**
    * When set, the pool connects over SSH (`ssh-single` transport) instead of
-   * the Mapepire WebSocket daemon. `host`/`user`/`password` are ignored.
+   * the Mapepire WebSocket daemon, to the host and user in this object.
+   * `password`, `port` and `ignoreUnauthorized` are not used.
    */
   ssh?: SSHCredentials;
 }

@@ -315,35 +315,23 @@ const shutdown = async (signal: string): Promise<void> => {
 };
 
 /**
- * Logs which IBM i connection mode is active (SSH vs WebSocket).
+ * Logs how the built-in tools connect to IBM i (SSH vs Mapepire daemon).
+ * YAML sources choose per source and log their own choice when registered.
  * Never logs secrets.
  */
 function logDb2iConnectionMode(context: RequestContext): void {
-  if (config.db2iTransport === "ssh") {
-    let ssh: typeof config.db2iSsh;
-    try {
-      ssh = config.db2iSsh;
-    } catch (error) {
-      logger.error(
-        {
-          ...context,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "IBM i connection mode: SSH (DB2i_TRANSPORT=ssh) but SSH config could not be read",
-      );
-      return;
-    }
+  const ssh = config.db2iSsh;
+  if (ssh) {
     logger.info(
       {
         ...context,
         transport: "ssh",
-        host: ssh?.host,
-        port: ssh?.port,
-        user: ssh?.username,
-        authMethod: ssh ? (ssh.privateKey ? "key" : "password") : "none",
-        technique: ssh?.technique,
+        host: ssh.host,
+        port: ssh.port,
+        user: ssh.username,
+        technique: ssh.technique,
       },
-      `IBM i connection mode: SSH (${ssh?.username ?? "?"}@${ssh?.host ?? "?"}:${ssh?.port ?? "?"}) — built-in and YAML tools connect lazily on first call`,
+      `IBM i connection mode: SSH (${ssh.username}@${ssh.host}:${ssh.port}), from DB2i_SSH_KEY. It also applies to every YAML source without its own ssh-key. Connections open on first use.`,
     );
     return;
   }
@@ -360,7 +348,7 @@ function logDb2iConnectionMode(context: RequestContext): void {
     },
     db2i
       ? `IBM i connection mode: WebSocket (Mapepire daemon) ${db2i.user}@${db2i.host}:${db2i.port}`
-      : `IBM i connection mode: WebSocket (Mapepire daemon) but DB2i_HOST/DB2i_USER/DB2i_PASS are not set. Set DB2i_TRANSPORT=ssh to use SSH.`,
+      : `IBM i connection mode: no built-in connection. Set DB2i_HOST and DB2i_USER with DB2i_PASS (Mapepire daemon) or DB2i_SSH_KEY (SSH).`,
   );
 }
 

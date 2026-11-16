@@ -59,16 +59,10 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     });
 
     try {
-      // SSH transport: leases on the shared ssh-single session, no daemon needed
-      if (config.db2iTransport === "ssh") {
-        const ssh = config.db2iSsh;
-        if (!ssh) {
-          throw new McpError(
-            JsonRpcErrorCode.ConfigurationError,
-            "SSH configuration not found. Please ensure DB2i_HOST, DB2i_USER, and either DB2i_SSH_PRIVATE_KEY_PATH or DB2i_PASS environment variables are set.",
-            { configSection: "db2iSsh" },
-          );
-        }
+      // An SSH key (DB2i_SSH_KEY) means SSH: a lease on the shared ssh-single
+      // session, no daemon needed and DB2i_PASS is not used.
+      const ssh = config.db2iSsh;
+      if (ssh) {
         logger.info(
           { ...context, host: ssh.host, port: ssh.port, transport: "ssh" },
           "Initializing IBM i connection pool (SSH transport)",
@@ -94,7 +88,7 @@ export class IBMiConnectionPool extends BaseConnectionPool<
       if (!config.db2i) {
         throw new McpError(
           JsonRpcErrorCode.ConfigurationError,
-          "Db2i configuration not found. Please ensure DB2i_HOST, DB2i_USER, and DB2i_PASS environment variables are set.",
+          "Db2i configuration not found. Please ensure DB2i_HOST and DB2i_USER are set, with DB2i_PASS (Mapepire daemon) or DB2i_SSH_KEY (SSH).",
           { configSection: "db2i" },
         );
       }
