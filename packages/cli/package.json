@@ -1,6 +1,6 @@
 {
   "name": "@ibm/ibmi-cli",
-  "version": "0.6.2",
+  "version": "0.7.0-alpha.0",
   "description": "Command-line interface for IBM i systems — query, explore, and manage over Db2 for i",
   "type": "module",
   "main": "dist/program.js",
@@ -33,7 +33,7 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
-    "@ibm/ibmi-mcp-server": "0.6.2",
+    "@ibm/ibmi-mcp-server": "0.7.0-alpha.0",
     "commander": "^14.0.3",
     "js-yaml": "^4.1.0",
     "zod": "^4.6.7"
