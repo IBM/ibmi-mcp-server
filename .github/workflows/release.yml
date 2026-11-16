@@ -1,0 +1,321 @@
+# ===============================================================
+# Release
+# ===============================================================
+#
+# A release is a pull request made by `/release` (see RELEASING.md). It bumps
+# the version in package.json and adds .github/release-notes/v<version>.md.
+# Merging it to main starts this workflow:
+#
+#   plan      read the version; stop if tag v<version> already exists
+#   verify    build, typecheck, lint, test
+#   approve   the only manual step (Release environment)
+#   tag       create tag v<version> on the merged commit
+#   npm       publish @ibm/ibmi-mcp-server, then @ibm/ibmi-cli (trusted publishing)
+#   docker    build amd64 / arm64 / ppc64le images
+#   manifest  multi-arch manifest; moves `latest` (needs npm to have succeeded)
+#   github    create the GitHub Release from the release notes file
+#
+# Every publishing step skips work that is already done, so a failed run can be
+# finished with "Re-run failed jobs". Once tag v<version> exists, a release can
+# also be finished by running this workflow by hand on that tag
+# (workflow_dispatch). Every job builds the commit the run started from.
+#
+# npm publishes through trusted publishing (OIDC). Each package on npmjs.com
+# must list this repository and the workflow file `release.yml` as a trusted
+# publisher, with no environment name.
+# ===============================================================
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide whether to release
+        id: plan
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/main | refs/tags/v*) ;;
+            *)
+              echo "::error::Run this workflow from main or from a v* tag (got $GITHUB_REF)."
+              exit 1
+              ;;
+          esac
+
+          V=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [ "$GITHUB_REF" != "refs/tags/v$V" ]; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match package.json version $V."
+            exit 1
+          fi
+          for p in packages/server packages/cli; do
+            PV=$(node -p "require('./$p/package.json').version")
+            if [ "$PV" != "$V" ]; then
+              echo "::error::$p/package.json is $PV but package.json is $V. Run scripts/sync-workspace-versions.mjs."
+              exit 1
+            fi
+          done
+
+          TAG_SHA=$(git ls-remote origin "refs/tags/v$V^{}" | cut -f1)
+          [ -n "$TAG_SHA" ] || TAG_SHA=$(git ls-remote origin "refs/tags/v$V" | cut -f1)
+
+          # Every job builds GITHUB_SHA. A tag on this same commit means a re-run
+          # of this release, so keep going. A tag on another commit means this
+          # version was released from that commit.
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+              echo "Tag v$V already exists on another commit; package.json changed without a version bump. Nothing to release."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::v$V is tagged on another commit. To finish that release, run this workflow on tag v$V."
+            exit 1
+          fi
+
+          PRERELEASE=false
+          case "$V" in *-*) PRERELEASE=true ;; esac
+          {
+            echo "release=true"
+            echo "version=$V"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing v$V from $GITHUB_SHA"
+
+  verify:
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - run: npm ci
+
+      # Build first: the CLI resolves @ibm/ibmi-mcp-server/* through the
+      # server's `exports` map, which points at dist/public/*.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  approve:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: Release
+    steps:
+      - run: echo "Release approved."
+
+  tag:
+    needs: [plan, approve]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create tag v${{ needs.plan.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.plan.outputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$V" >/dev/null 2>&1; then
+            echo "Tag v$V already exists."
+          else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/v$V" -f sha="$SHA" >/dev/null
+            echo "Created tag v$V at $SHA."
+          fi
+
+  npm:
+    needs: [plan, tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      # No dependency cache in release builds.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+      - run: npm run build
+
+      # Server first: the CLI exact-pins it. `npm publish` does not install
+      # dependencies, so the CLI can be published right after.
+      - name: Publish
+        env:
+          V: ${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          DIST_TAG=latest
+          [ "$PRERELEASE" = "true" ] && DIST_TAG=next
+          for pkg in server cli; do
+            NAME=$(node -p "require('./packages/$pkg/package.json').name")
+            if npm view "$NAME@$V" version >/dev/null 2>&1; then
+              echo "$NAME@$V is already on npm. Skipping."
+            else
+              npm publish --workspace "packages/$pkg" --access public --tag "$DIST_TAG"
+            fi
+          done
+
+  docker:
+    needs: [plan, tag]
+    name: docker (${{ matrix.suffix }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+            cache_mode: max
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+            cache_mode: max
+          - platform: linux/ppc64le
+            runner: ubuntu-latest
+            suffix: ppc64le
+            qemu: true
+            cache_mode: min
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set image name
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        if: matrix.qemu
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.platform }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ matrix.suffix }}-v${{ needs.plan.outputs.version }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./packages/server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=build-${{ matrix.suffix }}
+          cache-to: type=gha,mode=${{ matrix.cache_mode }},scope=build-${{ matrix.suffix }}
+          provenance: false
+
+  manifest:
+    needs: [plan, docker, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set image name
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest
+        env:
+          TAG: v${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          # A pre-release does not move `latest`.
+          LATEST=()
+          [ "$PRERELEASE" = "true" ] || LATEST=(--tag "${IMAGE}:latest")
+
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${TAG}" \
+            "${LATEST[@]}" \
+            "${IMAGE}:amd64-${TAG}" "${IMAGE}:arm64-${TAG}" "${IMAGE}:ppc64le-${TAG}"
+
+          docker buildx imagetools inspect "${IMAGE}:${TAG}"
+
+  github:
+    needs: [plan, npm, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "Release v$V already exists."
+            exit 0
+          fi
+
+          NOTES=".github/release-notes/v$V.md"
+          if [ ! -f "$NOTES" ]; then
+            echo "::warning::$NOTES not found. Using the CHANGELOG.md section instead."
+            NOTES=$(mktemp)
+            awk -v v="$V" '
+              index($0, "## [" v "]") == 1 { on = 1; next }
+              on && /^## \[/ { exit }
+              on { print }
+            ' CHANGELOG.md > "$NOTES"
+          fi
+
+          FLAGS=(--latest)
+          [ "$PRERELEASE" = "true" ] && FLAGS=(--prerelease --latest=false)
+
+          gh release create "v$V" --verify-tag --title "v$V" --notes-file "$NOTES" "${FLAGS[@]}"
