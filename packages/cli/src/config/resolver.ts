@@ -20,6 +20,8 @@ function buildLegacySystemConfig(): SystemConfig | null {
   const host = process.env["DB2i_HOST"];
   const user = process.env["DB2i_USER"];
   const password = process.env["DB2i_PASS"];
+  const sshKey = process.env["DB2i_SSH_KEY"] || undefined;
+  const sshHostKeySha256 = process.env["DB2i_SSH_HOST_KEY_SHA256"] || undefined;
 
   if (!host || !user) {
     return null;
@@ -29,6 +31,8 @@ function buildLegacySystemConfig(): SystemConfig | null {
     host,
     user,
     password,
+    ...(sshKey ? { sshKey } : {}),
+    ...(sshHostKeySha256 ? { sshHostKeySha256 } : {}),
     port: SystemConfigSchema.shape.port.parse(process.env["DB2i_PORT"]),
     readOnly: false,
     confirm: false,

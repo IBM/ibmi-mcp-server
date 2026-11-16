@@ -93,6 +93,22 @@ describe("resolveSystem", () => {
     expect(result.config.port).toBe(8047);
   });
 
+  it("should take an SSH key and host key pin from legacy DB2i_* env vars", () => {
+    delete process.env["IBMI_SYSTEM"];
+    delete process.env["DB2i_PASS"];
+    process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_USER"] = "LEGACY";
+    process.env["DB2i_SSH_KEY"] = "~/.ssh/id_ed25519";
+    process.env["DB2i_SSH_HOST_KEY_SHA256"] = "SHA256:abc";
+
+    const result = resolveSystem(undefined, { systems: {} });
+    expect(result.config).toMatchObject({
+      sshKey: "~/.ssh/id_ed25519",
+      sshHostKeySha256: "SHA256:abc",
+    });
+    expect(result.config.password).toBeUndefined();
+  });
+
   it("should default legacy DB2i_PORT to 8076 when unset", () => {
     delete process.env["IBMI_SYSTEM"];
     delete process.env["DB2i_PORT"];

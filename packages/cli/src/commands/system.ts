@@ -1,10 +1,11 @@
 /**
  * @fileoverview `ibmi system` commands for managing IBM i system configurations.
- * Provides list, show, add, remove, default, and test subcommands.
+ * Provides list, show, add, remove, default, test, status and disconnect
+ * subcommands.
  * @module cli/commands/system
  */
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import * as readline from "readline";
 import {
   loadConfig,
@@ -20,9 +21,10 @@ import {
   renderError,
   renderMessage,
 } from "../formatters/output.js";
-import { ExitCode, classifyError } from "../utils/exit-codes.js";
+import { ExitCode, UsageError, classifyError } from "../utils/exit-codes.js";
 import { connectSystem } from "../utils/connection.js";
 import { getFormat, createCliContext } from "../utils/command-helpers.js";
+import { sessionTechnique } from "../session/paths.js";
 
 /** Result of a connection test. */
 interface ConnectionTestResult {
@@ -35,9 +37,19 @@ interface ConnectionTestResult {
   [key: string]: unknown;
 }
 
+/** "ssh · tcp", "ssh · cli" or "mapepire". */
+function transportOf(sys: SystemConfig): string {
+  return sys.sshKey ? `ssh · ${sessionTechnique(sys)}` : "mapepire";
+}
+
+/** Seconds as m:ss. */
+function minutes(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 /**
- * Test connectivity to an IBM i system by opening a connection, running a
- * trivial query, and closing the connection.
+ * Test connectivity to an IBM i system by opening a new connection (never
+ * an open SSH session), running a trivial query, and closing it.
  */
 async function testSystemConnection(
   name: string,
@@ -52,7 +64,7 @@ async function testSystemConnection(
       config: sys,
       source: "flag" as const,
     };
-    cleanup = await connectSystem(resolved);
+    cleanup = await connectSystem(resolved, { fresh: true });
 
     // connectSystem only stages credentials — the pool connects on first query
     const { IBMiConnectionPool } =
@@ -103,6 +115,7 @@ export function registerSystemCommand(program: Command): void {
           HOST: sys.host,
           USER: sys.user,
           PORT: sys.port,
+          TRANSPORT: transportOf(sys),
           READ_ONLY: sys.readOnly ? "yes" : "no",
           VERIFY_TLS: sys.ignoreUnauthorized ? "no" : "yes",
           DEFAULT: name === config.default ? "✓" : "",
@@ -136,6 +149,21 @@ export function registerSystemCommand(program: Command): void {
           { PROPERTY: "port", VALUE: String(sys.port) },
           { PROPERTY: "user", VALUE: sys.user },
           { PROPERTY: "password", VALUE: sys.password ? "****" : "(not set)" },
+          { PROPERTY: "transport", VALUE: transportOf(sys) },
+          ...(sys.sshKey
+            ? [
+                { PROPERTY: "sshKey", VALUE: sys.sshKey },
+                {
+                  PROPERTY: "sshHostKeySha256",
+                  VALUE:
+                    sys.sshHostKeySha256 ?? "(not set: host key not verified)",
+                },
+                {
+                  PROPERTY: "keepSession",
+                  VALUE: String(sys.keepSession !== false),
+                },
+              ]
+            : []),
           { PROPERTY: "defaultSchema", VALUE: sys.defaultSchema ?? "(none)" },
           { PROPERTY: "readOnly", VALUE: String(sys.readOnly) },
           { PROPERTY: "confirm", VALUE: String(sys.confirm) },
@@ -169,6 +197,24 @@ export function registerSystemCommand(program: Command): void {
     .option(
       "--password <password>",
       "Password (or use env var reference: ${MY_PASS})",
+    )
+    .option(
+      "--ssh-key <path>",
+      "Connect over SSH with this private key instead of the Mapepire daemon",
+    )
+    .option(
+      "--ssh-host-key-sha256 <fingerprint>",
+      "Expected SSH host key fingerprint (from ssh-keygen -lf)",
+    )
+    .addOption(
+      new Option(
+        "--ssh-technique <technique>",
+        "JDBC technique over SSH (default: tcp)",
+      ).choices(["tcp", "cli"]),
+    )
+    .option(
+      "--no-keep-session",
+      "Open a new SSH connection for each command instead of keeping a session",
     )
     .option("--description <desc>", "Description")
     .option("--read-only", "Block mutation queries", false)
@@ -220,6 +266,20 @@ export function registerSystemCommand(program: Command): void {
           port,
           user,
           password: opts["password"] as string | undefined,
+          ...(opts["sshKey"]
+            ? {
+                sshKey: opts["sshKey"] as string,
+                ...(opts["sshHostKeySha256"]
+                  ? { sshHostKeySha256: opts["sshHostKeySha256"] as string }
+                  : {}),
+                ...(opts["sshTechnique"]
+                  ? { sshTechnique: opts["sshTechnique"] as "tcp" | "cli" }
+                  : {}),
+                ...(opts["keepSession"] === false
+                  ? { keepSession: false }
+                  : {}),
+              }
+            : {}),
           description: opts["description"] as string | undefined,
           defaultSchema: opts["defaultSchema"] as string | undefined,
           readOnly: opts["readOnly"] as boolean,
@@ -336,6 +396,119 @@ export function registerSystemCommand(program: Command): void {
 
         if (result.STATUS === "error") {
           process.exitCode = ExitCode.GENERAL;
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const classified = classifyError(error);
+        renderError(error, format, undefined, classified.errorCode);
+        process.exitCode = classified.exitCode;
+      }
+    });
+
+  // ── ibmi system status ──
+  system
+    .command("status")
+    .description("Show the transport and SSH session of each system")
+    .action(async (_opts, cmd: Command) => {
+      const format = getFormat(cmd);
+      try {
+        const config = loadConfig();
+        const { listSessions, currentSocket } =
+          await import("../session/client.js");
+        const sessions = await listSessions();
+        const shown = new Set<string>();
+
+        const data = Object.entries(config.systems).map(([name, sys]) => {
+          let session = "-";
+          let pid: number | undefined;
+          if (sys.sshKey && sys.keepSession === false) {
+            session = "off";
+          } else if (sys.sshKey) {
+            const socket = currentSocket({
+              name,
+              config: sys,
+              source: "flag",
+            });
+            const open = sessions.find((s) => s.socket === socket);
+            if (open) {
+              shown.add(open.socket);
+              pid = open.info.pid;
+              session =
+                open.info.state === "open"
+                  ? `open · idle ${minutes(open.info.idleSeconds)} of ${minutes(open.info.idleTimeoutSeconds)}`
+                  : "starting";
+            } else {
+              session = "closed";
+            }
+          }
+          return {
+            SYSTEM: name,
+            TRANSPORT: transportOf(sys),
+            SESSION: session,
+            PID: pid ?? "",
+          };
+        });
+
+        // Sessions opened with other settings, or from DB2i_* variables
+        for (const open of sessions) {
+          if (shown.has(open.socket)) continue;
+          data.push({
+            SYSTEM: open.info.system,
+            TRANSPORT: `ssh · ${open.info.technique}`,
+            SESSION: `open · earlier settings · idle ${minutes(open.info.idleSeconds)} of ${minutes(open.info.idleTimeoutSeconds)}`,
+            PID: open.info.pid,
+          });
+        }
+
+        if (data.length === 0) {
+          renderMessage(
+            "No systems configured. Run: ibmi system add <name>",
+            format,
+          );
+          return;
+        }
+        renderOutput(data, format, { rowCount: data.length });
+      } catch (err) {
+        renderError(
+          err instanceof Error ? err : new Error(String(err)),
+          format,
+        );
+        process.exitCode = ExitCode.GENERAL;
+      }
+    });
+
+  // ── ibmi system disconnect [name] ──
+  system
+    .command("disconnect [name]")
+    .description("Close the SSH session of a system")
+    .option("--all", "Close the SSH sessions of all systems")
+    .action(async (name: string | undefined, opts, cmd: Command) => {
+      const format = getFormat(cmd);
+      try {
+        if (!name && !opts["all"]) {
+          throw new UsageError("Pass a system name, or --all.");
+        }
+        const { listSessions, stopSession } =
+          await import("../session/client.js");
+        const targets = (await listSessions()).filter(
+          (s) => opts["all"] || s.info.system === name,
+        );
+        for (const target of targets) await stopSession(target.socket);
+
+        if (targets.length === 0) {
+          renderMessage(
+            opts["all"]
+              ? "No sessions are open."
+              : `No session is open for system "${name}".`,
+            format,
+          );
+        } else if (opts["all"]) {
+          renderMessage(
+            `Closed ${targets.length} session${targets.length === 1 ? "" : "s"}.`,
+            format,
+          );
+        } else {
+          renderMessage(`Closed the session for ${name}.`, format);
         }
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));

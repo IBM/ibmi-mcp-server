@@ -34,6 +34,13 @@ export const SystemConfigSchema = z.object({
   port: MapepirePortEnvSchema,
   user: z.string().min(1, "user is required"),
   password: z.string().optional(),
+  sshKey: z.string().min(1, "sshKey cannot be empty").optional(),
+  sshHostKeySha256: z
+    .string()
+    .min(1, "sshHostKeySha256 cannot be empty")
+    .optional(),
+  sshTechnique: z.enum(["tcp", "cli"]).optional(),
+  keepSession: z.boolean().optional(),
   defaultSchema: z.string().optional(),
   readOnly: z.boolean().default(false),
   confirm: z.boolean().default(false),

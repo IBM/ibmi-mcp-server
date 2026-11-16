@@ -13,8 +13,23 @@ export interface SystemConfig {
   port: number;
   /** User profile for authentication. */
   user: string;
-  /** Password (supports ${ENV_VAR} expansion). */
+  /** Password (supports ${ENV_VAR} expansion). Not used with `sshKey`. */
   password?: string;
+  /**
+   * Path to an SSH private key. When set, the system connects over SSH with
+   * key authentication only, instead of the Mapepire daemon. A leading `~/`
+   * is expanded.
+   */
+  sshKey?: string;
+  /** Expected SSH host key fingerprint (`SHA256:<base64>` or 64 hex chars). */
+  sshHostKeySha256?: string;
+  /** JDBC technique of the SSH connection. Default: `tcp`. */
+  sshTechnique?: "tcp" | "cli";
+  /**
+   * Keep an SSH session open between commands. Default: `true` when
+   * `sshKey` is set. Not used without `sshKey`.
+   */
+  keepSession?: boolean;
   /** Default schema/library for queries. */
   defaultSchema?: string;
   /** Block mutation queries (INSERT, UPDATE, DELETE, DROP). */

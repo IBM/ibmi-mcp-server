@@ -68,6 +68,10 @@ systems:
 | `maxRows` | number | `5000` | Default row limit for queries |
 | `ignoreUnauthorized` | boolean | `true` | Accept any TLS certificate without verifying it. Set to `false` (or add the system with `--verify-tls`) to verify |
 | `tools` | string[] | — | Default YAML tool path(s) for this system |
+| `sshKey` | string | — | Connect over SSH with this private key. See [SSH Connections](#ssh-connections) |
+| `sshHostKeySha256` | string | — | Expected SSH host key fingerprint |
+| `sshTechnique` | `tcp` \| `cli` | `tcp` | JDBC technique over SSH |
+| `keepSession` | boolean | `true` | Keep an SSH session open between commands |
 
 ---
 
@@ -130,7 +134,7 @@ When a command needs a system connection, the CLI resolves it in this priority o
 
 ## Password Resolution
 
-When a system connection requires authentication:
+When a system connection requires authentication (a system with `sshKey` needs no password):
 
 1. **Config `password` field** — including `${ENV_VAR}` expansion
 2. **Interactive prompt** — if running in a TTY, prompts for password with hidden input
@@ -139,6 +143,63 @@ When a system connection requires authentication:
 <Warning>
 Password values are never logged, displayed in `--watch` headers, or included in error output.
 </Warning>
+
+---
+
+## SSH Connections
+
+A system can connect over SSH instead of the Mapepire daemon. The CLI then starts `mapepire-server` on the IBM i through SSH, so no Mapepire daemon or port `8076` is needed. A system uses SSH when it has an SSH key:
+
+```bash
+ibmi system add dev --host dev.example.com --user MYUSER \
+  --ssh-key ~/.ssh/id_ed25519 \
+  --ssh-host-key-sha256 SHA256:AbC...
+```
+
+```yaml
+systems:
+  dev:
+    host: dev.example.com
+    user: MYUSER
+    sshKey: ~/.ssh/id_ed25519
+    sshHostKeySha256: SHA256:AbC...   # recommended
+```
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `sshKey` | — | Path to a private key, absolute or starting with `~/`. The system then connects over SSH |
+| `sshHostKeySha256` | — | Expected host key fingerprint (`SHA256:<base64>` from `ssh-keygen -lf`, or 64 hex chars). Without it the host key is **not** verified |
+| `sshTechnique` | `tcp` | JDBC technique on the IBM i: `tcp` (JTOpen, a `QZDASOINIT` job) or `cli` (the native driver, often faster) |
+| `keepSession` | `true` | Keep an SSH session open between commands (see below) |
+
+- SSH uses key authentication only. The CLI never asks for a password for an SSH system, and never sends one over SSH.
+- Key setup, supported key formats and host key verification are the same as for the MCP server: see [SSH Transport](/configuration#ssh-transport).
+- `DB2i_SSH_PASSPHRASE` (encrypted keys) and `DB2i_SSH_PORT` (default `22`) are read from the environment.
+- With the [legacy `DB2i_*` fallback](#system-resolution-order), `DB2i_SSH_KEY` and `DB2i_SSH_HOST_KEY_SHA256` select SSH in the same way.
+
+### SSH sessions
+
+An SSH connection takes a few seconds to open (SSH, a Java start and the database connection). So that only the first command pays for it, the CLI keeps an SSH **session** open for each system:
+
+- The first command on the system opens the session. It starts a small background process, the session host, that holds the SSH connection and one SQL job.
+- Later commands send their SQL to the session host. They take well under a second.
+- A session closes after 10 minutes with no command (`IBMI_SESSION_IDLE_SECONDS` changes this), when a statement times out, or with `ibmi system disconnect`.
+- Changed connection settings, or a new CLI version, open a new session. The old one closes when it is idle.
+
+```bash
+ibmi system status            # the transport and session of each system
+ibmi system disconnect dev    # close the session of dev
+ibmi system disconnect --all  # close all sessions
+ibmi sql "VALUES 1" --fresh   # connect for this command only
+```
+
+<Warning>
+All commands on one system share one SQL job while the session is open. What one command sets stays for the next one: `SET SCHEMA`, temporary tables in `SESSION`, uncommitted changes. Run `ibmi system disconnect <name>` or use `--fresh` for a clean job. Set `keepSession: false` (or `system add --no-keep-session`) to open a new connection for every command.
+</Warning>
+
+The session host listens on a socket in `~/.ibmi/run/` that only your OS user can open (directory `0700`, socket `0600`). It gets the system's host, user and key path, never a password. Its log, in the same directory, records when it starts and stops and any connection error, never SQL.
+
+Not covered by sessions: systems with a password (Mapepire daemon), and `ibmi sql --system a,b` runs on several systems, which open their own connections. `ibmi system test` always opens a new connection.
 
 ---
 
@@ -161,6 +222,15 @@ ibmi system show dev
 
 # Set the default system
 ibmi system default prod
+
+# Add a system that connects over SSH
+ibmi system add dev --host dev400.example.com --user DEVUSER --ssh-key ~/.ssh/id_ed25519
+
+# Show the transport and SSH session of each system
+ibmi system status
+
+# Close the SSH session of a system
+ibmi system disconnect dev
 
 # Test connectivity
 ibmi system test dev

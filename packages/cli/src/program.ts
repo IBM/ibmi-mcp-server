@@ -8,9 +8,6 @@
 // First: it has to run before any module of the server is loaded.
 import "./serverAuthMode.js";
 import { Command, Option } from "commander";
-import { readFileSync } from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerSystemCommand } from "./commands/system.js";
 import { registerSchemasCommand } from "./commands/schemas.js";
@@ -26,33 +23,8 @@ import {
   registerToolsetsCommand,
 } from "./commands/tools-list.js";
 import { registerCompletionCommand } from "./commands/completion.js";
-
-/**
- * Load version from package.json.
- */
-function getVersion(): string {
-  try {
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    // Walk up to find package.json (handles both src/ and dist/)
-    let dir = currentDir;
-    for (let i = 0; i < 5; i++) {
-      try {
-        const pkg = JSON.parse(
-          readFileSync(path.join(dir, "package.json"), "utf-8"),
-        );
-        if (pkg.name === "@ibm/ibmi-cli") {
-          return pkg.version as string;
-        }
-      } catch {
-        // Continue searching
-      }
-      dir = path.dirname(dir);
-    }
-  } catch {
-    // Fallback
-  }
-  return "0.0.0";
-}
+import { registerSessionHostCommand } from "./commands/session-host.js";
+import { getVersion } from "./version.js";
 
 /**
  * Create and configure the CLI program.
@@ -86,6 +58,10 @@ export function createProgram(): Command {
     )
     .option("--stream", "Stream results as NDJSON (one JSON object per line)")
     .option("--watch <seconds>", "Re-run command at interval (seconds)")
+    .option(
+      "--fresh",
+      "Connect for this command only; do not use or open an SSH session",
+    )
     .option("--output <path>", "Write output to file instead of stdout");
 
   // Register command groups
@@ -102,6 +78,7 @@ export function createProgram(): Command {
   registerToolsCommand(program);
   registerToolsetsCommand(program);
   registerCompletionCommand(program);
+  registerSessionHostCommand(program);
 
   // Add a helpful message for when no command is given
   program.action(() => {

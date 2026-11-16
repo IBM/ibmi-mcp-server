@@ -169,7 +169,9 @@ export async function withConnection(
 
     try {
       resolved = resolveSystem(opts["system"] as string | undefined);
-      cleanup = await connectSystem(resolved);
+      cleanup = await connectSystem(resolved, {
+        fresh: opts["fresh"] === true,
+      });
 
       const ctx = createCliContext(toolName);
       const startTime = Date.now();

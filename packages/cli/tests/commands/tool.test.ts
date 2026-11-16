@@ -23,9 +23,8 @@ vi.mock("@ibm/ibmi-mcp-server/services", async (importOriginal) => {
     await importOriginal<typeof import("@ibm/ibmi-mcp-server/services")>();
   return {
     ...actual,
-    IBMiConnectionPool: {
-      executeQuery: vi.fn().mockResolvedValue({ data: [{ OK: 1 }] }),
-    },
+    // ibmi tool runs its statement through the query router
+    executeQuery: vi.fn().mockResolvedValue({ data: [{ OK: 1 }] }),
     ParameterProcessor: {
       process: vi.fn().mockResolvedValue({
         sql: "SELECT 1",
@@ -554,8 +553,7 @@ describe("ibmi tool command — parameter handling", () => {
   });
 
   it("should reject a non-integer value for an integer parameter (exit 2)", async () => {
-    const { IBMiConnectionPool } =
-      await import("@ibm/ibmi-mcp-server/services");
+    const { executeQuery } = await import("@ibm/ibmi-mcp-server/services");
 
     const program = createProgram();
     program.exitOverride();
@@ -575,12 +573,11 @@ describe("ibmi tool command — parameter handling", () => {
     expect(stderrOutput).toMatch(/--limit/);
     expect(stderrOutput).toMatch(/Expected an integer/);
     expect(process.exitCode).toBe(2);
-    expect(IBMiConnectionPool.executeQuery).not.toHaveBeenCalled();
+    expect(executeQuery).not.toHaveBeenCalled();
   });
 
   it("should reject an option the tool does not define (exit 2)", async () => {
-    const { IBMiConnectionPool } =
-      await import("@ibm/ibmi-mcp-server/services");
+    const { executeQuery } = await import("@ibm/ibmi-mcp-server/services");
 
     const program = createProgram();
     program.exitOverride();
@@ -599,11 +596,11 @@ describe("ibmi tool command — parameter handling", () => {
 
     expect(stderrOutput).toMatch(/unknown option '--limt'/);
     expect(process.exitCode).toBe(2);
-    expect(IBMiConnectionPool.executeQuery).not.toHaveBeenCalled();
+    expect(executeQuery).not.toHaveBeenCalled();
   });
 
   it("should bind parameters even when no optional parameter is passed", async () => {
-    const { IBMiConnectionPool, ParameterProcessor } =
+    const { executeQuery, ParameterProcessor } =
       await import("@ibm/ibmi-mcp-server/services");
 
     const program = createProgram();
@@ -621,9 +618,7 @@ describe("ibmi tool command — parameter handling", () => {
 
     expect(ParameterProcessor.process).toHaveBeenCalledTimes(1);
     // The processed SQL (markers replaced) is what gets executed, not the raw statement
-    expect(vi.mocked(IBMiConnectionPool.executeQuery).mock.calls[0]?.[0]).toBe(
-      "SELECT 1",
-    );
+    expect(vi.mocked(executeQuery).mock.calls[0]?.[0]).toBe("SELECT 1");
   });
 
   it("should write results to the --output file instead of stdout", async () => {
@@ -709,15 +704,14 @@ describe("ibmi tool command — parameter handling", () => {
     const { existsSync, readFileSync, unlinkSync } = await import("fs");
     const os = await import("os");
     const path = await import("path");
-    const { IBMiConnectionPool } =
-      await import("@ibm/ibmi-mcp-server/services");
+    const { executeQuery } = await import("@ibm/ibmi-mcp-server/services");
     const outputFile = path.join(
       os.tmpdir(),
       `ibmi-test-${Date.now()}-watch.csv`,
     );
 
     let fileBeforeSecondRun = "";
-    vi.mocked(IBMiConnectionPool.executeQuery)
+    vi.mocked(executeQuery)
       .mockResolvedValueOnce({ data: [{ RUN: 1 }] } as never)
       .mockImplementationOnce((async () => {
         fileBeforeSecondRun = readFileSync(outputFile, "utf-8");
@@ -743,7 +737,7 @@ describe("ibmi tool command — parameter handling", () => {
         "/fake.yaml",
       ]);
 
-      expect(IBMiConnectionPool.executeQuery).toHaveBeenCalledTimes(2);
+      expect(executeQuery).toHaveBeenCalledTimes(2);
       // Written after the first run, then replaced (not appended to) by the second
       expect(fileBeforeSecondRun).toBe("RUN\n1\n");
       expect(readFileSync(outputFile, "utf-8")).toBe("RUN\n2\n");
