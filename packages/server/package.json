@@ -63,7 +63,7 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.8",
     "@ibm/mapepire-js": "^1.1.0",
     "@modelcontextprotocol/server": "^2.4.0",
     "@opentelemetry/api": "^1.9.0",
