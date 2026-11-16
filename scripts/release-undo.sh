@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # release-undo.sh
-# Undoes a local release (before pushing).
+# Undoes a prepared release, or closes an unmerged release pull request.
 
 set -e
 
@@ -38,7 +38,6 @@ fi
 
 if [[ "$(git log -1 --pretty=%B)" =~ ^chore\(release\): ]]; then
     RELEASE_COMMIT=true
-    LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 fi
 
 # Scenario A: only uncommitted prepare changes
@@ -58,38 +57,34 @@ if [ "$UNCOMMITTED_CHANGES" = true ] && [ "$RELEASE_COMMIT" = false ]; then
 
     git checkout HEAD -- "${RELEASE_FILES[@]}"
     echo -e "${GREEN}✓ Reset release files to HEAD${NC}"
+    echo "Release notes in .github/release-notes/ are left in place."
     echo ""
     echo -e "${GREEN}✓ Release preparation undone successfully${NC}"
     exit 0
 fi
 
-# Scenario B: committed and tagged
+# Scenario B: release committed on a release/v<version> branch
 if [ "$RELEASE_COMMIT" = true ]; then
-    if [ -n "$LATEST_TAG" ] && git ls-remote --tags origin | grep -q "refs/tags/$LATEST_TAG"; then
-        VERSION=${LATEST_TAG#v}
-        echo -e "${RED}Error: Tag $LATEST_TAG has already been pushed to remote${NC}"
-        echo ""
-        echo "To undo a pushed release, you need to:"
-        echo "  1. Delete the GitHub release (if created)"
-        echo "  2. Unpublish from npm (within 72 hours):"
-        echo -e "     ${GREEN}npm unpublish @ibm/ibmi-mcp-server@${VERSION}${NC}"
-        echo -e "     ${GREEN}npm unpublish @ibm/ibmi-cli@${VERSION}${NC}"
-        echo "  3. Delete the remote tag:"
-        echo -e "     ${GREEN}git push origin :refs/tags/$LATEST_TAG${NC}"
-        echo "  4. Reset the commit:"
-        echo -e "     ${GREEN}git reset --hard HEAD~1${NC}"
-        echo "  5. Force push:"
-        echo -e "     ${GREEN}git push --force origin main${NC}"
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    VERSION=$(node -p "require('./package.json').version")
+
+    if [ "$BRANCH" != "release/v$VERSION" ]; then
+        echo -e "${RED}Error: HEAD is a release commit but the branch is '$BRANCH', not 'release/v$VERSION'${NC}"
+        echo "Undo only works on an unmerged release branch."
         exit 1
     fi
 
-    echo -e "${BLUE}Detected: Finalized release (committed and tagged)${NC}"
-    [ -n "$LATEST_TAG" ] && echo "Release: $LATEST_TAG"
-    echo "Commit: $(git rev-parse --short HEAD)"
+    if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+        echo -e "${RED}Error: v$VERSION is already released (tag v$VERSION exists on origin)${NC}"
+        echo "A published npm version cannot be reused. Release a new patch version instead."
+        exit 1
+    fi
+
+    echo -e "${BLUE}Detected: Release commit on $BRANCH${NC}"
     echo ""
     echo -e "${YELLOW}This will:${NC}"
-    [ -n "$LATEST_TAG" ] && echo "  • Delete tag $LATEST_TAG"
-    echo "  • Reset HEAD to previous commit"
+    echo "  • Close the release pull request and delete $BRANCH on origin (if pushed)"
+    echo "  • Switch to main and delete the local $BRANCH branch"
     echo ""
 
     read -p "Are you sure you want to undo this release? (y/N) " -n 1 -r
@@ -99,13 +94,15 @@ if [ "$RELEASE_COMMIT" = true ]; then
         exit 0
     fi
 
-    if [ -n "$LATEST_TAG" ]; then
-        git tag -d "$LATEST_TAG"
-        echo -e "${GREEN}✓ Deleted tag $LATEST_TAG${NC}"
+    if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+        gh pr close "$BRANCH" --repo IBM/ibmi-mcp-server --delete-branch \
+            || git push origin --delete "$BRANCH"
+        echo -e "${GREEN}✓ Closed the release PR and deleted origin/$BRANCH${NC}"
     fi
 
-    git reset --hard HEAD~1
-    echo -e "${GREEN}✓ Reset to previous commit${NC}"
+    git switch main
+    git branch -D "$BRANCH"
+    echo -e "${GREEN}✓ Deleted local branch $BRANCH${NC}"
     exit 0
 fi
 

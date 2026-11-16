@@ -43,7 +43,7 @@ npm run validate -- --tools <file.yaml>     # Validate a single tool YAML file
 # Release (see RELEASING.md)
 npm run release:prepare:patch   # Patch version bump (no commit)
 npm run release:prepare:minor   # Minor version bump (no commit)
-npm run release:finalize        # Commit, tag, and push
+npm run release:finalize        # Commit on release/vX.Y.Z and open the release PR
 ```
 
 ### Run the server with npx

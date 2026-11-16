@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 
 # release-finalize.sh
-# Commits the release prepared by release-prepare.sh, tags it, pushes to origin.
+# Commits the release prepared by release-prepare.sh on a release/v<version>
+# branch, pushes it, and opens the release pull request. Merging that pull
+# request starts .github/workflows/release.yml, which tags, publishes and
+# creates the GitHub Release.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO="IBM/ibmi-mcp-server"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -15,7 +19,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  IBM i MCP Server monorepo - Finalize Release${NC}"
+echo -e "${BLUE}  IBM i MCP Server monorepo - Open Release PR${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -42,57 +46,62 @@ if [[ "$(git log -1 --pretty=%B)" =~ ^chore\(release\): ]]; then
 fi
 
 VERSION=$(node -p "require('./package.json').version")
+NOTES=".github/release-notes/v$VERSION.md"
+BRANCH="release/v$VERSION"
+
+if [ ! -s "$NOTES" ]; then
+    echo -e "${RED}Error: $NOTES is missing or empty${NC}"
+    echo "Write the release notes first (the /release skill does this)."
+    exit 1
+fi
+
 echo "Release version: v$VERSION"
 echo ""
-
-echo -e "${BLUE}Review the changelog one last time:${NC}"
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-awk '/^## \['$VERSION'\]/,/^## \[/ {if (/^## \[/ && !first) {first=1; print; next} if (!second && /^## \[/) {second=1; exit} if (first) print}' CHANGELOG.md
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
 echo -e "${YELLOW}This will:${NC}"
-echo "  • Stage: ${RELEASE_FILES[*]}"
-echo "  • Create commit: chore(release): $VERSION"
-echo "  • Create tag: v$VERSION"
-echo "  • Push commit + tag to origin/main"
-echo "  • Trigger GitHub Actions workflow (publishes both packages)"
+echo "  • Create branch $BRANCH"
+echo "  • Commit ${RELEASE_FILES[*]} $NOTES"
+echo "    as: chore(release): $VERSION"
+echo "  • Push the branch and open a pull request against main"
+echo ""
+echo "Nothing is published until the pull request is merged and the"
+echo "Release environment is approved."
 echo ""
 
-read -p "Are you ready to finalize this release? (y/N) " -n 1 -r
+read -p "Open the release PR? (y/N) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Release cancelled. Run ./scripts/release-undo.sh to reset changes."
+    echo "Cancelled. Run ./scripts/release-undo.sh to reset changes."
     exit 0
 fi
 
-echo ""
-echo -e "${BLUE}Creating release commit and tag...${NC}"
-
-git add "${RELEASE_FILES[@]}"
+git switch -c "$BRANCH"
+git add "${RELEASE_FILES[@]}" "$NOTES"
 git commit -s -m "chore(release): $VERSION"
-echo -e "${GREEN}✓ Created commit: chore(release): $VERSION${NC}"
+echo -e "${GREEN}✓ Committed chore(release): $VERSION on $BRANCH${NC}"
 
-git tag -a "v$VERSION" -m "chore(release): $VERSION"
-echo -e "${GREEN}✓ Created tag: v$VERSION${NC}"
+git push -u origin "$BRANCH"
+
+BODY=$(mktemp)
+{
+    echo "Merging this pull request releases **v$VERSION** of \`@ibm/ibmi-mcp-server\` and \`@ibm/ibmi-cli\`."
+    echo ""
+    echo "After the merge, the [Release workflow](https://github.com/$REPO/actions/workflows/release.yml) runs the checks and waits for approval of the \`Release\` environment. Then it tags \`v$VERSION\`, publishes both packages to npm and the image to ghcr.io, and creates the GitHub Release from \`$NOTES\`."
+    echo ""
+    echo "The release notes below are the GitHub Release body. Edit \`$NOTES\` on this branch to change them."
+    echo ""
+    echo "---"
+    echo ""
+    cat "$NOTES"
+} > "$BODY"
+
+PR_URL=$(gh pr create --repo "$REPO" --base main --head "$BRANCH" \
+    --title "chore(release): $VERSION" --body-file "$BODY")
+rm -f "$BODY"
 
 echo ""
-echo -e "${BLUE}Pushing to GitHub...${NC}"
-git push --follow-tags origin main
-
-echo ""
-echo -e "${GREEN}✓ Release pushed successfully!${NC}"
+echo -e "${GREEN}✓ Release PR opened: $PR_URL${NC}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
-echo "  1. Monitor: ${GREEN}https://github.com/IBM/ibmi-mcp-server/actions${NC}"
-echo "  2. Approve the Release environment if required"
-echo "  3. After both packages publish, create GitHub release:"
-echo "     ${GREEN}https://github.com/IBM/ibmi-mcp-server/releases/new?tag=v$VERSION${NC}"
-echo "  4. Verify npm publications:"
-echo "     ${GREEN}npm view @ibm/ibmi-mcp-server@$VERSION${NC}"
-echo "     ${GREEN}npm view @ibm/ibmi-cli@$VERSION${NC}"
-echo ""
-echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Release v$VERSION is on its way! 🚀${NC}"
-echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
+echo "  1. Review and merge the PR"
+echo "  2. Approve the Release environment:"
+echo -e "     ${GREEN}https://github.com/$REPO/actions/workflows/release.yml${NC}"
