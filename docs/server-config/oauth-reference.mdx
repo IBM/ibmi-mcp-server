@@ -88,7 +88,7 @@ The server exits with a message that names the setting when:
 - The transport is stdio.
 - `MCP_HTTP_HOST` is not loopback and no TLS certificate is set, or only one of the two TLS files is set.
 - A public `MCP_RESOURCE_URL` is served from a loopback `MCP_HTTP_HOST` and `MCP_TRUSTED_PROXIES` has no loopback entry.
-- `DB2i_HOST` is missing, or `DB2i_PASS` is set.
+- `DB2i_HOST` is missing, or `DB2i_PASS` or `DB2i_SSH_KEY` is set.
 - Certificate settings conflict: both files set, or a file plus `DB2i_IGNORE_UNAUTHORIZED=true`, or a file that holds no certificate.
 - `DB2i_JDBC_OPTIONS` has a key outside the allowed list.
 - `OAUTH_JWKS_URI`, `OAUTH_AUDIENCE` or `IBMI_HTTP_AUTH_ENABLED=true` is set.

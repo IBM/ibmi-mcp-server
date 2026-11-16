@@ -127,8 +127,20 @@ class SSHSession {
       !this.dead &&
       this.client !== null &&
       this.job !== null &&
-      this.job.getStatus() !== "ended"
+      this.job.getStatus() !== "ended" &&
+      // mapepire-js 1.x does not end a job when its connection drops (the
+      // remote mapepire-server exits while the SSH client stays open): the
+      // transport is then the only thing that says so.
+      this.job.getTransport?.()?.isConnected?.() !== false
     );
+  }
+
+  /**
+   * True when the session connected and its job has since been lost, while
+   * leases still hold it. Such a session is never reused.
+   */
+  get isLost(): boolean {
+    return this.alive && !this.dead && !this.isAlive();
   }
 
   /** The session's one job while it is usable. */
@@ -391,6 +403,12 @@ export function acquireSSHSession(
 ): SSHSessionLease {
   const key = sessionKey(ssh, jdbcOptions);
   let session = sessions.get(key);
+  if (session?.isLost) {
+    // Other pools still hold a lease on it, so nothing has closed it yet.
+    // Closing it marks it dead for them too; each takes a new lease on the
+    // new session with its next statement.
+    void session.close();
+  }
   if (!session || session.isDead) {
     const created: SSHSession = new SSHSession(ssh, jdbcOptions, (s) => {
       if (sessions.get(key) === s) sessions.delete(key);

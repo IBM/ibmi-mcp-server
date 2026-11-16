@@ -104,4 +104,44 @@ describe("pool re-initialization over a dead SSH session", () => {
     await vi.waitFor(() => expect(jobs[1]!.close).toHaveBeenCalledTimes(1));
     expect(clients[1]!.end).toHaveBeenCalledTimes(1);
   });
+
+  it("gives a pool a new session when the job it shares with another pool lost its connection", async () => {
+    // The normal DB2i_SSH_KEY setup: the built-in pool and a YAML source hold
+    // leases on one session.
+    const pool = new TestPool();
+    const cfg: PoolConnectionConfig = {
+      host: "unused",
+      user: "unused",
+      password: "",
+      ssh: {
+        host: "shared.example.com",
+        port: 22,
+        username: "TESTUSER",
+        privateKey: Buffer.from("fake-key"),
+        technique: "tcp",
+      },
+    };
+    await pool.init("builtin", cfg);
+    await pool.init("source", cfg);
+    expect(jobs).toHaveLength(1);
+
+    // What mapepire-js 1.x does when the remote mapepire-server exits and
+    // the SSH client stays open: the transport is no longer connected, and
+    // the job keeps its status.
+    Object.assign(jobs[0]!, {
+      getTransport: () => ({ isConnected: () => false }),
+    });
+
+    await pool.run("source");
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]!.query).not.toHaveBeenCalled();
+    expect(jobs[1]!.query).toHaveBeenCalledTimes(1);
+
+    // The other pool moves to the new session too, and shares it.
+    await pool.run("builtin");
+    expect(jobs).toHaveLength(2);
+    expect(jobs[1]!.query).toHaveBeenCalledTimes(2);
+
+    await pool.closeAllPools();
+  });
 });
