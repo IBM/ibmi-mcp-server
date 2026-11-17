@@ -63,7 +63,7 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.9",
     "@ibm/mapepire-js": "^1.1.0",
     "@modelcontextprotocol/server": "^2.4.0",
     "@opentelemetry/api": "^1.9.0",
@@ -76,7 +76,7 @@
     "@opentelemetry/sdk-trace-node": "^2.0.1",
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "dotenv": "^16.6.1",
-    "hono": "^4.8.9",
+    "hono": "^4.13.19",
     "jose": "^6.0.13",
     "js-yaml": "^4.1.0",
     "pino": "^9.9.0",
@@ -100,7 +100,7 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.20.4",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.40.0",
+    "typescript-eslint": "^8.73.0",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^4.1.12"
   },
