@@ -1,0 +1,147 @@
+/**
+ * Write Source to IFS Tool
+ *
+ * Writes IBM i source code to IFS using QSYS2.IFS_WRITE_UTF8.
+ * This is cleaner than writing to source physical file members.
+ *
+ * @module writeSourceToIfs.tool
+ */
+
+import { z } from "zod";
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import { JsonRpcErrorCode, McpError } from "../../../types-global/errors.js";
+import type { RequestContext } from "../../../utils/index.js";
+import { logger } from "../../../utils/internal/logger.js";
+import { IBMiConnectionPool } from "../../services/connectionPool.js";
+import { defineTool } from "../../../mcp-server/tools/utils/tool-factory.js";
+import type { SdkContext } from "../../../mcp-server/tools/utils/types.js";
+
+// =============================================================================
+// Schemas
+// =============================================================================
+
+const WriteSourceToIfsInputSchema = z.object({
+  ifs_path: z
+    .string()
+    .min(1, "IFS path cannot be empty.")
+    .describe(
+      "IFS path for the source file (e.g., '/home/user/src/MYPROG.sqlrpgle')"
+    ),
+  source_code: z
+    .string()
+    .min(1, "Source code cannot be empty.")
+    .describe("Complete source code content to write"),
+  overwrite: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Overwrite file if it exists (default: true)"),
+});
+
+const WriteSourceToIfsOutputSchema = z.object({
+  success: z.boolean().describe("Whether the operation was successful."),
+  ifsPath: z.string().optional(),
+  linesWritten: z.number().optional().describe("Number of lines written"),
+  executionTime: z.number().optional().describe("Execution time in milliseconds"),
+  error: z
+    .object({
+      code: z.string().describe("Error code"),
+      message: z.string().describe("Error message"),
+      details: z.record(z.unknown()).optional().describe("Error details"),
+    })
+    .optional()
+    .describe("Error information if the operation failed."),
+});
+
+type WriteSourceToIfsInput = z.infer<typeof WriteSourceToIfsInputSchema>;
+type WriteSourceToIfsOutput = z.infer<typeof WriteSourceToIfsOutputSchema>;
+
+// =============================================================================
+// Business Logic
+// =============================================================================
+
+export async function writeSourceToIfsLogic(
+  params: WriteSourceToIfsInput,
+  appContext: RequestContext,
+  _sdkContext: SdkContext,
+): Promise<WriteSourceToIfsOutput> {
+  logger.debug(
+    { ...appContext, toolInput: params },
+    "Processing write source to IFS logic."
+  );
+
+  const startTime = Date.now();
+  const { ifs_path, source_code, overwrite } = params;
+
+  const pool = IBMiConnectionPool.getInstance();
+  const job = await pool.getJob();
+
+  try {
+    // Count lines for reporting
+    const lines = source_code.split("\n");
+    const lineCount = lines.length;
+
+    logger.info({ ...appContext, ifsPath: ifs_path, lineCount }, "Writing source to IFS");
+
+    // Use QSYS2.IFS_WRITE_UTF8 to write the source code
+    const overwriteMode = overwrite ? "REPLACE" : "APPEND";
+    
+    // Build SQL statement - we need to write line by line or use a stored procedure
+    // For simplicity, we'll write the entire content as a single call
+    const sql = `
+      CALL QSYS2.IFS_WRITE_UTF8(
+        PATH_NAME => ?,
+        LINE => ?,
+        OVERWRITE => '${overwriteMode}',
+        END_OF_LINE => 'LF'
+      )
+    `;
+
+    // Execute the write
+    await job.query(sql, {
+      parameters: [ifs_path, source_code],
+    });
+
+    const executionTime = Date.now() - startTime;
+
+    logger.info(
+      { ...appContext, ifsPath: ifs_path, linesWritten: lineCount, executionTime },
+      "Successfully wrote source to IFS"
+    );
+
+    return {
+      success: true,
+      ifsPath: ifs_path,
+      linesWritten: lineCount,
+      executionTime,
+    };
+  } catch (error) {
+    const executionTime = Date.now() - startTime;
+    logger.error(
+      { ...appContext, error, ifsPath: ifs_path, executionTime },
+      "Failed to write source to IFS"
+    );
+
+    throw new McpError(
+      JsonRpcErrorCode.InternalError,
+      `Failed to write source to IFS: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        ifsPath: ifs_path,
+        error: String(error),
+      }
+    );
+  } finally {
+    await pool.returnJob(job);
+  }
+}
+
+// =============================================================================
+// Tool Registration
+// =============================================================================
+
+export const writeSourceToIfsTool = defineTool({
+  name: "write_source_to_ifs",
+  description: `Write IBM i source code to IFS (Integrated File System) using QSYS2.IFS_WRITE_UTF8. This is the recommended approach for modern IBM i development as it's cleaner than writing to source physical file members. The source can then be compiled directly from the stream file using SRCSTMF parameter.`,
+  inputSchema: WriteSourceToIfsInputSchema,
+  logic: writeSourceToIfsLogic,
+});
