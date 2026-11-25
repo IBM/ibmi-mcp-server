@@ -38,7 +38,9 @@ function buildLegacySystemConfig(): SystemConfig | null {
     confirm: false,
     timeout: 60,
     maxRows: 5000,
-    ignoreUnauthorized: process.env["DB2i_IGNORE_UNAUTHORIZED"] !== "false",
+    ignoreUnauthorized:
+      process.env["DB2i_IGNORE_UNAUTHORIZED"] === "true" ||
+      process.env["DB2i_IGNORE_UNAUTHORIZED"] === "1",
   };
 }
 

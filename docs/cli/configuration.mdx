@@ -66,7 +66,7 @@ systems:
 | `confirm` | boolean | `false` | Prompt for confirmation before `ibmi sql` and `ibmi tool` execute. `ibmi sql --yes` skips the prompt. Without a terminal, a single-system command runs without asking; a multi-system `ibmi sql` requires `--yes` |
 | `timeout` | number | `60` | Query timeout in seconds |
 | `maxRows` | number | `5000` | Default row limit for queries |
-| `ignoreUnauthorized` | boolean | `true` | Accept any TLS certificate without verifying it. Set to `false` (or add the system with `--verify-tls`) to verify |
+| `ignoreUnauthorized` | boolean | `false` | When `true`, accept any TLS certificate without verifying it (test systems only). The default verifies it |
 | `tools` | string[] | — | Default YAML tool path(s) for this system |
 | `sshKey` | string | — | Connect over SSH with this private key. See [SSH Connections](#ssh-connections) |
 | `sshHostKeySha256` | string | — | Expected SSH host key fingerprint |

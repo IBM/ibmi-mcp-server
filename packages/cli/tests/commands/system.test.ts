@@ -636,7 +636,7 @@ describe("ibmi system add", () => {
     expect(sysConfig.defaultSchema).toBe("DEVLIB");
   });
 
-  it("should turn on TLS certificate verification only with --verify-tls", async () => {
+  it("should verify the TLS certificate unless --no-verify-tls is given", async () => {
     const addWith = async (...flags: string[]) => {
       mockUpsertSystem.mockReset();
       await captureStdout(async () => {
@@ -660,10 +660,10 @@ describe("ibmi system add", () => {
       return mockUpsertSystem.mock.calls[0]![1].ignoreUnauthorized;
     };
 
-    // The default is unchanged: certificates are not verified
-    expect(await addWith()).toBe(true);
-    expect(await addWith("--no-verify-tls")).toBe(true);
+    // The default verifies the certificate
+    expect(await addWith()).toBe(false);
     expect(await addWith("--verify-tls")).toBe(false);
+    expect(await addWith("--no-verify-tls")).toBe(true);
   });
 
   it("should use default port 8076 when --port is not specified", async () => {

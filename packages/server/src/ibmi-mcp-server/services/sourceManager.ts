@@ -57,7 +57,7 @@ export class SourceManager extends BaseConnectionPool<string> {
       a.user !== b.user ||
       a.password !== b.password ||
       (a.port ?? DEFAULT_MAPEPIRE_PORT) !== (b.port ?? DEFAULT_MAPEPIRE_PORT) ||
-      (a.ignoreUnauthorized ?? true) !== (b.ignoreUnauthorized ?? true) ||
+      (a.ignoreUnauthorized ?? false) !== (b.ignoreUnauthorized ?? false) ||
       !sshCredentialsEqual(a.ssh, b.ssh)
     ) {
       return false;

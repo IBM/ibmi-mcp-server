@@ -111,7 +111,7 @@ describe("ToolConfigBuilder loading", () => {
         "a.yaml": source("localhost") + tool("tool_a"),
         "b.yaml":
           source("localhost") +
-          "    port: 8076\n    ignore-unauthorized: true\n" +
+          "    port: 8076\n    ignore-unauthorized: false\n" +
           tool("tool_b"),
       });
 

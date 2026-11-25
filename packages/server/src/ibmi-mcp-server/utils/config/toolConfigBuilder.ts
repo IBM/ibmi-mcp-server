@@ -66,7 +66,7 @@ export interface ConfigMergeOptions {
 const withSourceDefaults = (source: SourceConfig): SourceConfig => ({
   ...source,
   port: source.port ?? DEFAULT_MAPEPIRE_PORT,
-  "ignore-unauthorized": source["ignore-unauthorized"] ?? true,
+  "ignore-unauthorized": source["ignore-unauthorized"] ?? false,
 });
 
 /** Characters that make a tools path a glob pattern when no such file exists. */

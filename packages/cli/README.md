@@ -162,7 +162,7 @@ ibmi system disconnect dev                # close the SSH session of dev (--all 
 ibmi system config-path                   # show config file locations
 ```
 
-`system add` does not verify the server's TLS certificate unless `--verify-tls` is given (it stores `ignoreUnauthorized: false`). `system show` reports this as `verifyTls`, and `system list` as the `VERIFY_TLS` column.
+`system add` verifies the server's TLS certificate unless `--no-verify-tls` is given (it then stores `ignoreUnauthorized: true`; `--verify-tls` is the default and stores `ignoreUnauthorized: false`). `system show` reports this as `verifyTls`, and `system list` as the `VERIFY_TLS` column.
 
 ### `ibmi config show` — Inspect Configuration
 

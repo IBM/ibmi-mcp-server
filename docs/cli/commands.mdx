@@ -269,7 +269,7 @@ Manage named system connections in `.ibmi/config.yaml`.
 ```bash
 ibmi system list                          # list all configured systems
 ibmi system show dev                      # show system details
-ibmi system add dev --host h --user u     # add (prompts for missing fields)
+ibmi system add dev --host h --user u --no-verify-tls # add (prompts for missing fields)
 ibmi system add prod --host h --user u --verify-tls   # verify the TLS certificate
 ibmi system remove dev                    # remove a system
 ibmi system default dev                   # set default system
@@ -293,7 +293,7 @@ ibmi system config-path                   # show config file locations
 | `disconnect [name]` | Close the SSH session of a system (`--all` for all systems) |
 | `config-path` | Show config file locations |
 
-`system add` options: `--host`, `--port` (default `8076`), `--user`, `--password`, `--description`, `--read-only`, `--default-schema`, `--verify-tls` / `--no-verify-tls`, and for an [SSH system](/cli/configuration#ssh-connections) `--ssh-key`, `--ssh-host-key-sha256`, `--ssh-technique tcp|cli` and `--no-keep-session`. By default the server's TLS certificate is **not** verified (`ignoreUnauthorized: true`); `--verify-tls` stores `ignoreUnauthorized: false`. `system show` reports the setting as `verifyTls`, and `system list` in the `VERIFY_TLS` column.
+`system add` options: `--host`, `--port` (default `8076`), `--user`, `--password`, `--description`, `--read-only`, `--default-schema`, `--verify-tls` / `--no-verify-tls`, and for an [SSH system](/cli/configuration#ssh-connections) `--ssh-key`, `--ssh-host-key-sha256`, `--ssh-technique tcp|cli` and `--no-keep-session`. By default the server's TLS certificate is verified (`ignoreUnauthorized: false`); `--no-verify-tls` stores `ignoreUnauthorized: true` and accepts any certificate, so use it on test systems only. `system show` reports the setting as `verifyTls`, and `system list` in the `VERIFY_TLS` column.
 
 ### `ibmi config show`
 

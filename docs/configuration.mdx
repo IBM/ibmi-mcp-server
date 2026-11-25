@@ -614,15 +614,17 @@ The built-in sign-on also needs `DB2i_HOST`, refuses `DB2i_PASS` and `DB2i_SSH_K
 | `DB2i_USER` | IBM i user profile | (none) | `MYUSER` | Service account: all SQL runs as this profile, including under OAuth |
 | `DB2i_PASS` | IBM i user password | (none) | `mypassword` | Never commit to version control |
 | `DB2i_PORT` | Mapepire daemon port | `8076` | `8076` | Empty or unset also defaults to `8076` |
-| `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `true` | `false` | ⚠️ **High Risk**: Set `false` in production |
+| `DB2i_IGNORE_UNAUTHORIZED` | Skip TLS certificate verification | `false` | `true` | ⚠️ **High Risk**: `true` accepts any certificate. Test systems only |
 | `DB2i_JDBC_OPTIONS` | Mapepire JDBC options ([syntax](#db2i-jdbc-options-env-var)) | (none) | `naming=system;date format=iso` | `key ring password` redacted from logs |
 
 <Warning>
-**Security Alert**: `DB2i_IGNORE_UNAUTHORIZED=true` disables TLS certificate verification, making connections vulnerable to man-in-the-middle attacks.
+**Security Alert**: `DB2i_IGNORE_UNAUTHORIZED=true` disables TLS certificate verification, making connections vulnerable to man-in-the-middle attacks. Certificates are verified by default.
 
 **Use this setting:**
 - ✅ Development with self-signed Mapepire certificates
 - ❌ Production environments (use proper TLS certificates)
+
+**Upgrading:** earlier versions defaulted to `true`. A setup with a self-signed Mapepire certificate that left the variable unset now fails to connect until it sets `DB2i_IGNORE_UNAUTHORIZED=true` (test systems only) or installs a trusted certificate. The same applies to the `ignore-unauthorized` field of YAML sources, which now defaults to `false`.
 </Warning>
 
 <Tabs>
