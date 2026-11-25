@@ -219,8 +219,12 @@ export function registerSystemCommand(program: Command): void {
     .option("--description <desc>", "Description")
     .option("--read-only", "Block mutation queries", false)
     .option("--default-schema <schema>", "Default schema/library")
-    .option("--verify-tls", "Verify the server's TLS certificate", false)
-    .option("--no-verify-tls", "Accept any TLS certificate (default)")
+    .option(
+      "--verify-tls",
+      "Verify the server's TLS certificate (default)",
+      true,
+    )
+    .option("--no-verify-tls", "Accept any TLS certificate")
     .action(async (name: string, opts, cmd: Command) => {
       const format = getFormat(cmd);
       try {

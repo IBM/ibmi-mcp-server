@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## Unreleased
+
+### ⚠ BREAKING CHANGES
+
+* **The Mapepire TLS certificate is verified by default** (Server, CLI). `DB2i_IGNORE_UNAUTHORIZED` and the YAML source field `ignore-unauthorized` now default to `false`. Before, an unset setting accepted any certificate, so anyone on the network path between the server and the IBM i could read the IBM i credentials and the SQL traffic. Deployments that connect to a Mapepire daemon with a self-signed certificate must now set `DB2i_IGNORE_UNAUTHORIZED=true` (and `ignore-unauthorized: true` on YAML sources) explicitly, or install a certificate that the Node.js trust store accepts. The shipped `.env.example` files and `tools/` examples no longer disable verification. The `ibmi` CLI follows: `ignoreUnauthorized` defaults to `false` in the system config schema, `ibmi system add` verifies the certificate unless `--no-verify-tls` is given, and the implicit system built from `DB2i_*` variables verifies it unless `DB2i_IGNORE_UNAUTHORIZED` is `true` (or `1`). Existing systems that store `ignoreUnauthorized: true` keep it. The built-in IBM i sign-on is unchanged: it already verified by default.
+
+
 ## [0.6.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.6.1...v0.6.2) (2026-10-07)
 
 Security patch. Closes a bypass of read-only mode in `execute_sql` that let a `SELECT` run arbitrary CL commands through `QSYS2.QCMDEXC` ([#188](https://github.com/IBM/ibmi-mcp-server/issues/188)). All deployments that run with read-only mode on (the default) should upgrade. No configuration changes.

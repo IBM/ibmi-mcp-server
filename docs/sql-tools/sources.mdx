@@ -21,7 +21,7 @@ Sources define database connections that your SQL tools use to execute queries a
 | `port` | integer | No | `8076` | Mapepire daemon port |
 | `ssh-key` | string | No | - | Path to an SSH private key. The source then connects over [SSH](#ssh-fields) and needs no password |
 | `ssh-host-key-sha256` | string | No | - | Expected SSH host key fingerprint of this host |
-| `ignore-unauthorized` | boolean | No | `false` | Accept self-signed SSL certs |
+| `ignore-unauthorized` | boolean | No | `false` | Accept any SSL certificate, including self-signed ones. Test systems only |
 | `jdbc-options` | object | No | `{}` | JDBC connection options passed to the mapepire driver (libraries, naming, date format, etc.) |
 
 ---

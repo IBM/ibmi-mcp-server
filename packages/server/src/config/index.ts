@@ -421,11 +421,11 @@ const EnvSchema = z.object({
     .string()
     .min(1, "DB2i_PASS is required for IBM i connections.")
     .optional(),
-  /** Ignore unauthorized SSL certificates for Mapepire. From `DB2i_IGNORE_UNAUTHORIZED`. Default: true. */
+  /** Ignore unauthorized SSL certificates for Mapepire. From `DB2i_IGNORE_UNAUTHORIZED`. Default: false (certificates are verified). */
   DB2i_IGNORE_UNAUTHORIZED: z
     .string()
     .optional()
-    .default("true")
+    .default("false")
     .transform((val) => val === "true" || val === "1"),
 
   /**
@@ -898,7 +898,7 @@ export const config = {
     const user = process.env.DB2i_USER;
     const password = process.env.DB2i_PASS;
     if (!host || !user || !password) return undefined;
-    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
+    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "false";
     const jdbcOptions = this.db2iJdbcOptions;
     return {
       host,

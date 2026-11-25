@@ -247,11 +247,11 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
       port: poolConfig.port,
       user: poolConfig.user,
       password: poolConfig.password,
-      rejectUnauthorized: !(poolConfig.ignoreUnauthorized ?? true),
+      rejectUnauthorized: !(poolConfig.ignoreUnauthorized ?? false),
     };
 
     // Get SSL certificate if needed
-    if (!(poolConfig.ignoreUnauthorized ?? true)) {
+    if (!(poolConfig.ignoreUnauthorized ?? false)) {
       logger.debug(context, "Fetching SSL certificate for secure connection");
       server.ca = await getRootCertificate(server);
     }
@@ -439,7 +439,7 @@ export abstract class BaseConnectionPool<TId extends string | symbol = string> {
             ? ssh.port
             : (poolState.config.port ?? DEFAULT_MAPEPIRE_PORT),
           user: poolState.config.user.substring(0, 3) + "***",
-          ignoreUnauthorized: poolState.config.ignoreUnauthorized ?? true,
+          ignoreUnauthorized: poolState.config.ignoreUnauthorized ?? false,
           // Intentionally logging only `libraries`: other JDBCOptions fields
           // (e.g., "key ring password", "proxy server") may contain sensitive
           // values. Revisit if we add structured redaction for the full

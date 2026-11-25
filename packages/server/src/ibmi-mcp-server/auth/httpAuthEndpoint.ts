@@ -256,10 +256,11 @@ export const handleAuthRequest = async (c: Context) => {
     }
 
     // Create IBM i credentials as DaemonServer object using existing config defaults
-    // Default to ignore unauthorized SSL (like existing connectionPool.ts).
+    // Verify the IBM i certificate unless DB2i_IGNORE_UNAUTHORIZED opts out
+    // (same default as connectionPool.ts).
     // Read DB2i_IGNORE_UNAUTHORIZED directly: `config.db2i` is undefined
     // without DB2i_USER/DB2i_PASS, which per-user auth does not need.
-    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "true";
+    const ignoreRaw = process.env.DB2i_IGNORE_UNAUTHORIZED ?? "false";
     const ignoreUnauthorized = ignoreRaw === "true" || ignoreRaw === "1";
     const ibmiCredentials = {
       host: requestBody.host,

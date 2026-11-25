@@ -249,7 +249,16 @@ describe("POST /api/v1/auth", () => {
     });
   });
 
-  it("skips IBM i certificate verification by default", async () => {
+  it("verifies the IBM i certificate by default", async () => {
+    await postAuth(buildEnvelope());
+    expect(createPool.mock.calls[0]![1]).toMatchObject({
+      rejectUnauthorized: true,
+    });
+  });
+
+  it("skips IBM i certificate verification only when DB2i_IGNORE_UNAUTHORIZED=true", async () => {
+    process.env.DB2i_IGNORE_UNAUTHORIZED = "true";
+
     await postAuth(buildEnvelope());
     expect(createPool.mock.calls[0]![1]).toMatchObject({
       rejectUnauthorized: false,

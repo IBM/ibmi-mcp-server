@@ -4,7 +4,7 @@ sources:
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
     port: 8076
-    ignore-unauthorized: true
+    ignore-unauthorized: false
 
 tools:
   system_status:

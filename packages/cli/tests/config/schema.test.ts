@@ -17,7 +17,7 @@ describe("SystemConfigSchema", () => {
       expect(result.data.readOnly).toBe(false);
       expect(result.data.timeout).toBe(60);
       expect(result.data.maxRows).toBe(5000);
-      expect(result.data.ignoreUnauthorized).toBe(true);
+      expect(result.data.ignoreUnauthorized).toBe(false);
     }
   });
 

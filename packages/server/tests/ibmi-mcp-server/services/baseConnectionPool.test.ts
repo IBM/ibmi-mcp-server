@@ -918,3 +918,48 @@ describe("BaseConnectionPool – prunes mapepire's global query list", () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 9 – TLS certificate verification
+// ═══════════════════════════════════════════════════════════════════════════
+describe("BaseConnectionPool – TLS certificate verification", () => {
+  let pool: TestConnectionPool;
+  const { ignoreUnauthorized: _omitted, ...CONFIG_WITHOUT_TLS_SETTING } =
+    TEST_CONFIG;
+
+  beforeEach(() => {
+    resetMocks();
+    pool = new TestConnectionPool();
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+  });
+
+  it("9.1 – verifies the certificate when ignoreUnauthorized is not set", async () => {
+    await pool.testInitializePool(
+      "tls-default",
+      CONFIG_WITHOUT_TLS_SETTING,
+      TEST_CONTEXT,
+    );
+
+    expect(
+      (MockPool.mock.calls as unknown as [{ creds: unknown }][])[0]![0].creds,
+    ).toMatchObject({
+      rejectUnauthorized: true,
+      ca: "cert",
+    });
+    expect(mockGetRootCert).toHaveBeenCalledTimes(1);
+  });
+
+  it("9.2 – skips verification only when ignoreUnauthorized is true", async () => {
+    await pool.testInitializePool("tls-off", TEST_CONFIG, TEST_CONTEXT);
+
+    expect(
+      (MockPool.mock.calls as unknown as [{ creds: unknown }][])[0]![0].creds,
+    ).toMatchObject({
+      rejectUnauthorized: false,
+    });
+    expect(mockGetRootCert).not.toHaveBeenCalled();
+  });
+});

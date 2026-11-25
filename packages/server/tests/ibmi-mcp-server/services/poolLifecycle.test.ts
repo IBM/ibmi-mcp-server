@@ -117,6 +117,7 @@ const SOURCE = {
   user: "TESTUSER",
   password: "s3cret-pass",
   port: 8076,
+  "ignore-unauthorized": true,
 };
 
 const SIGN_ON_REJECTED =

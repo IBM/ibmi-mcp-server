@@ -92,6 +92,24 @@ describe("resolveSystem", () => {
     expect(result.config.host).toBe("legacy400.com");
     expect(result.config.port).toBe(8047);
   });
+  it("should verify the TLS certificate of the legacy env system unless DB2i_IGNORE_UNAUTHORIZED is true", () => {
+    delete process.env["IBMI_SYSTEM"];
+    process.env["DB2i_HOST"] = "legacy400.com";
+    process.env["DB2i_USER"] = "LEGACY";
+    process.env["DB2i_PASS"] = "pass";
+
+    const ignored = (value: string | undefined) => {
+      if (value === undefined) delete process.env["DB2i_IGNORE_UNAUTHORIZED"];
+      else process.env["DB2i_IGNORE_UNAUTHORIZED"] = value;
+      return resolveSystem(undefined, { systems: {} }).config
+        .ignoreUnauthorized;
+    };
+
+    expect(ignored(undefined)).toBe(false);
+    expect(ignored("false")).toBe(false);
+    expect(ignored("true")).toBe(true);
+    expect(ignored("1")).toBe(true);
+  });
 
   it("should take an SSH key and host key pin from legacy DB2i_* env vars", () => {
     delete process.env["IBMI_SYSTEM"];

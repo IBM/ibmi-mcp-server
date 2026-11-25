@@ -118,7 +118,7 @@ sources:
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
     port: 8076
-    ignore-unauthorized: true
+    ignore-unauthorized: false
 ```
 > Set `DB2i_HOST`, `DB2i_USER`, and `DB2i_PASS` in the server `.env` file (or reference them in YAML as `${DB2i_*}`). **`DB2i_PORT`** applies to the singleton pool (built-in tools, CLI) and to YAML sources that use `port: ${DB2i_PORT}`; the shipped examples above use literal `port: 8076`, so changing `.env` alone does not retarget YAML tools unless you switch to `${DB2i_PORT}` or edit the port value. Use hostname-only values for `DB2i_HOST` — do not embed `:port` in the host.
 
@@ -1130,7 +1130,7 @@ sources:
     user: ${DB2i_USER}
     password: ${DB2i_PASS}
     port: 8076
-    ignore-unauthorized: true
+    ignore-unauthorized: false
 ```
 
 **What it does:** Defines a connection to the IBM i system using environment variables for credentials. This same source is reused by all 8 tools in the file.
