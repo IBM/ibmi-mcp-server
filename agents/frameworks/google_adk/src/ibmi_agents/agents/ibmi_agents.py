@@ -35,11 +35,14 @@ Dependencies:
 - python-dotenv: For loading environment variables
 
 Installation:
+    ibmi-agent-sdk is not published to PyPI; install it from the local checkout
+    (paths relative to the agents/frameworks/google_adk directory).
+
     Using uv (recommended):
-        uv add google-adk ibmi-agent-sdk python-dotenv
-    
+        uv add google-adk python-dotenv ../../packages/ibmi-agent-sdk
+
     Using pip:
-        pip install google-adk ibmi-agent-sdk python-dotenv
+        pip install google-adk python-dotenv ../../packages/ibmi-agent-sdk
 """
 import os
 import asyncio
@@ -69,7 +72,7 @@ try:
     from google.genai import types
     from google.adk.models.lite_llm import LiteLlm
 except ImportError as e:
-    print(f"Error: Missing required dependencies. Run: pip install google-adk ibmi-agent-sdk")
+    print("Error: Missing required dependencies. Run: pip install google-adk python-dotenv ../../packages/ibmi-agent-sdk (from agents/frameworks/google_adk)")
     print(f"Details: {e}")
     sys.exit(1)
 

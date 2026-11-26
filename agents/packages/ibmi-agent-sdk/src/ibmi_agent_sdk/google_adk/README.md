@@ -15,10 +15,10 @@ The module is part of the `ibmi-agent-sdk` package:
 
 ```bash
 # Using uv (recommended)
-uv add ibmi-agent-sdk
+uv add ./agents/packages/ibmi-agent-sdk
 
 # Using pip
-pip install ibmi-agent-sdk
+pip install ./agents/packages/ibmi-agent-sdk
 ```
 
 ## Quick Start
