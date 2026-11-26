@@ -37,7 +37,7 @@ try:
 except ImportError as e:
     logger.error(f"Import error: {str(e)}")
     logger.error("Make sure all required dependencies are installed:")
-    logger.error("uv pip install google-adk ibmi-agent-sdk python-dotenv fastapi")
+    logger.error("uv pip install google-adk python-dotenv fastapi ../../packages/ibmi-agent-sdk")
     sys.exit(1)
 
 async def test_agent_creation(agent_type):
