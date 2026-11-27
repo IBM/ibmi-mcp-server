@@ -1,5 +1,7 @@
 /**
  * @fileoverview IBM i HTTP Authentication module exports.
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  * @module src/ibmi-mcp-server/auth/index
  */
 

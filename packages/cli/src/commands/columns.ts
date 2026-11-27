@@ -5,6 +5,7 @@
 
 import { Command } from "commander";
 import { withConnection } from "../utils/command-helpers.js";
+import { ToolError } from "../utils/exit-codes.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 export function registerColumnsCommand(program: Command): void {
@@ -13,7 +14,8 @@ export function registerColumnsCommand(program: Command): void {
     .description("Get column metadata for a table")
     .action(async (schema: string, table: string, _opts, cmd: Command) => {
       await withConnection(cmd, "get_table_columns", async (_resolved, ctx) => {
-        const { getTableColumnsLogic } = await import("@ibm/ibmi-mcp-server/tools");
+        const { getTableColumnsLogic } =
+          await import("@ibm/ibmi-mcp-server/tools");
 
         const result = await getTableColumnsLogic(
           {
@@ -25,7 +27,7 @@ export function registerColumnsCommand(program: Command): void {
         );
 
         if (!result.success) {
-          throw new Error(result.error?.message ?? "Failed to get table columns");
+          throw new ToolError(result.error, "Failed to get table columns");
         }
 
         return {

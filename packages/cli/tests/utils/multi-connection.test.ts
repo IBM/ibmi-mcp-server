@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ResolvedSystem } from "../../src/config/types";
+import type { ResolvedSystem } from "../../src/config/types.js";
 
 // Mock SourceManager before importing the module under test
 const mockRegisterSource = vi.fn().mockResolvedValue(undefined);
@@ -7,18 +7,20 @@ const mockExecuteQuery = vi.fn();
 const mockCloseAllSources = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@ibm/ibmi-mcp-server/services", () => ({
-  SourceManager: vi.fn().mockImplementation(() => ({
-    registerSource: mockRegisterSource,
-    executeQuery: mockExecuteQuery,
-    closeAllSources: mockCloseAllSources,
-  })),
+  SourceManager: vi.fn().mockImplementation(function () {
+    return {
+      registerSource: mockRegisterSource,
+      executeQuery: mockExecuteQuery,
+      closeAllSources: mockCloseAllSources,
+    };
+  }),
 }));
 
 vi.mock("../../src/config/credentials.js", () => ({
   resolvePassword: vi.fn().mockResolvedValue("mock-password"),
 }));
 
-import { executeMultiSystem } from "../../src/utils/multi-connection";
+import { executeMultiSystem } from "../../src/utils/multi-connection.js";
 
 function makeSystem(name: string, host: string): ResolvedSystem {
   return {
@@ -43,7 +45,10 @@ describe("executeMultiSystem", () => {
   });
 
   it("should return results from multiple systems", async () => {
-    const systems = [makeSystem("dev", "dev400.com"), makeSystem("prod", "prod400.com")];
+    const systems = [
+      makeSystem("dev", "dev400.com"),
+      makeSystem("prod", "prod400.com"),
+    ];
 
     const results = await executeMultiSystem(systems, async (sourceName) => {
       return {
@@ -60,7 +65,10 @@ describe("executeMultiSystem", () => {
   });
 
   it("should register each system as a named source", async () => {
-    const systems = [makeSystem("dev", "dev400.com"), makeSystem("prod", "prod400.com")];
+    const systems = [
+      makeSystem("dev", "dev400.com"),
+      makeSystem("prod", "prod400.com"),
+    ];
 
     await executeMultiSystem(systems, async () => ({
       data: [],
@@ -70,16 +78,56 @@ describe("executeMultiSystem", () => {
     expect(mockRegisterSource).toHaveBeenCalledTimes(2);
     expect(mockRegisterSource).toHaveBeenCalledWith(
       "dev",
-      expect.objectContaining({ host: "dev400.com", user: "DEV", password: "mock-password" }),
+      expect.objectContaining({
+        host: "dev400.com",
+        user: "DEV",
+        password: "mock-password",
+      }),
     );
     expect(mockRegisterSource).toHaveBeenCalledWith(
       "prod",
-      expect.objectContaining({ host: "prod400.com", user: "PROD", password: "mock-password" }),
+      expect.objectContaining({
+        host: "prod400.com",
+        user: "PROD",
+        password: "mock-password",
+      }),
+    );
+  });
+
+  it("should register an SSH system with its key and no password", async () => {
+    const { resolvePassword } = await import("../../src/config/credentials.js");
+    const dev = makeSystem("dev", "dev400.com");
+    dev.config.sshKey = "~/.ssh/id_ed25519";
+    dev.config.sshHostKeySha256 = "SHA256:abc";
+    const prod = makeSystem("prod", "prod400.com");
+
+    await executeMultiSystem([dev, prod], async () => ({
+      data: [],
+      meta: { rowCount: 0 },
+    }));
+
+    const devSource = mockRegisterSource.mock.calls.find(
+      ([name]) => name === "dev",
+    )![1];
+    expect(devSource).toMatchObject({
+      host: "dev400.com",
+      "ssh-key": "~/.ssh/id_ed25519",
+      "ssh-host-key-sha256": "SHA256:abc",
+    });
+    expect(devSource).not.toHaveProperty("password");
+    // Only the password system asks for its password
+    expect(vi.mocked(resolvePassword)).toHaveBeenCalledTimes(1);
+    expect(mockRegisterSource).toHaveBeenCalledWith(
+      "prod",
+      expect.objectContaining({ password: "mock-password" }),
     );
   });
 
   it("should capture errors from failed systems without crashing", async () => {
-    const systems = [makeSystem("dev", "dev400.com"), makeSystem("prod", "prod400.com")];
+    const systems = [
+      makeSystem("dev", "dev400.com"),
+      makeSystem("prod", "prod400.com"),
+    ];
 
     const results = await executeMultiSystem(systems, async (sourceName) => {
       if (sourceName === "prod") {

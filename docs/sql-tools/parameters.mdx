@@ -103,8 +103,6 @@ Use regex patterns to enforce IBM i naming conventions (uppercase, alphanumeric,
 
 ### Example 4: String with Enum Values
 
-From `object-statistics-dev.yaml`:
-
 ```yaml
 parameters:
   - name: sql_object_type
@@ -467,6 +465,13 @@ statement: |
   ORDER BY library_name
 ```
 
+**Binding rules:**
+
+- An omitted optional parameter without a `default` binds SQL `NULL`, so the `(:p IS NULL OR ...)` pattern above works. A parameter with a `default` is never `NULL`.
+- Use named markers (`:name`) only. A statement that mixes `:name` and `?` fails when the file is loaded: `Tool '<name>': SQL statement mixes named (:name) and positional (?) parameter markers; use named markers only`.
+- Every `:name` in the statement needs a parameter definition. A marker without a value is an error: `No value for parameter ':<name>'`.
+- An array parameter must contain at least one value: `Array parameter '<name>' must contain at least one value`. Each occurrence of an array parameter expands to one marker per element, so use it only inside `IN (...)`; `:list IS NULL` does not work for arrays.
+
 **Using Default Values:**
 ```yaml
 parameters:
@@ -484,8 +489,6 @@ parameters:
 ## Complete Examples
 
 ### Example 1: Recently Used Objects
-
-From `object-statistics-dev.yaml`:
 
 ```yaml
 tools:

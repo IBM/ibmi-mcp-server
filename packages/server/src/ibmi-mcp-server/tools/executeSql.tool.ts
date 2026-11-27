@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import {
   getRequestContext,
@@ -22,7 +22,10 @@ import {
   logOperationStart,
   logOperationSuccess,
 } from "../../utils/internal/logging-helpers.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import {
+  executeQuery,
+  executeQueryWithPagination,
+} from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 import { config } from "../../config/index.js";
@@ -106,14 +109,6 @@ export function getExecuteSqlConfig(): ExecuteSqlToolConfig {
   return toolConfig;
 }
 
-/**
- * Check if the execute SQL tool is enabled
- * @returns True if the tool is enabled
- */
-export function isExecuteSqlEnabled(): boolean {
-  return toolConfig.enabled;
-}
-
 // =============================================================================
 // Schemas
 // =============================================================================
@@ -135,7 +130,7 @@ const ExecuteSqlInputSchema = z.object({
 const ExecuteSqlResponseSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe("Array of result rows if query was successful."),
   rowCount: z
@@ -170,7 +165,10 @@ const ExecuteSqlResponseSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),
@@ -231,12 +229,8 @@ async function validateWithParseStatement(
   `.trim();
 
   try {
-    // Execute PARSE_STATEMENT via connection pool
-    const result = await IBMiConnectionPool.executeQuery(
-      parseQuery,
-      [sql],
-      appContext,
-    );
+    // Execute PARSE_STATEMENT through the query router
+    const result = await executeQuery(parseQuery, [sql], appContext);
 
     // Empty result = syntax error (PARSE_STATEMENT returns no rows on parse failure)
     if (!result.data || result.data.length === 0) {
@@ -339,7 +333,7 @@ async function executeSqlLogic(
     // row cap are controlled by IBMI_PAGINATION_* env vars at the
     // service layer, so execute_sql inherits the same ceiling as any
     // YAML tool that paginates.
-    const result = await IBMiConnectionPool.executeQueryWithPagination(
+    const result = await executeQueryWithPagination(
       sanitizedSql,
       [],
       appContext,

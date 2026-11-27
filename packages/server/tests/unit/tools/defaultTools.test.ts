@@ -20,6 +20,7 @@ import {
 } from "../../../src/types-global/errors.js";
 import { createRequestContext } from "../../../src/utils/internal/requestContext.js";
 import type { QueryResult } from "@ibm/mapepire-js";
+import type { SdkContext } from "../../../src/mcp-server/tools/utils/types.js";
 
 // Mock the IBMiConnectionPool before importing the modules
 vi.mock("../../../src/ibmi-mcp-server/services/connectionPool.js", () => ({
@@ -59,6 +60,8 @@ vi.mock("../../../src/config/index.js", () => ({
     openTelemetry: {
       enabled: false,
     },
+    // Not the built-in OAuth sign-on: statements go to the service pool.
+    oauth: { builtin: false },
   },
 }));
 
@@ -72,7 +75,7 @@ function createMockQueryResult<T = unknown>(
     sql_rc?: number;
     execution_time?: number;
   },
-): QueryResult<T> {
+): QueryResult<T> & { truncated: boolean } {
   return {
     success: options?.success ?? true,
     data: data as T[],
@@ -84,19 +87,12 @@ function createMockQueryResult<T = unknown>(
     sql_rc: options?.sql_rc ?? 0,
     sql_state: "00000",
     execution_time: options?.execution_time ?? 0,
-  } as QueryResult<T>;
+    truncated: false,
+  } as QueryResult<T> & { truncated: boolean };
 }
 
-// Create a mock SdkContext for tool logic calls
-const mockSdkContext = {
-  signal: new AbortController().signal,
-  sendNotification: vi.fn(),
-  sendRequest: vi.fn(),
-  authInfo: undefined,
-  sessionId: undefined,
-} as unknown as Parameters<
-  typeof import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js").listSchemasTool.logic
->[2];
+// The tool logic does not read the SDK context; the CLI passes the same.
+const mockSdkContext = {} as SdkContext;
 
 describe("Default Tools - list_schemas", () => {
   const context = createRequestContext();
@@ -136,7 +132,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -144,7 +140,7 @@ describe("Default Tools - list_schemas", () => {
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
     expect(result.data).toHaveLength(2);
-    expect(result.data![0].SCHEMA_NAME).toBe("MYLIB");
+    expect(result.data![0]?.SCHEMA_NAME).toBe("MYLIB");
     expect(result.hasMore).toBe(false);
   });
 
@@ -164,7 +160,7 @@ describe("Default Tools - list_schemas", () => {
     );
 
     const result = await listSchemasTool.logic(
-      { filter: "MY%", limit: 50, offset: 0 },
+      { filter: "MY%", include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -175,6 +171,7 @@ describe("Default Tools - list_schemas", () => {
       expect.stringContaining("SCHEMA_NAME LIKE UPPER(?)"),
       ["MY%", 0, 51],
       context,
+      51,
     );
   });
 
@@ -185,7 +182,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -194,6 +191,7 @@ describe("Default Tools - list_schemas", () => {
       expect.stringContaining("SCHEMA_NAME NOT LIKE 'Q%'"),
       [0, 51],
       context,
+      51,
     );
   });
 
@@ -213,6 +211,7 @@ describe("Default Tools - list_schemas", () => {
       expect.not.stringContaining("SCHEMA_NAME NOT LIKE"),
       [0, 51],
       context,
+      51,
     );
   });
 
@@ -223,7 +222,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -242,7 +241,7 @@ describe("Default Tools - list_schemas", () => {
     );
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -259,7 +258,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(null));
 
     const result = await listSchemasTool.logic(
-      { limit: 50, offset: 0 },
+      { include_system: false, limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -298,7 +297,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listSchemasTool.logic(
-      { limit: 2, offset: 0 },
+      { include_system: false, limit: 2, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -326,7 +325,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listSchemasTool.logic(
-      { limit: 5, offset: 0 },
+      { include_system: false, limit: 5, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -345,7 +344,7 @@ describe("Default Tools - list_schemas", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
 
     await listSchemasTool.logic(
-      { limit: 10, offset: 20 },
+      { include_system: false, limit: 10, offset: 20 },
       context,
       mockSdkContext,
     );
@@ -355,7 +354,35 @@ describe("Default Tools - list_schemas", () => {
       expect.stringContaining("OFFSET ? ROWS FETCH FIRST ? ROWS ONLY"),
       [20, 11],
       context,
+      11,
     );
+  });
+
+  it("should request limit+1 rows from the pool for pages above 100", async () => {
+    const { listSchemasTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listSchemas.tool.js");
+
+    // 151 rows come back only if rowsToFetch is passed (mapepire defaults to 100)
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult(
+        Array.from({ length: 151 }, (_, i) => ({ SCHEMA_NAME: `LIB${i}` })),
+      ),
+    );
+
+    const result = await listSchemasTool.logic(
+      { include_system: false, limit: 150, offset: 0 },
+      context,
+      mockSdkContext,
+    );
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.any(String),
+      [0, 151],
+      context,
+      151,
+    );
+    expect(result.rowCount).toBe(150);
+    expect(result.hasMore).toBe(true);
   });
 });
 
@@ -400,14 +427,14 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockResolvedValue(createMockQueryResult(mockData));
 
     const result = await listTablesInSchemaTool.logic(
-      { schema_name: "QIWS", limit: 50, offset: 0 },
+      { schema_name: "QIWS", table_filter: "*ALL", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
-    expect(result.data![0].TABLE_NAME).toBe("QCUSTCDT");
+    expect(result.data![0]?.TABLE_NAME).toBe("QCUSTCDT");
     expect(result.hasMore).toBe(false);
   });
 
@@ -428,6 +455,7 @@ describe("Default Tools - list_tables_in_schema", () => {
       expect.any(String),
       ["MYLIB", "CUST%", "CUST%", 0, 51],
       context,
+      51,
     );
   });
 
@@ -449,6 +477,7 @@ describe("Default Tools - list_tables_in_schema", () => {
       expect.any(String),
       ["MYLIB", "*ALL", "*ALL", 0, 51],
       context,
+      51,
     );
   });
 
@@ -459,7 +488,7 @@ describe("Default Tools - list_tables_in_schema", () => {
     mockExecuteQuery.mockRejectedValue(new Error("Schema not found"));
 
     const result = await listTablesInSchemaTool.logic(
-      { schema_name: "BADLIB", limit: 50, offset: 0 },
+      { schema_name: "BADLIB", table_filter: "*ALL", limit: 50, offset: 0 },
       context,
       mockSdkContext,
     );
@@ -569,13 +598,44 @@ describe("Default Tools - list_tables_in_schema", () => {
       expect.stringContaining("OFFSET ? ROWS FETCH FIRST ? ROWS ONLY"),
       ["MYLIB", "*ALL", "*ALL", 50, 26],
       context,
+      26,
     );
+  });
+
+  it("should request limit+1 rows from the pool for pages above 100", async () => {
+    const { listTablesInSchemaTool } =
+      await import("../../../src/ibmi-mcp-server/tools/listTablesInSchema.tool.js");
+
+    // 201 rows come back only if rowsToFetch is passed (mapepire defaults to 100)
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult(
+        Array.from({ length: 201 }, (_, i) => ({ TABLE_NAME: `T${i}` })),
+      ),
+    );
+
+    const result = await listTablesInSchemaTool.logic(
+      { schema_name: "MYLIB", table_filter: "*ALL", limit: 200, offset: 0 },
+      context,
+      mockSdkContext,
+    );
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.any(String),
+      ["MYLIB", "*ALL", "*ALL", 0, 201],
+      context,
+      201,
+    );
+    expect(result.rowCount).toBe(200);
+    expect(result.hasMore).toBe(true);
   });
 });
 
 describe("Default Tools - get_table_columns", () => {
   const context = createRequestContext();
-  const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+  // Fetches all rows, so it goes through the paginated pool method
+  const mockExecuteQuery = vi.mocked(
+    IBMiConnectionPool.executeQueryWithPagination,
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -629,8 +689,8 @@ describe("Default Tools - get_table_columns", () => {
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
-    expect(result.data![0].COLUMN_NAME).toBe("CUSNUM");
-    expect(result.data![1].DATA_TYPE).toBe("CHAR");
+    expect(result.data![0]?.COLUMN_NAME).toBe("CUSNUM");
+    expect(result.data![1]?.DATA_TYPE).toBe("CHAR");
   });
 
   it("should pass schema and table as bind parameters", async () => {
@@ -688,7 +748,10 @@ describe("Default Tools - get_table_columns", () => {
 
 describe("Default Tools - validate_query", () => {
   const context = createRequestContext();
-  const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+  // Fetches all rows, so it goes through the paginated pool method
+  const mockExecuteQuery = vi.mocked(
+    IBMiConnectionPool.executeQueryWithPagination,
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -737,7 +800,7 @@ describe("Default Tools - validate_query", () => {
       mockSdkContext,
     );
 
-    const callArgs = mockExecuteQuery.mock.calls[0];
+    const callArgs = mockExecuteQuery.mock.calls[0]!;
     expect(callArgs[0]).toContain("PARSE_STATEMENT");
     expect(callArgs[0]).toContain("SQL_STATEMENT =>");
     expect(callArgs[0]).toContain("NAMING => '*SQL'");
@@ -1504,7 +1567,10 @@ describe("Default Tools - validate_query", () => {
 
 describe("Default Tools - get_related_objects", () => {
   const context = createRequestContext();
-  const mockExecuteQuery = vi.mocked(IBMiConnectionPool.executeQuery);
+  // Fetches all rows, so it goes through the paginated pool method
+  const mockExecuteQuery = vi.mocked(
+    IBMiConnectionPool.executeQueryWithPagination,
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1561,8 +1627,8 @@ describe("Default Tools - get_related_objects", () => {
 
     expect(result.success).toBe(true);
     expect(result.rowCount).toBe(2);
-    expect(result.data![0].SQL_OBJECT_TYPE).toBe("INDEX");
-    expect(result.data![1].SQL_OBJECT_TYPE).toBe("VIEW");
+    expect(result.data![0]?.SQL_OBJECT_TYPE).toBe("INDEX");
+    expect(result.data![1]?.SQL_OBJECT_TYPE).toBe("VIEW");
   });
 
   it("should pass library and file as bind parameters", async () => {
@@ -1697,7 +1763,7 @@ describe("Default Tools - get_related_objects", () => {
     expect(result.success).toBe(true);
     expect(result.data![0]).not.toHaveProperty("LONG_COMMENT");
     expect(result.data![0]).not.toHaveProperty("OBJECT_TEXT");
-    expect(result.data![0].SQL_OBJECT_TYPE).toBe("INDEX");
+    expect(result.data![0]?.SQL_OBJECT_TYPE).toBe("INDEX");
   });
 
   it("should handle database errors gracefully", async () => {
@@ -1734,6 +1800,148 @@ describe("Default Tools - get_related_objects", () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe(String(JsonRpcErrorCode.DatabaseError));
     expect(result.error?.message).toBe("DB unavailable");
+  });
+});
+
+describe("Default Tools - describe_sql_object", () => {
+  const context = createRequestContext();
+  const mockExecuteQuery = vi.mocked(
+    IBMiConnectionPool.executeQueryWithPagination,
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should join the SRCDTA rows returned by GENERATE_SQL", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([
+        { SRCDTA: "CREATE OR REPLACE TABLE MYLIB.CUSTOMERS (" },
+        { SRCDTA: "  ID INTEGER NOT NULL" },
+        { SRCDTA: null },
+        { SRCDTA: ");" },
+      ]),
+    );
+
+    const result = await generateSqlTool.logic(
+      {
+        object_name: "CUSTOMERS",
+        object_library: "MYLIB",
+        object_type: "TABLE",
+      },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.sql).toBe(
+      "CREATE OR REPLACE TABLE MYLIB.CUSTOMERS (\n  ID INTEGER NOT NULL\n);",
+    );
+    expect(result.object_name).toBe("CUSTOMERS");
+    expect(result.object_library).toBe("MYLIB");
+    expect(result.object_type).toBe("TABLE");
+  });
+
+  it("should bind name, library and type to QSYS2.GENERATE_SQL", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    mockExecuteQuery.mockResolvedValue(
+      createMockQueryResult([{ SRCDTA: "CREATE VIEW MYLIB.V AS SELECT 1;" }]),
+    );
+
+    await generateSqlTool.logic(
+      { object_name: "V", object_library: "MYLIB", object_type: "VIEW" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith(
+      expect.stringContaining("CALL QSYS2.GENERATE_SQL"),
+      ["V", "MYLIB", "VIEW"],
+      context,
+      500,
+    );
+  });
+
+  it("should reject an unsupported object_type", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    const parsed = generateSqlTool.inputSchema.safeParse({
+      object_name: "X",
+      object_type: "PROGRAM",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should default to a TABLE in QSYS2", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    const parsed = generateSqlTool.inputSchema.parse({ object_name: "X" });
+
+    expect(parsed.object_library).toBe("QSYS2");
+    expect(parsed.object_type).toBe("TABLE");
+  });
+
+  it("should report an error when no DDL is generated", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    mockExecuteQuery.mockResolvedValue(createMockQueryResult([]));
+
+    const result = await generateSqlTool.logic(
+      { object_name: "NOPE", object_library: "MYLIB", object_type: "TABLE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.sql).toBeUndefined();
+    expect(result.error?.message).toBe(
+      "No SQL DDL generated for the specified object",
+    );
+  });
+
+  it("should handle query errors gracefully", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    mockExecuteQuery.mockRejectedValue(new Error("Connection failed"));
+
+    const result = await generateSqlTool.logic(
+      { object_name: "T", object_library: "MYLIB", object_type: "TABLE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe(String(JsonRpcErrorCode.DatabaseError));
+    expect(result.error?.message).toContain("Connection failed");
+  });
+
+  it("should handle McpError gracefully", async () => {
+    const { generateSqlTool } =
+      await import("../../../src/ibmi-mcp-server/tools/generateSql.tool.js");
+
+    mockExecuteQuery.mockRejectedValue(
+      new McpError(JsonRpcErrorCode.Timeout, "Query timed out"),
+    );
+
+    const result = await generateSqlTool.logic(
+      { object_name: "T", object_library: "MYLIB", object_type: "TABLE" },
+      context,
+      mockSdkContext,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe(String(JsonRpcErrorCode.Timeout));
+    expect(result.error?.message).toBe("Query timed out");
   });
 });
 

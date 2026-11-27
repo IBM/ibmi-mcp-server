@@ -3,9 +3,14 @@
  */
 
 export { IBMiConnectionPool } from "../ibmi-mcp-server/services/connectionPool.js";
-export {
-  SourceManager,
-  type SourceHealth,
-} from "../ibmi-mcp-server/services/sourceManager.js";
+export { SourceManager } from "../ibmi-mcp-server/services/sourceManager.js";
 export { SqlSecurityValidator } from "../ibmi-mcp-server/utils/security/sqlSecurityValidator.js";
 export { ParameterProcessor } from "../ibmi-mcp-server/utils/sql/parameterProcessor.js";
+export {
+  executeQuery,
+  executeQueryWithPagination,
+  setServiceQueryExecutor,
+  type ServiceQueryExecutor,
+} from "../ibmi-mcp-server/services/queryRouter.js";
+export type { PaginatedQueryResult } from "../ibmi-mcp-server/oauth/contracts.js";
+export { McpError, JsonRpcErrorCode } from "../types-global/errors.js";

@@ -8,11 +8,11 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQueryWithPagination } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -38,7 +38,7 @@ const GetTableColumnsInputSchema = z.object({
 const GetTableColumnsOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "Array of column detail records. Each record contains: COLUMN_NAME, SYSTEM_COLUMN_NAME (10-char DDS name), DATA_TYPE, LENGTH, NUMERIC_SCALE, NUMERIC_PRECISION, IS_NULLABLE (Y/N), HAS_DEFAULT (Y/N), COLUMN_DEFAULT, COLUMN_TEXT, COLUMN_HEADING (DDS heading), ORDINAL_POSITION, CCSID, HIDDEN (P=implicitly hidden, N=visible), IS_IDENTITY (YES/NO).",
@@ -52,7 +52,10 @@ const GetTableColumnsOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),
@@ -100,7 +103,9 @@ export async function getTableColumnsLogic(
   `.trim();
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
+    // Paginate: a single fetch returns at most 100 rows (mapepire default),
+    // which would silently drop columns of wide tables.
+    const result = await executeQueryWithPagination(
       sql,
       [params.schema_name, params.table_name],
       appContext,

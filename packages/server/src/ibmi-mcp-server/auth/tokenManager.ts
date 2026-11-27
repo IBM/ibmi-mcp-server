@@ -2,6 +2,8 @@
  * @fileoverview Token management system for IBM i HTTP authentication.
  * Handles secure token generation, validation, and lifecycle management.
  *
+ * @deprecated IBM i HTTP token authentication will be removed in a future
+ * major release. Use `MCP_AUTH_MODE=oauth`.
  * @module src/ibmi-mcp-server/auth/tokenManager
  */
 
@@ -16,9 +18,14 @@ import {
 import type { DaemonServer } from "@ibm/mapepire-js";
 
 /**
- * IBM i credentials for authenticated sessions - using DaemonServer interface
+ * IBM i credentials for authenticated sessions - using DaemonServer interface.
+ * mapepire-js v1 made user/password optional on DaemonServer; token-authenticated
+ * sessions always require them.
  */
-export type IBMiCredentials = DaemonServer;
+export type IBMiCredentials = DaemonServer & {
+  user: string;
+  password: string;
+};
 
 /**
  * Token session metadata

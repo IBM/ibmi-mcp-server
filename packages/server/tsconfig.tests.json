@@ -1,0 +1,12 @@
+{
+  // Type-checks the test suite together with src (tsconfig.json covers src only).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  // tests/utils/language is vendored from vscode-db2i along with the tokenizer
+  // it tests (src/ibmi-mcp-server/utils/language, which is `@ts-nocheck`).
+  "exclude": ["node_modules", "dist", "tests/utils/language"]
+}

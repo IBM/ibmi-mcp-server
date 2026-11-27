@@ -3,7 +3,7 @@ import {
   CliConfigSchema,
   SystemConfigSchema,
   validateConfig,
-} from "../../src/config/schema";
+} from "../../src/config/schema.js";
 
 describe("SystemConfigSchema", () => {
   it("should validate a minimal system config", () => {
@@ -64,6 +64,33 @@ describe("SystemConfigSchema", () => {
     if (result.success) {
       expect(result.data.port).toBe(8077);
     }
+  });
+
+  it("should accept an SSH system with no password", () => {
+    const result = SystemConfigSchema.safeParse({
+      host: "dev.example.com",
+      user: "MYUSER",
+      sshKey: "~/.ssh/id_ed25519",
+      sshHostKeySha256: "SHA256:abc",
+      sshTechnique: "cli",
+      keepSession: false,
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      sshKey: "~/.ssh/id_ed25519",
+      sshTechnique: "cli",
+      keepSession: false,
+    });
+  });
+
+  it("should reject an unknown SSH technique and an empty key", () => {
+    const base = { host: "h", user: "u" };
+    expect(
+      SystemConfigSchema.safeParse({ ...base, sshTechnique: "jdbc" }).success,
+    ).toBe(false);
+    expect(SystemConfigSchema.safeParse({ ...base, sshKey: "" }).success).toBe(
+      false,
+    );
   });
 });
 

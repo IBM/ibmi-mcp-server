@@ -44,97 +44,134 @@ export interface ClassifiedError {
   message: string;
 }
 
+/** Thrown for invalid arguments or usage; always classified as a usage error. */
+export class UsageError extends Error {}
+
 /**
- * Classify an error into an exit code and error code based on its message and type.
+ * Error for a failed server tool result (`{ success: false, error }`).
+ * Keeps the JSON-RPC code and details the tool reported, as a thrown server
+ * `McpError` has them, so classification does not depend on the message text.
+ */
+export class ToolError extends Error {
+  readonly code?: number;
+  readonly details?: Record<string, unknown>;
+
+  constructor(
+    error:
+      | { code?: string; message?: string; details?: Record<string, unknown> }
+      | undefined,
+    fallbackMessage: string,
+  ) {
+    super(error?.message ?? fallbackMessage);
+    const code = Number(error?.code);
+    if (Number.isInteger(code)) this.code = code;
+    this.details = error?.details;
+  }
+}
+
+/**
+ * Server error codes used for classification.
+ * Keep in sync with server `JsonRpcErrorCode`.
+ */
+const RpcCode = {
+  ServiceUnavailable: -32000,
+  Timeout: -32004,
+  Forbidden: -32005,
+  Unauthorized: -32006,
+  ValidationError: -32007,
+  InitializationFailed: -32009,
+  DatabaseError: -32010,
+} as const;
+
+/** Node.js network and TLS error codes (`error.code`) that mean "could not connect". */
+const CONNECTION_CODE =
+  /^(ECONN\w+|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN|ERR_TLS_\w+|\w*CERT\w*|UNABLE_TO_VERIFY_LEAF_SIGNATURE)$/;
+
+/** Mapepire appends ", <SQLSTATE>, <SQLCODE>" to database error messages. */
+const SQLSTATE_SUFFIX = /, ([0-9A-Z]{5}), -?\d+\s*$/;
+
+// Message fallbacks, used only when the error carries no usable code.
+// Whole words only: a table named AUTHORS is not an authentication failure.
+const AUTH_MESSAGE =
+  /\b(authentication|unauthorized|credentials?|password|login failed)\b|server response: 401\b/i;
+const SECURITY_MESSAGE =
+  /\b(read-only|readonly|security|forbidden|blocked|not allowed|mutations?)\b/i;
+const SQL_MESSAGE = /\b(sql\w*|query|syntax error)\b/i;
+const CONNECTION_MESSAGE =
+  /\b(connect|connection|econn\w+|enotfound|etimedout|ehostunreach|timeout|timed out|socket|certificate)\b/i;
+const NOT_FOUND_MESSAGE = /\b(not found|does not exist|no such)\b/i;
+
+/**
+ * Classify an error into an exit code and error code.
  *
- * Pattern matching is intentionally broad — we check common patterns from
- * Mapepire, SqlSecurityValidator, and our own error messages.
+ * Structured information wins: a {@link UsageError}, a Node.js network/TLS
+ * code on the error or its causes, the SQLSTATE Mapepire reports, then the
+ * server's JSON-RPC code. Message matching is only the fallback.
  */
 export function classifyError(error: Error): ClassifiedError {
-  const msg = error.message.toLowerCase();
+  const classified = (
+    exitCode: ExitCodeValue,
+    errorCode: ErrorCodeValue,
+  ): ClassifiedError => ({ exitCode, errorCode, message: error.message });
 
-  // Authentication failures
-  if (
-    msg.includes("authentication") ||
-    msg.includes("unauthorized") ||
-    msg.includes("credentials") ||
-    msg.includes("password") ||
-    msg.includes("login failed") ||
-    msg.includes("auth")
-  ) {
-    return {
-      exitCode: ExitCode.AUTH,
-      errorCode: ErrorCode.AUTH_FAILURE,
-      message: error.message,
-    };
+  const auth = () => classified(ExitCode.AUTH, ErrorCode.AUTH_FAILURE);
+  const security = () =>
+    classified(ExitCode.SECURITY, ErrorCode.SECURITY_VIOLATION);
+  const sql = () => classified(ExitCode.QUERY, ErrorCode.SQL_ERROR);
+  const connection = () =>
+    classified(ExitCode.GENERAL, ErrorCode.CONNECTION_ERROR);
+
+  if (error instanceof UsageError) {
+    return classified(ExitCode.USAGE, ErrorCode.USAGE_ERROR);
   }
 
-  // Security violations
-  if (
-    msg.includes("read-only") ||
-    msg.includes("readonly") ||
-    msg.includes("security") ||
-    msg.includes("forbidden") ||
-    msg.includes("blocked") ||
-    msg.includes("not allowed") ||
-    msg.includes("mutation")
-  ) {
-    return {
-      exitCode: ExitCode.SECURITY,
-      errorCode: ErrorCode.SECURITY_VIOLATION,
-      message: error.message,
-    };
+  // Server errors keep the original driver error as `cause`
+  let rpcCode: number | undefined;
+  let systemCode: string | undefined;
+  for (let e: unknown = error; e instanceof Error; e = e.cause) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "number") rpcCode ??= code;
+    else if (typeof code === "string") systemCode ??= code;
   }
 
-  // SQL / query execution errors
-  if (
-    msg.includes("sql") ||
-    msg.includes("query") ||
-    msg.includes("sqlcode") ||
-    msg.includes("sqlstate") ||
-    msg.includes("execute") ||
-    msg.includes("syntax error")
-  ) {
-    return {
-      exitCode: ExitCode.QUERY,
-      errorCode: ErrorCode.SQL_ERROR,
-      message: error.message,
-    };
+  if (systemCode && CONNECTION_CODE.test(systemCode)) return connection();
+
+  const msg = error.message;
+  const sqlState = SQLSTATE_SUFFIX.exec(msg)?.[1];
+  if (sqlState) {
+    // Class 08: connection exception. Class 28: invalid authorization.
+    if (sqlState.startsWith("08")) return connection();
+    if (sqlState.startsWith("28")) return auth();
+    return sql();
   }
 
-  // Connection errors
-  if (
-    msg.includes("connect") ||
-    msg.includes("econnrefused") ||
-    msg.includes("enotfound") ||
-    msg.includes("timeout") ||
-    msg.includes("timed out") ||
-    msg.includes("socket")
-  ) {
-    return {
-      exitCode: ExitCode.GENERAL,
-      errorCode: ErrorCode.CONNECTION_ERROR,
-      message: error.message,
-    };
+  if (rpcCode === RpcCode.Unauthorized) return auth();
+  if (rpcCode === RpcCode.Forbidden) return security();
+  if (rpcCode === RpcCode.ValidationError) {
+    // The server uses this code for syntax errors and bad tool parameters
+    // too; the SQL security validators add `violations` or `readOnly`.
+    const { details } = error as { details?: Record<string, unknown> };
+    if (details?.["violations"] || details?.["readOnly"] === true) {
+      return security();
+    }
   }
 
-  // Not found
-  if (
-    msg.includes("not found") ||
-    msg.includes("does not exist") ||
-    msg.includes("no such")
-  ) {
-    return {
-      exitCode: ExitCode.GENERAL,
-      errorCode: ErrorCode.NOT_FOUND,
-      message: error.message,
-    };
+  if (rpcCode === RpcCode.Timeout) {
+    return classified(ExitCode.GENERAL, ErrorCode.TIMEOUT);
+  }
+  if (rpcCode === RpcCode.ServiceUnavailable) return connection();
+
+  if (AUTH_MESSAGE.test(msg)) return auth();
+  if (SECURITY_MESSAGE.test(msg)) return security();
+  if (SQL_MESSAGE.test(msg)) return sql();
+  if (CONNECTION_MESSAGE.test(msg)) return connection();
+  if (NOT_FOUND_MESSAGE.test(msg)) {
+    return classified(ExitCode.GENERAL, ErrorCode.NOT_FOUND);
   }
 
-  // Default: general error
-  return {
-    exitCode: ExitCode.GENERAL,
-    errorCode: ErrorCode.GENERAL_ERROR,
-    message: error.message,
-  };
+  // The connection pool reports its failures with one of these two codes
+  if (rpcCode === RpcCode.InitializationFailed) return connection();
+  if (rpcCode === RpcCode.DatabaseError) return sql();
+
+  return classified(ExitCode.GENERAL, ErrorCode.GENERAL_ERROR);
 }

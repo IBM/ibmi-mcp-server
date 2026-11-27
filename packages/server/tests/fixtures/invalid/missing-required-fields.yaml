@@ -1,7 +1,7 @@
 sources:
   invalid-source:
     host: test-host
-    # Missing required user and password fields
+    # Missing required user field and a credential (password or ssh-key)
 
 tools:
   invalid-tool:

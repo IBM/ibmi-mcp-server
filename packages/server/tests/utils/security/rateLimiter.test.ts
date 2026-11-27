@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { RateLimiter } from "../../../src/utils/security/rateLimiter";
-import { McpError } from "../../../src/types-global/errors";
+import { RateLimiter } from "../../../src/utils/security/rateLimiter.js";
+import { McpError } from "../../../src/types-global/errors.js";
 
 describe("RateLimiter", () => {
   beforeEach(() => {
@@ -43,13 +43,9 @@ describe("RateLimiter", () => {
 
     rateLimiter.check(key);
 
-    try {
-      rateLimiter.check(key);
-    } catch (error) {
-      if (error instanceof McpError) {
-        expect(error.message).toContain("Please try again in 5 seconds");
-      }
-    }
+    expect(() => rateLimiter.check(key)).toThrow(
+      "Please try again in 5 seconds",
+    );
   });
 
   it("should correctly reset all limits when reset() is called", () => {
@@ -71,7 +67,7 @@ describe("RateLimiter", () => {
     // We need to re-import the module to get the updated environment
     vi.resetModules();
     const { RateLimiter: TestRateLimiter } =
-      await import("../../../src/utils/security/rateLimiter");
+      await import("../../../src/utils/security/rateLimiter.js");
 
     const rateLimiter = new TestRateLimiter({
       windowMs: 1000,
@@ -170,5 +166,40 @@ describe("RateLimiter", () => {
     // if dispose worked, the old timer shouldn't have cleaned the new key
     expect(newLimiter.getStatus("new-key")).not.toBeNull();
     newLimiter.dispose();
+  });
+
+  it("drops the oldest entry once it tracks the maximum number of keys", () => {
+    const rateLimiter = new RateLimiter({ windowMs: 60_000, maxRequests: 1 });
+
+    rateLimiter.check("oldest");
+    // "second" starts its window later than every other key: its first window
+    // ends, and a new one starts, after the keys below were added.
+    rateLimiter.check("second");
+    vi.advanceTimersByTime(30_000);
+    for (let i = 2; i < RateLimiter.MAX_ENTRIES; i++) {
+      rateLimiter.check(`key-${i}`);
+    }
+    vi.advanceTimersByTime(30_000);
+    rateLimiter.check("second");
+
+    rateLimiter.check("one-too-many");
+    expect(rateLimiter.getStatus("oldest")).toBeNull();
+    expect(rateLimiter.getStatus("second")).not.toBeNull();
+
+    rateLimiter.check("another");
+    expect(rateLimiter.getStatus("key-2")).toBeNull();
+    expect(rateLimiter.getStatus("second")).not.toBeNull();
+    rateLimiter.dispose();
+  });
+
+  it("cuts keys to the maximum key length", () => {
+    const rateLimiter = new RateLimiter({ windowMs: 1000, maxRequests: 1 });
+    const prefix = "x".repeat(RateLimiter.MAX_KEY_LENGTH);
+
+    rateLimiter.check(`${prefix}-one`);
+    // Stored under the same, cut, key.
+    expect(() => rateLimiter.check(`${prefix}-two`)).toThrow(McpError);
+    expect(rateLimiter.getStatus(prefix)?.current).toBe(2);
+    rateLimiter.dispose();
   });
 });

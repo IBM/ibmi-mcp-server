@@ -6,9 +6,25 @@
 
 import { readFileSync } from "fs";
 import { Command } from "commander";
-import { withConnection, getFormat, createCliContext } from "../utils/command-helpers.js";
-import { renderMessage, renderMultiSystemOutput, renderMultiSystemNdjson } from "../formatters/output.js";
-import { ExitCode } from "../utils/exit-codes.js";
+import {
+  withConnection,
+  withOutput,
+  getFormat,
+  createCliContext,
+} from "../utils/command-helpers.js";
+import {
+  renderError,
+  renderMessage,
+  renderMultiSystemOutput,
+  renderMultiSystemNdjson,
+} from "../formatters/output.js";
+import {
+  ExitCode,
+  ErrorCode,
+  ToolError,
+  UsageError,
+  classifyError,
+} from "../utils/exit-codes.js";
 import type { SdkContext } from "@ibm/ibmi-mcp-server/tools";
 
 /**
@@ -51,7 +67,19 @@ function resolveSql(
 }
 
 /**
- * Apply FETCH FIRST N ROWS ONLY to queries if not already present.
+ * Statement text that makes appending FETCH FIRST unsafe: a comment (the
+ * clause could land inside it), an existing row-limiting clause, or a clause
+ * that has to follow FETCH FIRST (FOR READ ONLY, WITH UR, ...). This is a
+ * plain text match, so it can also hit inside a string literal; the row limit
+ * is then enforced on the fetched rows by {@link limitRows} instead.
+ */
+const NO_FETCH_APPEND =
+  /--|\/\*|\b(FETCH\s+(FIRST|NEXT)|LIMIT|OFFSET|FOR\s+(READ|FETCH)\s+ONLY|FOR\s+UPDATE|OPTIMIZE\s+FOR|WITH\s+(UR|CS|RS|RR|NC)|SKIP\s+LOCKED\s+DATA|USE\s+CURRENTLY\s+COMMITTED|WAIT\s+FOR\s+OUTCOME)\b/i;
+
+/**
+ * Append FETCH FIRST N+1 ROWS ONLY to a query when that is safe (see
+ * {@link NO_FETCH_APPEND}); otherwise return the statement unchanged. The
+ * one extra row tells {@link limitRows} that the limit cut the result.
  * Non-query statements (CALL, INSERT, DDL, ...) do not accept a fetch clause
  * and are passed through unchanged (#173).
  */
@@ -62,12 +90,35 @@ export function applyRowLimit(
   if (
     maxRows &&
     /^\s*(SELECT|WITH|VALUES)\b/i.test(sql) &&
-    !sql.toUpperCase().includes("FETCH FIRST") &&
-    !sql.toUpperCase().includes("FETCH NEXT")
+    !NO_FETCH_APPEND.test(sql)
   ) {
-    return `${sql.replace(/;\s*$/, "")} FETCH FIRST ${maxRows} ROWS ONLY`;
+    return `${sql.replace(/;\s*$/, "")} FETCH FIRST ${maxRows + 1} ROWS ONLY`;
   }
   return sql;
+}
+
+/**
+ * Enforce the row limit on fetched rows: drops the extra row
+ * {@link applyRowLimit} asked for, and the rows beyond the limit of a
+ * statement it left alone. `limited` is true when rows were dropped.
+ */
+export function limitRows(
+  rows: Record<string, unknown>[],
+  maxRows: number | undefined,
+): { rows: Record<string, unknown>[]; limited: boolean } {
+  if (!maxRows || rows.length <= maxRows) return { rows, limited: false };
+  return { rows: rows.slice(0, maxRows), limited: true };
+}
+
+/** Ask once before executing on systems that set `confirm: true`. */
+async function confirmExecution(systemNames: string[]): Promise<void> {
+  const { promptLine } = await import("../config/credentials.js");
+  const answer = await promptLine(
+    `Execute on [${systemNames.join(", ")}]? (y/N) `,
+  );
+  if (answer.toLowerCase() !== "y") {
+    throw new Error("Execution cancelled by user");
+  }
 }
 
 export function registerSqlCommand(program: Command): void {
@@ -79,6 +130,11 @@ export function registerSqlCommand(program: Command): void {
     .option("--read-only", "Enforce read-only mode (default: true)", true)
     .option("--no-read-only", "Allow mutation queries")
     .option("--dry-run", "Print SQL without executing", false)
+    .option(
+      "--yes",
+      "Skip the prompt for systems that require confirmation",
+      false,
+    )
     .action(async (statement: string | undefined, opts, cmd: Command) => {
       const sql = resolveSql(statement, opts);
       if (!sql) {
@@ -94,8 +150,26 @@ export function registerSqlCommand(program: Command): void {
       // Dry run: print SQL and exit
       if (opts["dryRun"]) {
         const format = getFormat(cmd);
-        renderMessage(sql, format);
+        await withOutput(cmd, async () => renderMessage(sql, format));
         return;
+      }
+
+      // Validate --limit before connecting so a bad value is a usage error
+      let limit: number | undefined;
+      if (opts["limit"]) {
+        limit = parseInt(opts["limit"] as string, 10);
+        if (isNaN(limit) || limit <= 0) {
+          renderError(
+            new Error(
+              `Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`,
+            ),
+            getFormat(cmd),
+            undefined,
+            ErrorCode.USAGE_ERROR,
+          );
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
       }
 
       // Multi-system detection
@@ -110,7 +184,7 @@ export function registerSqlCommand(program: Command): void {
           return;
         }
 
-        await handleMultiSystemSql(sql, opts, cmd, systemFlag);
+        await handleMultiSystemSql(sql, opts, cmd, systemFlag, limit);
         return;
       }
 
@@ -121,48 +195,33 @@ export function registerSqlCommand(program: Command): void {
           (opts["readOnly"] as boolean) || resolved.config.readOnly;
 
         // Confirm execution if system requires it
-        if (resolved.config.confirm && process.stdin.isTTY) {
-          const { promptPassword } = await import(
-            "../config/credentials.js"
-          );
-          const answer = await promptPassword(
-            `Execute on [${resolved.name}]? (y/N) `,
-          );
-          if (answer.toLowerCase() !== "y") {
-            throw new Error("Execution cancelled by user");
-          }
+        if (resolved.config.confirm && !opts["yes"] && process.stdin.isTTY) {
+          await confirmExecution([resolved.name]);
         }
 
         // Apply maxRows limit
-        let execSql = sql;
-        let maxRows = resolved.config.maxRows;
-        if (opts["limit"]) {
-          maxRows = parseInt(opts["limit"] as string, 10);
-          if (isNaN(maxRows) || maxRows <= 0) {
-            throw new Error(`Invalid --limit value: "${opts["limit"]}". Must be a positive integer.`);
-          }
-        }
-        execSql = applyRowLimit(execSql, maxRows);
+        const maxRows = limit ?? resolved.config.maxRows;
+        const execSql = applyRowLimit(sql, maxRows);
 
         // Configure execute_sql tool security before importing
-        const { configureExecuteSqlTool, executeSqlTool } = await import(
-          "@ibm/ibmi-mcp-server/tools"
-        );
+        const { configureExecuteSqlTool, executeSqlTool } =
+          await import("@ibm/ibmi-mcp-server/tools");
         configureExecuteSqlTool({
           enabled: true,
           security: { readOnly },
         });
         const logicFn = executeSqlTool.logic;
 
-        const result = await logicFn(
-          { sql: execSql },
-          ctx,
-          {} as SdkContext,
-        );
+        const result = await logicFn({ sql: execSql }, ctx, {} as SdkContext);
 
         if (!result.success) {
-          throw new Error(result.error?.message ?? "SQL execution failed");
+          throw new ToolError(result.error, "SQL execution failed");
         }
+
+        const { rows, limited } = limitRows(
+          (result.data ?? []) as Record<string, unknown>[],
+          maxRows,
+        );
 
         // execute_sql paginates at the service layer and flags `truncated`
         // when it hits IBMI_PAGINATION_MAX_ROWS. Surface that in the footer
@@ -170,13 +229,15 @@ export function registerSqlCommand(program: Command): void {
         const truncated = result.truncated === true;
 
         return {
-          data: (result.data ?? []) as Record<string, unknown>[],
+          data: rows,
           meta: {
-            rowCount: result.rowCount ?? 0,
-            hasMore: truncated,
-            truncationHint: truncated
-              ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
-              : undefined,
+            rowCount: rows.length,
+            hasMore: limited || truncated,
+            truncationHint: limited
+              ? `(limited to ${maxRows} rows — raise --limit for more)`
+              : truncated
+                ? "(result capped — raise IBMI_PAGINATION_MAX_ROWS or narrow the query)"
+                : undefined,
           },
         };
       });
@@ -192,76 +253,93 @@ async function handleMultiSystemSql(
   opts: Record<string, unknown>,
   cmd: Command,
   systemFlag: string,
+  limit: number | undefined,
 ): Promise<void> {
   const format = getFormat(cmd);
   const isStream = cmd.optsWithGlobals()["stream"] === true;
 
-  try {
-    const { resolveSystems } = await import("../config/resolver.js");
-    const { executeMultiSystem } = await import("../utils/multi-connection.js");
+  await withOutput(cmd, async () => {
+    try {
+      const { resolveSystems } = await import("../config/resolver.js");
+      const { executeMultiSystem } =
+        await import("../utils/multi-connection.js");
 
-    const systems = resolveSystems(systemFlag);
+      const systems = resolveSystems(systemFlag);
 
-    // Enforce read-only: true if CLI flag is set OR any target system requires it
-    const readOnly =
-      (opts["readOnly"] as boolean) ||
-      systems.some((s) => s.config.readOnly);
+      // Enforce read-only: true if CLI flag is set OR any target system requires it
+      const readOnly =
+        (opts["readOnly"] as boolean) || systems.some((s) => s.config.readOnly);
 
-    if (readOnly) {
-      const { SqlSecurityValidator } = await import(
-        "@ibm/ibmi-mcp-server/services"
-      );
-      const ctx = createCliContext("multi_sql_security");
-      SqlSecurityValidator.validateQuery(
-        sql,
-        { readOnly: true, maxQueryLength: 10000 },
-        ctx,
-      );
-    }
-
-    // Respect the most restrictive system's row limit when none is explicit
-    let maxRows: number | undefined;
-    if (opts["limit"]) {
-      maxRows = parseInt(opts["limit"] as string, 10);
-      if (isNaN(maxRows) || maxRows <= 0) {
-        process.stderr.write(
-          `Error: Invalid --limit value: "${opts["limit"]}". Must be a positive integer.\n`,
-        );
-        process.exitCode = ExitCode.USAGE;
-        return;
-      }
-    } else {
-      maxRows = Math.min(
-        ...systems.map((s) => s.config.maxRows ?? Infinity),
-      );
-      if (!isFinite(maxRows)) maxRows = undefined;
-    }
-
-    const execSql = applyRowLimit(sql, maxRows);
-
-    const results = await executeMultiSystem(
-      systems,
-      async (sourceName, mgr, ctx) => {
-        const result = await mgr.executeQuery(
-          sourceName,
-          execSql,
-          [],
+      if (readOnly) {
+        const { SqlSecurityValidator } =
+          await import("@ibm/ibmi-mcp-server/services");
+        const ctx = createCliContext("multi_sql_security");
+        SqlSecurityValidator.validateQuery(
+          sql,
+          { readOnly: true, maxQueryLength: 10000 },
           ctx,
         );
-        const data = (result.data ?? []) as Record<string, unknown>[];
-        return { data, meta: { rowCount: data.length } };
-      },
-    );
+      }
 
-    if (isStream && format === "json") {
-      renderMultiSystemNdjson(results);
-    } else {
-      renderMultiSystemOutput(results, format);
+      // One confirmation covers every target that requires it. Never run
+      // unconfirmed: without a terminal to ask on, --yes is required.
+      const confirmSystems = systems
+        .filter((s) => s.config.confirm)
+        .map((s) => s.name);
+      if (confirmSystems.length > 0 && !opts["yes"]) {
+        if (!process.stdin.isTTY) {
+          throw new UsageError(
+            `System(s) [${confirmSystems.join(", ")}] require confirmation. Pass --yes to run without a prompt.`,
+          );
+        }
+        await confirmExecution(confirmSystems);
+      }
+
+      // Respect the most restrictive system's row limit when none is explicit
+      let maxRows = limit;
+      if (maxRows === undefined) {
+        maxRows = Math.min(...systems.map((s) => s.config.maxRows ?? Infinity));
+        if (!isFinite(maxRows)) maxRows = undefined;
+      }
+
+      const execSql = applyRowLimit(sql, maxRows);
+
+      const results = await executeMultiSystem(
+        systems,
+        async (sourceName, mgr, ctx) => {
+          // Paginate like the single-system path; a plain executeQuery stops
+          // at the driver's default page of 100 rows.
+          const result = await mgr.executeQueryWithPagination(
+            sourceName,
+            execSql,
+            [],
+            ctx,
+          );
+          const { rows, limited } = limitRows(
+            (result.data ?? []) as Record<string, unknown>[],
+            maxRows,
+          );
+          return {
+            data: rows,
+            meta: { hasMore: limited || result.truncated === true },
+          };
+        },
+      );
+
+      if (isStream && format === "json") {
+        renderMultiSystemNdjson(results);
+      } else {
+        renderMultiSystemOutput(results, format);
+      }
+
+      if (results.some((r) => r.error)) {
+        process.exitCode = ExitCode.GENERAL;
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const classified = classifyError(error);
+      renderError(error, format, undefined, classified.errorCode);
+      process.exitCode = classified.exitCode;
     }
-  } catch (err) {
-    const { renderError } = await import("../formatters/output.js");
-    const error = err instanceof Error ? err : new Error(String(err));
-    renderError(error, format);
-    process.exitCode = ExitCode.GENERAL;
-  }
+  });
 }

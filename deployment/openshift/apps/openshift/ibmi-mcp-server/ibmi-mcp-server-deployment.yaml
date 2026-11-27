@@ -16,12 +16,10 @@ spec:
       containers:
         - name: ibmi-mcp-server
           image: image-registry.openshift-image-registry.svc:5000/NAMESPACE_PLACEHOLDER/ibmi-mcp-server
-          command: ["node"]
-          args: ["/usr/src/app/dist/index.js"]
           ports:
             - containerPort: 3010
           envFrom:
-            - configMapRef:
+            - secretRef:
                 name: ibmi-mcp-server-env
           readinessProbe:
             httpGet:
@@ -55,10 +53,12 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
+            # The image's working directory is /app, so relative paths such as
+            # IBMI_AUTH_PRIVATE_KEY_PATH=secrets/private.pem resolve to these mounts.
             - name: tools
-              mountPath: /usr/src/app/tools
+              mountPath: /app/tools
             - name: secrets
-              mountPath: /usr/src/app/secrets
+              mountPath: /app/secrets
               readOnly: true
       volumes:
         - name: tools

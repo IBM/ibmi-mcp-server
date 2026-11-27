@@ -46,7 +46,7 @@ Ensure your IBM i MCP server is running:
 
 ```bash
 # From the repository root
-npx ibmi-mcp-server --transport http --tools ./tools 
+npm run start:http --tools ./tools 
 ```
 
 Default URL: `http://127.0.0.1:3010/mcp`

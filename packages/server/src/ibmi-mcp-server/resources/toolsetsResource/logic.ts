@@ -52,7 +52,7 @@ export const ToolsetsResourceResponseSchema = z.object({
         .array(z.string())
         .describe("Tools that belong to multiple toolsets"),
       toolsetCounts: z
-        .record(z.number().int().min(0))
+        .record(z.string(), z.number().int().min(0))
         .describe("Map of toolset names to their tool counts"),
     })
     .describe("Additional statistics about toolset organization"),

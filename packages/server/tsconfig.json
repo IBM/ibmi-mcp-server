@@ -11,8 +11,6 @@
     "paths": {
       "@/types-global/*": ["./src/types-global/*"],
       "@/utils/*": ["./src/utils/*"],
-      "@/utils": ["./src/utils/index"],
-      "@/services/*": ["./src/services/*"],
       "@/mcp-server/*": ["./src/mcp-server/*"],
       "@/ibmi-mcp-server/*": ["./src/ibmi-mcp-server/*"],
       "@/*": ["./src/*"]
@@ -33,22 +31,15 @@
     "declarationMap": true,
     "sourceMap": true,
 
-    // Import helpers to reduce bundle size
-    "importHelpers": true,
-
     // Skip type checking of declaration files
     "skipLibCheck": true,
 
     // Ensure consistent file naming
     "forceConsistentCasingInFileNames": true,
 
-    // Enable experimental decorators if needed
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-
     // Node.js specific
     "lib": ["ES2022"],
-    "types": ["node", "reflect-metadata"],
+    "types": ["node"],
 
     // Error on unused locals and parameters
     "noUnusedLocals": true,
@@ -63,9 +54,5 @@
     "allowJs": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
-  "ts-node": {
-    "esm": true,
-    "experimentalSpecifierResolution": "node"
-  }
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
 }

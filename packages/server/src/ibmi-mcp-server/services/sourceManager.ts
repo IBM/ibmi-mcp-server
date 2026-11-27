@@ -18,20 +18,13 @@ import {
   requestContextService,
   RequestContext,
 } from "@/utils/internal/requestContext.js";
-import { JsonRpcErrorCode } from "@/types-global/errors.js";
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import { sshCredentialsEqual } from "./sshSession.js";
 import {
   BaseConnectionPool,
   PoolConnectionConfig,
-  PoolHealth,
   PoolHealthStatus,
 } from "./baseConnectionPool.js";
-
-/**
- * Source health information
- */
-export interface SourceHealth extends PoolHealth {
-  sourceName: string;
-}
 
 /**
  * Multi-source connection manager
@@ -52,7 +45,36 @@ export class SourceManager extends BaseConnectionPool<string> {
   }
 
   /**
-   * Register a new source configuration
+   * Compare effective pool connection settings for YAML auto-reload reuse.
+   * Returns true when an existing live pool can be kept.
+   */
+  private static poolConfigsEqual(
+    a: PoolConnectionConfig,
+    b: PoolConnectionConfig,
+  ): boolean {
+    if (
+      a.host !== b.host ||
+      a.user !== b.user ||
+      a.password !== b.password ||
+      (a.port ?? DEFAULT_MAPEPIRE_PORT) !== (b.port ?? DEFAULT_MAPEPIRE_PORT) ||
+      (a.ignoreUnauthorized ?? true) !== (b.ignoreUnauthorized ?? true) ||
+      !sshCredentialsEqual(a.ssh, b.ssh)
+    ) {
+      return false;
+    }
+
+    // JDBCOptions is a flat key/value bag; JSON equality is sufficient.
+    return (
+      JSON.stringify(a.jdbcOptions ?? null) ===
+      JSON.stringify(b.jdbcOptions ?? null)
+    );
+  }
+
+  /**
+   * Register a new source configuration.
+   * On re-registration (YAML auto-reload), keeps the existing pool when
+   * connection settings are unchanged; otherwise closes the old pool first
+   * so Mapepire jobs are not leaked.
    * @param sourceName - Name of the source
    * @param sourceConfig - Source configuration from YAML
    * @param context - Request context for logging
@@ -91,23 +113,84 @@ export class SourceManager extends BaseConnectionPool<string> {
         const yamlJdbc = sourceConfig["jdbc-options"] as
           | JDBCOptions
           | undefined;
-        const envJdbc = config.db2i?.jdbcOptions;
+        const envJdbc = config.db2iJdbcOptions;
         const mergedJdbc: JDBCOptions | undefined =
           yamlJdbc || envJdbc
             ? { ...(yamlJdbc ?? {}), ...(envJdbc ?? {}) }
             : undefined;
 
+        // A source connects over SSH when it has an SSH key: its own `ssh-key`
+        // or else DB2i_SSH_KEY. It connects to its own host as its own user.
+        // The key is the only SSH credential; the password is never sent.
+        let sshCreds: PoolConnectionConfig["ssh"];
+        try {
+          sshCreds = config.sshFor({
+            host: sourceConfig.host,
+            user: sourceConfig.user,
+            keyPath: sourceConfig["ssh-key"],
+            hostKeySha256: sourceConfig["ssh-host-key-sha256"],
+          });
+        } catch (error) {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            `Source '${sourceName}': SSH configuration could not be read: ${error instanceof Error ? error.message : String(error)}`,
+            { sourceName },
+          );
+        }
+        if (!sshCreds && !sourceConfig.password) {
+          throw new McpError(
+            JsonRpcErrorCode.ConfigurationError,
+            `Source '${sourceName}' has no credential. Set 'password' (Mapepire daemon), or 'ssh-key' on the source or DB2i_SSH_KEY in the environment (SSH).`,
+            { sourceName },
+          );
+        }
+        if (sshCreds) {
+          logger.info(
+            {
+              ...operationContext,
+              sourceName,
+              sshHost: sshCreds.host,
+              sshPort: sshCreds.port,
+              keyFrom: sourceConfig["ssh-key"] ? "ssh-key" : "DB2i_SSH_KEY",
+            },
+            `Source '${sourceName}' will connect over SSH (password and Mapepire port not used)`,
+          );
+        }
+
         // Convert YAML source to pool connection config
         const poolConfig: PoolConnectionConfig = {
           host: sourceConfig.host,
           user: sourceConfig.user,
-          password: sourceConfig.password,
+          password: sshCreds ? "" : (sourceConfig.password ?? ""),
           port: sourceConfig.port,
           ignoreUnauthorized: sourceConfig["ignore-unauthorized"],
           ...(mergedJdbc && Object.keys(mergedJdbc).length > 0
             ? { jdbcOptions: mergedJdbc }
             : {}),
+          ...(sshCreds ? { ssh: sshCreds } : {}),
         };
+
+        const existing = this.pools.get(sourceName);
+        if (
+          existing &&
+          SourceManager.poolConfigsEqual(existing.config, poolConfig)
+        ) {
+          // Keep the live Mapepire pool; only refresh the YAML source snapshot.
+          this.sourceConfigs.set(sourceName, sourceConfig);
+          logger.info(
+            operationContext,
+            `Source unchanged, keeping existing pool: ${sourceName}`,
+          );
+          return;
+        }
+
+        if (existing) {
+          logger.info(
+            operationContext,
+            `Source connection settings changed, closing existing pool: ${sourceName}`,
+          );
+          await this.closePool(sourceName, operationContext);
+        }
 
         // Store the original source config for reference
         this.sourceConfigs.set(sourceName, sourceConfig);
@@ -120,6 +203,7 @@ export class SourceManager extends BaseConnectionPool<string> {
           healthStatus: "unknown",
           config: poolConfig,
           lastActivityAt: new Date(),
+          inFlight: new Set(),
         });
 
         logger.info(
@@ -163,7 +247,7 @@ export class SourceManager extends BaseConnectionPool<string> {
   /**
    * Execute a SQL query with automatic pagination on a specific source
    * Fetches all available rows via repeated fetchMore calls (bounded by
-   * the base pool's internal safety cap, ~30k rows).
+   * the base pool's safety cap, IBMI_PAGINATION_MAX_ROWS).
    * @param sourceName - Name of the source to query
    * @param query - SQL query string
    * @param params - Query parameters
@@ -186,54 +270,6 @@ export class SourceManager extends BaseConnectionPool<string> {
       fetchSize,
       securityConfig,
     );
-  }
-
-  /**
-   * Check the health of a specific source
-   * @param sourceName - Name of the source to check
-   * @param context - Request context for logging
-   */
-  async checkSourceHealth(
-    sourceName: string,
-    context?: RequestContext,
-  ): Promise<SourceHealth> {
-    const baseHealth = await super.checkPoolHealth(sourceName, context);
-    return {
-      sourceName,
-      ...baseHealth,
-    };
-  }
-
-  /**
-   * Get health status for all registered sources
-   * @param context - Request context for logging
-   */
-  async getAllSourcesHealth(context?: RequestContext): Promise<SourceHealth[]> {
-    const operationContext =
-      context ||
-      requestContextService.createRequestContext({
-        operation: "GetAllSourcesHealth",
-      });
-
-    const healthPromises = Array.from(this.getRegisteredPools()).map(
-      (sourceName) => this.checkSourceHealth(sourceName, operationContext),
-    );
-
-    return Promise.all(healthPromises);
-  }
-
-  /**
-   * Close a specific source's connection pool
-   * @param sourceName - Name of the source to close
-   * @param context - Request context for logging
-   */
-  async closeSource(
-    sourceName: string,
-    context?: RequestContext,
-  ): Promise<void> {
-    await super.closePool(sourceName, context);
-    // Also clean up the source config
-    this.sourceConfigs.delete(sourceName);
   }
 
   /**
@@ -294,13 +330,5 @@ export class SourceManager extends BaseConnectionPool<string> {
     }
 
     return summary;
-  }
-
-  /**
-   * Clear all registered sources (for testing)
-   */
-  clearAllSources(): void {
-    this.clearAllPools();
-    this.sourceConfigs.clear();
   }
 }

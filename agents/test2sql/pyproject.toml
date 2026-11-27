@@ -5,7 +5,7 @@ description = "IBM i Text-to-SQL Agent - Query Db2 for i databases using natural
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "agno>=2.4.3",
+    "agno[mcp]>=2.9.0",
     "anthropic>=0.76.0",
     "mcp>=1.26.0",
     "python-dotenv>=1.0.0",

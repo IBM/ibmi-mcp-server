@@ -15,10 +15,12 @@ import {
 
 /**
  * SQL tool parameter schema for secure parameter binding
- * Supports enhanced parameter types with validation for :param and ? placeholders
+ *
+ * The object schemas in this file are strict: a misspelled key in a YAML file
+ * is an error, not a setting that is silently dropped.
  */
 export const SqlToolParameterSchema = z
-  .object({
+  .strictObject({
     name: z
       .string()
       .min(1, "Parameter name cannot be empty")
@@ -74,7 +76,7 @@ export const SqlToolParameterSchema = z
  * Supports IBM i DB2 connections with optional SSL configuration
  */
 export const SourceConfigSchema = z
-  .object({
+  .strictObject({
     host: z
       .string()
       .min(1, "Host cannot be empty")
@@ -83,13 +85,32 @@ export const SourceConfigSchema = z
       .string()
       .min(1, "User cannot be empty")
       .describe("Database user name"),
+    // Optional and nullable: a source that connects over SSH has no
+    // password. A source with neither a password nor an SSH key is refused
+    // below.
     password: z
       .string()
-      .min(1, "Password cannot be empty")
-      .describe("Database password"),
+      .nullish()
+      .describe(
+        "Database password for the Mapepire daemon. Required unless the source connects over SSH (ssh-key or DB2i_SSH_KEY).",
+      ),
     port: MapepirePortSchema.optional().describe(
-      "Mapepire daemon port (default: 8076)",
+      "Mapepire daemon port (default: 8076). Not used over SSH.",
     ),
+    "ssh-key": z
+      .string()
+      .min(1, "ssh-key cannot be empty")
+      .optional()
+      .describe(
+        "Path to an SSH private key. When set, the source connects to its host as its user over SSH instead of the Mapepire daemon, and no password is used. Overrides DB2i_SSH_KEY.",
+      ),
+    "ssh-host-key-sha256": z
+      .string()
+      .min(1, "ssh-host-key-sha256 cannot be empty")
+      .optional()
+      .describe(
+        "Expected SSH host key fingerprint of this host (SHA256:<base64> from ssh-keygen -lf, or 64 hex chars). Overrides DB2i_SSH_HOST_KEY_SHA256.",
+      ),
     "ignore-unauthorized": z
       .boolean()
       .optional()
@@ -104,14 +125,12 @@ export const SourceConfigSchema = z
         libraries: z
           .union([
             z.array(z.string().min(1)),
-            z
-              .string()
-              .transform((val) =>
-                val
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              ),
+            z.string().transform((val) =>
+              val
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            ),
           ])
           .optional(),
       })
@@ -124,13 +143,25 @@ export const SourceConfigSchema = z
           "Env var DB2i_JDBC_OPTIONS overrides these values per-source.",
       ),
   })
+  .superRefine((source, ctx) => {
+    // One credential: a password (Mapepire daemon) or an SSH key, which is
+    // the source's own `ssh-key` or else DB2i_SSH_KEY.
+    if (!source.password && !source["ssh-key"] && !process.env.DB2i_SSH_KEY) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["password"],
+        message:
+          "A source needs a password, or an SSH key (ssh-key on the source, or DB2i_SSH_KEY in the environment)",
+      });
+    }
+  })
   .describe("Database connection configuration");
 
 /**
  * SQL tool security configuration schema
  */
 export const SqlToolSecurityConfigSchema = z
-  .object({
+  .strictObject({
     readOnly: z
       .boolean()
       .optional()
@@ -153,7 +184,7 @@ export const SqlToolSecurityConfigSchema = z
  * Defines a single executable SQL tool with metadata
  */
 export const SqlToolConfigSchema = z
-  .object({
+  .strictObject({
     enabled: z
       .boolean()
       .optional()
@@ -171,8 +202,7 @@ export const SqlToolConfigSchema = z
       .describe("Clear, concise description of what the tool does"),
     statement: z
       .string()
-      .min(1, "SQL statement cannot be empty")
-      .optional()
+      .regex(/\S/, "SQL statement cannot be empty")
       .describe("SQL statement with parameter placeholders (:param or ?)"),
     parameters: z
       .array(SqlToolParameterSchema)
@@ -215,13 +245,13 @@ export const SqlToolConfigSchema = z
       .min(1, "rowsToFetch must be at least 1")
       .optional()
       .describe(
-        "Maximum rows to fetch from the database per call (default: mapepire's 100). Controls the actual query fetch, not display truncation. Takes precedence over fetchAllRows when both are set (a warning is logged).",
+        "Rows to fetch from the database (default: mapepire's 100). Controls the actual query fetch, not display truncation. Without fetchAllRows, a single-shot row cap; with fetchAllRows: true, the number of rows per paginated fetch.",
       ),
     fetchAllRows: z
       .boolean()
       .optional()
       .describe(
-        "When true, fetches all rows using paginated fetches (bounded by internal safety cap ~30k). Ignored if rowsToFetch is also set — rowsToFetch is the safer default when both are present. Use sparingly — large result sets bloat LLM context.",
+        "When true, fetches all rows using paginated fetches (bounded by the IBMI_PAGINATION_MAX_ROWS safety ceiling, default 30000). rowsToFetch, when also set, is the per-fetch page size. Use sparingly — large result sets bloat LLM context.",
       ),
 
     // Legacy deprecated fields (for backward compatibility)
@@ -249,7 +279,7 @@ export const SqlToolConfigSchema = z
  * Groups of related tools for organization
  */
 export const SqlToolsetConfigSchema = z
-  .object({
+  .strictObject({
     title: z.string().optional().describe("Human-readable toolset title"),
     description: z.string().optional().describe("Toolset description"),
     tools: z
@@ -261,35 +291,11 @@ export const SqlToolsetConfigSchema = z
   .describe("Toolset definition for grouping related tools");
 
 /**
- * TypeScript tool configuration schema
- * Defines how TypeScript-based tools are assigned to toolsets
- */
-export const TypeScriptToolConfigSchema = z
-  .object({
-    domain: z
-      .string()
-      .describe("Tool domain (e.g., 'sysadmin', 'performance')"),
-    category: z
-      .string()
-      .describe("Tool category (e.g., 'sql-generation', 'analysis')"),
-    description: z.string().optional().describe("Tool description"),
-    toolsets: z
-      .array(z.string())
-      .optional()
-      .describe("List of specific toolsets this tool belongs to"),
-    global: z
-      .boolean()
-      .optional()
-      .describe("Whether this tool should be added to ALL toolsets"),
-  })
-  .describe("TypeScript tool configuration for toolset assignment");
-
-/**
  * Complete SQL tools configuration schema
  * Root YAML configuration structure containing all sources, tools, and toolsets
  */
 export const SqlToolsConfigSchema = z
-  .object({
+  .strictObject({
     sources: z
       .record(
         z.string().min(1, "Source name cannot be empty"),
@@ -314,28 +320,12 @@ export const SqlToolsConfigSchema = z
       .optional()
       .describe("Toolset definitions"),
 
-    typescript_tools: z
-      .record(
-        z.string().min(1, "TypeScript tool name cannot be empty"),
-        TypeScriptToolConfigSchema,
-      )
-      .optional()
-      .describe("TypeScript tool configurations"),
-
     metadata: MetadataSchema.optional().describe("Optional global metadata"),
   })
-  .refine(
-    (data) => {
-      // Ensure at least one section exists
-      return (
-        data.sources || data.tools || data.toolsets || data.typescript_tools
-      );
-    },
-    {
-      message:
-        "YAML file must contain at least one section: sources, tools, toolsets, or typescript_tools",
-    },
-  )
+  .refine((data) => data.sources || data.tools || data.toolsets, {
+    message:
+      "YAML file must contain at least one section: sources, tools, or toolsets",
+  })
   .describe("Root YAML configuration structure");
 
 // Inferred types for export
@@ -344,5 +334,4 @@ export type SourceConfig = z.infer<typeof SourceConfigSchema>;
 export type SqlToolSecurityConfig = z.infer<typeof SqlToolSecurityConfigSchema>;
 export type SqlToolConfig = z.infer<typeof SqlToolConfigSchema>;
 export type SqlToolsetConfig = z.infer<typeof SqlToolsetConfigSchema>;
-export type TypeScriptToolConfig = z.infer<typeof TypeScriptToolConfigSchema>;
 export type SqlToolsConfig = z.infer<typeof SqlToolsConfigSchema>;

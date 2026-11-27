@@ -93,7 +93,7 @@ DB2i_HOST="your_host"
 DB2i_USER="your_user"
 DB2i_PASS="your_pass"
 
-# MCP Auth mode
+# MCP Auth mode (IBM i HTTP token authentication is deprecated, see the note below)
 MCP_AUTH_MODE=ibmi
 
 # IBM i HTTP authentication settings
@@ -104,11 +104,20 @@ IBMI_AUTH_PUBLIC_KEY_PATH=secrets/public.pem
 # Enable IBM i HTTP authentication endpoints (requires MCP_AUTH_MODE=ibmi)
 IBMI_HTTP_AUTH_ENABLED=true
 
-# Allow HTTP requests for authentication (development only, use HTTPS in production)
+# Allow HTTP requests for authentication (honoured only with NODE_ENV=development; use HTTPS in production)
 IBMI_AUTH_ALLOW_HTTP=true
+
+# IBM i hosts users may sign on to through /api/v1/auth (default: DB2i_HOST)
+# IBMI_AUTH_ALLOWED_HOSTS=your_host
+
+# Let the gateway reach the server by its compose service name
+# (a non-loopback Host header that is not listed here is rejected with 403)
+MCP_ALLOWED_HOSTS=ibmi-mcp-server
 ```
 
-> **Note:** You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](../README.md#-ibm-i-http-authentication-beta) section in the main README for instructions.
+> **Note:** You need to generate an RSA keypair for the server if you haven't already done so. See the [IBM i HTTP Authentication](../packages/server/README.md#-ibm-i-http-authentication-deprecated) section in the server README for instructions.
+>
+> **Deprecated:** IBM i HTTP token authentication (`MCP_AUTH_MODE=ibmi`) will be removed in a future major release. The recommended mode for remote deployments is `MCP_AUTH_MODE=oauth`. For a server that sits behind this gateway, set `MCP_RESOURCE_URL` and `OAUTH_ISSUER_URL`; every client of the server, the gateway included, must then present an access token from your authorization server. See [OAuth Authentication](../packages/server/README.md#oauth-authentication). The [built-in IBM i sign-on](../packages/server/README.md#built-in-ibm-i-sign-on) (no `OAUTH_ISSUER_URL`) needs a person at a browser, so a gateway cannot use it.
 
 Once you have your `.env` file configured, you can start the complete stack using Docker or Podman.
 
@@ -338,23 +347,25 @@ podman logs ibmi-mcp-server
 # Verify environment variables
 docker exec ibmi-mcp-server env | grep DB2i
 
-# Test connectivity
-docker exec ibmi-mcp-server curl http://localhost:3010/healthz
+# Test connectivity (from the host; the image does not ship curl)
+curl http://localhost:3010/healthz
 ```
 
 **Port conflicts:**
+- The server exits when its port is already in use (`Port <port> on <host> is already in use`); it does not move to another port
 - Change `MCP_HTTP_PORT` in `.env`
 - Update port mappings in `deployment/mcpgateway/docker-compose.yml`
 
 **Gateway can't connect to IBM i MCP Server:**
 - Verify both containers are on the same network: `docker network inspect mcpgateway_mcpnet`
-- Check IBM i MCP Server is healthy: `docker exec ibmi-mcp-server curl http://localhost:3010/healthz`
+- Check IBM i MCP Server is healthy: `docker inspect --format '{{.State.Health.Status}}' ibmi-mcp-server`
+- Verify `MCP_ALLOWED_HOSTS=ibmi-mcp-server` is set in `.env` (the gateway addresses the server by that name)
 - Review gateway logs: `docker logs gateway`
 
 **Database connection issues:**
 - Verify IBM i credentials in `.env`
 - Check Mapepire is running on IBM i: `sc status mapepire`
-- Test connection from container: `docker exec ibmi-mcp-server nc -zv $DB2i_HOST 8076`
+- Test connection from container: `docker exec ibmi-mcp-server node -e "require('net').connect(8076, process.env.DB2i_HOST).on('connect', () => { console.log('ok'); process.exit(0); }).on('error', (e) => { console.error(e.message); process.exit(1); })"`
 
 ### OpenShift Issues
 
@@ -366,19 +377,19 @@ See the [OpenShift README](openshift/apps/openshift/README.md#troubleshooting) f
 
 ### Security
 
-- **Use HTTPS:** Configure reverse proxy (Nginx, Caddy) for TLS termination
-- **Set `IBMI_AUTH_ALLOW_HTTP=false`** in production
+- **Use HTTPS:** Either give the MCP server its own TLS listener (`MCP_TLS_CERT_FILE` and `MCP_TLS_KEY_FILE`, PEM files), or configure a reverse proxy (Nginx, Caddy) for TLS termination and set `MCP_TRUSTED_PROXIES` on the MCP server to that proxy's address or CIDR range. The server then uses the client address and scheme the proxy reports (`X-Forwarded-For`, `X-Forwarded-Proto`): the client is the right-most `X-Forwarded-For` entry that is not itself a listed proxy. Have the proxy set `X-Forwarded-For` itself (overwrite or append). Leave `MCP_TRUSTED_PROXIES` unset when clients reach the server directly
+- **Replace the demo values:** `docker-compose.yml` ships fixed demo values for `JWT_SECRET_KEY`, `PLATFORM_ADMIN_PASSWORD`, `PGADMIN_DEFAULT_PASSWORD` and `POSTGRES_PASSWORD`, and Redis has no password. That is why it publishes every port on `127.0.0.1` only. Set your own values and a Redis password before you publish any port on another interface
 - **Use secrets management:** Kubernetes secrets, Vault, or cloud provider solutions
-- **Enable authentication:** Set `MCP_AUTH_MODE=ibmi` or `jwt`
+- **Enable authentication:** Set `MCP_AUTH_MODE=oauth`. Without `OAUTH_ISSUER_URL` users sign on with their IBM i user profile and SQL runs as that user; a container then needs the TLS listener, and no `DB2i_PASS`. With `OAUTH_ISSUER_URL` the server verifies tokens from your authorization server and SQL runs as the service account. See [OAuth Authentication](../packages/server/README.md#oauth-authentication) and [Built-in IBM i Sign-On](../packages/server/README.md#built-in-ibm-i-sign-on). (IBM i token authentication, `MCP_AUTH_MODE=ibmi`, is deprecated; if you still use it, set `IBMI_AUTH_ALLOW_HTTP=false`)
 - **Restrict CORS:** Set `MCP_ALLOWED_ORIGINS` to specific domains
-- **Regular key rotation:** Rotate JWT keys and IBM i credentials periodically
+- **Regular rotation:** Rotate IBM i credentials periodically
 
 ### Performance
 
 - **Resource limits:** Set memory/CPU limits in docker-compose.yml
-- **Connection pooling:** Configure `IBMI_AUTH_MAX_CONCURRENT_SESSIONS`
+- **Connection pooling:** Tune `MCP_POOL_IDLE_TIMEOUT_MS` and `MCP_POOL_QUERY_TIMEOUT_MS`
 - **Caching:** Redis is included for session and response caching
-- **Horizontal scaling:** Use multiple replicas behind a load balancer
+- **Horizontal scaling:** Use multiple replicas behind a load balancer. Not with the built-in IBM i sign-on: its sign-ons live in one process, so run a single instance
 
 ### Monitoring
 

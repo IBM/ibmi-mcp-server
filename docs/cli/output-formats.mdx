@@ -39,6 +39,8 @@ ibmi sql "SELECT EMPNO, FIRSTNME, LASTNAME FROM SAMPLE.EMPLOYEE FETCH FIRST 3 RO
 [dev] myhost.com · 3 rows · 0.12s
 ```
 
+Columns are as wide as their longest value; cell values are not truncated. For wide results use `--format json` or `--format csv`.
+
 ---
 
 ## JSON
@@ -120,6 +122,8 @@ EMPNO,FIRSTNME,LASTNAME
 000030,SALLY,KWAN
 ```
 
+Object and array values are written as JSON text.
+
 Export directly to a file:
 
 ```bash
@@ -155,9 +159,11 @@ ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --format csv --output /tmp/employees.cs
 ibmi sql "SELECT * FROM SAMPLE.EMPLOYEE" --raw --output /tmp/employees.json
 ```
 
-Combine with `--watch` to continuously update a file:
+Combine with `--watch` to continuously update a file. The file is rewritten after every run, so it always holds the latest result:
 
 ```bash
 ibmi sql "SELECT * FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) WHERE JOB_STATUS='RUN'" \
   --format csv --output /tmp/active-jobs.csv --watch 10
 ```
+
+`--output` and `--watch` work with `sql`, `tool`, `schemas`, `tables`, `columns`, `related`, `describe` and `validate`, including the `--dry-run` previews of `sql` and `tool`.

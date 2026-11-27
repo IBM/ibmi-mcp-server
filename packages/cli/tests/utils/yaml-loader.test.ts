@@ -6,7 +6,7 @@ import {
   loadYamlFile,
   loadYamlTools,
   buildToolsetMap,
-} from "../../src/utils/yaml-loader";
+} from "../../src/utils/yaml-loader.js";
 
 const TEST_DIR = join(tmpdir(), "ibmi-cli-yaml-test-" + Date.now());
 
@@ -52,7 +52,9 @@ toolsets:
     const config = loadYamlFile(path);
     expect(config.tools).toHaveProperty("system_status");
     expect(config.tools["system_status"]?.description).toBe("System status");
-    expect(config.tools["system_status"]?.statement).toContain("SYSTEM_STATUS_INFO");
+    expect(config.tools["system_status"]?.statement).toContain(
+      "SYSTEM_STATUS_INFO",
+    );
     expect(config.toolsets).toHaveProperty("performance");
     expect(config.toolsets["performance"]?.tools).toContain("system_status");
     expect(config.sources).toHaveProperty("ibmi-system");
@@ -71,7 +73,10 @@ tools: {}
     );
 
     const config = loadYamlFile(path);
-    expect(config.sources["ibmi-system"]).toHaveProperty("host", "test400.example.com");
+    expect(config.sources["ibmi-system"]).toHaveProperty(
+      "host",
+      "test400.example.com",
+    );
 
     delete process.env.TEST_YAML_HOST;
   });
@@ -133,6 +138,37 @@ tools:
     expect(() => loadYamlFile("/nonexistent/path.yaml")).toThrow(
       "YAML tool file not found",
     );
+  });
+
+  it("should treat an empty or comment-only file as an empty config", () => {
+    const empty = loadYamlFile(writeYaml("empty.yaml", ""));
+    expect(empty.tools).toEqual({});
+    expect(empty.toolsets).toEqual({});
+
+    const commentOnly = loadYamlFile(
+      writeYaml("comment.yaml", "# nothing here\n"),
+    );
+    expect(commentOnly.tools).toEqual({});
+  });
+
+  it("should throw a clear error when the top level is not a mapping", () => {
+    const path = writeYaml("list.yaml", "- a\n- b\n");
+    expect(() => loadYamlFile(path)).toThrow("Invalid YAML tool file");
+  });
+
+  it("should default a toolset without tools to an empty list", () => {
+    const path = writeYaml(
+      "toolset.yaml",
+      `
+toolsets:
+  empty_set:
+    title: "Empty"
+`,
+    );
+
+    const config = loadYamlFile(path);
+    expect(config.toolsets["empty_set"]?.tools).toEqual([]);
+    expect(buildToolsetMap(config.toolsets).size).toBe(0);
   });
 });
 

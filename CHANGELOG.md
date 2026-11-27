@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.6.2](https://github.com/IBM/ibmi-mcp-server/compare/v0.6.1...v0.6.2) (2026-10-07)
+
+Security patch. Closes a bypass of read-only mode in `execute_sql` that let a `SELECT` run arbitrary CL commands through `QSYS2.QCMDEXC` ([#188](https://github.com/IBM/ibmi-mcp-server/issues/188)). All deployments that run with read-only mode on (the default) should upgrade. No configuration changes.
+
+### Security
+
+* **Read-only mode rejects `QCMDEXC` inside read-only statements** (Server, CLI) ([#192](https://github.com/IBM/ibmi-mcp-server/pull/192), [#214](https://github.com/IBM/ibmi-mcp-server/pull/214)). Read-only validation only checked the outer statement type, so `SELECT QSYS2.QCMDEXC('...') FROM SYSIBM.SYSDUMMY1` passed and Db2 for i executed the CL command. The validator now scans every token of `SELECT` and `WITH` statements, including subqueries, CTEs, `CASE` expressions and function arguments, and rejects calls to `QCMDEXC` or any other name on the blocked-operations list (such as `SQL_EXECUTE_IMMEDIATE`). The check also covers the delimited-identifier form `QSYS2."QCMDEXC"(...)`, which the first fix missed.
+* **Dependency alerts remediated** ([#185](https://github.com/IBM/ibmi-mcp-server/pull/185)). Clears the Dependabot alerts tracked in [#180](https://github.com/IBM/ibmi-mcp-server/issues/180). The published packages pick up only transitive lockfile bumps (`fast-uri` 3.1.8 and others); the remaining fixes are in the example apps and agents.
+
+### Documentation
+
+* Scoped package names (`@ibm/ibmi-mcp-server`, `@ibm/ibmi-cli`) corrected across docs and source ([#191](https://github.com/IBM/ibmi-mcp-server/pull/191)).
+
 ## [0.6.1](https://github.com/IBM/ibmi-mcp-server/compare/v0.6.0...v0.6.1) (2026-09-14)
 
 Patch release. Restores installation on IBM i, which 0.6.0 broke ([#177](https://github.com/IBM/ibmi-mcp-server/issues/177)), and fixes the tool schema dialect that made Claude Code and Cowork reject every tool ([#165](https://github.com/IBM/ibmi-mcp-server/issues/165)). No configuration changes; every fix keeps existing behavior for deployments that were already working.

@@ -36,15 +36,15 @@ export const MapepirePortEnvSchema = z.preprocess(
 /**
  * Response format options for SQL tools
  */
-export const ResponseFormatSchema = z.enum(["json", "markdown"], {
-  description: "Response format for SQL tool output",
-});
+export const ResponseFormatSchema = z
+  .enum(["json", "markdown"])
+  .describe("Response format for SQL tool output");
 
 /**
  * Common metadata schema for extensible objects
  */
 export const MetadataSchema = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .describe("Extensible metadata object for storing additional information");
 
 /**
@@ -135,32 +135,6 @@ export const ColumnDefinitionSchema = z
   })
   .describe("Database column metadata");
 
-/**
- * Base parameter constraint schemas for reuse
- */
-export const ParameterConstraintsSchema = z
-  .object({
-    min: z.number().optional().describe("Minimum value for numeric types"),
-    max: z.number().optional().describe("Maximum value for numeric types"),
-    minLength: z
-      .number()
-      .optional()
-      .describe("Minimum length for string/array types"),
-    maxLength: z
-      .number()
-      .optional()
-      .describe("Maximum length for string/array types"),
-    pattern: z
-      .string()
-      .optional()
-      .describe("Regex pattern for string validation"),
-  })
-  .describe("Parameter validation constraints");
-
 // Inferred types for export
-export type ResponseFormat = z.infer<typeof ResponseFormatSchema>;
 export type Metadata = z.infer<typeof MetadataSchema>;
 export type ToolAnnotations = z.infer<typeof ToolAnnotationsSchema>;
-export type ColumnDefinition = z.infer<typeof ColumnDefinitionSchema>;
-export type ParameterConstraints = z.infer<typeof ParameterConstraintsSchema>;
-export type MapepirePort = z.infer<typeof MapepirePortSchema>;

@@ -1,0 +1,425 @@
+/**
+ * @fileoverview One shared SSH session with ONE mapepire `SQLJob` per IBM i
+ * target (used by every connection that has an SSH key).
+ *
+ * Starting an `ssh-single` job is expensive (SSH connect, JAR checks, JVM start
+ * and JDBC connect: ~10s), so the job is created once per target and then
+ * reused by every consumer with the same host, user, key and options: the
+ * built-in tools and the YAML sources. Each `BaseConnectionPool` entry gets a
+ * cheap {@link PoolLike} lease on the shared session; the session is closed
+ * when the last lease ends.
+ *
+ * Authentication is by private key only. No password is ever sent over SSH.
+ *
+ * @module src/ibmi-mcp-server/services/sshSession
+ */
+
+import { createHash, timingSafeEqual } from "node:crypto";
+import pkg from "@ibm/mapepire-js";
+import type { JDBCOptions, QueryOptions } from "@ibm/mapepire-js";
+import type { Client } from "ssh2";
+import { logger } from "@/utils/internal/logger.js";
+import {
+  requestContextService,
+  RequestContext,
+} from "@/utils/internal/requestContext.js";
+import { JsonRpcErrorCode, McpError } from "@/types-global/errors.js";
+import type { PoolLike } from "./baseConnectionPool.js";
+
+const { SQLJob, connectSSH2, createSSH2Connection } = pkg;
+type SQLJobInstance = InstanceType<typeof SQLJob>;
+
+/** SSH credentials + technique, as returned by `config.sshFor()`. */
+export interface SSHCredentials {
+  host: string;
+  port: number;
+  username: string;
+  privateKey: Buffer;
+  passphrase?: string;
+  /** Expected host key fingerprint (`SHA256:<base64>` or 64 hex chars). */
+  hostKeySha256?: string;
+  technique: "tcp" | "cli";
+}
+
+/**
+ * Compare the SHA-256 host key hash reported by ssh2 (hex) with the configured
+ * fingerprint, which may be OpenSSH style (`SHA256:<base64>`) or plain hex.
+ */
+export function hostKeyMatches(actualHex: string, expected: string): boolean {
+  const value = expected.trim().replace(/^SHA256:/i, "");
+  const actual = Buffer.from(actualHex, "hex");
+  const wanted = /^[0-9a-f]{64}$/i.test(value)
+    ? Buffer.from(value, "hex")
+    : Buffer.from(value, "base64");
+  return actual.length === wanted.length && timingSafeEqual(actual, wanted);
+}
+
+/** Interval between SSH keepalive probes on an idle connection. */
+const SSH_KEEPALIVE_INTERVAL_MS = 15_000;
+/** Unanswered keepalive probes after which ssh2 drops the connection. */
+const SSH_KEEPALIVE_COUNT_MAX = 3;
+
+function closedWhileConnecting(): McpError {
+  return new McpError(
+    JsonRpcErrorCode.DatabaseError,
+    "IBM i SSH session was closed while it was connecting.",
+    { reconnectOnNextCall: true },
+  );
+}
+
+/** One SSH client + one SQL job, shared by all leases with the same key. */
+class SSHSession {
+  private client: Client | null = null;
+  private job: SQLJobInstance | null = null;
+  private connecting: Promise<void> | null = null;
+  private alive = false;
+  /** True once the session failed, was closed or lost; it is never reused. */
+  private dead = false;
+  private refs = 0;
+  private readonly context: RequestContext;
+
+  constructor(
+    private readonly ssh: SSHCredentials,
+    private readonly jdbcOptions: JDBCOptions | undefined,
+    private readonly onDead: (session: SSHSession) => void,
+  ) {
+    this.context = requestContextService.createRequestContext({
+      operation: "SSHSession",
+      host: ssh.host,
+    });
+  }
+
+  get isDead(): boolean {
+    return this.dead;
+  }
+
+  retain(): void {
+    this.refs++;
+  }
+
+  /** @returns true when the last lease was released. */
+  release(): boolean {
+    this.refs = Math.max(0, this.refs - 1);
+    return this.refs === 0;
+  }
+
+  /** Connect once; concurrent callers share the same attempt. */
+  ensureConnected(): Promise<void> {
+    if (this.dead) {
+      return Promise.reject(
+        new McpError(
+          JsonRpcErrorCode.DatabaseError,
+          "IBM i SSH session is not available. It will be re-established on the next request.",
+          { reconnectOnNextCall: true },
+        ),
+      );
+    }
+    if (this.alive) return Promise.resolve();
+    this.connecting ??= this.connect().finally(() => {
+      this.connecting = null;
+    });
+    return this.connecting;
+  }
+
+  isAlive(): boolean {
+    return (
+      this.alive &&
+      !this.dead &&
+      this.client !== null &&
+      this.job !== null &&
+      this.job.getStatus() !== "ended" &&
+      // mapepire-js 1.x does not end a job when its connection drops (the
+      // remote mapepire-server exits while the SSH client stays open): the
+      // transport is then the only thing that says so.
+      this.job.getTransport?.()?.isConnected?.() !== false
+    );
+  }
+
+  /**
+   * True when the session connected and its job has since been lost, while
+   * leases still hold it. Such a session is never reused.
+   */
+  get isLost(): boolean {
+    return this.alive && !this.dead && !this.isAlive();
+  }
+
+  /** The session's one job while it is usable. */
+  get liveJob(): SQLJobInstance | undefined {
+    return this.isAlive() && this.job ? this.job : undefined;
+  }
+
+  query(sql: string, opts?: QueryOptions) {
+    if (!this.isAlive() || !this.job) {
+      throw new McpError(
+        JsonRpcErrorCode.DatabaseError,
+        "IBM i SSH session is not available. It will be re-established on the next request.",
+        { reconnectOnNextCall: true },
+      );
+    }
+    return this.job.query(sql, opts);
+  }
+
+  /** Close the job and the SSH client. Safe to call more than once. */
+  async close(): Promise<void> {
+    const job = this.job;
+    const client = this.client;
+    this.job = null;
+    this.client = null;
+    this.alive = false;
+    if (!this.dead) {
+      this.dead = true;
+      this.onDead(this);
+    }
+    await job?.close().catch(() => undefined);
+    try {
+      client?.end();
+    } catch {
+      // ignore
+    }
+  }
+
+  private async connect(): Promise<void> {
+    const { ssh } = this;
+    logger.info(
+      {
+        ...this.context,
+        host: ssh.host,
+        port: ssh.port,
+        user: ssh.username.substring(0, 3) + "***",
+        technique: ssh.technique,
+      },
+      "Opening IBM i SSH session",
+    );
+
+    if (!ssh.hostKeySha256) {
+      logger.warning(
+        this.context,
+        "No SSH host key fingerprint is set for this system: the IBM i SSH host key is NOT verified (vulnerable to man-in-the-middle). Set `ssh-host-key-sha256` on the YAML source or DB2i_SSH_HOST_KEY_SHA256 to the fingerprint from `ssh-keygen -lf`.",
+      );
+    }
+
+    try {
+      const client = await connectSSH2({
+        host: ssh.host,
+        port: ssh.port,
+        username: ssh.username,
+        // ssh2 sends no keepalives by default, so a connection dropped
+        // silently (firewall or NAT idle timeout) would still look alive and
+        // the next query would hang until the query timeout. With these, ssh2
+        // closes the socket after ~45s without a reply, which fires the
+        // "close" handler below.
+        keepaliveInterval: SSH_KEEPALIVE_INTERVAL_MS,
+        keepaliveCountMax: SSH_KEEPALIVE_COUNT_MAX,
+        privateKey: ssh.privateKey,
+        ...(ssh.passphrase ? { passphrase: ssh.passphrase } : {}),
+        ...(ssh.hostKeySha256
+          ? {
+              hostHash: "sha256",
+              hostVerifier: (hash: string) => {
+                const ok = hostKeyMatches(hash, ssh.hostKeySha256 as string);
+                if (!ok) {
+                  logger.error(
+                    this.context,
+                    "IBM i SSH host key does not match the configured fingerprint; refusing to connect",
+                  );
+                }
+                return ok;
+              },
+            }
+          : {}),
+      });
+      // The session may have been closed (last lease ended, shutdown) while
+      // the SSH connection was being opened. close() could not see this
+      // client yet, so it is ended here.
+      if (this.dead) {
+        client.end();
+        throw closedWhileConnecting();
+      }
+      this.client = client;
+
+      client.on("error", (err: Error) => {
+        logger.warning(
+          { ...this.context, error: err.message },
+          "IBM i SSH client error",
+        );
+      });
+      client.on("close", () => {
+        if (this.client === client && !this.dead) {
+          logger.warning(
+            this.context,
+            "IBM i SSH session closed; it will be re-created on next request",
+          );
+          void this.close();
+        }
+      });
+
+      const job = SQLJob.withConfig(
+        {
+          transport: "ssh-single",
+          sshSingleTechnique: ssh.technique,
+          sshSingle: createSSH2Connection(client),
+        },
+        this.jdbcOptions,
+      );
+      await job.connect();
+      // Same check for the job: close() already ended the client, but it
+      // never saw this job.
+      if (this.dead) {
+        await job.close().catch(() => undefined);
+        throw closedWhileConnecting();
+      }
+      this.job = job;
+      this.alive = true;
+      logger.info(this.context, "IBM i SSH session ready");
+    } catch (error) {
+      await this.close();
+      throw error;
+    }
+  }
+}
+
+const sessions = new Map<string, SSHSession>();
+
+function sessionKey(ssh: SSHCredentials, jdbcOptions?: JDBCOptions): string {
+  return JSON.stringify([
+    ssh.host,
+    ssh.port,
+    ssh.username,
+    ssh.technique,
+    keyDigest(ssh),
+    ssh.hostKeySha256 ?? null,
+    jdbcOptions ?? null,
+  ]);
+}
+
+/**
+ * SHA-256 of the private key and passphrase, so sessions opened with different
+ * credentials are never shared and no secret ends up in the map key.
+ */
+function keyDigest(ssh: SSHCredentials): string {
+  return createHash("sha256")
+    .update(ssh.privateKey)
+    .update("\0")
+    .update(ssh.passphrase ?? "")
+    .digest("hex");
+}
+
+/**
+ * Identifies an SSH target and key without holding a secret: equal for two
+ * settings that would share one session (given the same JDBC options).
+ */
+export function sshSessionKey(ssh: SSHCredentials): string {
+  return sessionKey(ssh);
+}
+
+/** True when two SSH settings would share one session (same target and key). */
+export function sshCredentialsEqual(
+  a: SSHCredentials | undefined,
+  b: SSHCredentials | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return sessionKey(a) === sessionKey(b);
+}
+
+/**
+ * Lease on a shared {@link SSHSession}; what `BaseConnectionPool` holds in place
+ * of mapepire's `Pool`. To the pool manager it is a pool with one connection
+ * that cannot grow: `jobs` holds the session's job while the session is usable
+ * and is empty once it is lost, which makes the manager end the lease and take
+ * a new one (a new session) on the next statement.
+ */
+export class SSHSessionLease implements PoolLike {
+  private released = false;
+
+  constructor(
+    private readonly session: SSHSession,
+    private readonly release: () => void,
+  ) {}
+
+  async init(): Promise<void> {
+    try {
+      await this.session.ensureConnected();
+    } catch (error) {
+      this.end();
+      throw error;
+    }
+  }
+
+  /** The connections of this "pool": the shared job, or none. */
+  get jobs(): SQLJobInstance[] {
+    const job = this.released ? undefined : this.session.liveJob;
+    return job ? [job] : [];
+  }
+
+  /** One job per session: the pool never grows. */
+  hasSpace(): boolean {
+    return false;
+  }
+
+  async waitForJob(): Promise<SQLJobInstance> {
+    const [job] = this.jobs;
+    if (!job) {
+      throw new McpError(
+        JsonRpcErrorCode.DatabaseError,
+        "IBM i SSH session is not available. It will be re-established on the next request.",
+        { reconnectOnNextCall: true },
+      );
+    }
+    return job;
+  }
+
+  query(sql: string, opts?: QueryOptions) {
+    return this.session.query(sql, opts);
+  }
+
+  isAlive(): boolean {
+    return this.session.isAlive();
+  }
+
+  /**
+   * A query timed out. The single job may be stuck, so the shared session is
+   * torn down; every pool with a lease on it takes a new one on its next
+   * request. The caller also ends its own lease.
+   */
+  onQueryTimeout(): void {
+    void this.session.close();
+  }
+
+  end(): void {
+    if (this.released) return;
+    this.released = true;
+    this.release();
+  }
+}
+
+/**
+ * Get a lease on the shared SSH session for these credentials, creating the
+ * session if needed. The session connects on the first `init()` and is closed
+ * when every lease has ended.
+ */
+export function acquireSSHSession(
+  ssh: SSHCredentials,
+  jdbcOptions?: JDBCOptions,
+): SSHSessionLease {
+  const key = sessionKey(ssh, jdbcOptions);
+  let session = sessions.get(key);
+  if (session?.isLost) {
+    // Other pools still hold a lease on it, so nothing has closed it yet.
+    // Closing it marks it dead for them too; each takes a new lease on the
+    // new session with its next statement.
+    void session.close();
+  }
+  if (!session || session.isDead) {
+    const created: SSHSession = new SSHSession(ssh, jdbcOptions, (s) => {
+      if (sessions.get(key) === s) sessions.delete(key);
+    });
+    sessions.set(key, created);
+    session = created;
+  }
+
+  const target = session;
+  target.retain();
+  return new SSHSessionLease(target, () => {
+    if (target.release()) void target.close();
+  });
+}

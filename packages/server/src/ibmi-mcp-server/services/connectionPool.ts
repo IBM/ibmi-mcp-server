@@ -59,11 +59,36 @@ export class IBMiConnectionPool extends BaseConnectionPool<
     });
 
     try {
+      // An SSH key (DB2i_SSH_KEY) means SSH: a lease on the shared ssh-single
+      // session, no daemon needed and DB2i_PASS is not used.
+      const ssh = config.db2iSsh;
+      if (ssh) {
+        logger.info(
+          { ...context, host: ssh.host, port: ssh.port, transport: "ssh" },
+          "Initializing IBM i connection pool (SSH transport)",
+        );
+        await instance.initializePool(
+          IBM_I_POOL_ID,
+          {
+            host: ssh.host,
+            user: ssh.username,
+            password: "",
+            ssh,
+            ...(config.db2iJdbcOptions
+              ? { jdbcOptions: config.db2iJdbcOptions }
+              : {}),
+          },
+          context,
+        );
+        logger.info(context, "IBM i connection pool initialized successfully");
+        return;
+      }
+
       // Check if Db2i configuration is available
       if (!config.db2i) {
         throw new McpError(
           JsonRpcErrorCode.ConfigurationError,
-          "Db2i configuration not found. Please ensure DB2i_HOST, DB2i_USER, and DB2i_PASS environment variables are set.",
+          "Db2i configuration not found. Please ensure DB2i_HOST and DB2i_USER are set, with DB2i_PASS (Mapepire daemon) or DB2i_SSH_KEY (SSH).",
           { configSection: "db2i" },
         );
       }
@@ -172,33 +197,6 @@ export class IBMiConnectionPool extends BaseConnectionPool<
   }
 
   /**
-   * Check the health of the connection pool
-   */
-  static async healthCheck(): Promise<boolean> {
-    const context = requestContextService.createRequestContext({
-      operation: "ConnectionHealthCheck",
-    });
-
-    try {
-      await this.ensureInitialized();
-      const instance = this.getInstance();
-      const health = await instance.checkPoolHealth(IBM_I_POOL_ID, context);
-
-      logger.debug(context, "Connection health check passed");
-      return health.status === "healthy";
-    } catch (error) {
-      logger.error(
-        {
-          ...context,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "Connection health check failed",
-      );
-      return false;
-    }
-  }
-
-  /**
    * Close the connection pool gracefully
    */
   static async close(): Promise<void> {
@@ -214,23 +212,5 @@ export class IBMiConnectionPool extends BaseConnectionPool<
       await instance.closePool(IBM_I_POOL_ID, context);
       logger.info(context, "IBM i connection pool closed successfully");
     }
-  }
-
-  /**
-   * Get connection pool status for monitoring
-   */
-  static getStatus(): {
-    initialized: boolean;
-    connecting: boolean;
-    poolExists: boolean;
-  } {
-    const instance = this.getInstance();
-    const poolStatus = instance.getPoolStatus(IBM_I_POOL_ID);
-
-    return {
-      initialized: poolStatus?.initialized ?? false,
-      connecting: poolStatus?.connecting ?? false,
-      poolExists: poolStatus !== null,
-    };
   }
 }

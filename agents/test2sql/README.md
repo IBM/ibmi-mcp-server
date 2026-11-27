@@ -28,7 +28,7 @@ Make sure the MCP server is running on `http://127.0.0.1:3010`:
 
 ```bash
 cd ibmi-mcp-server/
-IBMI_ENABLE_EXECUTE_SQL=true npx -y @ibm/ibmi-mcp-server@latest --transport http --tools tools/developer/text2sql.yaml
+npx -y @ibm/ibmi-mcp-server@latest --transport http --builtin-tools --tools tools/developer/text2sql.yaml
 ```
 
 ### 2. Set Up Environment

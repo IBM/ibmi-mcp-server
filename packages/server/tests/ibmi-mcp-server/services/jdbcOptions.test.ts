@@ -2,11 +2,16 @@
  * @fileoverview Tests for jdbc-options configuration across all layers
  * Covers: DB2i_JDBC_OPTIONS env var parsing, YAML schema validation,
  * PoolConnectionConfig wiring, mapepire Pool JDBC options, SourceManager
- * registration (with env-over-YAML merge), and IBMiConnectionPool.
+ * registration (with env-over-YAML merge), IBMiConnectionPool, and
+ * AuthenticatedPoolManager per-user pools.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type mapepire from "@ibm/mapepire-js";
 import type { PoolConnectionConfig } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
+
+/** The options object the pool passes to `new Pool(...)`. */
+type PoolOptions = ConstructorParameters<typeof mapepire.Pool>[0];
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state – vi.hoisted runs before vi.mock factories
@@ -20,16 +25,22 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
       fetchMore: vi.fn(),
       close: vi.fn(),
     };
+    const query = vi.fn(() => mockQueryInstance);
     const mockPoolInstance = {
       init: vi.fn(),
       execute: vi.fn(),
       end: vi.fn(),
-      query: vi.fn(() => mockQueryInstance),
+      query,
+      // The pool picks one of these connections for each statement: one
+      // ready job, which starts every statement through `query`.
+      jobs: [{ getStatus: () => "ready", query }],
     };
     return {
       mockPoolInstance,
       mockQueryInstance,
-      MockPool: vi.fn(() => mockPoolInstance),
+      MockPool: vi.fn(function (_options: PoolOptions) {
+        return mockPoolInstance;
+      }),
       mockGetRootCert: vi.fn().mockResolvedValue("cert"),
     };
   });
@@ -37,11 +48,6 @@ const { mockPoolInstance, mockQueryInstance, MockPool, mockGetRootCert } =
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
-vi.mock("../../../src/utils/scheduling/index.js", () => ({
-  SchedulerService: { getInstance: vi.fn() },
-  schedulerService: {},
-}));
-
 vi.mock("@ibm/mapepire-js", () => ({
   default: {
     Pool: MockPool,
@@ -52,8 +58,14 @@ vi.mock("@ibm/mapepire-js", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
+// Must load first: AuthenticatedPoolManager imports logger from this barrel,
+// which is circular with utils/internal. Vitest snapshots `export *` keys, so
+// entering through utils/internal would leave logger missing from the barrel.
+import "../../../src/utils/index.js";
 import { BaseConnectionPool } from "../../../src/ibmi-mcp-server/services/baseConnectionPool.js";
 import { SourceManager } from "../../../src/ibmi-mcp-server/services/sourceManager.js";
+import { AuthenticatedPoolManager } from "../../../src/ibmi-mcp-server/services/authenticatedPoolManager.js";
+import { McpError } from "../../../src/types-global/errors.js";
 import {
   SourceConfigSchema,
   SqlToolsConfigSchema,
@@ -80,12 +92,7 @@ class TestConnectionPool extends BaseConnectionPool<string> {
     params?: unknown[],
     context?: Record<string, unknown>,
   ) {
-    return this.executeQuery(
-      poolId,
-      query,
-      params as never,
-      context as never,
-    );
+    return this.executeQuery(poolId, query, params as never, context as never);
   }
 
   getPoolsMap() {
@@ -122,6 +129,9 @@ const SUCCESSFUL_RESULT = {
 
 const ORIGINAL_IDLE_TIMEOUT = config.poolTimeouts.idleTimeoutMs;
 const ORIGINAL_QUERY_TIMEOUT = config.poolTimeouts.queryTimeoutMs;
+// These suites exercise the WebSocket (Mapepire daemon) path regardless of the
+// developer's local .env (which may set DB2i_SSH_KEY).
+delete process.env.DB2i_SSH_KEY;
 
 function resetMocks() {
   MockPool.mockClear();
@@ -342,7 +352,7 @@ describe("SqlToolsConfigSchema – jdbc-options in YAML sources", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(
-        result.data.sources!["dev-system"]["jdbc-options"]?.libraries,
+        result.data.sources!["dev-system"]?.["jdbc-options"]?.libraries,
       ).toEqual(["DEVLIB", "DEVDATA", "QGPL"]);
     }
   });
@@ -412,8 +422,7 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
   it("3.4 – trims whitespace around keys, values, and within libraries list", () => {
     setCreds();
-    process.env.DB2i_JDBC_OPTIONS =
-      " naming = system ; libraries = A , B ";
+    process.env.DB2i_JDBC_OPTIONS = " naming = system ; libraries = A , B ";
 
     expect(config.db2i!.jdbcOptions).toEqual({
       naming: "system",
@@ -423,8 +432,7 @@ describe("config.db2i – DB2i_JDBC_OPTIONS env var parser", () => {
 
   it("3.5 – ignores empty segments (double semicolons, leading/trailing)", () => {
     setCreds();
-    process.env.DB2i_JDBC_OPTIONS =
-      ";naming=system;;date format=iso;";
+    process.env.DB2i_JDBC_OPTIONS = ";naming=system;;date format=iso;";
 
     expect(config.db2i!.jdbcOptions).toEqual({
       naming: "system",
@@ -492,9 +500,9 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     await pool.testInitializePool("test-libs", configWithLibs, TEST_CONTEXT);
 
     expect(MockPool).toHaveBeenCalledTimes(1);
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toBeDefined();
-    expect(poolArgs.opts.libraries).toEqual(["MYLIB", "DEVDATA", "QGPL"]);
+    expect(poolArgs.opts?.libraries).toEqual(["MYLIB", "DEVDATA", "QGPL"]);
   });
 
   it("4.2 – does not pass opts when jdbcOptions is undefined", async () => {
@@ -502,7 +510,7 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     await pool.testInitializePool("test-no-libs", BASE_CONFIG, TEST_CONTEXT);
 
     expect(MockPool).toHaveBeenCalledTimes(1);
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toBeUndefined();
   });
 
@@ -515,7 +523,7 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     );
 
     expect(MockPool).toHaveBeenCalledTimes(1);
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.creds.port).toBe(8077);
     expect(poolArgs.creds.host).toBe(BASE_CONFIG.host);
   });
@@ -530,7 +538,7 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     await pool.testInitializePool("test-empty", configWithEmpty, TEST_CONTEXT);
 
     expect(MockPool).toHaveBeenCalledTimes(1);
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toBeUndefined();
   });
 
@@ -572,11 +580,11 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
     await pool.testExecuteQuery("test-reinit", "SELECT 1");
 
     expect(MockPool).toHaveBeenCalledTimes(2);
-    expect(MockPool.mock.calls[0][0].opts.libraries).toEqual([
+    expect(MockPool.mock.calls[0]![0].opts?.libraries).toEqual([
       "MYLIB",
       "DEVDATA",
     ]);
-    expect(MockPool.mock.calls[1][0].opts.libraries).toEqual([
+    expect(MockPool.mock.calls[1]![0].opts?.libraries).toEqual([
       "MYLIB",
       "DEVDATA",
     ]);
@@ -593,12 +601,14 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
 
     await pool.testInitializePool("test-full", configWithLibs, TEST_CONTEXT);
 
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.creds.host).toBe("test-host");
     expect(poolArgs.creds.user).toBe("testuser");
     expect(poolArgs.maxSize).toBe(20);
-    expect(poolArgs.startingSize).toBe(5);
-    expect(poolArgs.opts.libraries).toEqual(["LIB1"]);
+    // One probe connection, then init() again for the remaining four
+    expect(mockPoolInstance.init).toHaveBeenCalledTimes(2);
+    expect(poolArgs.startingSize).toBe(4);
+    expect(poolArgs.opts?.libraries).toEqual(["LIB1"]);
   });
 
   it("4.7 – passes non-libraries JDBC options (e.g., naming) to Pool opts", async () => {
@@ -610,7 +620,7 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
 
     await pool.testInitializePool("test-naming", cfg, TEST_CONTEXT);
 
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toEqual({
       naming: "system",
       "date format": "iso",
@@ -630,10 +640,10 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
 
     await pool.testInitializePool("test-combo", cfg, TEST_CONTEXT);
 
-    const poolArgs = MockPool.mock.calls[0][0];
-    expect(poolArgs.opts.libraries).toEqual(["MYLIB"]);
-    expect(poolArgs.opts.naming).toBe("system");
-    expect(poolArgs.opts["date format"]).toBe("iso");
+    const poolArgs = MockPool.mock.calls[0]![0];
+    expect(poolArgs.opts?.libraries).toEqual(["MYLIB"]);
+    expect(poolArgs.opts?.naming).toBe("system");
+    expect(poolArgs.opts?.["date format"]).toBe("iso");
   });
 
   it("4.9 – does NOT pass opts when jdbcOptions is empty object {} (duplicate of 4.3 for plan-table parity)", async () => {
@@ -645,7 +655,7 @@ describe("BaseConnectionPool – jdbcOptions JDBC wiring", () => {
 
     await pool.testInitializePool("test-empty-2", cfg, TEST_CONTEXT);
 
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toBeUndefined();
   });
 
@@ -754,9 +764,9 @@ describe("SourceManager – jdbc-options wiring", () => {
       password: "p",
     });
 
-    expect(
-      sm.getPoolsMap().get("dev")!.config.jdbcOptions?.libraries,
-    ).toEqual(["DEVLIB"]);
+    expect(sm.getPoolsMap().get("dev")!.config.jdbcOptions?.libraries).toEqual([
+      "DEVLIB",
+    ]);
     expect(
       sm.getPoolsMap().get("staging")!.config.jdbcOptions?.libraries,
     ).toEqual(["STGLIB", "STGDATA"]);
@@ -775,9 +785,9 @@ describe("SourceManager – jdbc-options wiring", () => {
     await sm.executeQuery("dev", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
 
     expect(MockPool).toHaveBeenCalledTimes(1);
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toBeDefined();
-    expect(poolArgs.opts.libraries).toEqual(["DEVLIB", "DEVDATA"]);
+    expect(poolArgs.opts?.libraries).toEqual(["DEVLIB", "DEVDATA"]);
   });
 
   it("5.5 – source without jdbc-options does not pass opts to Pool", async () => {
@@ -791,7 +801,7 @@ describe("SourceManager – jdbc-options wiring", () => {
     await sm.executeQuery("plain", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
 
     expect(MockPool).toHaveBeenCalledTimes(1);
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toBeUndefined();
   });
 
@@ -806,7 +816,7 @@ describe("SourceManager – jdbc-options wiring", () => {
 
     await sm.executeQuery("dev", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
 
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toEqual({
       naming: "system",
       "date format": "iso",
@@ -857,10 +867,185 @@ describe("SourceManager – jdbc-options wiring", () => {
 
     await sm.executeQuery("dev", "SELECT 1 FROM SYSIBM.SYSDUMMY1");
 
-    const poolArgs = MockPool.mock.calls[0][0];
+    const poolArgs = MockPool.mock.calls[0]![0];
     expect(poolArgs.opts).toEqual({
       libraries: ["YAMLLIB"],
       naming: "sql",
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 6 – config.db2iJdbcOptions (no service account required)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("config.db2iJdbcOptions – available without service account", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.DB2i_HOST;
+    delete process.env.DB2i_USER;
+    delete process.env.DB2i_PASS;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("6.1 – parses options while config.db2i stays undefined", () => {
+    process.env.DB2i_JDBC_OPTIONS = "naming=system;libraries=A,B";
+
+    expect(config.db2iJdbcOptions).toEqual({
+      naming: "system",
+      libraries: ["A", "B"],
+    });
+    expect(config.db2i).toBeUndefined();
+  });
+
+  it("6.2 – is undefined when env var is unset, empty, or has no options", () => {
+    delete process.env.DB2i_JDBC_OPTIONS;
+    expect(config.db2iJdbcOptions).toBeUndefined();
+
+    process.env.DB2i_JDBC_OPTIONS = "";
+    expect(config.db2iJdbcOptions).toBeUndefined();
+
+    process.env.DB2i_JDBC_OPTIONS = " ; ";
+    expect(config.db2iJdbcOptions).toBeUndefined();
+  });
+
+  it("6.3 – config.db2i does not parse options without a service account", () => {
+    process.env.DB2i_JDBC_OPTIONS = "broken";
+
+    expect(config.db2i).toBeUndefined();
+    expect(() => config.db2iJdbcOptions).toThrow(/malformed pair/i);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Group 7 – AuthenticatedPoolManager per-user pools
+// ═══════════════════════════════════════════════════════════════════════════
+describe("AuthenticatedPoolManager – jdbcOptions wiring", () => {
+  const originalEnv = { ...process.env };
+  const CREDENTIALS = {
+    host: "user-host",
+    user: "signedon",
+    password: "userpass",
+    rejectUnauthorized: false,
+  };
+
+  function setServiceAccount() {
+    process.env.DB2i_HOST = "envhost";
+    process.env.DB2i_USER = "envuser";
+    process.env.DB2i_PASS = "envpass";
+  }
+
+  function clearServiceAccount() {
+    delete process.env.DB2i_HOST;
+    delete process.env.DB2i_USER;
+    delete process.env.DB2i_PASS;
+  }
+
+  function createPool(token: string) {
+    return AuthenticatedPoolManager.getInstance().createPool(
+      token,
+      CREDENTIALS,
+      {},
+      TEST_CONTEXT as never,
+    );
+  }
+
+  function getState(token: string) {
+    const manager = AuthenticatedPoolManager.getInstance() as unknown as {
+      pools: Map<string, { config: PoolConnectionConfig }>;
+      credentialsMap: Map<string, unknown>;
+    };
+    return {
+      poolConfig: manager.pools.get(token)?.config,
+      storedCredentials: manager.credentialsMap.get(token),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetMocks();
+    config.poolTimeouts.queryTimeoutMs = 0;
+    config.poolTimeouts.idleTimeoutMs = 0;
+  });
+
+  afterEach(async () => {
+    await BaseConnectionPool.shutdownAll();
+    restoreConfig();
+    vi.useRealTimers();
+    process.env = { ...originalEnv };
+  });
+
+  it("7.1 – per-user pool receives DB2i_JDBC_OPTIONS", async () => {
+    setServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = "naming=system;libraries=ENVLIB,QGPL";
+
+    await createPool("token-with-creds");
+
+    const expected = { naming: "system", libraries: ["ENVLIB", "QGPL"] };
+    expect(getState("token-with-creds").poolConfig?.jdbcOptions).toEqual(
+      expected,
+    );
+    expect(MockPool).toHaveBeenCalledTimes(1);
+    const poolArgs = MockPool.mock.calls[0]![0];
+    expect(poolArgs.opts).toEqual(expected);
+    // The signed-on user's credentials are used, not the service account's
+    expect(poolArgs.creds.user).toBe(CREDENTIALS.user);
+    expect(poolArgs.creds.host).toBe(CREDENTIALS.host);
+  });
+
+  it("7.2 – per-user pool receives options without DB2i_HOST/USER/PASS", async () => {
+    clearServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = "naming=system;libraries=ENVLIB,QGPL";
+
+    await createPool("token-no-creds");
+
+    const expected = { naming: "system", libraries: ["ENVLIB", "QGPL"] };
+    expect(getState("token-no-creds").poolConfig?.jdbcOptions).toEqual(
+      expected,
+    );
+    expect(MockPool.mock.calls[0]![0].opts).toEqual(expected);
+  });
+
+  it("7.3 – no jdbcOptions on per-user pool when env var is unset", async () => {
+    clearServiceAccount();
+    delete process.env.DB2i_JDBC_OPTIONS;
+
+    await createPool("token-unset");
+
+    const { poolConfig } = getState("token-unset");
+    expect(poolConfig).toBeDefined();
+    expect(poolConfig).not.toHaveProperty("jdbcOptions");
+    expect(MockPool.mock.calls[0]![0].opts).toBeUndefined();
+  });
+
+  it("7.4 – no jdbcOptions on per-user pool when env var has no options", async () => {
+    clearServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = " ; ";
+
+    await createPool("token-empty");
+
+    expect(getState("token-empty").poolConfig).not.toHaveProperty(
+      "jdbcOptions",
+    );
+    expect(MockPool.mock.calls[0]![0].opts).toBeUndefined();
+  });
+
+  it("7.5 – malformed options fail before credentials are stored", async () => {
+    clearServiceAccount();
+    process.env.DB2i_JDBC_OPTIONS = "key ring password s3cret";
+
+    const error = await createPool("token-malformed").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/malformed pair/i);
+    // httpAuthEndpoint returns McpError messages to the client; a plain Error
+    // becomes a generic 500, keeping the raw option text out of the response
+    expect(error).not.toBeInstanceOf(McpError);
+    expect(getState("token-malformed").storedCredentials).toBeUndefined();
+    expect(getState("token-malformed").poolConfig).toBeUndefined();
+    expect(MockPool).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,6 @@ Toolsets are named collections of tools that share a common purpose or domain. T
 - **Selective loading** - Load only the tools you need
 - **Logical organization** - Group related capabilities together
 - **Discoverability** - Help AI agents find relevant tools
-- **Access control** - Manage permissions by toolset
 - **Deployment flexibility** - Deploy different toolsets to different environments
 
 <Note>
@@ -439,6 +438,8 @@ npx -y @ibm/ibmi-mcp-server@latest --tools tools/
 # Load directory with specific toolsets
 npx -y @ibm/ibmi-mcp-server@latest --tools tools/ --toolsets performance_monitoring,security_audit
 ```
+
+A name passed to `--toolsets` (or `SELECTED_TOOLSETS`) that no loaded file defines stops the server at startup: `Unknown toolsets requested: <names>. Available toolsets: <names>`. Run `--list-toolsets` to see the names.
 
 ---
 

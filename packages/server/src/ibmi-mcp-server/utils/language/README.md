@@ -10,7 +10,7 @@ This module is vendored from the official **Code for IBM i** VS Code extension:
 These SQL language utilities provide battle-tested parsing and tokenization for **Db2 for IBM i** SQL syntax. We use them in the IBM i MCP Server for:
 
 ### 1. **SQL Security Validation**
-The MCP server needs to validate SQL queries for security purposes, especially in read-only mode. The vscode-db2i parser handles IBM i-specific SQL syntax that generic parsers don't support.=
+The MCP server needs to validate SQL queries for security purposes, especially in read-only mode. The vscode-db2i parser handles IBM i-specific SQL syntax that generic parsers don't support.
 
 ### 2. **Token-Based Validation**
 The `SQLTokeniser` class provides precise token-level parsing that distinguishes between:

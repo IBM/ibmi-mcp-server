@@ -7,8 +7,8 @@ import {
   renderMessage,
   renderMultiSystemOutput,
   renderMultiSystemNdjson,
-} from "../../src/formatters/output";
-import { ErrorCode } from "../../src/utils/exit-codes";
+} from "../../src/formatters/output.js";
+import { ErrorCode } from "../../src/utils/exit-codes.js";
 
 // Capture stdout/stderr writes
 let stdoutOutput: string;
@@ -17,14 +17,18 @@ let stderrOutput: string;
 beforeEach(() => {
   stdoutOutput = "";
   stderrOutput = "";
-  vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
-    stdoutOutput += String(chunk);
-    return true;
-  });
-  vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
-    stderrOutput += String(chunk);
-    return true;
-  });
+  vi.spyOn(process.stdout, "write").mockImplementation(
+    (chunk: string | Uint8Array) => {
+      stdoutOutput += String(chunk);
+      return true;
+    },
+  );
+  vi.spyOn(process.stderr, "write").mockImplementation(
+    (chunk: string | Uint8Array) => {
+      stderrOutput += String(chunk);
+      return true;
+    },
+  );
 });
 
 afterEach(() => {
@@ -60,7 +64,16 @@ describe("renderOutput — JSON format", () => {
       rowCount: 1,
       system: {
         name: "dev",
-        config: { host: "dev400.example.com", port: 8076, user: "DEVUSER", readOnly: false, confirm: false, timeout: 60, maxRows: 5000, ignoreUnauthorized: false },
+        config: {
+          host: "dev400.example.com",
+          port: 8076,
+          user: "DEVUSER",
+          readOnly: false,
+          confirm: false,
+          timeout: 60,
+          maxRows: 5000,
+          ignoreUnauthorized: false,
+        },
         source: "config-default",
       },
     });
@@ -147,7 +160,16 @@ describe("renderError", () => {
   it("should include system name in JSON error when provided", () => {
     renderError(new Error("fail"), "json", {
       name: "prod",
-      config: { host: "prod400", port: 8076, user: "X", readOnly: true, confirm: true, timeout: 30, maxRows: 1000, ignoreUnauthorized: false },
+      config: {
+        host: "prod400",
+        port: 8076,
+        user: "X",
+        readOnly: true,
+        confirm: true,
+        timeout: 30,
+        maxRows: 1000,
+        ignoreUnauthorized: false,
+      },
       source: "flag",
     });
     const parsed = JSON.parse(stdoutOutput);
@@ -194,23 +216,92 @@ describe("renderOutput — CSV format", () => {
     renderOutput([{ DESC: "hello, world" }], "csv");
     expect(stdoutOutput).toContain('"hello, world"');
   });
+
+  it("should quote CSV fields containing a carriage return", () => {
+    renderOutput([{ DESC: "line1\rline2" }], "csv");
+    expect(stdoutOutput).toContain('"line1\rline2"');
+  });
+
+  it("should write non-primitive values as JSON, not [object Object]", () => {
+    renderOutput(
+      [{ tool: "t", parameters: { schema: "QSYS2" }, tags: ["a", "b"] }],
+      "csv",
+    );
+    const lines = stdoutOutput.trim().split("\n");
+    expect(lines[0]).toBe("tool,parameters,tags");
+    // JSON contains quotes and commas, so the fields are CSV-quoted
+    expect(lines[1]).toBe('t,"{""schema"":""QSYS2""}","[""a"",""b""]"');
+  });
+});
+
+describe("renderOutput — table formats", () => {
+  it("should not truncate long cell values", () => {
+    const long = "X".repeat(80);
+    for (const format of ["table", "markdown"] as const) {
+      stdoutOutput = "";
+      renderOutput([{ NAME: "A", TEXT: long }], format);
+      expect(stdoutOutput).toContain(long);
+      expect(stdoutOutput).not.toContain("...");
+    }
+  });
 });
 
 describe("--stream flag registration", () => {
   it("should register --stream as a global option", async () => {
-    const { createProgram } = await import("../../src/index");
+    const { createProgram } = await import("../../src/program.js");
     const program = createProgram();
     const streamOpt = program.options.find((o) => o.long === "--stream");
     expect(streamOpt).toBeDefined();
   });
 });
 
+describe("--format validation", () => {
+  it("should reject an unknown --format value", async () => {
+    const { createProgram } = await import("../../src/program.js");
+    const program = createProgram();
+    program.exitOverride();
+
+    await expect(
+      program.parseAsync([
+        "node",
+        "ibmi",
+        "--format",
+        "xml",
+        "system",
+        "config-path",
+      ]),
+    ).rejects.toMatchObject({ code: "commander.invalidArgument" });
+    expect(stderrOutput).toContain(
+      "Allowed choices are table, json, csv, markdown",
+    );
+  });
+});
+
 describe("renderMultiSystemOutput — JSON format", () => {
   it("should produce JSON envelope with ok:true, data with SYSTEM column, systems array, and meta", () => {
     const results = [
-      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }], rowCount: 1, elapsedMs: 50 },
-      { system: "prod", host: "prod400.com", data: [{ EMPNO: "200" }], rowCount: 1, elapsedMs: 80 },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }],
+        rowCount: 1,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [{ EMPNO: "200" }],
+        rowCount: 1,
+        elapsedMs: 80,
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemOutput(results, "json");
     const parsed = JSON.parse(stdoutOutput);
@@ -232,9 +323,29 @@ describe("renderMultiSystemOutput — JSON format", () => {
 
   it("should set ok:false when any system has an error", () => {
     const results = [
-      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }], rowCount: 1, elapsedMs: 50 },
-      { system: "prod", host: "prod400.com", data: [], rowCount: 0, elapsedMs: 0, error: "Connection refused" },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }],
+        rowCount: 1,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [],
+        rowCount: 0,
+        elapsedMs: 0,
+        error: "Connection refused",
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemOutput(results, "json");
     const parsed = JSON.parse(stdoutOutput);
@@ -249,9 +360,28 @@ describe("renderMultiSystemOutput — JSON format", () => {
 describe("renderMultiSystemOutput — CSV format", () => {
   it("should include SYSTEM column in CSV output", () => {
     const results = [
-      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }], rowCount: 1, elapsedMs: 50 },
-      { system: "prod", host: "prod400.com", data: [{ EMPNO: "200" }], rowCount: 1, elapsedMs: 80 },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }],
+        rowCount: 1,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [{ EMPNO: "200" }],
+        rowCount: 1,
+        elapsedMs: 80,
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemOutput(results, "csv");
     const lines = stdoutOutput.trim().split("\n");
@@ -260,14 +390,102 @@ describe("renderMultiSystemOutput — CSV format", () => {
     expect(lines[1]).toBe("dev,100");
     expect(lines[2]).toBe("prod,200");
   });
+
+  it("should keep data columns when the first system fails", () => {
+    const results = [
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [],
+        rowCount: 0,
+        elapsedMs: 0,
+        error: "Connection refused",
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [{ EMPNO: "200", NAME: "SMITH" }],
+        rowCount: 1,
+        elapsedMs: 80,
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
+
+    renderMultiSystemOutput(results, "csv");
+    const lines = stdoutOutput.trim().split("\n");
+
+    expect(lines[0]).toBe("SYSTEM,EMPNO,NAME,ERROR");
+    expect(lines[1]).toBe("dev,,,Connection refused");
+    expect(lines[2]).toBe("prod,200,SMITH,");
+  });
+
+  it("should keep the ERROR column when a later system fails", () => {
+    const results = [
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }],
+        rowCount: 1,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [],
+        rowCount: 0,
+        elapsedMs: 0,
+        error: "Connection refused",
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
+
+    renderMultiSystemOutput(results, "csv");
+    const lines = stdoutOutput.trim().split("\n");
+
+    expect(lines[0]).toBe("SYSTEM,EMPNO,ERROR");
+    expect(lines[1]).toBe("dev,100,");
+    expect(lines[2]).toBe("prod,,Connection refused");
+  });
 });
 
 describe("renderMultiSystemOutput — table format with error rows", () => {
   it("error system should produce ERROR column in merged rows", () => {
     const results = [
-      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }], rowCount: 1, elapsedMs: 50 },
-      { system: "prod", host: "prod400.com", data: [], rowCount: 0, elapsedMs: 0, error: "Connection refused" },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }],
+        rowCount: 1,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [],
+        rowCount: 0,
+        elapsedMs: 0,
+        error: "Connection refused",
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemOutput(results, "table");
 
@@ -277,14 +495,66 @@ describe("renderMultiSystemOutput — table format with error rows", () => {
     // Error system shows in the footer as "[prod] ERROR"
     expect(stdoutOutput).toContain("[prod] ERROR");
   });
+
+  it("should keep data columns in the table when the first system fails", () => {
+    const results = [
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [],
+        rowCount: 0,
+        elapsedMs: 0,
+        error: "Connection refused",
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [{ EMPNO: "200" }],
+        rowCount: 1,
+        elapsedMs: 80,
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
+
+    renderMultiSystemOutput(results, "table");
+
+    expect(stdoutOutput).toContain("EMPNO");
+    expect(stdoutOutput).toContain("200");
+    expect(stdoutOutput).toContain("Connection refused");
+  });
 });
 
 describe("renderMultiSystemNdjson", () => {
   it("each row should have _system field", () => {
     const results = [
-      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }], rowCount: 1, elapsedMs: 50 },
-      { system: "prod", host: "prod400.com", data: [{ EMPNO: "200" }], rowCount: 1, elapsedMs: 80 },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }],
+        rowCount: 1,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [{ EMPNO: "200" }],
+        rowCount: 1,
+        elapsedMs: 80,
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemNdjson(results);
     const lines = stdoutOutput.trim().split("\n");
@@ -296,21 +566,57 @@ describe("renderMultiSystemNdjson", () => {
 
   it("error rows should have _system and _error fields", () => {
     const results = [
-      { system: "prod", host: "prod400.com", data: [], rowCount: 0, elapsedMs: 0, error: "Connection refused" },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [],
+        rowCount: 0,
+        elapsedMs: 0,
+        error: "Connection refused",
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemNdjson(results);
     const lines = stdoutOutput.trim().split("\n");
 
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toEqual({ _system: "prod", _error: "Connection refused" });
+    expect(JSON.parse(lines[0]!)).toEqual({
+      _system: "prod",
+      _error: "Connection refused",
+    });
   });
 
   it("should produce one JSON object per line", () => {
     const results = [
-      { system: "dev", host: "dev400.com", data: [{ EMPNO: "100" }, { EMPNO: "101" }], rowCount: 2, elapsedMs: 50 },
-      { system: "prod", host: "prod400.com", data: [{ EMPNO: "200" }], rowCount: 1, elapsedMs: 80 },
-    ] as { system: string; host: string; data: Record<string, unknown>[]; rowCount: number; elapsedMs: number; error?: string }[];
+      {
+        system: "dev",
+        host: "dev400.com",
+        data: [{ EMPNO: "100" }, { EMPNO: "101" }],
+        rowCount: 2,
+        elapsedMs: 50,
+      },
+      {
+        system: "prod",
+        host: "prod400.com",
+        data: [{ EMPNO: "200" }],
+        rowCount: 1,
+        elapsedMs: 80,
+      },
+    ] as {
+      system: string;
+      host: string;
+      data: Record<string, unknown>[];
+      rowCount: number;
+      elapsedMs: number;
+      error?: string;
+    }[];
 
     renderMultiSystemNdjson(results);
     const lines = stdoutOutput.trim().split("\n");

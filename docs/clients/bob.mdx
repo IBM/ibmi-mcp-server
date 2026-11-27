@@ -88,9 +88,32 @@ Create or edit your MCP configuration file:
 
 Connect to a remote IBM i MCP Server:
 
-### Step 1: Start Remote Server
+### With OAuth (Recommended)
 
-On your server machine, configure and start the MCP server with authentication:
+For a server running with `MCP_AUTH_MODE=oauth` (see [OAuth Authentication](/server-config/oauth)), configure the URL without an `Authorization` header:
+
+```json
+{
+  "mcpServers": {
+    "ibmi-mcp": {
+      "url": "https://mcp.example.com/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+If your version of Bob supports OAuth for remote MCP servers, it opens a browser sign-in on first use. If it does not, add an `Authorization: Bearer <token>` header with an access token from your identity provider. See [OAuth Remote Setup](/clients/overview#oauth-remote-setup).
+
+### With IBM i Tokens (Deprecated)
+
+<Warning>
+IBM i HTTP token authentication is deprecated and will be removed in a future major release. See [IBM i Authentication](/server-config/ibmi-auth).
+</Warning>
+
+#### Step 1: Start Remote Server
+
+On your server machine, configure and start the MCP server with IBM i authentication (the RSA key variables are also required; see [IBM i Authentication](/server-config/ibmi-auth)):
 
 ```bash
 # Configure .env file
@@ -102,7 +125,7 @@ IBMI_HTTP_AUTH_ENABLED=true
 npm run start:http
 ```
 
-### Step 2: Obtain Access Token
+#### Step 2: Obtain Access Token
 
 ```bash
 # Generate access token
@@ -111,7 +134,7 @@ node get-access-token.js --verbose
 # Copy the token from output
 ```
 
-### Step 3: Configure Bob
+#### Step 3: Configure Bob
 
 Edit your MCP configuration file:
 
@@ -186,10 +209,10 @@ After configuration, restart Bob and verify the MCP server connection:
     **Symptoms**: Connection refused or 401 Unauthorized for remote connections
 
     **Solutions**:
-    - Verify server is running: `curl http://localhost:3010/mcp`
+    - Verify server is running: `curl http://localhost:3010/healthz`
     - Check token is valid: verify token hasn't expired (default: 1 hour)
-    - Ensure `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true` on server
-    - Get a fresh token: `node get-access-token.js --verbose`
+    - OAuth: sign in again, or replace an expired bearer token
+    - IBM i tokens (deprecated): ensure `MCP_AUTH_MODE=ibmi` and `IBMI_HTTP_AUTH_ENABLED=true` on server, then get a fresh token: `node get-access-token.js --verbose`
     - Confirm Authorization header format: `Bearer TOKEN`
   </Accordion>
 
@@ -296,8 +319,8 @@ Load specific toolsets for different workflows:
   <Card title="Configuration" icon="gear" href="/configuration">
     Explore all IBM i MCP Server configuration options
   </Card>
-  <Card title="Authentication" icon="lock" href="/server-config/ibmi-auth">
-    Set up secure IBM i HTTP authentication
+  <Card title="Authentication" icon="lock" href="/server-config/oauth">
+    Set up OAuth for remote servers
   </Card>
   <Card title="Other Clients" icon="grid" href="/clients/overview">
     Explore other MCP-compatible clients

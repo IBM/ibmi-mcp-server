@@ -7,9 +7,9 @@
  */
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
-import { requestContextService, sanitizeInputForLogging } from "../index.js";
+import { sanitizeInputForLogging } from "../security/sanitization.js";
 import { logOperationError } from "./logging-helpers.js";
-import { RequestContext } from "./requestContext.js";
+import { RequestContext, requestContextService } from "./requestContext.js";
 
 /**
  * Defines a generic structure for providing context with errors.
@@ -49,8 +49,9 @@ export interface ErrorHandlerOptions {
   rethrow?: boolean;
 
   /**
-   * A specific `JsonRpcErrorCode` to assign to the error, overriding any
-   * automatically determined error code.
+   * The `JsonRpcErrorCode` to assign to an unclassified error, instead of the
+   * automatically determined one. An error that is already an `McpError`
+   * keeps its own code.
    */
   errorCode?: JsonRpcErrorCode;
 
@@ -246,13 +247,13 @@ export class ErrorHandler {
       return options.errorMapper(error);
     }
 
-    const determinedCode = options.errorCode || this.determineErrorCode(error);
-    const originalMessage = getErrorMessage(error);
-
+    // An McpError is already classified and keeps its code.
     if (error instanceof McpError) {
-      error.code = determinedCode; // Allow override
       return error;
     }
+
+    const determinedCode = options.errorCode || this.determineErrorCode(error);
+    const originalMessage = getErrorMessage(error);
 
     return new McpError(
       determinedCode,
@@ -287,27 +288,6 @@ export class ErrorHandler {
 
     // The Pino error serializer will handle the stack trace automatically.
     return payload;
-  }
-
-  /**
-   * Formats an error into a consistent object structure for API responses.
-   * @param error - The error instance or value to format.
-   * @returns A structured representation of the error.
-   */
-  public static formatError(error: unknown): Record<string, unknown> {
-    if (error instanceof McpError) {
-      return {
-        code: error.code,
-        message: error.message,
-        details: error.details ?? {},
-      };
-    }
-
-    return {
-      code: this.determineErrorCode(error),
-      message: getErrorMessage(error),
-      details: { errorType: getErrorName(error) },
-    };
   }
 
   /**

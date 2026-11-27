@@ -8,12 +8,12 @@
  */
 
 import { z } from "zod";
-import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { ContentBlock } from "@modelcontextprotocol/server";
 import { JsonRpcErrorCode, McpError } from "../../types-global/errors.js";
 import type { RequestContext } from "../../utils/index.js";
 import { logger } from "../../utils/internal/logger.js";
 import type { BindingValue } from "@ibm/mapepire-js";
-import { IBMiConnectionPool } from "../services/connectionPool.js";
+import { executeQuery } from "../services/queryRouter.js";
 import { defineTool } from "../../mcp-server/tools/utils/tool-factory.js";
 import type { SdkContext } from "../../mcp-server/tools/utils/types.js";
 
@@ -51,7 +51,7 @@ const ListSchemasInputSchema = z.object({
 const ListSchemasOutputSchema = z.object({
   success: z.boolean().describe("Whether the query executed successfully."),
   data: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe(
       "Array of schema records. Each record contains: SCHEMA_NAME, SCHEMA_TEXT, SYSTEM_SCHEMA_NAME, SCHEMA_SIZE.",
@@ -71,7 +71,10 @@ const ListSchemasOutputSchema = z.object({
     .object({
       code: z.string().describe("Error code"),
       message: z.string().describe("Error message"),
-      details: z.record(z.unknown()).optional().describe("Error details"),
+      details: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Error details"),
     })
     .optional()
     .describe("Error information if the query failed."),
@@ -130,11 +133,11 @@ export async function listSchemasLogic(
   bindParams.push(params.offset, fetchLimit);
 
   try {
-    const result = await IBMiConnectionPool.executeQuery(
-      sql,
-      bindParams,
-      appContext,
-    );
+    // Pass fetchLimit as rowsToFetch: without it mapepire returns at most
+    // 100 rows per fetch, which silently truncates pages when limit >= 100.
+    const result = await executeQuery(sql, bindParams, appContext, {
+      rowsToFetch: fetchLimit,
+    });
 
     const executionTime = Date.now() - startTime;
 

@@ -30,6 +30,43 @@ npx -y @ibm/ibmi-mcp-server@latest --list-toolsets --tools tools
 
 ---
 
+## Build Tools with an AI Assistant
+
+The **IBM i MCP tool builder** is an [Agent Skill](https://github.com/IBM/ibmi-mcp-server/tree/main/skills/ibmi-mcp-tool-builder) for AI coding assistants such as Claude Code and IBM Bob. You describe the tool you want, and the assistant follows the skill's steps:
+
+1. Find the right Db2 for i SQL service and check every table and column name on your system.
+2. Test the SQL live, with read-only statements only.
+3. Write the YAML tool file.
+4. Validate it with the bundled validator.
+5. Give you the command that starts the server with the new tools.
+
+### Install the skill
+
+```bash
+npx skills add IBM/ibmi-mcp-server --skill ibmi-mcp-tool-builder
+```
+
+The command asks which coding assistant to install the skill for. To install it by hand, copy the [`skills/ibmi-mcp-tool-builder`](https://github.com/IBM/ibmi-mcp-server/tree/main/skills/ibmi-mcp-tool-builder) folder into the skills folder of your assistant:
+
+| Assistant | Skills folder |
+|-----------|---------------|
+| Claude Code | `~/.claude/skills/` for all projects, or `.claude/skills/` in one project |
+| IBM Bob | `.bob/skills/` in the project |
+
+### Use the skill
+
+Ask your assistant for a tool in plain words, for example: *"Build a tool that lists the active jobs of a user, highest CPU first."* The assistant loads the skill when the request is about IBM i MCP SQL tools.
+
+- **Testing the SQL** works best in IBM Bob's IBM i Developer mode (Premium Package for i). Without it, the skill uses the [`ibmi` CLI](/cli/overview) or an IBM i MCP Server started with `--builtin-tools --execute-sql`.
+- **The validator** needs Node.js 20 or later. On first use the assistant installs its two packages (`ajv`, `js-yaml`) in the skill's `scripts/` folder.
+- The skill writes new files to `tools-tmp/` unless you name another place.
+
+<Note>
+The validator checks the same schema the server uses, plus parameter bindings, tool and toolset references, write statements without `readOnly: false`, and that each source has a password or an [SSH key](/sql-tools/sources#ssh-fields). Run it yourself on any tools file: `node <skill folder>/scripts/validate-tools.mjs tools/`.
+</Note>
+
+---
+
 ## YAML File Format
 
 SQL tools are defined in YAML files with three main sections:
@@ -130,8 +167,8 @@ tools:
       - name: limit
         type: integer
         default: 10
-        minimum: 1
-        maximum: 100
+        min: 1
+        max: 100
     statement: |
       SELECT CPU_TIME, JOB_NAME FROM
       TABLE(QSYS2.ACTIVE_JOB_INFO()) A
@@ -195,10 +232,6 @@ Mark sensitive tools for enhanced protection:
 ```yaml
 security:
   readOnly: true
-  audit: true
-  requiredAuthority: "*AUDIT"
-  scopes: ["security:read"]
-  warning: "Accesses sensitive data"
 ```
 
 ---
@@ -258,8 +291,8 @@ tools:
       - name: limit
         type: integer
         default: 10
-        minimum: 1
-        maximum: 100
+        min: 1
+        max: 100
     statement: |
       SELECT CPU_TIME, JOB_NAME, USER_NAME
       FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) A

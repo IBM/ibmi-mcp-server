@@ -16,7 +16,7 @@ This guide provides practical examples for using parameters in SQL tools. Parame
 | Type | Constraints | Use Cases |
 |------|-------------|-----------|
 | `string` | `minLength`, `maxLength`, `pattern`, `enum` | Library names, object names, search patterns |
-| `integer` | `minimum`, `maximum`, `enum` | Row limits, IDs, counts, numeric filters |
+| `integer` | `min`, `max`, `enum` | Row limits, IDs, counts, numeric filters |
 | `float` | `min`, `max`, `enum` | Percentages, thresholds, measurements |
 | `boolean` | None | Flags, enable/disable options |
 | `array` | `minLength`, `maxLength`, `itemType` | Multiple filters, batch operations, IN clauses |
@@ -197,8 +197,8 @@ parameters:
     type: integer
     description: "Maximum number of rows to return (1-100)"
     default: 10
-    minimum: 1
-    maximum: 100
+    min: 1
+    max: 100
 ```
 
 **SQL usage:**
@@ -225,14 +225,14 @@ parameters:
     type: integer
     description: "Number of results per page (1-100)"
     default: 25
-    minimum: 1
-    maximum: 100
+    min: 1
+    max: 100
 
   - name: page_number
     type: integer
     description: "Page number to retrieve (starts at 1)"
     default: 1
-    minimum: 1
+    min: 1
 ```
 
 **SQL usage:**
@@ -616,8 +616,8 @@ Match constraints to your data requirements:
 # Row limit
 - name: limit
   type: integer
-  minimum: 1
-  maximum: 1000
+  min: 1
+  max: 1000
   default: 50
 
 # Search term (at least 2 characters to avoid broad searches)
@@ -635,8 +635,8 @@ For optional parameters, include defaults:
 - name: page_size
   type: integer
   default: 25
-  minimum: 1
-  maximum: 100
+  min: 1
+  max: 100
 
 - name: include_inactive
   type: boolean
@@ -675,6 +675,8 @@ WHERE (:min_salary IS NULL OR salary >= :min_salary)
 -- Optional boolean flag with special value
 WHERE (:department_id = '*ALL' OR department = :department_id)
 ```
+
+An omitted optional parameter binds SQL `NULL` only when it has no `default`; with a default it binds the default, so test for that value instead (as `'*ALL'` above). Array parameters cannot be tested with `IS NULL` and must contain at least one value.
 
 ---
 
@@ -731,14 +733,14 @@ tools:
         type: integer
         description: "Number of results per page (1-100)"
         default: 25
-        minimum: 1
-        maximum: 100
+        min: 1
+        max: 100
 
       - name: page_number
         type: integer
         description: "Page number to retrieve (starts at 1)"
         default: 1
-        minimum: 1
+        min: 1
 
     statement: |
       SELECT empno, firstnme, lastname, job, workdept
@@ -797,8 +799,8 @@ tools:
         type: integer
         description: "Maximum number of jobs to return (1-500)"
         default: 50
-        minimum: 1
-        maximum: 500
+        min: 1
+        max: 500
 
       - name: job_type
         type: string

@@ -1,0 +1,67 @@
+---
+title: "Security"
+description: "How people are authenticated to the IBM i through the MCP server."
+---
+
+With IBM i sign-on, the IBM i stays in charge of who someone is and what they may do. The MCP server never keeps its own list of users or passwords. It passes the sign-on to the IBM i, then carries each person's identity through to every SQL statement.
+
+## How authentication works
+
+Authentication happens at three points:
+
+| Between | How | What it proves |
+|---------|-----|----------------|
+| The person and the MCP server | Sign-in page over HTTPS, with their IBM i profile and password | The IBM i accepted their password |
+| The AI assistant and the MCP server | Tokens issued after the sign-in | This request comes from that person's signed-in assistant |
+| The MCP server and the IBM i | A Mapepire connection signed on as the person's profile | SQL runs with that profile's authority |
+
+**The IBM i checks the password.** The MCP server makes the sign-on attempt to the IBM i on the person's behalf. If the IBM i refuses it, so does the server.
+
+**The assistant holds tokens, not the password.** A short-lived access token goes with every request, and a refresh token gets new ones without asking the person again. Both are only usable against this server.
+
+**Every statement runs as the person.** Each signed-in person has their own IBM i connection under their own profile. Object authority, job logs and auditing work exactly as they do for any other sign-on.
+
+## Passwords
+
+The MCP server keeps a person's password only while they're signed in, encrypted, in memory, so it can reconnect to the IBM i after an idle period without asking them again. It's never written to disk, and it's erased when the sign-in ends or the server restarts.
+
+## Sessions
+
+| | Lasts | Then |
+|---|---|---|
+| Access token | 15 minutes | The assistant refreshes it in the background |
+| IBM i connection | Until 10 minutes idle | Reopened on the next tool call |
+| Sign-in | 12 hours | The person signs in again |
+
+Restarting the server signs everyone out.
+
+## Who can sign in
+
+- **Any profile not starting with `Q`**, unless you list the allowed profiles in `OAUTH_ALLOWED_PROFILES`.
+- **Not profiles with `*ALLOBJ` or `*SECADM`**, unless you allow them with `OAUTH_ALLOW_PRIVILEGED_PROFILES`.
+- **Only from the networks you allow** in `OAUTH_SIGNON_ALLOWED_CIDRS` (private networks by default).
+- **Not after two wrong passwords in a row.** The server stops trying that profile before the IBM i's own `QMAXSIGN` limit is reached, until you unblock it.
+
+## What the IBM i sees
+
+Each person's work runs in a database server job under their own profile. The job's client application name is `ibmi-mcp/<grantId>`, and the same id appears in the MCP server's log, so you can match an IBM i job to a sign-in.
+
+## Hardening checklist
+
+The MCP server and Mapepire both handle passwords during sign-on, so protect them as you would any system that signs people on:
+
+- **Serve the sign-in page over HTTPS only.** The server refuses to start otherwise, unless it listens on `127.0.0.1`.
+- **Verify Mapepire's certificate** with `DB2i_SERVER_CERT_FILE` or `DB2i_CA_FILE`. Use `DB2i_IGNORE_UNAUTHORIZED=true` on test systems only.
+- **Run Mapepire under its own profile**, keep its keystore private, and limit who can dump its job.
+- **Run the MCP server under its own OS user**, with core dumps turned off, as a single instance.
+- **Behind a proxy**, list it in `MCP_TRUSTED_PROXIES` and have it set `X-Forwarded-For`.
+
+## Signing someone out
+
+From the server's folder, with `OAUTH_ADMIN_SOCKET` set:
+
+```bash
+npx -y @ibm/ibmi-mcp-server@latest --admin "revoke ANA"
+```
+
+Their tokens stop working and their IBM i job ends at once. To keep them out, also disable the profile on the IBM i.

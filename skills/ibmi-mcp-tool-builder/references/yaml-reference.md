@@ -1,0 +1,167 @@
+# YAML Tool Reference (cheat sheet)
+
+The authoritative definition is `../assets/sql-tools-config.json` (the schema). Full field docs and
+working examples are in the server repo:
+[tools/README.md](https://github.com/IBM/ibmi-mcp-server/blob/main/tools/README.md) and
+[tools/](https://github.com/IBM/ibmi-mcp-server/tree/main/tools).
+This sheet covers what you need most often, plus behaviors confirmed in the server source.
+
+## File layout
+
+A file contains at least one of `sources`, `tools`, `toolsets`. Files passed together to `--tools`
+(or a directory) are merged, so a tool may reference a source defined in another file.
+
+```yaml
+sources:        # connection(s); ${VAR} in string values is replaced from the environment after parsing
+tools:          # tool_name -> definition
+toolsets:       # toolset_name -> { title, description, tools: [tool_name, ...] }
+```
+
+## `sources.<name>`
+
+| Field | Req | Notes |
+|-------|-----|-------|
+| `host`, `user` | yes | Usually `${DB2i_HOST}`, `${DB2i_USER}`. Never literal credentials |
+| `password` | one credential | `${DB2i_PASS}`. Connects through the Mapepire daemon |
+| `ssh-key` | one credential | Path to a private key (`~/` is expanded). Connects over SSH instead, with key authentication only; `password` is not used |
+| `ssh-host-key-sha256` | | Host key fingerprint of this host (`SHA256:<base64>` from `ssh-keygen -lf`). Recommended with `ssh-key` |
+| `port` | | Mapepire port, default 8076. Not used over SSH |
+| `ignore-unauthorized` | | `true` for self-signed certificates. Not used over SSH |
+| `jdbc-options` | | e.g. `libraries: [MYLIB, QGPL]`, `naming: system` |
+
+A source needs a credential: `password`, or an SSH key. `DB2i_SSH_KEY` in the environment gives every
+source without `ssh-key` that key, so an existing file with `password: ${DB2i_PASS}` connects over SSH
+with no change (and `DB2i_PASS` then need not be set). With no key anywhere, sources use the Mapepire
+daemon. Each source connects to its own `host` as its own `user`, so one file can mix systems:
+
+```yaml
+sources:
+  dev:                          # SSH, no Mapepire daemon needed
+    host: dev.example.com
+    user: ${DEV_USER}
+    ssh-key: ~/.ssh/id_ed25519
+    ssh-host-key-sha256: SHA256:AbC...
+  prod:                         # Mapepire daemon
+    host: ${DB2i_HOST}
+    user: ${DB2i_USER}
+    password: ${DB2i_PASS}
+```
+
+The schema cannot check the credential rule (it depends on `DB2i_SSH_KEY`); the bundled validator does,
+and so does the server when it loads the file.
+
+## `tools.<name>`
+
+| Field | Req | Notes |
+|-------|-----|-------|
+| `source` | yes | A key under `sources` |
+| `description` | yes | LLM-facing: what it returns, when to use it |
+| `statement` | yes | SQL with `:param` placeholders. Must not be blank |
+| `parameters` | | See below |
+| `security.readOnly` | | Default `true`. Non-`SELECT/WITH/VALUES` (including `CALL`) needs `false` |
+| `security.maxQueryLength`, `security.forbiddenKeywords` | | Extra guardrails |
+| `annotations` | | `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`, `domain`, `category` |
+| `responseFormat` | | `json` (default) or `markdown` |
+| `tableFormat` | | `markdown` (default), `ascii`, `grid`, `compact` |
+| `maxDisplayRows` | | Display truncation only (1–1000, default 100) |
+| `rowsToFetch` | | Rows fetched from Db2 per call. **Default 100**, so set it if the tool can return more |
+| `fetchAllRows` | | Page through everything (capped by `IBMI_PAGINATION_MAX_ROWS`). Small catalogs only |
+| `enabled` | | `false` keeps the tool defined but unregistered |
+
+Unknown keys are schema errors (`additionalProperties: false`), in the validator and in the server.
+A `${VAR}` that is not set stops the server from loading the file. A tool must not have the name of an
+enabled built-in tool (`describe_sql_object`, `execute_sql`, `list_schemas`, `list_tables_in_schema`,
+`get_table_columns`, `get_related_objects`, `validate_query`).
+
+## `parameters[]`
+
+| Field | Applies to | Notes |
+|-------|-----------|-------|
+| `name` | all | snake_case; must match `:name` in the statement |
+| `type` | all | `string`, `integer`, `float`, `boolean`, `array` |
+| `description` | all | Include an example value and the expected format |
+| `required` | all | Required by default unless `default` is set or `required: false` |
+| `default` | all | Used when the caller omits the parameter |
+| `enum` | string/number | Allowed values; shown to the LLM |
+| `pattern` | string | Regex, e.g. `^[A-Z0-9$#@_]{1,10}$` for an object name |
+| `min`, `max` | integer/float | Inclusive bounds |
+| `minLength`, `maxLength` | string/array | Length or item-count bounds |
+| `itemType` | array | Required for arrays: `string`, `integer`, `float`, `boolean` |
+
+### Binding behavior (verified against the server)
+
+- The server masks string literals, delimited identifiers (`"..."`) and comments, then finds placeholders
+  with `/:(\w+)/g` in the remaining SQL code. A `:` followed by a digit inside a literal (e.g. `'12:30'`,
+  `'::1'`) is fine. A `:` followed by a digit in SQL code is rejected when the tool has parameters, as is an
+  unterminated quote.
+- A tool with **no** `parameters` sends its SQL unchanged. Any `:name` left in it is a SQL error.
+- An omitted optional parameter with no default binds as SQL `NULL`, so `(:x IS NULL OR col = :x)` works.
+  A parameter with a default is never `NULL`.
+- An empty array, a `:name` without a value, and a statement that mixes `?` with `:name` are errors.
+- An array parameter expands to `?, ?, ?` **without** parentheses, so write `IN (:ids)`.
+  Callers pass a JSON array (`["A","B"]`), not a string.
+
+## SQL patterns for Db2 for i
+
+**Optional filter with a sentinel default**
+
+```yaml
+statement: |
+  SELECT OBJNAME, OBJTYPE, OBJSIZE
+    FROM TABLE(QSYS2.OBJECT_STATISTICS(:library, '*ALL')) X
+   WHERE (:object_type = '*ALL' OR OBJTYPE = :object_type)
+   FETCH FIRST 50 ROWS ONLY
+parameters:
+  - { name: library, type: string, required: true, description: "Library name (e.g. 'QGPL')" }
+  - { name: object_type, type: string, default: "*ALL", description: "Object type (e.g. '*PGM') or '*ALL'" }
+```
+
+**Push filters into table-function arguments** (named `=>` arguments are evaluated by the service,
+which is much cheaper than `WHERE` on the full result):
+
+```sql
+SELECT JOB_NAME, CPU_TIME
+  FROM TABLE(QSYS2.ACTIVE_JOB_INFO(SUBSYSTEM_LIST_FILTER => :subsystem)) X
+```
+
+**Case-insensitive search**
+
+```sql
+WHERE UPPER(SERVICE_NAME) LIKE '%' CONCAT UPPER(:search_term) CONCAT '%'
+```
+
+**Untyped parameter markers.** If Db2 reports SQL0418 (a parameter marker is not valid here, typically
+when both sides of an operator are markers or the marker is in a select list), give it a type:
+`CAST(:name AS VARCHAR(128))`, `CAST(:days AS INTEGER)`.
+
+**Relative timestamps**
+
+```sql
+WHERE LAST_USED_TIMESTAMP < CURRENT TIMESTAMP - :days_unused DAYS
+```
+
+**Row limits**: `FETCH FIRST :max_rows ROWS ONLY` binds fine. Pair it with `max` on the parameter and with
+`rowsToFetch` if the max exceeds 100.
+
+## Naming and descriptions
+
+- Tools: `verb_noun` snake_case (`list_`, `get_`, `find_`, `count_`, `check_`, `analyze_`), unique across all loaded files.
+- Toolsets: group by task (`job_monitoring`, `security_audit`), not by SQL service.
+- Description: lead with what it returns, then when to use it, then notable limits
+  ("Returns at most 50 rows", "Requires *ALLOBJ to see other users' jobs", "IBM i 7.4 TR5+").
+
+## Write tools
+
+Only when the user asks for one. Required settings:
+
+```yaml
+security:
+  readOnly: false
+annotations:
+  readOnlyHint: false
+  destructiveHint: true      # for DELETE/DROP/UPDATE-style effects
+  idempotentHint: false
+```
+
+Constrain inputs tightly (`enum`, `pattern`, `max`) and say in the description exactly what changes.
+Never test a write statement on the system without the user's explicit approval (see SKILL.md §3).

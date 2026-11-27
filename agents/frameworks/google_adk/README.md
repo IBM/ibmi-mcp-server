@@ -75,7 +75,7 @@ npm run build
 
 **2.2 Start the MCP server:**
 ```bash
-npx ibmi-mcp-server --transport http --tools ./tools
+npm run start:http --tools ./tools
 ```
 
 The server will start on `http://127.0.0.1:3010/mcp` by default.
